@@ -13,7 +13,36 @@ applyTo: 'docs/designs/**/*.md'
 - design markdown は現環境の正本として扱う
 - サービスごとにファイルを分ける
 - 1つのファイルに複数サービスの詳細パラメータを混在させない
+- 1リソース = 1見出し + 1 table を基本とする
 - 値だけでなく、前提、制約、依存関係、テスト観点も残す
+
+## 推奨フォーマット
+
+各リソースは、原則として以下の形式で記述する。
+
+```md
+## EC2: WEB01
+
+| Property Name | Value     | Comment            |
+| ------------- | --------- | ------------------ |
+| instanceType  | t3.medium | インスタンスタイプ |
+| subnet        | private-a | 配置先             |
+| securityGroup | web-sg    | 適用SG             |
+```
+
+### フォーマットルール
+
+- 見出しでリソース境界を明確にする
+- table の列は原則 `Property Name | Value | Comment`
+- `Property Name` は同じサービス内で一貫した命名を使う
+- `Comment` は人間向け説明として使う
+- セル結合、曖昧な略記、複数値の詰め込みは避ける
+
+## \_llm 補助ファイルとの関係
+
+- 対応する補助ファイルは `docs/designs/_llm/<service>.properties`
+- design markdown の値を変更する場合は、対応する `_llm` 補助ファイルも同一変更で同期更新する
+- markdown と `_llm` が不一致の場合は、まず markdown を正本として確認し、`_llm` を同期する
 
 ## 期待する構成
 
@@ -21,7 +50,7 @@ applyTo: 'docs/designs/**/*.md'
 
 - 目的
 - 管理対象リソース
-- 現在の設定値
+- リソースごとの設定 table
 - 前提・制約
 - 他サービスとの依存関係
 - CloudFormation 実装方針
@@ -34,6 +63,7 @@ applyTo: 'docs/designs/**/*.md'
 - 設計書に未記載の新規パラメータを実装へ先出ししない
 - 依存する別サービスに影響がある場合は、関連する design markdown も確認・更新する
 - 曖昧な表現を避け、後から見て再現可能な粒度で記載する
+- Copilot が変更する場合は、対応する `_llm` 補助ファイルも更新する
 
 ## 依存関係の扱い
 
@@ -53,6 +83,7 @@ applyTo: 'docs/designs/**/*.md'
 ## 禁止事項
 
 - 実装だけ更新して design markdown を放置すること
+- `_llm` だけ更新して design markdown を放置すること
 - 他サービス依存を無視して単独サービスだけ更新すること
 - 現環境の値を推測で補完すること
 - 読み手が理解できない略記だけで済ませること
