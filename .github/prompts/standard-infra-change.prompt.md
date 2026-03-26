@@ -8,12 +8,14 @@
 - 依頼内容から、関連する `docs/designs/*.md` を特定する
 - 変更対象サービスだけでなく、依存する関連サービスの設計書も読む
 - `docs/designs/naming-rules.md` が存在する場合は必ず読む
+- `.github/instructions/cloudformation.instructions.md` を必ず読む
 - `docs/designs/_llm/*.properties` が存在する場合は、関連する補助ファイルを必ず読む
 - `docs/designs/_llm/naming-rules.properties` が存在する場合は必ず読む
 - 読んだ design markdown を最初に列挙する
 - 読んだ `_llm` 補助ファイルを列挙する
 - 現環境の設定値、前提、制約、依存関係を整理する
 - 命名規則が関係する場合は、実リソース名へ適用するのか、`Name` tag へ適用するのかも整理する
+- CloudFormation 実装や template 構成が関係する場合は、template 境界、deploy責務、deploy 順序も整理する
 
 ## 2. 変更対象を整理する
 
@@ -29,6 +31,8 @@
   - 実リソース名に適用するもの
   - `Name` tag に適用するもの
 - 既存リソースとの命名差分があれば、その有無と扱い方針
+- 必要に応じて template 境界の理由
+- 必要に応じて export / import の考え方
 
 ## 3. 設計書を先に更新する
 
@@ -36,6 +40,7 @@
 - 新規パラメータ、変更パラメータ、依存関係、制約、テスト観点を反映する
 - 設計書にない値を実装へ先出ししない
 - 命名規則が関係する場合は、必要に応じて具体名または naming pattern を設計書へ反映する
+- CloudFormation 実装や template 構成が関係する場合は、必要に応じて template 一覧、各 template の deploy責務、deploy 順序、export / import を設計書へ反映する
 - 命名規則を変更する場合は、`docs/designs/naming-rules.md` を先に更新する
 
 ## 4. `_llm` 補助ファイルを同期更新する
@@ -55,6 +60,10 @@
 - 実リソース名を持たない AWS リソースは `Name` tag に命名規則を適用する
 - 既存リソースの命名が規則と異なる場合でも、影響評価なしに一括リネームしない
 - 命名規則をそのまま適用できない AWS サービス固有制約がある場合は、その理由を設計書と結果記録に残す
+- nested stack は使わない
+- stack 間連携は cross-stack reference を前提とする
+- `1 template = 1 deploy責務` を原則とする
+- template 境界の理由を説明できる構成にする
 
 ## 6. AWS CLI 実行方針を整理する
 
@@ -62,6 +71,7 @@
 - 実行に必要な前提条件、対象スタック、主要パラメータを明示する
 - 再実行可能なコマンドや手順になるようにする
 - 命名規則が関係する場合は、スタック名や関連する実リソース名の扱いも確認する
+- CloudFormation 実装や template 構成が関係する場合は、deploy 順序と export / import 依存も確認する
 
 ## 7. シナリオテストを追加または更新する
 
@@ -79,6 +89,7 @@
 - 読んだ design markdown
 - 読んだ `_llm` 補助ファイル
 - 必要に応じて読んだ naming rules 関連ファイル
+- 読んだ CloudFormation 実装ルールと template 構成ルール
 - 現環境の理解
 - 更新した design markdown
 - 更新した `_llm` 補助ファイル
@@ -86,6 +97,7 @@
 - AWS CLI 実行方針
 - 追加または更新したシナリオテスト
 - 命名規則への適合状況
+- 必要に応じて template 境界の整理結果
 - 想定リスク
 - 未解決事項
 - 次の1手
@@ -94,6 +106,7 @@
 
 - 実施内容と結果は `docs/test-results/results.md` に記録する
 - 命名規則を追加または変更した場合は、正規化内容、既存命名との差分、rename を見送る理由、今後の移行方針も必要に応じて記録する
+- CloudFormation 実装ルールまたは template 構成ルールを変更した場合は、template 境界の理由、deploy責務、export / import 方針も必要に応じて記録する
 
 ## 出力ルール
 
@@ -102,6 +115,7 @@
 - 設計、実装、実行、テストを混ぜずに順序立てて出す
 - `_llm` 補助ファイルの同期更新を省略しない
 - 命名規則が関係する場合は、その適用先が実名か `Name` tag かを曖昧にしない
+- CloudFormation 実装や template 構成が関係する場合は、template 境界の理由を曖昧にしない
 - 既存ルールに反する近道を提案しない
 
 ## 禁止事項
@@ -110,10 +124,12 @@
 - 関連する `docs/designs/_llm/*.properties` が存在するのに読まずに変更すること
 - `docs/designs/naming-rules.md` を読まずに新規リソース名を決めること
 - `docs/designs/_llm/naming-rules.properties` が存在するのに読まずに命名を決めること
+- `.github/instructions/cloudformation.instructions.md` を読まずに新規 stack 境界を決めること
 - 設計書にない設定値を推測で採用すること
 - 設計書を更新する前に CloudFormation 変更を完了扱いにすること
 - `_llm` だけ更新して design markdown を放置すること
 - 命名規則との差分がある既存リソースを、影響評価なしに一括リネームすること
+- nested stack を前提に構成を決めること
 - 手動変更を主経路にすること
 - 設定値確認だけでテスト完了とすること
 - `docs/test-results/results.md` への記録を省略すること
