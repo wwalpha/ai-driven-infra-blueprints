@@ -65,15 +65,46 @@
 - `1 template = 1 deploy責務` を原則とする
 - template 境界の理由を説明できる構成にする
 
-## 6. AWS CLI 実行方針を整理する
+## 6. validate とレビュー待ち停止
+
+- CloudFormation 作成後は、必ず `aws cloudformation validate-template` を実行する
+- validate が失敗した場合は、その時点で停止し、修正に戻る
+- validate が成功した場合は、review bundle を整理する
+- review bundle には、変更ファイル、validate 結果、想定 stack、想定 parameter、deploy 順序、置換リスク、next action を含める
+- validate 成功後は、**必ず `REVIEW_PENDING` として停止する**
+- この時点では deploy / update / execute-change-set に進まない
+- checkpoint を `docs/test-results/results.md` に記録する
+
+## 7. レビュー後の再開ルール
+
+再開は、次のいずれかの明示指示で行う。
+
+- `REVIEW APPROVED`
+- `REVIEW APPROVED WITH CHANGES`
+- `REVIEW REJECTED`
+
+再開時は、最初に以下を整理する。
+
+- phase
+- last successful step
+- changed files
+- target stack
+- risks
+- next action
+
+`REVIEW APPROVED` の場合のみ、deploy / test / results 記録へ進む。  
+`REVIEW APPROVED WITH CHANGES` または `REVIEW REJECTED` の場合は、必要な修正後に validate を再実行し、再度レビュー待ちで停止する。
+
+## 8. AWS CLI 実行方針を整理する
 
 - CloudFormation を AWS CLI で deploy / update する前提で整理する
 - 実行に必要な前提条件、対象スタック、主要パラメータを明示する
 - 再実行可能なコマンドや手順になるようにする
 - 命名規則が関係する場合は、スタック名や関連する実リソース名の扱いも確認する
 - CloudFormation 実装や template 構成が関係する場合は、deploy 順序と export / import 依存も確認する
+- ただし、deploy / update / execute-change-set は `REVIEW APPROVED` 後のみ扱う
 
-## 7. シナリオテストを追加または更新する
+## 9. シナリオテストを追加または更新する
 
 - `tests/scenarios/*` に shell script / PowerShell script を追加または更新する
 - 正常系、必要に応じて拒否系・失敗系も含める
@@ -82,7 +113,7 @@
 - ただし、命名ルールの文字列一致だけでテスト完了としない
 - 変更内容に対する期待動作をテストで確認できるようにする
 
-## 8. 最後に結果を整理する
+## 10. 最後に結果を整理する
 
 以下の形式でまとめてください。
 
@@ -94,6 +125,8 @@
 - 更新した design markdown
 - 更新した `_llm` 補助ファイル
 - 変更した CloudFormation
+- validate 実行結果
+- review checkpoint
 - AWS CLI 実行方針
 - 追加または更新したシナリオテスト
 - 命名規則への適合状況
@@ -102,17 +135,18 @@
 - 未解決事項
 - 次の1手
 
-## 9. 結果記録
+## 11. 結果記録
 
 - 実施内容と結果は `docs/test-results/results.md` に記録する
 - 命名規則を追加または変更した場合は、正規化内容、既存命名との差分、rename を見送る理由、今後の移行方針も必要に応じて記録する
 - CloudFormation 実装ルールまたは template 構成ルールを変更した場合は、template 境界の理由、deploy責務、export / import 方針も必要に応じて記録する
+- review gate を通した場合は、phase、last successful step、next action も記録する
 
 ## 出力ルール
 
 - まず「読んだ design markdown」を最初に出す
 - 実装前に設計理解を省略しない
-- 設計、実装、実行、テストを混ぜずに順序立てて出す
+- 設計、実装、validate、レビュー待ち、再開、実行、テストを混ぜずに順序立てて出す
 - `_llm` 補助ファイルの同期更新を省略しない
 - 命名規則が関係する場合は、その適用先が実名か `Name` tag かを曖昧にしない
 - CloudFormation 実装や template 構成が関係する場合は、template 境界の理由を曖昧にしない
@@ -130,6 +164,7 @@
 - `_llm` だけ更新して design markdown を放置すること
 - 命名規則との差分がある既存リソースを、影響評価なしに一括リネームすること
 - nested stack を前提に構成を決めること
+- validate 成功後に人間レビューなしで deploy / update / execute-change-set に進むこと
 - 手動変更を主経路にすること
 - 設定値確認だけでテスト完了とすること
 - `docs/test-results/results.md` への記録を省略すること
