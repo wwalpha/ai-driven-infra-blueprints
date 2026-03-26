@@ -1,0 +1,54 @@
+[
+  {
+    "ParameterKey": "Application",
+    "ParameterValue": "web"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "VpcName",
+    "ParameterValue": "web-dev"
+  },
+  {
+    "ParameterKey": "ExportPrefix",
+    "ParameterValue": "dev-web"
+  },
+  {
+    "ParameterKey": "AvailabilityZone1",
+    "ParameterValue": "ap-northeast-1a"
+  },
+  {
+    "ParameterKey": "AvailabilityZone2",
+    "ParameterValue": "ap-northeast-1c"
+  },
+  {
+    "ParameterKey": "ZoneCode1",
+    "ParameterValue": "a"
+  },
+  {
+    "ParameterKey": "ZoneCode2",
+    "ParameterValue": "c"
+  },
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.10.0.0/16"
+  },
+  {
+    "ParameterKey": "PublicSubnetAz1Cidr",
+    "ParameterValue": "10.10.0.0/24"
+  },
+  {
+    "ParameterKey": "PublicSubnetAz2Cidr",
+    "ParameterValue": "10.10.1.0/24"
+  },
+  {
+    "ParameterKey": "PrivateSubnetAz1Cidr",
+    "ParameterValue": "10.10.10.0/24"
+  },
+  {
+    "ParameterKey": "PrivateSubnetAz2Cidr",
+    "ParameterValue": "10.10.11.0/24"
+  }
+]

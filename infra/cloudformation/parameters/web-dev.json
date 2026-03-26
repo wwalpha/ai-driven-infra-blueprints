@@ -1,0 +1,42 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "Purpose",
+    "ParameterValue": "web"
+  },
+  {
+    "ParameterKey": "NetworkExportPrefix",
+    "ParameterValue": "dev-web"
+  },
+  {
+    "ParameterKey": "AlbIngressCidr",
+    "ParameterValue": "0.0.0.0/0"
+  },
+  {
+    "ParameterKey": "InstanceType",
+    "ParameterValue": "t3.micro"
+  },
+  {
+    "ParameterKey": "AmiId",
+    "ParameterValue": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+  },
+  {
+    "ParameterKey": "KeyPairName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "HealthCheckPath",
+    "ParameterValue": "/"
+  },
+  {
+    "ParameterKey": "WebContentTitle",
+    "ParameterValue": "Hello from NGINX"
+  },
+  {
+    "ParameterKey": "WebContentBody",
+    "ParameterValue": "Served via public ALB"
+  }
+]

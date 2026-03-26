@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Web service baseline with public ALB and two private Amazon Linux EC2 instances running NGINX.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  Purpose:
+    Type: String
+    Default: web
+  NetworkExportPrefix:
+    Type: String
+    Default: dev-web
+  AlbIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+  InstanceType:
+    Type: String
+    Default: t3.micro
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  KeyPairName:
+    Type: String
+    Default: ''
+  HealthCheckPath:
+    Type: String
+    Default: /
+  WebContentTitle:
+    Type: String
+    Default: Hello from NGINX
+  WebContentBody:
+    Type: String
+    Default: Served via public ALB
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access from the internet to the ALB.
+      GroupName: !Sub ${Environment}-alb-${Purpose}01-sg
+      VpcId: !ImportValue
+        'Fn::Sub': ${NetworkExportPrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AlbIngressCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access from the ALB to the web instances.
+      GroupName: !Sub ${Environment}-ec2-${Purpose}01-sg
+      VpcId: !ImportValue
+        'Fn::Sub': ${NetworkExportPrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref Ec2Role
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub alb-${Environment}-${Purpose}01
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Subnets:
+        - !ImportValue
+          'Fn::Sub': ${NetworkExportPrefix}-PublicSubnetAz1Id
+        - !ImportValue
+          'Fn::Sub': ${NetworkExportPrefix}-PublicSubnetAz2Id
+
+  WebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub tgp-${Environment}-${Purpose}01
+      VpcId: !ImportValue
+        'Fn::Sub': ${NetworkExportPrefix}-VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref WebInstanceAz1
+          Port: 80
+        - Id: !Ref WebInstanceAz2
+          Port: 80
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTargetGroup
+
+  WebInstanceAz1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      SecurityGroupIds:
+        - !Ref Ec2SecurityGroup
+      SubnetId: !ImportValue
+        'Fn::Sub': ${NetworkExportPrefix}-PrivateSubnetAz1Id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-${Purpose}01
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y nginx
+          cat >/usr/share/nginx/html/index.html <<'EOF'
+          <html>
+          <head><title>${WebContentTitle}</title></head>
+          <body>
+          <h1>${WebContentTitle}</h1>
+          <p>${WebContentBody}</p>
+          <p>Node: ${Environment}-${Purpose}01</p>
+          </body>
+          </html>
+          EOF
+          systemctl enable nginx
+          systemctl restart nginx
+
+  WebInstanceAz2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      SecurityGroupIds:
+        - !Ref Ec2SecurityGroup
+      SubnetId: !ImportValue
+        'Fn::Sub': ${NetworkExportPrefix}-PrivateSubnetAz2Id
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-${Purpose}02
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y nginx
+          cat >/usr/share/nginx/html/index.html <<'EOF'
+          <html>
+          <head><title>${WebContentTitle}</title></head>
+          <body>
+          <h1>${WebContentTitle}</h1>
+          <p>${WebContentBody}</p>
+          <p>Node: ${Environment}-${Purpose}02</p>
+          </body>
+          </html>
+          EOF
+          systemctl enable nginx
+          systemctl restart nginx
+
+Outputs:
+  LoadBalancerDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  LoadBalancerArn:
+    Value: !Ref ApplicationLoadBalancer
+  TargetGroupArn:
+    Value: !Ref WebTargetGroup
+  WebInstanceAz1Id:
+    Value: !Ref WebInstanceAz1
+  WebInstanceAz2Id:
+    Value: !Ref WebInstanceAz2
