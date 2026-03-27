@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "SystemName",
+    "ParameterValue": "web-nginx"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "NetworkStackName",
+    "ParameterValue": "cfn-stack-dev-webnginx-network01"
+  }
+]

@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: web-nginx dev app stack with ALB, target group, IAM, and two private Amazon Linux 2023 instances.
+
+Parameters:
+  SystemName:
+    Type: String
+    Default: web-nginx
+  Env:
+    Type: String
+    Default: dev
+  NetworkStackName:
+    Type: String
+    Default: cfn-stack-dev-webnginx-network01
+  SecurityStackName:
+    Type: String
+    Default: cfn-stack-dev-webnginx-security01
+  InstanceType:
+    Type: String
+    Default: t3.small
+  AmiSsmParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: webNginxEc2Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: webNginxEc2Role
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: webNginxEc2Profile
+      Roles:
+        - !Ref Ec2Role
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: alb-dev-web01
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}-AlbSecurityGroupId
+      Subnets:
+        - Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-PublicSubnetAz1Id
+        - Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-PublicSubnetAz2Id
+      Tags:
+        - Key: Name
+          Value: alb-dev-web01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  WebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: tgp-dev-web01
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: ${NetworkStackName}-VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200-399
+      Targets:
+        - Id: !Ref Ec2Az1
+          Port: 80
+        - Id: !Ref Ec2Az2
+          Port: 80
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '60'
+      Tags:
+        - Key: Name
+          Value: tgp-dev-web01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTargetGroup
+
+  Ec2Az1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiSsmParameter
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      Monitoring: false
+      DisableApiTermination: false
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeleteOnTermination: true
+          DeviceIndex: '0'
+          GroupSet:
+            - Fn::ImportValue:
+                Fn::Sub: ${SecurityStackName}-Ec2SecurityGroupId
+          SubnetId:
+            Fn::ImportValue:
+              Fn::Sub: ${NetworkStackName}-PrivateAppSubnetAz1Id
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeSize: 8
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: dev-web-a01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          token=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          instance_id=$(curl -sS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
+          availability_zone=$(curl -sS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          hostname_value=$(hostname -f 2>/dev/null || hostname)
+
+          if ! rpm -q nginx >/dev/null 2>&1; then
+            dnf install -y nginx
+          fi
+
+          cat >/usr/share/nginx/html/index.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>${SystemName} dev nginx</title>
+          </head>
+          <body>
+            <h1>${SystemName}</h1>
+            <p>env=${Env}</p>
+            <p>hostname=$hostname_value</p>
+            <p>instance-id=$instance_id</p>
+            <p>availability-zone=$availability_zone</p>
+          </body>
+          </html>
+          EOF
+
+          systemctl enable nginx
+          systemctl restart nginx
+
+  Ec2Az2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiSsmParameter
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      Monitoring: false
+      DisableApiTermination: false
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeleteOnTermination: true
+          DeviceIndex: '0'
+          GroupSet:
+            - Fn::ImportValue:
+                Fn::Sub: ${SecurityStackName}-Ec2SecurityGroupId
+          SubnetId:
+            Fn::ImportValue:
+              Fn::Sub: ${NetworkStackName}-PrivateAppSubnetAz2Id
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeSize: 8
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: dev-web-c01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          token=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          instance_id=$(curl -sS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
+          availability_zone=$(curl -sS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          hostname_value=$(hostname -f 2>/dev/null || hostname)
+
+          if ! rpm -q nginx >/dev/null 2>&1; then
+            dnf install -y nginx
+          fi
+
+          cat >/usr/share/nginx/html/index.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>${SystemName} dev nginx</title>
+          </head>
+          <body>
+            <h1>${SystemName}</h1>
+            <p>env=${Env}</p>
+            <p>hostname=$hostname_value</p>
+            <p>instance-id=$instance_id</p>
+            <p>availability-zone=$availability_zone</p>
+          </body>
+          </html>
+          EOF
+
+          systemctl enable nginx
+          systemctl restart nginx
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  AlbArn:
+    Value: !Ref ApplicationLoadBalancer
+  TargetGroupArn:
+    Value: !Ref WebTargetGroup
+  Ec2Az1InstanceId:
+    Value: !Ref Ec2Az1
+  Ec2Az2InstanceId:
+    Value: !Ref Ec2Az2
+  Ec2InstanceIds:
+    Value: !Join [',', [!Ref Ec2Az1, !Ref Ec2Az2]]

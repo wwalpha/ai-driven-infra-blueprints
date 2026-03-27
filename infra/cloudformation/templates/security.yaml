@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: web-nginx dev security stack with ALB and EC2 security groups.
+
+Parameters:
+  SystemName:
+    Type: String
+    Default: web-nginx
+  Env:
+    Type: String
+    Default: dev
+  NetworkStackName:
+    Type: String
+    Default: cfn-stack-dev-webnginx-network01
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP from the internet to the public ALB.
+      GroupName: !Sub ${Env}-alb-web01-sg
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: ${NetworkStackName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-alb-web01-sg
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP from the ALB and outbound HTTP/HTTPS for patching and SSM.
+      GroupName: !Sub ${Env}-ec2-app01-sg
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: ${NetworkStackName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-ec2-app01-sg
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  AlbSecurityGroupEgressToEc2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      DestinationSecurityGroupId: !Ref Ec2SecurityGroup
+
+Outputs:
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-AlbSecurityGroupId
+  Ec2SecurityGroupId:
+    Value: !Ref Ec2SecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-Ec2SecurityGroupId
+  SecurityGroupIds:
+    Value: !Join [',', [!Ref AlbSecurityGroup, !Ref Ec2SecurityGroup]]
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroupIds

@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "SystemName",
+    "ParameterValue": "web-nginx"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "NetworkStackName",
+    "ParameterValue": "cfn-stack-dev-webnginx-network01"
+  },
+  {
+    "ParameterKey": "SecurityStackName",
+    "ParameterValue": "cfn-stack-dev-webnginx-security01"
+  },
+  {
+    "ParameterKey": "InstanceType",
+    "ParameterValue": "t3.small"
+  },
+  {
+    "ParameterKey": "AmiSsmParameter",
+    "ParameterValue": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+  }
+]

@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: web-nginx dev network stack with VPC, subnets, route tables, IGW, NAT Gateways, and exports.
+
+Parameters:
+  SystemName:
+    Type: String
+    Default: web-nginx
+  Env:
+    Type: String
+    Default: dev
+  AvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1c
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetAz1Cidr:
+    Type: String
+    Default: 10.0.0.0/24
+  PublicSubnetAz2Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PrivateAppSubnetAz1Cidr:
+    Type: String
+    Default: 10.0.10.0/24
+  PrivateAppSubnetAz2Cidr:
+    Type: String
+    Default: 10.0.11.0/24
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub vpc-${SystemName}-${Env}
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub igw-${SystemName}-${Env}
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  PublicSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PublicSubnetAz1Cidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub sbnt-${SystemName}-${Env}-public-public-a-01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PublicSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PublicSubnetAz2Cidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub sbnt-${SystemName}-${Env}-public-public-c-02
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PrivateAppSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PrivateAppSubnetAz1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub sbnt-${SystemName}-${Env}-app-private-a-01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PrivateAppSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PrivateAppSubnetAz2Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub sbnt-${SystemName}-${Env}-app-private-c-02
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub rtb-${SystemName}-${Env}-public-public-01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAz1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAz1
+
+  PublicSubnetAz2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAz2
+
+  NatElasticIpAz1:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub eip-${SystemName}-${Env}-nat-a-01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  NatElasticIpAz2:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub eip-${SystemName}-${Env}-nat-c-02
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  NatGatewayAz1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIpAz1.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnetAz1
+      Tags:
+        - Key: Name
+          Value: !Sub natgw-${SystemName}-${Env}-a
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  NatGatewayAz2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIpAz2.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnetAz2
+      Tags:
+        - Key: Name
+          Value: !Sub natgw-${SystemName}-${Env}-c
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PrivateAppRouteTableAz1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub rtb-${SystemName}-${Env}-app-private-a-01
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PrivateAppRouteAz1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableAz1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayAz1
+
+  PrivateAppSubnetAz1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableAz1
+      SubnetId: !Ref PrivateAppSubnetAz1
+
+  PrivateAppRouteTableAz2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub rtb-${SystemName}-${Env}-app-private-c-02
+        - Key: System
+          Value: !Ref SystemName
+        - Key: Env
+          Value: !Ref Env
+
+  PrivateAppRouteAz2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableAz2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayAz2
+
+  PrivateAppSubnetAz2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableAz2
+      SubnetId: !Ref PrivateAppSubnetAz2
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+  PublicSubnetAz1Id:
+    Value: !Ref PublicSubnetAz1
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetAz1Id
+  PublicSubnetAz2Id:
+    Value: !Ref PublicSubnetAz2
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetAz2Id
+  PrivateAppSubnetAz1Id:
+    Value: !Ref PrivateAppSubnetAz1
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateAppSubnetAz1Id
+  PrivateAppSubnetAz2Id:
+    Value: !Ref PrivateAppSubnetAz2
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateAppSubnetAz2Id
+  PublicSubnetIds:
+    Value: !Join [',', [!Ref PublicSubnetAz1, !Ref PublicSubnetAz2]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetIds
+  PrivateAppSubnetIds:
+    Value: !Join [',', [!Ref PrivateAppSubnetAz1, !Ref PrivateAppSubnetAz2]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateAppSubnetIds
