@@ -1,106 +1,39 @@
 # AGENTS.md
 
-このリポジトリでは、Copilot は**ローカル実行**を前提とする。
+このリポジトリは、リポジトリルートを作業ディレクトリとして Codex で運用する。
 
-## 前提
+## 常時適用ルール
 
-- 仕様は ChatGPT と合意済みである
-- AWS 認証は人間が Copilot 実行前に手動で完了する
-- 必要な `AWS_PROFILE`、`AWS_REGION`、認証情報、環境変数は事前に設定済みである
-- Copilot は既存の認証済みローカル環境を利用して作業する
-- 認証方式の取得・変更自体は Copilot の主作業に含めない
+- `docs/designs/**`、`llm/**`、`infra/cloudformation/**`、`infra/terraform/**` を変更する前に、ChatGPT が作成した active な `tasks/<task-id>/prompt.md` が存在しなければならない。
+- active prompt は今回の変更契約であり、長期的な設計の正本ではない。
+- 人間向けの現行設計は `docs/designs/`、機械可読な設計情報は `llm/designs/`、環境別の現行 actual 情報は `llm/actuals/<environment>/` に置く。
+- `materials/aws/` は読み取り専用の不変カタログであり、通常タスクでは変更しない。
+- 変更前に、active prompt とタスクに関係する `rules/*.md` を読む。
+- 人間が決めていないリソース選択やパラメータ値を推測しない。不足値は明示して停止する。
+- 人間向け詳細設計、LLM 設計情報、選択済み IaC の順に更新する。
+- 1環境につき CloudFormation または Terraform のどちらか一方だけを変更する。
+- validate / plan 後にリポジトリ独自の人間レビュー停止は設けない。
+- deploy / apply は active prompt が明示的に許可した場合だけ実行する。
+- 生成 ARN を post-deploy actual として永続化しない。
+- タスク指定の loop を完了前に実行する。
+- シナリオテストは静的設定だけでなく、期待する挙動を検証する。
+- 証跡は `tests/results/<task-id>/` に保存する。
 
-## 最重要ルール
+## 詳細ルール
 
-- 実装前に、必ず関連する `docs/designs/*.md` を読む
-- 関連する `docs/designs/_llm/*.properties` が存在する場合は、必ずあわせて読む
-- サービスの設定値の正本は `docs/designs/*.md` とする
-- `docs/designs/_llm/*.properties` は Copilot / LLM 向け補助ファイルとして扱う
-- 実装は `infra/cloudformation/*` に対して行う
-- 構築・更新は AWS CLI で CloudFormation を実行する
-- テストは `tests/scenarios/*` に shell script / PowerShell script として追加・更新する
-- 単なる設定値確認だけで完了扱いにしない
-- 実施内容と結果は markdown に記録する
+- `rules/detailed-design.md`
+- `rules/llm-design-information.md`
+- `rules/cloudformation.md`
+- `rules/terraform.md`
+- `rules/post-deploy-actuals.md`
+- `rules/loop-engineering.md`
 
-## design markdown の形式
+## Project-specific section（blueprint 利用時に必ず更新）
 
-各サービスの `docs/designs/*.md` は、人間向けに以下の形式を基本とする。
+- project name: `ai-driven-infra-blueprints` の web-nginx sample
+- environments: `dev` sample（現在は `NOT_DEPLOYED`）
+- AWS account constraints: 固定アカウントは未指定。実行タスクで対象アカウントを指定し、実行前に一致を確認する。
+- AWS region constraints: sample は `ap-northeast-1`
+- selected IaC engine: sample は CloudFormation。派生プロジェクトは環境ごとに CloudFormation または Terraform を一つ選ぶ。
 
-- 1リソース = 1見出し
-- 1リソース = 1 table
-- table の列は原則として `Property Name | Value | Comment`
-
-例:
-
-```md
-## EC2: WEB01
-
-| Property Name | Value     | Comment            |
-| ------------- | --------- | ------------------ |
-| instanceType  | t3.medium | インスタンスタイプ |
-| subnet        | private-a | 配置先             |
-| securityGroup | web-sg    | 適用SG             |
-```
-
-## \_llm 補助ファイルの形式
-
-各サービスの `docs/designs/_llm/*.properties` は、Copilot / LLM が安定して読むための補助ファイルとする。
-
-形式:
-
-```properties
-service.logicalId.property=value
-```
-
-例:
-
-```properties
-ec2.WEB01.instanceType=t3.medium
-ec2.WEB01.subnet=private-a
-ec2.WEB01.securityGroup=web-sg
-```
-
-## 更新ルール
-
-- Copilot が設定値を変更する場合は、`docs/designs/*.md` と `docs/designs/_llm/*.properties` を同一変更で同期更新する
-- markdown と `_llm` の内容が不一致の場合は、まず markdown を正本として確認し、`_llm` を同期させる
-- `_llm` だけ先に更新して完了扱いにしない
-- design markdown が古いまま CloudFormation を先に変更しない
-
-## 作業順序
-
-1. 読むべき `docs/designs/*.md` を特定する
-2. 対応する `docs/designs/_llm/*.properties` が存在するか確認し、あれば読む
-3. 現環境の設定値、制約、依存関係を整理する
-4. 変更対象の design markdown を更新する
-5. 対応する `_llm/*.properties` を同期更新する
-6. `infra/cloudformation/*` を実装または更新する
-7. AWS CLI による構築・更新方針または実行コマンドを整理する
-8. `tests/scenarios/*` にシナリオテストを追加・更新する
-9. 結果を markdown に記録する
-
-## 禁止事項
-
-- `docs/designs/*.md` を読まずに実装を始めること
-- `_llm` があるのに読まずに設定変更すること
-- design markdown が古いまま CloudFormation を先に変更すること
-- 設計書にない設定値を推測で採用すること
-- `_llm` だけ更新して markdown を放置すること
-- 手動構築を主経路にすること
-- 設定値確認だけでテスト完了とすること
-- 結果記録なしで完了扱いにすること
-
-## 出力時の整理順序
-
-Copilot は、少なくとも次の順序で整理して出力すること。
-
-1. 読んだ design markdown
-2. 読んだ `_llm` 補助ファイル
-3. 現環境の理解
-4. 更新対象の design markdown
-5. 更新対象の `_llm` 補助ファイル
-6. 変更対象の CloudFormation
-7. AWS CLI 実行方針
-8. 追加または更新するシナリオテスト
-9. リスク
-10. 結果または次の1手
+派生プロジェクトは、この section をプロジェクト名、全環境、許可 AWS アカウント／リージョン、選択 IaC engine の実値へ置き換える。

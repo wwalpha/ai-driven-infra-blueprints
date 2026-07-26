@@ -3,12 +3,12 @@
 ## 1. このファイルの目的
 
 このファイルは、このリポジトリにおける AWS リソース命名規則の正本です。  
-人間が設計書を読むとき、Copilot が設計書や CloudFormation を読むとき、どちらも同じルールを参照できるようにすることを目的とします。
+人間が設計書を読むとき、Codex や他の LLM が設計情報と IaC を読むとき、どちらも同じルールを参照できるようにすることを目的とします。
 
 今後、新規に AWS リソースを追加する場合は、各サービス設計書、CloudFormation 実装、必要に応じてシナリオテストや結果記録も、このファイルの命名規則に従います。
 
-`docs/designs/_llm/naming-rules.properties` が存在する場合、それはこの markdown の補助ファイルです。  
-意味の正本はこの markdown にあり、補助ファイルは機械可読な同期表現として扱います。
+`llm/designs/naming-rules.properties` はこの markdown の machine-readable mirror です。
+意味の正本はこの markdown にあり、mirror は独自の値を追加しません。
 
 ---
 
@@ -323,10 +323,10 @@ API の種類、環境、用途が分かる構成にします。
 
 ## 9. 補助ファイルとの関係
 
-`docs/designs/_llm/naming-rules.properties` が存在する場合、それはこのファイルの補助表現です。  
-Copilot や LLM が機械的に読みやすいようにするためのものであり、意味の正本はこの markdown にあります。
+`llm/designs/naming-rules.properties` はこのファイルの machine-readable mirror です。
+Codex や他の LLM が機械的に読みやすいようにするためのものであり、意味の正本はこの markdown にあります。
 
-命名規則を更新する場合は、markdown と `_llm` を同一変更で同期してください。
+命名規則を更新する場合は、markdown と `llm/designs/naming-rules.properties` を同じ coherent logical change で同期してください。
 
 ---
 
@@ -335,12 +335,13 @@ Copilot や LLM が機械的に読みやすいようにするためのもので�
 このファイルを更新した場合、必要に応じて以下も確認してください。
 
 - 各サービスの `docs/designs/*.md`
-- `docs/designs/_llm/*.properties`
+- `llm/designs/*.properties`
 - `infra/cloudformation/*`
+- `infra/terraform/*`
 - `tests/scenarios/*`
-- `docs/test-results/results.md`
-- `.github/copilot-instructions.md`
-- `.github/prompts/*`
+- `tests/results/<task-id>/`
+- `AGENTS.md`
+- `rules/*.md`
 
 命名規則は単独では完結せず、設計・実装・テスト・運用に影響します。  
 そのため、ルール変更時は影響範囲を意識して更新してください。
