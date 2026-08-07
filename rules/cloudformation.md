@@ -1,27 +1,32 @@
 # CloudFormation Rules
 
-- active task/project が CloudFormation を選択した場合だけ使用する。
-- detailed design、LLM design information、CloudFormation の順に変更する。
-- nested stack は使用しない。
-- stack/template boundary は AWS service 単位ではなく、change unit、rollback unit、dependency direction、deploy responsibility で決める。
-- `1 template = 1 deploy responsibility` を default とする。
-- cross-stack reference は downstream が必要とする stable value だけを公開し、不要な coupling を避ける。
+- CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
+- infrastructure taskは承認済みの詳細設計とLLM design informationをinputとして読み取る。
+- intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
+- active projectと対象environment/AWS accountがCloudFormationを選択した場合だけ使用する。
+- nested stackは使用しない。
+- stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
+- `1 template = 1 deploy responsibility`をdefaultとする。
+- cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
 - reusable templateは`infra/cloudformation/templates/`、AWS account固有parameterは`infra/cloudformation/parameters/<environment>/<aws-account-id>/`に置く。
 - 1 environment/AWS accountは1 IaC engineだけで管理する。
-- authorized operation は AWS CLI で行う。
+- authorized operationはAWS CLIで行う。
 
 ## Validation and execution
 
-1. syntax/static check と `aws cloudformation validate-template` を実行する。
-2. change set または同等の change summary を作成して scope、delete、replacement を確認する。
-3. repository-level の mandatory human stop は設けない。
-4. active task prompt が deploy/update を許可し、change scope が prompt と一致する場合は execution へ進む。
+1. syntax/static checkと`aws cloudformation validate-template`を実行する。
+2. change setまたは同等のchange summaryを作成してscope、delete、replacementを確認する。
+3. repository-levelのmandatory human stopは設けない。
+4. active promptがdeploy/updateを許可し、change scopeがpromptと一致する場合だけexecutionへ進む。
 
 次の場合は停止する。
 
 - validation failure
 - required input missing
-- AWS account または region mismatch
-- task prompt が許可していない delete/replacement
+- AWS accountまたはregion mismatch
+- task promptが許可していないdelete/replacement
+- intended designの不足または変更が必要
 
-deploy/update 後は必要な非 ARN actual だけを収集し、design と LLM actuals を更新し、scenario test と evidence 記録まで行う。design-only または governance task では、CloudFormation file が存在するだけの理由で AWS API を呼ばない。
+active promptが対象を限定している場合は、一部のtemplate、stack、resourceだけを作成・deployして終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
+
+deploy/update後は必要な非ARN actualと詳細設計内のgenerated current valueだけを更新し、local loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。

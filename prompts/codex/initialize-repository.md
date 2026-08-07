@@ -20,10 +20,15 @@ preconditionを満たさない場合はfileを変更せず、不足fieldを列�
 
 変更前に、次を含むactive task promptを `tasks/{{task-id}}/prompt.md` に作成する。
 
+```md
+- Task type: `initialization`
+```
+
 - goalはSystem Overviewに定義済みのproject topologyの初期化だけとする
 - AWS mutation、deploy、applyは禁止する
-- allowed pathsは、作成対象の `docs/designs/**`、`llm/**`、選択済みIaCの初期化path、`tasks/**`、`tests/results/**` に限定する
+- allowed pathsは、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、activeな`tasks/{{task-id}}/**`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
+- `tests/scenarios/**`と`tests/results/**`を変更しない
 
 ## Read
 
@@ -96,4 +101,4 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 3. `bash -n scripts/blueprint-loop.sh`
 4. `git diff --check`
 
-結果を `tests/results/{{task-id}}/initialization.txt` に保存する。初期化したenvironment/AWS account、作成path、既存のため変更しなかったpath、blockerを最後に要約する。
+validation結果、初期化したenvironment/AWS account、作成path、既存のため変更しなかったpath、blockerはCodexの完了報告だけに記載する。repositoryへverification resultを保存しない。初期化完了後にdesign taskまたはinfrastructure taskへ進まない。

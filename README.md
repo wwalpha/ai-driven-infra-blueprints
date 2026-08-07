@@ -1,24 +1,21 @@
 # ai-driven-infra-blueprints
 
-human、chatbot、Codex が役割を分け、特定のsystem architectureに依存せずAWS infrastructureを設計・実装・検証するためのrepository blueprintです。配布状態ではprojectやIaC implementationを持ちません。
+human、chatbot、Codexが役割を分け、特定のsystem architectureに依存せずAWS infrastructureを設計・実装・検証するためのrepository blueprintです。配布状態ではprojectやIaC implementationを持ちません。
 
 ## Initial setup
 
 1. `docs/system-overview.md`にsystem全体の目的、capability、制約、必要な全environment/AWS accountを記入する。
 2. `prompts/codex/initialize-repository.md`を使い、System Overviewに定義したtarget pathだけを初期化する。
-3. `prompts/chatbot/initial-service-design.md`を使い、serviceごとの初期設計をAsk形式で決める。
-4. 合意内容からCodex用の`tasks/<task-id>/prompt.md`を作る。
-5. Codexが対象AWS accountの`docs/designs/`、`llm/designs/`、選択済みIaCの順に更新する。
-6. local loopとIaC validate/planを実行し、promptが許可する場合だけdeploy/applyする。
+3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
 `docs/system-overview.md`がproject、environment、AWS account、region、IaC engineの単一正本です。environment名、environment数、AWS account数はblueprintで固定しません。System Overviewに`UNSET`が残る状態では初期化しません。
 
 ## Repository instructions
 
 - `README.md`: repository全体の役割、情報優先順位、workflow
-- `prompts/chatbot/*.md`: 初期設計などで都度使用する具体的なAsk指示
+- `prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `prompts/codex/initialize-repository.md`: 完成済みSystem Overviewからrepositoryを初期化する指示
-- `tasks/<task-id>/prompt.md`: Codexが一つの変更を実行するためのtask contract
+- `tasks/<task-id>/prompt.md`: Codexが一つの独立taskを実行するためのtask contract
 
 ## Context priority
 
@@ -32,54 +29,74 @@ human、chatbot、Codex が役割を分け、特定のsystem architectureに依�
 
 `docs/system-overview.md`はsystem全体とproject topologyの前提、`docs/designs/**/*.md`はenvironment/AWS account別resource groupの詳細設計の正本とする。矛盾する場合は推測せず、humanへ確認する。
 
+## Task contract and types
+
+active promptの`## Task contract`には次を正確に1件記載します。
+
+```md
+- Task type: `<task-type>`
+```
+
+許可するtask type:
+
+- `initialization`: 完成済みSystem Overviewからproject pathを初期化する。
+- `design`: 詳細設計と対応するLLM design mirrorを更新し、local validation後に終了する。
+- `infrastructure`: 承認済みdesignをinputとしてIaCを変更し、安全確認、許可されたdeploy/apply、成功後のactuals更新までで終了する。
+- `scenario-test`: scenario、test implementation、実行、scenario-scoped current resultを更新して終了する。
+- `governance`: repository ruleやworkflowを変更する。
+- `catalog-maintenance`: materials catalogを明示scopeで保守する。
+- `migration`: active promptで定義されたmigrationだけを実行する。
+
+各taskは独立してhumanが明示的に開始します。task完了後に次taskを自動作成または自動実行しません。
+
 ## Roles
 
 ### Human
 
 - system overviewを記入する
 - Ask形式の質問へ回答し、設計判断を承認する
-- 完成した設計を保存するか、Codexへ反映を依頼する
+- 実行するtask typeとscopeを決める
 - deploy/apply許可を明示する
+- 必要なscenario-test taskを別途開始する
 
 ### Codex
 
-- active task promptとrepository ruleに従ってfileを変更する
-- detailed design、LLM design、選択済みIaCの順に同期する
-- validate/planとscenario testを実行する
-- 許可がある場合だけdeploy/applyする
+- active prompt、task type、repository ruleの範囲だけを実行する
+- design taskでは詳細設計とLLM design mirrorまでで終了する
+- infrastructure taskではIaC safety check、許可されたexecution、actuals更新までで終了する
+- scenario-test taskではscenarioとcurrent resultだけを変更する
+- task完了後に次工程へ自動的に進まない
 
 ## Initial detailed design
 
-初期設計はAsk workflowとする。
+初期設計はAsk workflowとし、実装は独立した`design` taskで行います。
 
 1. system overview、既存設計、関連materialsを確認する。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
 4. 必須判断が揃ったら、完成形の詳細設計Markdownをfile単位で出力する。
-5. humanまたはCodexが出力をrepositoryへ反映する。
+5. design taskで`docs/designs/**`と対応する`llm/designs/**`を更新し、local validation後に終了する。
+
+design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
 
 ## Post-design SDD
 
-初期詳細設計の完成後は、初期Ask workflowと分けて扱う。
-
-- humanは`docs/designs/<environment>/<aws-account-id>/<resource-group>.md`を変更する。
-- humanがCodexへ変更反映を依頼する。
-- Codexは変更された詳細設計を前提に、関連するLLM design、CloudFormation/Terraform、validation、plan、actuals、scenario evidenceを同期する。
-- deploy/applyはactive task promptが明示的に許可した場合だけ行う。
-
-SDDの検知・反映手順は初期設計promptへ混在させず、専用ruleまたはpromptとして追加する。
+- humanは`docs/designs/<environment>/<aws-account-id>/<resource-group>.md`を現在設計として変更する。
+- design taskは変更された詳細設計と対応するLLM design mirrorだけを同期して終了する。
+- IaC反映が必要な場合は、別の`infrastructure` taskを明示的に開始する。
+- scenario確認が必要な場合は、infrastructure task完了後に別の`scenario-test` taskを明示的に開始する。
 
 ## Operating model
 
-1. humanが作成対象を決める。
-2. 初期設計promptは`materials/aws/`の関連catalogを参照し、決定が必要なparameterだけを平易な質問として提示する。
-3. humanが値を指定または承認し、Codex用のtask-specific promptを用意する。
-4. Codexはactive prompt、`AGENTS.md`、関連する`rules/*.md`を読み、promptの範囲だけを実行する。
-5. human-readable design、LLM-readable design、選択済みIaCを順番に同期する。
-6. validate/planとtask loopを実行する。
-7. deploy/apply後は必要な非ARN actualだけを収集し、scenario testとevidenceを更新する。
+1. humanが独立したtaskのtypeと対象scopeを決める。
+2. Codexはactive prompt、`AGENTS.md`、関連rulesを読み、同じtask type内だけで作業する。
+3. `design` taskはintended designとLLM mirrorを更新して終了する。
+4. `infrastructure` taskはIaC syntax/static validation、CloudFormation change setまたはTerraform planを確認する。これらはscenario testではない。
+5. active promptが許可した場合だけdeploy/applyし、成功後のcurrent actuals更新まででinfrastructure taskを終了する。
+6. `scenario-test` taskは別途開始し、指定scenarioのtestとcurrent resultだけを更新する。
+7. scenario testが失敗しても、同じtaskでdesign変更、IaC修正、redeploy、remediation task作成へ進まない。
 
-1 environment/AWS accountはCloudFormationまたはTerraformのどちらか一方だけで管理します。deploy/applyにはactive promptの明示許可が必要です。
+non-scenario taskのverification outputはdefaultではrepositoryへ保存せず、Codexの完了報告に記載します。
 
 ## Repository structure
 
@@ -111,18 +128,28 @@ scripts/
   update-catalog-lock.py
   validate-blueprint.py
 tests/
-  scenarios/
-  results/<task-id>/
+  scenarios/<scenario-id>/
+  results/<scenario-id>/<environment>/<aws-account-id>/
 ```
 
 ## Design information
 
 - `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
 - `llm/designs/<environment>/<aws-account-id>/`は同じintended designのmachine-readable mirror。
-- Markdownとpropertiesはresource groupから動的に決まり、同じfile stemを使う。
-- `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のactual情報。
+- Markdownとpropertiesはresource groupから動的に決まり、同じ相対pathとfile stemを使う。
+- `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のcurrent actual情報。
 - generated current valueはdeploy前に`PENDING_DEPLOY`、teardown後は`NOT_DEPLOYED`とする。
 - generated ARNはcurrent actualとして保存しない。
+
+## Scenario evidence
+
+- scenarioは`tests/scenarios/<scenario-id>/`に置き、stableなlower-kebab-case IDを使う。
+- current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/`に置く。
+- 同じscenario/environment/AWS accountの再実行では同じ`result.md`とstable evidence fileを更新する。
+- task ID別またはtimestamp別のresult directory/fileを作らない。
+- scenario変更時は既存resultを再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
+- scenario evidenceの過去版はGit履歴で追跡する。
+- scenario resultはcurrent actualの正本ではない。
 
 ## Materials catalog
 
@@ -133,19 +160,22 @@ tests/
 - check: `python3 scripts/update-catalog-lock.py`
 - authorized catalog maintenance後のlock更新: `python3 scripts/update-catalog-lock.py --write --task-id <task-id>`
 
-通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog maintenance taskで更新します。
+通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
 
 ## Validation
 
-active promptには`## Allowed paths` sectionを置き、許可pathをbacktick付きのbulletで列挙します。
+active promptには`Task type`と`## Allowed paths`を記載します。Allowed pathsはtask type boundaryを拡張できません。
 
 ```md
+## Task contract
+
+- Task type: `design`
+
 ## Allowed paths
 
 - `docs/designs/**`
-- `llm/**`
-- `infra/cloudformation/**`
-- `tests/**`
+- `llm/designs/**`
+- `tasks/<task-id>/**`
 ```
 
 local loop:
@@ -154,4 +184,4 @@ local loop:
 bash scripts/blueprint-loop.sh --task-id <task-id> --mode local
 ```
 
-local loopはSystem Overviewのproject topology、task scope、catalog integrity、design/LLM mirror、link/reference、actual ARN、IaC engine selectionを検証します。IaCのsyntax validation、plan、scenario testはtaskのfull loopで別途実行します。
+local loopはtask type、task scope、System Overview topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

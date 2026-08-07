@@ -1,20 +1,23 @@
 # Terraform Rules
 
-- active task/project が Terraform を選択した場合だけ使用する。
+- Terraformは`infrastructure` taskでのみ作成・変更・実行する。
+- infrastructure taskは承認済みの詳細設計とLLM design informationをinputとして読み取る。
+- intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
+- active projectと対象environment/AWS accountがTerraformを選択した場合だけ使用する。
 - 1 environment/AWS accountは1 IaC engineだけで管理する。
-- detailed design、LLM design information、Terraform の順に変更する。
 - reusable moduleは`infra/terraform/modules/`、AWS account compositionは`infra/terraform/environments/<environment>/<aws-account-id>/`に置く。
-- 未使用 infrastructure を先回りして生成しない。
+- 未使用infrastructureを先回りして生成しない。
 
 ## Validation and execution
 
-- `terraform fmt -check`、`terraform validate`、`terraform plan` を必須とする。
-- plan 後に repository-level の mandatory human stop は設けない。
-- apply は active ChatGPT task prompt が明示的に許可し、plan scope が prompt と一致するときだけ実行する。
-- unauthorized delete/replacement、wrong workspace/account/region、missing input、sensitive output、plan failure で停止する。
-- state file と plan binary を commit しない。
-- remote state は access control、locking、encryption、backup を備える構成として project design に記録する。
-- secret を出力せず、generated ARN を post-deploy actual として保存しない。
-- existing environment の CloudFormation/Terraform 切替は dedicated migration/import task とし、normal update で行わない。
+- `terraform fmt -check`、`terraform validate`、`terraform plan`を必須とする。
+- plan後にrepository-levelのmandatory human stopは設けない。
+- applyはactive promptが明示的に許可し、plan scopeがpromptと一致するときだけ実行する。
+- active promptが対象を限定している場合は、指定environment/module/resourceだけを変更して終了できる。
+- unauthorized delete/replacement、wrong workspace/account/region、missing input、sensitive output、plan failure、intended designの不足で停止する。
+- state fileとplan binaryをcommitしない。
+- remote stateはaccess control、locking、encryption、backupを備える構成としてproject designに記録する。
+- secretを出力せず、generated ARNをpost-deploy actualとして保存しない。
+- existing environmentのCloudFormation/Terraform切替はdedicated migration/import taskとし、normal updateで行わない。
 
-apply 後は必要な非 ARN actual を更新し、scenario test を実行して evidence を記録する。
+apply後は必要なactualsと詳細設計内のgenerated current valueだけを更新し、local loop後にinfrastructure taskを終了する。次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。

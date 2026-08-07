@@ -1,5 +1,11 @@
 # Detailed Design Rules
 
+## Task boundary
+
+- `design` taskはintended designと対応するLLM design mirrorを更新し、local validation後に終了する。IaC、actuals、scenarioへ自動的に進まない。
+- `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
+- designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
+
 ## Grouping principle
 
 詳細設計の grouping unit は human design resource group とする。CloudFormation resource type 単位でも AWS service namespace 単位でもない。
@@ -45,5 +51,6 @@
 - deploy 前の generated current value は `PENDING_DEPLOY` と表示する。
 - desired resource があるが current environment を teardown 済みの場合は `DeploymentState` などの row を `NOT_DEPLOYED` とする。historical physical ID を current ID として残さない。
 - deploy / apply 後は `PENDING_DEPLOY` を current value に置き換え、`Source / Comment` に task ID を記録する。
-- destroy 後は current physical value を削除し、generated field を `PENDING_DEPLOY` に戻す。old value は historical evidence だけに残す。
+- destroy後はcurrent physical valueを削除し、generated fieldを`PENDING_DEPLOY`に戻す。
+- old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
 - 全候補 field を並べた mandatory な別 actual-values table は作らない。必要な actual は該当 resource/component table に置く。

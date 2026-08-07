@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import fnmatch
 import re
 import subprocess
@@ -17,6 +18,7 @@ REQUIRED_RULES = {
     "llm-design-information.md",
     "loop-engineering.md",
     "post-deploy-actuals.md",
+    "scenario-testing.md",
     "terraform.md",
 }
 REQUIRED_DIRECTORIES = (
@@ -44,6 +46,26 @@ TOPOLOGY_HEADER = (
 )
 TOPOLOGY_ALIGNMENT = "| --- | --- | --- | --- | --- | --- | --- |"
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+TASK_ID_PATTERN = re.compile(r"task-[a-z0-9]+(?:-[a-z0-9]+)*")
+TASK_TYPES = {
+    "initialization",
+    "design",
+    "infrastructure",
+    "scenario-test",
+    "governance",
+    "catalog-maintenance",
+    "migration",
+}
+RESULT_STATUSES = {"PASS", "FAIL", "BLOCKED", "STALE", "NOT_EXECUTED"}
+RESULT_METADATA = (
+    "Scenario ID",
+    "Environment",
+    "AWS account ID",
+    "AWS region",
+    "Status",
+    "Executed at",
+    "Executed by task",
+)
 
 
 class Validator:
@@ -53,9 +75,12 @@ class Validator:
         self.errors: list[str] = []
         self.checks = 0
         self.changed_paths: set[str] = set()
+        self.task_type = ""
         self.project_name = "UNSET"
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
+        self.scenario_ids: set[str] = set()
+        self.result_files: dict[str, list[Path]] = {}
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -68,12 +93,16 @@ class Validator:
     def run(self) -> int:
         self.check_structure()
         self.check_task_scope()
+        self.check_task_directories()
         self.check_system_overview()
         self.check_initialized_paths()
         self.check_catalog()
         self.check_designs()
         self.check_actuals()
         self.check_iac_selection()
+        self.check_scenarios()
+        self.check_results()
+        self.check_scenario_changes()
 
         if self.errors:
             print(f"Blueprint local loop: FAIL ({len(self.errors)} errors)")
@@ -83,8 +112,9 @@ class Validator:
 
         print(f"Blueprint local loop: PASS ({self.checks} checks)")
         print(f"- task: {self.task_id}")
+        print(f"- task type: {self.task_type}")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
-        print("- catalog integrity, task scope, design mirrors, and IaC selection: valid")
+        print("- task scope, catalog integrity, design mirrors, IaC selection, and scenario/result structure: valid")
         return 0
 
     def check_structure(self) -> None:
@@ -115,9 +145,30 @@ class Validator:
         if not prompt.is_file():
             return
 
+        lines = prompt.read_text(encoding="utf-8").splitlines()
+        contract: list[str] = []
+        in_contract = False
+        for line in lines:
+            if line == "## Task contract":
+                in_contract = True
+                continue
+            if in_contract and line.startswith("## "):
+                break
+            if in_contract:
+                contract.append(line)
+        task_types = []
+        for line in contract:
+            match = re.fullmatch(r"- Task type: `([^`]+)`", line)
+            if match:
+                task_types.append(match.group(1))
+        self.check(len(task_types) == 1, f"Task type must appear exactly once in Task contract: {self.relative(prompt)}")
+        if task_types:
+            self.task_type = task_types[0]
+            self.check(self.task_type in TASK_TYPES, f"unknown Task type: {self.task_type}")
+
         allowed: list[str] = []
         in_section = False
-        for line in prompt.read_text(encoding="utf-8").splitlines():
+        for line in lines:
             if line == "## Allowed paths":
                 in_section = True
                 continue
@@ -141,6 +192,42 @@ class Validator:
                 for pattern in allowed
             )
             self.check(permitted, f"changed path is outside task scope: {changed}")
+        self.check_task_boundary(prompt)
+
+    @staticmethod
+    def under(path: str, prefix: str) -> bool:
+        return path == prefix or path.startswith(prefix + "/")
+
+    def check_task_boundary(self, prompt: Path) -> None:
+        if self.task_type not in TASK_TYPES:
+            return
+        prompt_path = self.relative(prompt)
+        for changed in sorted(self.changed_paths):
+            if self.task_type == "design":
+                forbidden = self.under(changed, "infra") or self.under(changed, "llm/actuals") or self.under(changed, "tests")
+                self.check(not forbidden, f"design task boundary violation: {changed}")
+            elif self.task_type == "infrastructure":
+                forbidden = self.under(changed, "llm/designs") or self.under(changed, "tests")
+                self.check(not forbidden, f"infrastructure task boundary violation: {changed}")
+            elif self.task_type == "scenario-test":
+                permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
+                self.check(permitted, f"scenario-test task boundary violation: {changed}")
+            elif self.task_type in {"initialization", "governance", "catalog-maintenance"}:
+                forbidden = self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
+                self.check(not forbidden, f"{self.task_type} task boundary violation: {changed}")
+
+    def check_task_directories(self) -> None:
+        tasks = self.root / "tasks"
+        if not tasks.is_dir():
+            return
+        for entry in sorted(tasks.iterdir()):
+            self.check(entry.is_dir(), f"tasks root may contain only task directories: {self.relative(entry)}")
+            if not entry.is_dir():
+                continue
+            children = sorted(entry.iterdir())
+            self.check(bool(children), f"task directory is empty: {self.relative(entry)}")
+            for child in children:
+                self.check(child.is_file() and child.name == "prompt.md", f"task directory may contain only prompt.md: {self.relative(child)}")
 
     @staticmethod
     def table_cells(line: str) -> list[str]:
@@ -380,6 +467,137 @@ class Validator:
                     self.check(target in self.accounts, f"Terraform target is not defined: {self.relative(path)}")
                     if target in self.accounts:
                         self.check(self.accounts[target]["engine"] == "terraform", f"Terraform is not selected: {self.relative(path)}")
+
+    @staticmethod
+    def metadata_values(path: Path, label: str) -> list[str]:
+        pattern = re.compile(rf"- {re.escape(label)}: `([^`]+)`")
+        values: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.startswith(f"- {label}:"):
+                continue
+            match = pattern.fullmatch(line)
+            values.append(match.group(1) if match else "")
+        return values
+
+    @staticmethod
+    def is_rfc3339(value: str) -> bool:
+        if value == "NOT_EXECUTED":
+            return True
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return parsed.tzinfo is not None
+
+    def check_scenarios(self) -> None:
+        root = self.root / "tests" / "scenarios"
+        if not root.is_dir():
+            return
+        for entry in sorted(root.iterdir()):
+            if entry.name == ".gitkeep" and entry.is_file():
+                continue
+            self.check(entry.is_dir(), f"tests/scenarios root may contain only .gitkeep or scenario directories: {self.relative(entry)}")
+            if not entry.is_dir():
+                continue
+            scenario_id = entry.name
+            valid_id = LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None and not scenario_id.startswith("task-")
+            self.check(valid_id, f"invalid scenario ID: {scenario_id}")
+            scenario_file = entry / "scenario.md"
+            self.check(scenario_file.is_file(), f"scenario.md missing: {self.relative(entry)}")
+            if not scenario_file.is_file():
+                continue
+            values = self.metadata_values(scenario_file, "Scenario ID")
+            self.check(len(values) == 1, f"Scenario ID must appear exactly once: {self.relative(scenario_file)}")
+            if values:
+                self.check(bool(values[0]), f"invalid Scenario ID metadata format: {self.relative(scenario_file)}")
+                if values[0]:
+                    self.check(values[0] == scenario_id, f"Scenario ID does not match directory: {self.relative(scenario_file)}")
+            self.scenario_ids.add(scenario_id)
+
+    def check_result_metadata(self, path: Path, scenario_id: str, environment: str, account: str) -> None:
+        metadata: dict[str, str] = {}
+        for label in RESULT_METADATA:
+            values = self.metadata_values(path, label)
+            self.check(len(values) == 1, f"{label} must appear exactly once: {self.relative(path)}")
+            if values:
+                self.check(bool(values[0]), f"invalid {label} metadata format: {self.relative(path)}")
+                if values[0]:
+                    metadata[label] = values[0]
+
+        expected = {
+            "Scenario ID": scenario_id,
+            "Environment": environment,
+            "AWS account ID": account,
+        }
+        for label, value in expected.items():
+            if label in metadata:
+                self.check(metadata[label] == value, f"{label} does not match result path: {self.relative(path)}")
+
+        target = (environment, account)
+        if "AWS region" in metadata and target in self.accounts:
+            self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match System Overview: {self.relative(path)}")
+        if "Status" in metadata:
+            status = metadata["Status"]
+            self.check(status in RESULT_STATUSES, f"invalid result Status: {self.relative(path)}: {status}")
+            executed_at = metadata.get("Executed at", "")
+            if executed_at:
+                self.check(self.is_rfc3339(executed_at), f"invalid Executed at: {self.relative(path)}: {executed_at}")
+            if status in {"PASS", "FAIL"}:
+                self.check(executed_at != "NOT_EXECUTED", f"{status} result must have execution timestamp: {self.relative(path)}")
+            if status == "NOT_EXECUTED":
+                self.check(executed_at == "NOT_EXECUTED", f"NOT_EXECUTED result must use NOT_EXECUTED timestamp: {self.relative(path)}")
+        if "Executed by task" in metadata:
+            self.check(TASK_ID_PATTERN.fullmatch(metadata["Executed by task"]) is not None, f"invalid Executed by task: {self.relative(path)}")
+
+    def check_results(self) -> None:
+        root = self.root / "tests" / "results"
+        if not root.is_dir():
+            return
+        for scenario_entry in sorted(root.iterdir()):
+            if scenario_entry.name == ".gitkeep" and scenario_entry.is_file():
+                continue
+            self.check(scenario_entry.is_dir(), f"tests/results root may contain only .gitkeep or scenario directories: {self.relative(scenario_entry)}")
+            if not scenario_entry.is_dir():
+                continue
+            scenario_id = scenario_entry.name
+            self.check(not scenario_id.startswith("task-"), f"task-scoped result directory is forbidden: {self.relative(scenario_entry)}")
+            self.check(LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None, f"invalid result scenario ID: {scenario_id}")
+            scenario_file = self.root / "tests" / "scenarios" / scenario_id / "scenario.md"
+            self.check(scenario_file.is_file(), f"orphan result without scenario: {self.relative(scenario_entry)}")
+            for environment_entry in sorted(scenario_entry.iterdir()):
+                self.check(environment_entry.is_dir(), f"result scenario directory may contain only environment directories: {self.relative(environment_entry)}")
+                if not environment_entry.is_dir():
+                    continue
+                environment = environment_entry.name
+                for account_entry in sorted(environment_entry.iterdir()):
+                    self.check(account_entry.is_dir(), f"result environment directory may contain only AWS account directories: {self.relative(account_entry)}")
+                    if not account_entry.is_dir():
+                        continue
+                    account = account_entry.name
+                    self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid result AWS account ID: {self.relative(account_entry)}")
+                    target = (environment, account)
+                    self.check(target in self.accounts, f"result target is not defined in System Overview: {self.relative(account_entry)}")
+                    self.check(not self.template_mode, f"template mode cannot contain scenario results: {self.relative(account_entry)}")
+                    for child in sorted(account_entry.iterdir()):
+                        self.check(child.is_file(), f"result account directory cannot contain subdirectories: {self.relative(child)}")
+                        if child.is_file() and child.suffix.lower() == ".md":
+                            self.check(child.name == "result.md", f"result history copy is forbidden: {self.relative(child)}")
+                    result_file = account_entry / "result.md"
+                    self.check(result_file.is_file(), f"result.md missing: {self.relative(account_entry)}")
+                    if result_file.is_file():
+                        self.result_files.setdefault(scenario_id, []).append(result_file)
+                        self.check_result_metadata(result_file, scenario_id, environment, account)
+
+    def check_scenario_changes(self) -> None:
+        changed_scenarios: set[str] = set()
+        for changed in self.changed_paths:
+            parts = Path(changed).parts
+            if len(parts) >= 3 and parts[:2] == ("tests", "scenarios"):
+                changed_scenarios.add(parts[2])
+        for scenario_id in changed_scenarios:
+            for result_file in self.result_files.get(scenario_id, []):
+                relative = self.relative(result_file)
+                self.check(relative in self.changed_paths, f"scenario changed without updating existing result: {relative}")
 
 
 def parse_args() -> argparse.Namespace:
