@@ -10,6 +10,7 @@ loop engineering は mandatory とする。「各 change」は editor save ご�
 - changed paths are within prompt scope
 - `materials/aws/` が `materials/catalog.sha256` と一致する
 - required directory/file structure exists
+- System Overviewのproject topologyとenvironment/AWS account pathが一致する
 - legacy GitHub workflow directory absent
 - obsolete design LLM helper directory absent
 - resource design table schema valid

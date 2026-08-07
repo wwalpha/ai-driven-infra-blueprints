@@ -38,18 +38,12 @@ PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
 MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
-
-
-def read_properties(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line or line.startswith("#"):
-            continue
-        key, separator, value = line.partition("=")
-        if not separator or not key or key in values:
-            raise ValueError(f"invalid properties line {path}:{number}")
-        values[key] = value
-    return values
+TOPOLOGY_HEADER = (
+    "| Environment ID | Environment name | Purpose | AWS account ID | "
+    "AWS account role | AWS region | IaC engine |"
+)
+TOPOLOGY_ALIGNMENT = "| --- | --- | --- | --- | --- | --- | --- |"
+LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 class Validator:
@@ -59,7 +53,9 @@ class Validator:
         self.errors: list[str] = []
         self.checks = 0
         self.changed_paths: set[str] = set()
-        self.project: dict[str, str] = {}
+        self.project_name = "UNSET"
+        self.template_mode = True
+        self.accounts: dict[tuple[str, str], dict[str, str]] = {}
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -72,7 +68,8 @@ class Validator:
     def run(self) -> int:
         self.check_structure()
         self.check_task_scope()
-        self.check_project()
+        self.check_system_overview()
+        self.check_initialized_paths()
         self.check_catalog()
         self.check_designs()
         self.check_actuals()
@@ -86,12 +83,19 @@ class Validator:
 
         print(f"Blueprint local loop: PASS ({self.checks} checks)")
         print(f"- task: {self.task_id}")
-        print(f"- mode: {self.project['blueprint.mode']}")
+        print(f"- mode: {'template' if self.template_mode else 'project'}")
         print("- catalog integrity, task scope, design mirrors, and IaC selection: valid")
         return 0
 
     def check_structure(self) -> None:
-        for filename in ("AGENTS.md", "README.md", "blueprint.properties"):
+        for filename in (
+            "AGENTS.md",
+            "README.md",
+            "copilot/personal-custom-instructions.md",
+            "docs/system-overview.md",
+            "prompts/chatbot/initial-service-design.md",
+            "prompts/codex/initialize-repository.md",
+        ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:
             self.check((self.root / directory).is_dir(), f"required directory missing: {directory}")
@@ -138,38 +142,76 @@ class Validator:
             )
             self.check(permitted, f"changed path is outside task scope: {changed}")
 
-    def check_project(self) -> None:
-        path = self.root / "blueprint.properties"
+    @staticmethod
+    def table_cells(line: str) -> list[str]:
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        return [cell[1:-1] if len(cell) >= 2 and cell.startswith("`") and cell.endswith("`") else cell for cell in cells]
+
+    def check_system_overview(self) -> None:
+        path = self.root / "docs" / "system-overview.md"
         if not path.is_file():
             return
-        try:
-            self.project = read_properties(path)
-        except ValueError as error:
-            self.errors.append(str(error))
+        lines = path.read_text(encoding="utf-8").splitlines()
+
+        project_lines = [line for line in lines if line.startswith("- Project name:")]
+        self.check(len(project_lines) == 1, "System Overview must contain exactly one Project name")
+        if project_lines:
+            self.project_name = self.table_cells(project_lines[0].partition(":")[2].strip())[0]
+        self.template_mode = self.project_name in {"", "UNSET"}
+
+        header_indexes = [index for index, line in enumerate(lines) if line == TOPOLOGY_HEADER]
+        self.check(len(header_indexes) == 1, "System Overview must contain exactly one Environment topology table")
+        if not header_indexes:
+            return
+        index = header_indexes[0]
+        self.check(index + 1 < len(lines) and lines[index + 1] == TOPOLOGY_ALIGNMENT, "invalid Environment topology table alignment")
+        rows: list[list[str]] = []
+        for line in lines[index + 2 :]:
+            if not line.startswith("|"):
+                break
+            cells = self.table_cells(line)
+            self.check(len(cells) == 7, f"Environment topology row must have seven cells: {line}")
+            if len(cells) == 7:
+                rows.append(cells)
+        self.check(bool(rows), "Environment topology must contain at least one row")
+        if self.template_mode:
+            self.check(all(value == "UNSET" for row in rows for value in row), "template topology values must be UNSET")
             return
 
-        mode = self.project.get("blueprint.mode")
-        self.check(mode in {"template", "project"}, "blueprint.mode must be template or project")
-        if mode == "template":
-            for key, value in self.project.items():
-                if key == "blueprint.mode":
-                    continue
-                self.check(value == "UNSET", f"template placeholder must be UNSET: {key}")
-            return
+        environment_details: dict[str, tuple[str, str]] = {}
+        for row in rows:
+            environment, name, purpose, account, role, region, engine = row
+            target = f"{environment}/{account}"
+            self.check("UNSET" not in row and all(row), f"initialized topology contains unset value: {target}")
+            self.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")
+            self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account: {target}")
+            self.check(region not in {"", "UNSET"}, f"AWS region is required: {target}")
+            self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine: {target}")
+            previous = environment_details.setdefault(environment, (name, purpose))
+            self.check(previous == (name, purpose), f"inconsistent environment name or purpose: {environment}")
+            key = (environment, account)
+            self.check(key not in self.accounts, f"duplicate AWS account in environment: {target}")
+            self.accounts[key] = {
+                "region": region,
+                "engine": engine,
+                "role": role,
+            }
 
-        name = self.project.get("project.name", "")
-        environments = [item for item in self.project.get("project.environments", "").split(",") if item]
-        self.check(name not in {"", "UNSET"}, "project.name is required")
-        self.check(bool(environments) and "UNSET" not in environments, "project.environments is required")
-        self.check(len(environments) == len(set(environments)), "project.environments contains duplicates")
-        for environment in environments:
-            prefix = f"environment.{environment}."
-            account = self.project.get(prefix + "awsAccountId", "")
-            region = self.project.get(prefix + "awsRegion", "")
-            engine = self.project.get(prefix + "iacEngine", "")
-            self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account for {environment}")
-            self.check(region not in {"", "UNSET"}, f"AWS region is required for {environment}")
-            self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine for {environment}")
+    def check_initialized_paths(self) -> None:
+        if self.template_mode:
+            return
+        for (environment, account), values in self.accounts.items():
+            paths = [
+                self.root / "docs" / "designs" / environment / account,
+                self.root / "llm" / "designs" / environment / account,
+                self.root / "llm" / "actuals" / environment / account,
+            ]
+            if values["engine"] == "cloudformation":
+                paths.append(self.root / "infra" / "cloudformation" / "parameters" / environment / account)
+            else:
+                paths.append(self.root / "infra" / "terraform" / "environments" / environment / account)
+            for path in paths:
+                self.check(path.is_dir(), f"initialized target path missing: {self.relative(path)}")
 
     def check_catalog(self) -> None:
         result = subprocess.run(
@@ -192,12 +234,33 @@ class Validator:
                 self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
 
     def design_files(self) -> list[Path]:
-        return sorted((self.root / "docs" / "designs").glob("*.md"))
+        return sorted((self.root / "docs" / "designs").rglob("*.md"))
+
+    def check_target_file(self, path: Path, base: Path) -> tuple[str, str] | None:
+        parts = path.relative_to(base).parts
+        self.check(len(parts) == 3, f"target file must be <environment>/<aws-account-id>/<file>: {self.relative(path)}")
+        if len(parts) != 3:
+            return None
+        target = (parts[0], parts[1])
+        self.check(target in self.accounts, f"target is not defined in System Overview: {self.relative(path)}")
+        return target
 
     def check_designs(self) -> None:
-        markdown = {path.stem for path in self.design_files()}
-        properties = {path.stem for path in (self.root / "llm" / "designs").glob("*.properties")}
+        markdown_paths = self.design_files()
+        properties_paths = sorted((self.root / "llm" / "designs").rglob("*.properties"))
+        markdown = {
+            path.relative_to(self.root / "docs" / "designs").with_suffix("").as_posix()
+            for path in markdown_paths
+        }
+        properties = {
+            path.relative_to(self.root / "llm" / "designs").with_suffix("").as_posix()
+            for path in properties_paths
+        }
         self.check(markdown == properties, f"design/LLM group mismatch: markdown={sorted(markdown)}, llm={sorted(properties)}")
+        for path in markdown_paths:
+            self.check_target_file(path, self.root / "docs" / "designs")
+        for path in properties_paths:
+            self.check_target_file(path, self.root / "llm" / "designs")
         self.check_design_tables()
         self.check_design_links()
         self.check_llm_references()
@@ -251,9 +314,14 @@ class Validator:
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
 
     def check_llm_references(self) -> None:
-        definitions: set[str] = set()
-        references: list[tuple[Path, str]] = []
-        for path in sorted((self.root / "llm" / "designs").glob("*.properties")):
+        definitions: dict[tuple[str, str], set[str]] = {}
+        references: list[tuple[Path, tuple[str, str], str]] = []
+        base = self.root / "llm" / "designs"
+        for path in sorted(base.rglob("*.properties")):
+            target = self.check_target_file(path, base)
+            if target is None:
+                continue
+            target_definitions = definitions.setdefault(target, set())
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line or line.startswith("#"):
                     continue
@@ -262,33 +330,56 @@ class Validator:
                 if not match:
                     continue
                 group, logical_id, property_name, value = match.groups()
-                definitions.add(f"{group}.{logical_id}")
+                target_definitions.add(f"{group}.{logical_id}")
                 if property_name.lower().endswith(("ref", "refs")):
-                    references.extend((path, item) for item in value.split(",") if item)
-        for path, reference in references:
-            self.check(reference in definitions, f"unresolved LLM reference: {self.relative(path)}: {reference}")
+                    references.extend((path, target, item) for item in value.split(",") if item)
+        for path, target, reference in references:
+            self.check(reference in definitions.get(target, set()), f"unresolved LLM reference: {self.relative(path)}: {reference}")
 
     def check_actuals(self) -> None:
         for path in (self.root / "llm" / "actuals").rglob("*"):
             if path.is_file() and not path.name.startswith("."):
+                self.check_target_file(path, self.root / "llm" / "actuals")
                 text = path.read_text(encoding="utf-8")
                 self.check(re.search(r"\barn:aws[a-z-]*:", text, re.IGNORECASE) is None, f"generated ARN persisted in {self.relative(path)}")
 
     def check_iac_selection(self) -> None:
-        mode = self.project.get("blueprint.mode")
-        active_engines = {
-            value for key, value in self.project.items() if key.endswith(".iacEngine") and value != "UNSET"
-        }
+        active_engines = {values["engine"] for values in self.accounts.values()}
         for engine in ("cloudformation", "terraform"):
             files = [
                 path
                 for path in (self.root / "infra" / engine).rglob("*")
                 if path.is_file() and not path.name.startswith(".")
             ]
-            if mode == "template":
+            if self.template_mode:
                 self.check(not files, f"template mode contains {engine} implementation")
             elif engine not in active_engines:
                 self.check(not files, f"unselected IaC engine contains implementation: {engine}")
+
+        cloudformation_base = self.root / "infra" / "cloudformation" / "parameters"
+        for path in cloudformation_base.rglob("*"):
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            parts = path.relative_to(cloudformation_base).parts
+            self.check(len(parts) >= 3, f"CloudFormation parameter must be scoped by environment/AWS account: {self.relative(path)}")
+            if len(parts) >= 3:
+                target = (parts[0], parts[1])
+                self.check(target in self.accounts, f"CloudFormation target is not defined: {self.relative(path)}")
+                if target in self.accounts:
+                    self.check(self.accounts[target]["engine"] == "cloudformation", f"CloudFormation is not selected: {self.relative(path)}")
+
+        terraform_base = self.root / "infra" / "terraform" / "environments"
+        if terraform_base.exists():
+            for path in terraform_base.rglob("*"):
+                if not path.is_file() or path.name.startswith("."):
+                    continue
+                parts = path.relative_to(terraform_base).parts
+                self.check(len(parts) >= 3, f"Terraform composition must be scoped by environment/AWS account: {self.relative(path)}")
+                if len(parts) >= 3:
+                    target = (parts[0], parts[1])
+                    self.check(target in self.accounts, f"Terraform target is not defined: {self.relative(path)}")
+                    if target in self.accounts:
+                        self.check(self.accounts[target]["engine"] == "terraform", f"Terraform is not selected: {self.relative(path)}")
 
 
 def parse_args() -> argparse.Namespace:

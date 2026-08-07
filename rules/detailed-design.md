@@ -7,9 +7,11 @@
 - 同じ resource group の複数 instance は同じ Markdown file に記載する。
 - 関連 child resource は同じ file に置いてよいが、別 heading と別 table を使用できる。
 - 同じ file にあることは、同じ table にまとめることを意味しない。
-- file name は resource group を表す lower-kebab-case とし、対応する `llm/designs/<resource-group>.properties` と stem を一致させる。
+- fileは`docs/designs/<environment>/<aws-account-id>/<resource-group>.md`に置く。
+- file nameはresource groupを表すlower-kebab-caseとし、対応する`llm/designs/<environment>/<aws-account-id>/<resource-group>.properties`と相対path及びstemを一致させる。
 - resource group は active task で選択した resource と運用上のまとまりから決め、validator や blueprint が固定一覧を要求しない。
 - 未使用 resource group の空 design file を作らない。
+- 同じresource groupでもenvironment/AWS accountが異なる場合は別fileとして明示する。
 
 ## Resource-detail table
 

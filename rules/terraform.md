@@ -1,9 +1,9 @@
 # Terraform Rules
 
 - active task/project が Terraform を選択した場合だけ使用する。
-- 1 environment は 1 IaC engine だけで管理する。
+- 1 environment/AWS accountは1 IaC engineだけで管理する。
 - detailed design、LLM design information、Terraform の順に変更する。
-- reusable module は `infra/terraform/modules/`、environment composition は `infra/terraform/environments/<environment>/` に置く。
+- reusable moduleは`infra/terraform/modules/`、AWS account compositionは`infra/terraform/environments/<environment>/<aws-account-id>/`に置く。
 - 未使用 infrastructure を先回りして生成しない。
 
 ## Validation and execution

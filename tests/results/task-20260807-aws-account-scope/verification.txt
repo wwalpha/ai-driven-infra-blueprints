@@ -1,0 +1,11 @@
+task=task-20260807-aws-account-scope
+result=PASS
+scope=environment/aws-account-id
+template_local_loop=PASS
+template_checks=2504
+populated_fixture=PASS
+fixture_environments=staging,production
+fixture_aws_accounts=staging/111122223333,staging/444455556666,production/777788889999
+fixture_iac_engines=cloudformation,terraform
+aws_mutation=NONE
+materials_aws_changed=NO

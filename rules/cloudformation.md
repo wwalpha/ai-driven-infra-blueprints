@@ -6,6 +6,8 @@
 - stack/template boundary は AWS service 単位ではなく、change unit、rollback unit、dependency direction、deploy responsibility で決める。
 - `1 template = 1 deploy responsibility` を default とする。
 - cross-stack reference は downstream が必要とする stable value だけを公開し、不要な coupling を避ける。
+- reusable templateは`infra/cloudformation/templates/`、AWS account固有parameterは`infra/cloudformation/parameters/<environment>/<aws-account-id>/`に置く。
+- 1 environment/AWS accountは1 IaC engineだけで管理する。
 - authorized operation は AWS CLI で行う。
 
 ## Validation and execution

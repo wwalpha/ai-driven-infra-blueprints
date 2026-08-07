@@ -1,8 +1,8 @@
 # LLM Design Information Rules
 
-- human-readable current design は `docs/designs/` に置く。
-- machine-readable intended-design mirror は `llm/designs/` に置く。
-- machine-readable current actual values は `llm/actuals/<environment>/` に置く。
+- human-readable current designは`docs/designs/<environment>/<aws-account-id>/`に置く。
+- machine-readable intended-design mirrorは`llm/designs/<environment>/<aws-account-id>/`に置く。
+- machine-readable current actual valuesは`llm/actuals/<environment>/<aws-account-id>/`に置く。
 - 旧 design 配下の LLM helper directory は obsolete であり、再作成を禁止する。
 - Markdown design が human-readable current-design source of truth である。
 - `llm/designs/` は同期 mirror であり、design value を独自に発明・override しない。
@@ -32,3 +32,4 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 - intended design と current actual value を分離する。
 - generated ARN を `llm/actuals/` に保存しない。
 - AWS managed-policy ARN のような既存／human-provided design input は必要な場合に `llm/designs/` へ残してよい。
+- referenceは同じenvironment/AWS account内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。
