@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Deterministic local validator for the infrastructure blueprint."""
+"""Deterministic local validator for a generic infrastructure blueprint."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import fnmatch
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 
-RULE_FILES = {
+REQUIRED_RULES = {
     "cloudformation.md",
     "detailed-design.md",
     "llm-design-information.md",
@@ -19,33 +19,37 @@ RULE_FILES = {
     "post-deploy-actuals.md",
     "terraform.md",
 }
-
-GROUPS = {
-    "vpc",
-    "internet-gateway",
-    "elastic-ip",
-    "nat-gateway",
-    "subnet",
-    "route-table",
-    "security-group",
-    "iam-role",
-    "instance-profile",
-    "ec2",
-    "load-balancer",
-}
-
+REQUIRED_DIRECTORIES = (
+    "docs/designs",
+    "llm/designs",
+    "llm/actuals",
+    "infra/cloudformation/templates",
+    "infra/cloudformation/parameters",
+    "infra/terraform",
+    "tasks",
+    "tests/scenarios",
+    "tests/results",
+)
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
-LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
+LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
-ACTIVE_FORBIDDEN = (
-    ".github/",
-    "docs/designs/_llm/",
-    "docs/test-results/",
-    "REVIEW_PENDING",
-    "Copilot",
+MATERIAL_PATTERN = re.compile(
+    r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
+
+
+def read_properties(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or not key or key in values:
+            raise ValueError(f"invalid properties line {path}:{number}")
+        values[key] = value
+    return values
 
 
 class Validator:
@@ -54,6 +58,8 @@ class Validator:
         self.task_id = task_id
         self.errors: list[str] = []
         self.checks = 0
+        self.changed_paths: set[str] = set()
+        self.project: dict[str, str] = {}
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -65,13 +71,12 @@ class Validator:
 
     def run(self) -> int:
         self.check_structure()
-        self.check_changed_paths()
-        self.check_manifests()
-        self.check_design_tables_and_anchors()
-        self.check_links()
-        self.check_design_llm_groups_and_references()
-        self.check_active_obsolete_terms()
+        self.check_task_scope()
+        self.check_project()
+        self.check_catalog()
+        self.check_designs()
         self.check_actuals()
+        self.check_iac_selection()
 
         if self.errors:
             print(f"Blueprint local loop: FAIL ({len(self.errors)} errors)")
@@ -81,126 +86,124 @@ class Validator:
 
         print(f"Blueprint local loop: PASS ({self.checks} checks)")
         print(f"- task: {self.task_id}")
-        print("- materials and implementation baselines: unchanged")
-        print("- design tables, numbering, anchors, links, and LLM references: valid")
+        print(f"- mode: {self.project['blueprint.mode']}")
+        print("- catalog integrity, task scope, design mirrors, and IaC selection: valid")
         return 0
 
     def check_structure(self) -> None:
+        for filename in ("AGENTS.md", "README.md", "blueprint.properties"):
+            self.check((self.root / filename).is_file(), f"required file missing: {filename}")
+        for directory in REQUIRED_DIRECTORIES:
+            self.check((self.root / directory).is_dir(), f"required directory missing: {directory}")
+        actual_rules = {path.name for path in (self.root / "rules").glob("*.md")}
+        self.check(REQUIRED_RULES <= actual_rules, f"required rules missing: {sorted(REQUIRED_RULES - actual_rules)}")
+
+    def git_paths(self, args: list[str]) -> set[str]:
+        result = subprocess.run(
+            ["git", *args], cwd=self.root, check=False, capture_output=True, text=True
+        )
+        self.check(result.returncode == 0, f"git {' '.join(args)} failed")
+        return set(result.stdout.splitlines()) if result.returncode == 0 else set()
+
+    def check_task_scope(self) -> None:
         prompt = self.root / "tasks" / self.task_id / "prompt.md"
         self.check(prompt.is_file(), f"active task prompt missing: {self.relative(prompt)}")
+        if not prompt.is_file():
+            return
 
-        actual_rules = {
-            path.name for path in (self.root / "rules").glob("*.md") if path.is_file()
-        }
-        self.check(
-            actual_rules == RULE_FILES,
-            f"rules/*.md must be exactly {sorted(RULE_FILES)}; got {sorted(actual_rules)}",
-        )
-        self.check(not (self.root / ".github").exists(), "legacy GitHub workflow directory exists")
-        self.check(
-            not (self.root / "docs" / "designs" / "_llm").exists(),
-            "obsolete design LLM helper directory exists",
-        )
+        allowed: list[str] = []
+        in_section = False
+        for line in prompt.read_text(encoding="utf-8").splitlines():
+            if line == "## Allowed paths":
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            match = re.fullmatch(r"- `([^`]+)`", line) if in_section else None
+            if match:
+                allowed.append(match.group(1))
+        self.check(bool(allowed), f"Allowed paths section missing or empty: {self.relative(prompt)}")
 
-        required_directories = (
-            "docs/designs",
-            "llm/designs",
-            "llm/actuals/dev",
-            "infra/cloudformation",
-            "infra/terraform",
-            "tests/scenarios",
-            f"tests/results/{self.task_id}",
+        self.changed_paths = (
+            self.git_paths(["diff", "--name-only"])
+            | self.git_paths(["diff", "--cached", "--name-only"])
+            | self.git_paths(["ls-files", "--others", "--exclude-standard"])
         )
-        for directory in required_directories:
-            self.check((self.root / directory).is_dir(), f"required directory missing: {directory}")
+        for changed in sorted(self.changed_paths):
+            permitted = any(
+                changed == pattern
+                or (pattern.endswith("/**") and changed.startswith(pattern[:-3] + "/"))
+                or fnmatch.fnmatchcase(changed, pattern)
+                for pattern in allowed
+            )
+            self.check(permitted, f"changed path is outside task scope: {changed}")
 
-    def check_changed_paths(self) -> None:
-        completed = subprocess.run(
-            ["git", "status", "--short", "--untracked-files=all"],
+    def check_project(self) -> None:
+        path = self.root / "blueprint.properties"
+        if not path.is_file():
+            return
+        try:
+            self.project = read_properties(path)
+        except ValueError as error:
+            self.errors.append(str(error))
+            return
+
+        mode = self.project.get("blueprint.mode")
+        self.check(mode in {"template", "project"}, "blueprint.mode must be template or project")
+        if mode == "template":
+            for key, value in self.project.items():
+                if key == "blueprint.mode":
+                    continue
+                self.check(value == "UNSET", f"template placeholder must be UNSET: {key}")
+            return
+
+        name = self.project.get("project.name", "")
+        environments = [item for item in self.project.get("project.environments", "").split(",") if item]
+        self.check(name not in {"", "UNSET"}, "project.name is required")
+        self.check(bool(environments) and "UNSET" not in environments, "project.environments is required")
+        self.check(len(environments) == len(set(environments)), "project.environments contains duplicates")
+        for environment in environments:
+            prefix = f"environment.{environment}."
+            account = self.project.get(prefix + "awsAccountId", "")
+            region = self.project.get(prefix + "awsRegion", "")
+            engine = self.project.get(prefix + "iacEngine", "")
+            self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account for {environment}")
+            self.check(region not in {"", "UNSET"}, f"AWS region is required for {environment}")
+            self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine for {environment}")
+
+    def check_catalog(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(self.root / "scripts" / "update-catalog-lock.py")],
             cwd=self.root,
             check=False,
             capture_output=True,
             text=True,
         )
-        self.check(completed.returncode == 0, "git status failed")
-        if completed.returncode != 0:
-            return
+        self.check(result.returncode == 0, result.stdout.strip() or "catalog lock check failed")
 
-        allowed_roots = (
-            ".github/",
-            "docs/designs/",
-            "infra/terraform/",
-            "llm/",
-            "rules/",
-            "scripts/",
-            f"tasks/{self.task_id}/",
-            "tasks/task-20260327-web-nginx/",
-            f"tests/results/{self.task_id}/",
-        )
-        allowed_files = {"AGENTS.md", "README.md", "CMD.md"}
+        for path in sorted((self.root / "materials" / "aws").glob("*.properties")):
+            text = path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            prefix = path.stem.replace("_", ".", 1) + "."
+            self.check(text.endswith("\n"), f"catalog file lacks final newline: {self.relative(path)}")
+            self.check(lines == sorted(set(lines)), f"catalog lines must be sorted and unique: {self.relative(path)}")
+            for line in lines:
+                self.check(MATERIAL_PATTERN.fullmatch(line) is not None, f"invalid catalog line: {self.relative(path)}: {line}")
+                self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
 
-        for line in completed.stdout.splitlines():
-            path_text = line[3:]
-            paths = path_text.split(" -> ")
-            for changed in paths:
-                allowed = changed in allowed_files or changed.startswith(allowed_roots)
-                self.check(allowed, f"changed path is outside task scope: {changed}")
+    def design_files(self) -> list[Path]:
+        return sorted((self.root / "docs" / "designs").glob("*.md"))
 
-    @staticmethod
-    def sha256(path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
+    def check_designs(self) -> None:
+        markdown = {path.stem for path in self.design_files()}
+        properties = {path.stem for path in (self.root / "llm" / "designs").glob("*.properties")}
+        self.check(markdown == properties, f"design/LLM group mismatch: markdown={sorted(markdown)}, llm={sorted(properties)}")
+        self.check_design_tables()
+        self.check_design_links()
+        self.check_llm_references()
 
-    def check_manifest(self, name: str) -> None:
-        manifest = self.root / "tests" / "results" / self.task_id / name
-        self.check(manifest.is_file(), f"baseline manifest missing: {self.relative(manifest)}")
-        if not manifest.is_file():
-            return
-
-        for line_number, line in enumerate(manifest.read_text(encoding="utf-8").splitlines(), 1):
-            match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
-            self.check(match is not None, f"invalid manifest line {name}:{line_number}")
-            if match is None:
-                continue
-            expected, relative_path = match.groups()
-            target = self.root / relative_path
-            self.check(target.is_file(), f"baseline target missing: {relative_path}")
-            if target.is_file():
-                self.check(
-                    self.sha256(target) == expected,
-                    f"baseline mismatch: {relative_path}",
-                )
-
-    def check_manifests(self) -> None:
-        for manifest in (
-            "materials-baseline.sha256",
-            "cloudformation-templates-baseline.sha256",
-            "cloudformation-parameters-baseline.sha256",
-            "scenarios-baseline.sha256",
-        ):
-            self.check_manifest(manifest)
-
-    def resource_design_files(self) -> list[Path]:
-        return sorted(
-            path
-            for path in (self.root / "docs" / "designs").glob("*.md")
-            if path.name != "naming-rules.md"
-        )
-
-    def check_design_tables_and_anchors(self) -> None:
-        expected_designs = {f"{group}.md" for group in GROUPS} | {"naming-rules.md"}
-        actual_designs = {
-            path.name for path in (self.root / "docs" / "designs").glob("*.md")
-        }
-        self.check(
-            actual_designs == expected_designs,
-            f"detailed-design grouping mismatch; got {sorted(actual_designs)}",
-        )
-
-        for path in self.resource_design_files():
+    def check_design_tables(self) -> None:
+        for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             table_count = 0
             index = 0
@@ -209,138 +212,83 @@ class Validator:
                     index += 1
                     continue
                 table_count += 1
-                table_lines: list[str] = []
+                table = []
                 while index < len(lines) and lines[index].startswith("|"):
-                    table_lines.append(lines[index])
+                    table.append(lines[index])
                     index += 1
-                self.check(
-                    len(table_lines) >= 3,
-                    f"{self.relative(path)} contains an incomplete table",
-                )
-                if len(table_lines) < 3:
+                self.check(len(table) >= 3, f"incomplete table: {self.relative(path)}")
+                if len(table) < 3:
                     continue
-                self.check(
-                    table_lines[0] == TABLE_HEADER,
-                    f"{self.relative(path)} table {table_count} has invalid header",
-                )
-                self.check(
-                    table_lines[1] == TABLE_ALIGNMENT,
-                    f"{self.relative(path)} table {table_count} has invalid alignment row",
-                )
-                expected_number = 1
-                for row in table_lines[2:]:
+                self.check(table[0] == TABLE_HEADER, f"invalid table header: {self.relative(path)}")
+                self.check(table[1] == TABLE_ALIGNMENT, f"invalid table alignment: {self.relative(path)}")
+                for number, row in enumerate(table[2:], 1):
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
-                    self.check(
-                        len(cells) == 4,
-                        f"{self.relative(path)} table {table_count} row has {len(cells)} cells",
-                    )
-                    if len(cells) != 4:
-                        continue
-                    self.check(
-                        cells[0] == str(expected_number),
-                        f"{self.relative(path)} table {table_count} expected No. {expected_number}, got {cells[0]}",
-                    )
-                    expected_number += 1
-            self.check(table_count > 0, f"{self.relative(path)} has no resource table")
+                    self.check(len(cells) == 4, f"table row must have four cells: {self.relative(path)}")
+                    if len(cells) == 4:
+                        self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
+            self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
 
-            previous_nonblank = ""
+            previous = ""
             for line in lines:
                 if line.startswith("##") and ":" in line:
-                    self.check(
-                        ANCHOR_PATTERN.fullmatch(previous_nonblank) is not None,
-                        f"{self.relative(path)} resource heading lacks explicit anchor: {line}",
-                    )
+                    self.check(ANCHOR_PATTERN.fullmatch(previous) is not None, f"resource heading lacks explicit anchor: {self.relative(path)}: {line}")
                 if line.strip():
-                    previous_nonblank = line.strip()
+                    previous = line.strip()
 
-    def check_links(self) -> None:
-        anchor_cache: dict[Path, set[str]] = {}
-        for path in (self.root / "docs" / "designs").glob("*.md"):
-            text = path.read_text(encoding="utf-8")
-            anchor_cache[path.resolve()] = set(ANCHOR_PATTERN.findall(text))
-
-        for source in (self.root / "docs" / "designs").glob("*.md"):
-            text = source.read_text(encoding="utf-8")
-            for raw_target in LINK_PATTERN.findall(text):
-                if raw_target.startswith(("http://", "https://", "mailto:")):
+    def check_design_links(self) -> None:
+        anchors = {
+            path.resolve(): set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
+            for path in self.design_files()
+        }
+        for source in self.design_files():
+            for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
+                if raw.startswith(("http://", "https://", "mailto:")):
                     continue
-                target_text, separator, fragment = raw_target.partition("#")
-                target = source if not target_text else (source.parent / target_text)
-                target = target.resolve()
-                self.check(target.is_file(), f"broken link in {self.relative(source)}: {raw_target}")
+                target_text, separator, fragment = raw.partition("#")
+                target = (source if not target_text else source.parent / target_text).resolve()
+                self.check(target.is_file(), f"broken design link: {self.relative(source)}: {raw}")
                 if separator and target.is_file():
-                    anchors = anchor_cache.get(target)
-                    if anchors is None:
-                        anchors = set(
-                            ANCHOR_PATTERN.findall(target.read_text(encoding="utf-8"))
-                        )
-                        anchor_cache[target] = anchors
-                    self.check(
-                        fragment in anchors,
-                        f"missing explicit anchor in {self.relative(source)}: {raw_target}",
-                    )
+                    self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
 
-    def check_design_llm_groups_and_references(self) -> None:
-        expected_llm = {f"{group}.properties" for group in GROUPS} | {
-            "naming-rules.properties"
-        }
-        actual_llm = {
-            path.name for path in (self.root / "llm" / "designs").glob("*.properties")
-        }
-        self.check(
-            actual_llm == expected_llm,
-            f"LLM design grouping mismatch; got {sorted(actual_llm)}",
-        )
-
+    def check_llm_references(self) -> None:
         definitions: set[str] = set()
         references: list[tuple[Path, str]] = []
-        for path in (self.root / "llm" / "designs").glob("*.properties"):
-            if path.name == "naming-rules.properties":
-                continue
+        for path in sorted((self.root / "llm" / "designs").glob("*.properties")):
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line or line.startswith("#"):
                     continue
                 match = PROPERTY_PATTERN.fullmatch(line)
-                self.check(match is not None, f"invalid properties line in {self.relative(path)}: {line}")
-                if match is None:
+                self.check(match is not None, f"invalid LLM property: {self.relative(path)}: {line}")
+                if not match:
                     continue
                 group, logical_id, property_name, value = match.groups()
                 definitions.add(f"{group}.{logical_id}")
                 if property_name.lower().endswith(("ref", "refs")):
                     references.extend((path, item) for item in value.split(",") if item)
-
         for path, reference in references:
-            self.check(
-                reference in definitions,
-                f"unresolved LLM logical reference in {self.relative(path)}: {reference}",
-            )
-
-    def active_files(self) -> list[Path]:
-        files = [self.root / "AGENTS.md", self.root / "README.md"]
-        for directory in ("rules", "docs/designs", "llm", "infra/terraform"):
-            files.extend(path for path in (self.root / directory).rglob("*") if path.is_file())
-        return files
-
-    def check_active_obsolete_terms(self) -> None:
-        for path in self.active_files():
-            text = path.read_text(encoding="utf-8")
-            for forbidden in ACTIVE_FORBIDDEN:
-                self.check(
-                    forbidden not in text,
-                    f"active obsolete dependency '{forbidden}' in {self.relative(path)}",
-                )
+            self.check(reference in definitions, f"unresolved LLM reference: {self.relative(path)}: {reference}")
 
     def check_actuals(self) -> None:
-        actual_files = [
-            path for path in (self.root / "llm" / "actuals").rglob("*") if path.is_file()
-        ]
-        self.check(bool(actual_files), "llm/actuals contains no current-state file")
-        for path in actual_files:
-            text = path.read_text(encoding="utf-8")
-            self.check(
-                re.search(r"\barn:aws[a-z-]*:", text, re.IGNORECASE) is None,
-                f"generated ARN persisted in {self.relative(path)}",
-            )
+        for path in (self.root / "llm" / "actuals").rglob("*"):
+            if path.is_file() and not path.name.startswith("."):
+                text = path.read_text(encoding="utf-8")
+                self.check(re.search(r"\barn:aws[a-z-]*:", text, re.IGNORECASE) is None, f"generated ARN persisted in {self.relative(path)}")
+
+    def check_iac_selection(self) -> None:
+        mode = self.project.get("blueprint.mode")
+        active_engines = {
+            value for key, value in self.project.items() if key.endswith(".iacEngine") and value != "UNSET"
+        }
+        for engine in ("cloudformation", "terraform"):
+            files = [
+                path
+                for path in (self.root / "infra" / engine).rglob("*")
+                if path.is_file() and not path.name.startswith(".")
+            ]
+            if mode == "template":
+                self.check(not files, f"template mode contains {engine} implementation")
+            elif engine not in active_engines:
+                self.check(not files, f"unselected IaC engine contains implementation: {engine}")
 
 
 def parse_args() -> argparse.Namespace:

@@ -7,23 +7,9 @@
 - 同じ resource group の複数 instance は同じ Markdown file に記載する。
 - 関連 child resource は同じ file に置いてよいが、別 heading と別 table を使用できる。
 - 同じ file にあることは、同じ table にまとめることを意味しない。
-
-| Detailed-design file | Content grouping |
-| --- | --- |
-| `vpc.md` | VPC only |
-| `internet-gateway.md` | Internet Gateway only |
-| `elastic-ip.md` | Elastic IP only |
-| `nat-gateway.md` | NAT Gateway only |
-| `subnet.md` | Subnet only |
-| `route-table.md` | Route Table, Route, and Subnet Route Table Association |
-| `security-group.md` | Security Group plus its ingress/egress rules |
-| `iam-role.md` | IAM Role and its policies/attachments |
-| `instance-profile.md` | IAM Instance Profile |
-| `ec2.md` | EC2 Instance, its UserData, and instance-local settings |
-| `load-balancer.md` | Load Balancer, Target Group, and Listener; separate sections/tables as appropriate |
-| `s3-bucket.md` | S3 Bucket and Bucket Policy; separate sections/tables as appropriate |
-
-current sample で未使用の resource group に空 design file を作らない。
+- file name は resource group を表す lower-kebab-case とし、対応する `llm/designs/<resource-group>.properties` と stem を一致させる。
+- resource group は active task で選択した resource と運用上のまとまりから決め、validator や blueprint が固定一覧を要求しない。
+- 未使用 resource group の空 design file を作らない。
 
 ## Resource-detail table
 
@@ -42,16 +28,14 @@ current sample で未使用の resource group に空 design file を作らない
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
 
-`docs/designs/naming-rules.md` は project-wide support document であり、reference table のすべてをこの4列に変換する必要はない。
-
 ## Links and anchors
 
 - 関連 resource は `Value` column の Markdown link で表す。
 - link は relative path を使う。
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
-- anchor は lower-case resource group と lower-case logical ID を `-` で結ぶ。例: `<a id="vpc-webnginxvpc"></a>`。
-- 別 file の例: `[WEBNGINXVPC](vpc.md#vpc-webnginxvpc)`。
-- 同じ file の例: `[TG01](#target-group-tg01)`。
+- anchor は lower-case resource group と lower-case logical ID を `-` で結ぶ。
+- 別 file の例: `[RESOURCE01](resource-group.md#resource-group-resource01)`。
+- 同じ file の例: `[CHILD01](#child-group-child01)`。
 - file と anchor の存在を local loop で検証する。
 
 ## Generated values and deployment state

@@ -1,86 +1,110 @@
 # ai-driven-infra-blueprints
 
-ChatGPT、human、Codex が役割を分けて AWS infrastructure blueprint を設計・実装・検証するための repository template です。現在の web-nginx は CloudFormation sample であり、2026-03-27 に teardown 済みです。既存の `tests/results/` は過去の実行証跡で、現在 deploy 中の resource を示しません。
+ChatGPT、human、Codex が役割を分け、特定のsystem architectureに依存せずAWS infrastructureを設計・実装・検証するためのrepository blueprintです。配布状態ではprojectやIaC implementationを持ちません。
+
+## Initial setup
+
+1. `blueprint.properties` の `blueprint.mode` を `project` に変更する。
+2. `project.name` と `project.environments` を設定する。
+3. environmentごとにAWS account ID、region、`cloudformation`または`terraform`を設定する。
+4. ChatGPTとhumanが作成resourceと必要parameterを決める。
+5. 合意内容を `tasks/<task-id>/prompt.md` に保存する。
+6. `docs/designs/`、`llm/designs/`、選択済みIaCの順に更新する。
+7. local loopとIaC validate/planを実行し、promptが許可する場合だけdeploy/applyする。
+
+設定例:
+
+```properties
+blueprint.mode=project
+project.name=example-project
+project.environments=dev,prod
+environment.dev.awsAccountId=111122223333
+environment.dev.awsRegion=ap-northeast-1
+environment.dev.iacEngine=cloudformation
+environment.prod.awsAccountId=444455556666
+environment.prod.awsRegion=ap-northeast-1
+environment.prod.iacEngine=terraform
+```
+
+`blueprint.properties` がproject設定の単一正本です。`UNSET`が残るprojectはlocal loopを通りません。
 
 ## Operating model
 
-1. ChatGPT と human が VPC、Subnet、EC2、S3 などの作成対象を決める。
-2. ChatGPT は `materials/aws/` の関連 catalog を読み、決定が必要な parameter だけを提示する。
-3. human が値を指定または承認し、ChatGPT が `tasks/<task-id>/prompt.md` を作る。
-4. Codex は active prompt と `AGENTS.md`、関連する `rules/*.md` を読み、prompt の範囲だけを実行する。
-5. Codex は `docs/designs/`、`llm/designs/`、選択済み IaC の順に同期更新する。
-6. validate / plan と task loop を実行し、prompt が許可する場合だけ deploy / apply へ進む。
-7. deploy / apply 後は必要な非 ARN actual だけを収集し、設計・actual 情報・scenario test・result evidence を更新する。
+1. ChatGPTとhumanが作成対象を決める。
+2. ChatGPTは`materials/aws/`の関連catalogを読み、決定が必要なparameterだけを提示する。
+3. humanが値を指定または承認し、ChatGPTがtask-specific promptを作る。
+4. Codexはactive prompt、`AGENTS.md`、関連する`rules/*.md`を読み、promptの範囲だけを実行する。
+5. human-readable design、LLM-readable design、選択済みIaCを順番に同期する。
+6. validate/planとtask loopを実行する。
+7. deploy/apply後は必要な非ARN actualだけを収集し、scenario testとevidenceを更新する。
 
-CloudFormation と Terraform は環境ごとにどちらか一方を選び、同じ環境を両方で管理しません。validate / plan 後に repository-level の human review stop はありませんが、deploy / apply は active prompt の明示的な許可が必要です。
+1 environmentはCloudFormationまたはTerraformのどちらか一方だけで管理します。deploy/applyにはactive promptの明示許可が必要です。
 
 ## Repository structure
 
 ```text
 AGENTS.md
+blueprint.properties
 rules/
-  detailed-design.md
-  llm-design-information.md
-  cloudformation.md
-  terraform.md
-  post-deploy-actuals.md
-  loop-engineering.md
-tasks/
-  <task-id>/
-    prompt.md
+tasks/<task-id>/prompt.md
 materials/
+  catalog.properties
+  catalog.sha256
   aws/
-docs/
-  designs/
+docs/designs/
 llm/
   designs/
-  actuals/
-    <environment>/
+  actuals/<environment>/
 infra/
-  cloudformation/
-    templates/
-    parameters/
+  cloudformation/templates/
+  cloudformation/parameters/
   terraform/
 scripts/
   blueprint-loop.sh
+  update-catalog-lock.py
   validate-blueprint.py
 tests/
   scenarios/
-  results/
-    <task-id>/
+  results/<task-id>/
 ```
 
 ## Design information
 
-- `docs/designs/` は human-readable な current design の正本。
-- `llm/designs/` は同じ intended design の machine-readable mirror。
-- `llm/actuals/<environment>/` は current deployment から取得した必要最小限の actual 情報。
-- 詳細設計は AWS service namespace や CloudFormation resource type ではなく、`rules/detailed-design.md` の human design resource group 単位で分ける。
-- load balancer / target group / listener、route table / route / association のような関連 component は同じ file 内で section と table を分けてよい。
-- generated current value は deploy 前に `PENDING_DEPLOY`、teardown 中の current state は `NOT_DEPLOYED` とする。
-- generated ARN は current actual として保存しない。AWS managed-policy ARN のような human-provided design input や、API 呼び出しに必要な transient ARN は別物として扱う。
+- `docs/designs/`はhuman-readable current designの正本。
+- `llm/designs/`は同じintended designのmachine-readable mirror。
+- Markdownとpropertiesはresource groupから動的に決まり、同じfile stemを使う。
+- `llm/actuals/<environment>/`はcurrent deploymentから取得した必要最小限のactual情報。
+- generated current valueはdeploy前に`PENDING_DEPLOY`、teardown後は`NOT_DEPLOYED`とする。
+- generated ARNはcurrent actualとして保存しない。
 
 ## Materials catalog
 
-`materials/aws/` は configurable field の immutable reference catalog です。project value store ではなく、通常 task で変更しません。詳細設計へ全 field をコピーせず、current project/resource に必要な field だけを選びます。
+`materials/aws/`はAWS CloudFormation Resource Specificationから作成したcurated partial catalogです。AWS resourceの完全一覧ではありません。
 
-## IaC
+- provenanceと件数: `materials/catalog.properties`
+- file integrity: `materials/catalog.sha256`
+- check: `python3 scripts/update-catalog-lock.py`
+- authorized catalog maintenance後のlock更新: `python3 scripts/update-catalog-lock.py --write --task-id <task-id>`
 
-- CloudFormation の active rules は `rules/cloudformation.md`、実装は `infra/cloudformation/`。
-- Terraform の active rules は `rules/terraform.md`、実装場所は `infra/terraform/`。
-- design を先に更新し、選択していない engine や同じ環境の別 engine は変更しない。
-- validate / plan は必須。deploy / apply の可否は active task prompt が決める。
+通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog maintenance taskで更新します。
 
-## Loop and evidence
+## Validation
 
-各 coherent logical change 後に local loop、task 完了前に full task loop を実行します。local foundation は次の command です。
+active promptには`## Allowed paths` sectionを置き、許可pathをbacktick付きのbulletで列挙します。
+
+```md
+## Allowed paths
+
+- `docs/designs/**`
+- `llm/**`
+- `infra/cloudformation/**`
+- `tests/**`
+```
+
+local loop:
 
 ```bash
 bash scripts/blueprint-loop.sh --task-id <task-id> --mode local
 ```
 
-scenario test は infrastructure の期待動作を検証し、実行 command、期待値、実績、判定を含む evidence を `tests/results/<task-id>/` に保存します。
-
-## Current sample
-
-web-nginx sample は Multi-AZ VPC、public ALB、private EC2、NAT Gateway、Session Manager 前提の CloudFormation example です。CloudFormation template、parameter、scenario script は sample implementation として残していますが、stacks は 2026-03-27 に削除済みです。current design と `llm/actuals/dev/` はこの状態を `NOT_DEPLOYED` として表現します。
+local loopはproject設定、task scope、catalog integrity、design/LLM mirror、link/reference、actual ARN、IaC engine selectionを検証します。IaCのsyntax validation、plan、scenario testはtaskのfull loopで別途実行します。

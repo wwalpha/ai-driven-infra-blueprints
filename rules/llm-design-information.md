@@ -27,9 +27,8 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 ## Grouping
 
 - detailed-design file と LLM file の group を一致させる。
-- Load Balancer、Target Group、Listener は `load-balancer.properties` に置く。
-- Route Table、Route、association は `route-table.properties` に置く。
-- S3 Bucket と Bucket Policy は `s3-bucket.properties` に置く。
+- human design resource group ごとに同じ stem の Markdown と properties file を一つずつ置く。
+- related child resource は親と同じ resource group file に置いてよい。
 - intended design と current actual value を分離する。
 - generated ARN を `llm/actuals/` に保存しない。
 - AWS managed-policy ARN のような既存／human-provided design input は必要な場合に `llm/designs/` へ残してよい。

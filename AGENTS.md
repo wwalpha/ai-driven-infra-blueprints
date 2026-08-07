@@ -8,6 +8,7 @@
 - active prompt は今回の変更契約であり、長期的な設計の正本ではない。
 - 人間向けの現行設計は `docs/designs/`、機械可読な設計情報は `llm/designs/`、環境別の現行 actual 情報は `llm/actuals/<environment>/` に置く。
 - `materials/aws/` は読み取り専用の不変カタログであり、通常タスクでは変更しない。
+- project、environment、AWS account/region、IaC engine の正本は `blueprint.properties` とし、他の active file に同じ設定値を重複管理しない。
 - 変更前に、active prompt とタスクに関係する `rules/*.md` を読む。
 - 人間が決めていないリソース選択やパラメータ値を推測しない。不足値は明示して停止する。
 - 人間向け詳細設計、LLM 設計情報、選択済み IaC の順に更新する。
@@ -28,12 +29,9 @@
 - `rules/post-deploy-actuals.md`
 - `rules/loop-engineering.md`
 
-## Project-specific section（blueprint 利用時に必ず更新）
+## Project configuration
 
-- project name: `ai-driven-infra-blueprints` の web-nginx sample
-- environments: `dev` sample（現在は `NOT_DEPLOYED`）
-- AWS account constraints: 固定アカウントは未指定。実行タスクで対象アカウントを指定し、実行前に一致を確認する。
-- AWS region constraints: sample は `ap-northeast-1`
-- selected IaC engine: sample は CloudFormation。派生プロジェクトは環境ごとに CloudFormation または Terraform を一つ選ぶ。
-
-派生プロジェクトは、この section をプロジェクト名、全環境、許可 AWS アカウント／リージョン、選択 IaC engine の実値へ置き換える。
+- 未設定の配布状態は `blueprint.mode=template` とし、他の設定値は `UNSET` のままにする。
+- 利用開始時に `blueprint.mode=project` へ変更し、project name と全 environment の AWS account、region、IaC engine を設定する。
+- 1 environment の `iacEngine` は `cloudformation` または `terraform` のどちらか一つとする。
+- `UNSET` が残る project や、設定と一致しない IaC implementation は local loop を通さない。

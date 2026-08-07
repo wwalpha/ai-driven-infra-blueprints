@@ -1,3 +1,0 @@
-a5b4a591f6950beab574f2e7c06d6ecb212669f0d35d6d71f75a418e34c509bf  infra/cloudformation/templates/app.yaml
-cdbad811fca87ba1c48cd8d50c785b3482628e24014ae9047ae176afbaf4679d  infra/cloudformation/templates/network.yaml
-8d77adc86da81c12db79f1e1a7c59abda95d844a8dedfc94595dea6940058b4c  infra/cloudformation/templates/security.yaml

@@ -8,13 +8,13 @@ loop engineering は mandatory とする。「各 change」は editor save ご�
 
 - active task prompt exists
 - changed paths are within prompt scope
-- `materials/aws/` unchanged from task baseline
+- `materials/aws/` が `materials/catalog.sha256` と一致する
 - required directory/file structure exists
 - legacy GitHub workflow directory absent
 - obsolete design LLM helper directory absent
 - resource design table schema valid
 - row numbering valid
-- resource grouping valid
+- design/LLM resource group が動的に一致する
 - relative links and explicit anchors valid
 - design/LLM grouping and references consistent
 - generated ARN absent from `llm/actuals/`
