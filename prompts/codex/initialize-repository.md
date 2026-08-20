@@ -4,9 +4,24 @@
 
 humanへJSONの作成・編集を依頼してはいけない。質問、回答、正規化、file作成はこのinitialization task内で完結させる。
 
-## Input
+## First response
 
-- Task ID: `{{task-id}}`
+prompt実行後の最初の応答ではfileを変更せず、次の形式でまとめて質問する。
+
+```text
+repository初期化に必要な情報をまとめて回答してください。
+
+1. Project name
+2. EnvironmentとAWS account
+
+| Environment ID | AWS account ID | AWS region | IaC engine |
+| --- | --- | --- | --- |
+| 例ではなく実値を入力 | 12桁 | 例: ap-northeast-1 | cloudformation または terraform |
+
+- EnvironmentまたはAWS accountが複数ある場合は行を追加してください。
+- 1つのenvironmentに複数AWS accountを指定できます。
+- 分からない項目がある場合は、その項目を「不明」としてください。
+```
 
 ## Read first
 
@@ -21,7 +36,7 @@ humanへJSONの作成・編集を依頼してはいけない。質問、回答�
 
 ## Collect required values
 
-次を一つのbatchでhumanへ確認する。
+First responseで次を一つのbatchとして確認する。
 
 1. Project name
 2. 使用する全Environment ID
@@ -29,7 +44,7 @@ humanへJSONの作成・編集を依頼してはいけない。質問、回答�
 4. 各environment/AWS accountのAWS region
 5. 各environment/AWS accountのIaC engine
 
-humanがまとめて回答できる一覧形式にする。Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
+Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
 質問票、回答履歴、session state fileを作成しない。回答に不足や矛盾がある場合だけ、未解決項目をまとめて再質問する。値を推測しない。
 
@@ -49,7 +64,7 @@ file変更前に次を確認する。
 
 ## Create active task contract
 
-最初のrepository changeとして、`tasks/{{task-id}}/prompt.md`を次の条件で作成する。
+最初のrepository changeとして、`tasks/active.md`を次の条件で上書きする。
 
 ```md
 - Task type: `initialization`
@@ -57,7 +72,7 @@ file変更前に次を確認する。
 
 - goalは確認済みproject topologyとtarget pathの初期化だけとする
 - AWS mutation、AWS API、deploy、applyは禁止する
-- allowed pathsは`project-topology.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、`tasks/{{task-id}}/**`に限定する
+- allowed pathsは`project-topology.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、`tasks/active.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない
 
@@ -121,7 +136,7 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 
 ## Verify and finish
 
-1. `bash scripts/blueprint-loop.sh --task-id {{task-id}} --mode local`
+1. `bash scripts/blueprint-loop.sh --mode local`
 2. `python3 -m py_compile scripts/validate-blueprint.py`
 3. `bash -n scripts/blueprint-loop.sh`
 4. `git diff --check`

@@ -12,7 +12,7 @@
 - current physical valueはresourceが現在存在する間だけ保持する。
 - destroy後はenvironment/resourceを`NOT_DEPLOYED`とし、generated design fieldを`PENDING_DEPLOY`に戻す。
 - actualsはcreateだけでなく、成功したupdate/destroyの後にも更新する。
-- LLM actual informationまたはaccompanying metadataにtask ID、environment、AWS account、region、collection method、observation date/timeを記録してよい。task IDはmetadataでありevidence pathではない。
+- LLM actual informationまたはaccompanying metadataにenvironment、AWS account、region、collection method、observation date/timeを記録してよい。
 - obsoleteなphysical IDと過去actualはGit履歴、CloudFormation/Terraform、AWS側のdeployment historyで追跡する。
 - 過去actualをscenario evidenceへ転記しない。
 - old result fileだけを根拠にold IDがcurrentであると仮定しない。

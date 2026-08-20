@@ -4,7 +4,7 @@
 
 ## 常時適用ルール
 
-- 変更前にactiveな`tasks/<task-id>/prompt.md`が存在し、`## Task contract`に`Task type`が正確に1件記載されていなければならない。
+- 変更前に`tasks/active.md`が存在し、`## Task contract`に`Task type`が正確に1件記載されていなければならない。
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
@@ -29,8 +29,8 @@
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
 - scenario-test taskだけが`tests/scenarios/**`と`tests/results/**`を変更できる。
 - non-scenario taskのvalidation/deployment結果を`tests/results/**`へ保存しない。verification outputは原則として完了報告だけに記載する。
-- `tasks/<task-id>/`は`prompt.md`だけを置くtask contract directoryであり、evidence置場にしない。
-- scenario evidenceの過去版はGit履歴で追跡し、task ID別・timestamp別directoryを追加しない。
+- `tasks/active.md`は今回のtask contractだけを置き、次のtask開始時に上書きする。task履歴やevidenceを`tasks/`へ保存しない。
+- scenario evidenceの過去版はGit履歴で追跡し、実行別・timestamp別directoryを追加しない。
 
 ## 詳細ルール
 

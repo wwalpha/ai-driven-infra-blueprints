@@ -50,7 +50,7 @@
 
 - deploy 前の generated current value は `PENDING_DEPLOY` と表示する。
 - desired resource があるが current environment を teardown 済みの場合は `DeploymentState` などの row を `NOT_DEPLOYED` とする。historical physical ID を current ID として残さない。
-- deploy / apply 後は `PENDING_DEPLOY` を current value に置き換え、`Source / Comment` に task ID を記録する。
+- deploy / apply 後は `PENDING_DEPLOY` を current valueに置き換え、`Source / Comment`に更新根拠を記録する。
 - destroy後はcurrent physical valueを削除し、generated fieldを`PENDING_DEPLOY`に戻す。
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
 - 全候補 field を並べた mandatory な別 actual-values table は作らない。必要な actual は該当 resource/component table に置く。

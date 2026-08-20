@@ -4,7 +4,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 ## Initial setup
 
-1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineをまとめて確認する。
+1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを質問形式でまとめて確認する。
 2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成する。
 3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
@@ -16,7 +16,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
 - `project-topology.json`: Codexがinitialization時に生成するmachine-readable project topology
-- `tasks/<task-id>/prompt.md`: Codexが一つの独立taskを実行するためのtask contract
+- `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
 
 ## Context priority
 
@@ -111,7 +111,7 @@ prompts/
   codex/
     initialize-repository.md
 rules/
-tasks/<task-id>/prompt.md
+tasks/active.md
 materials/
   catalog.properties
   catalog.sha256
@@ -149,7 +149,7 @@ tests/
 - scenarioは`tests/scenarios/<scenario-id>/`に置き、stableなlower-kebab-case IDを使う。
 - current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/`に置く。
 - 同じscenario/environment/AWS accountの再実行では同じ`result.md`とstable evidence fileを更新する。
-- task ID別またはtimestamp別のresult directory/fileを作らない。
+- 実行別またはtimestamp別のresult directory/fileを作らない。
 - scenario変更時は既存resultを再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
 - scenario evidenceの過去版はGit履歴で追跡する。
 - scenario resultはcurrent actualの正本ではない。
@@ -161,7 +161,7 @@ tests/
 - provenanceと件数: `materials/catalog.properties`
 - file integrity: `materials/catalog.sha256`
 - check: `python3 scripts/update-catalog-lock.py`
-- authorized catalog maintenance後のlock更新: `python3 scripts/update-catalog-lock.py --write --task-id <task-id>`
+- authorized catalog maintenance後のlock更新: `python3 scripts/update-catalog-lock.py --write`
 
 通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
 
@@ -178,13 +178,13 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 
 - `docs/designs/**`
 - `llm/designs/**`
-- `tasks/<task-id>/**`
+- `tasks/active.md`
 ```
 
 local loop:
 
 ```bash
-bash scripts/blueprint-loop.sh --task-id <task-id> --mode local
+bash scripts/blueprint-loop.sh --mode local
 ```
 
 local loopはtask type、task scope、project topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

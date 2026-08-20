@@ -53,7 +53,6 @@ def replace_metadata(lines: list[str], values: dict[str, str]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true")
-    parser.add_argument("--task-id")
     args = parser.parse_args()
 
     files = catalog_files()
@@ -64,9 +63,6 @@ def main() -> int:
     }
 
     if args.write:
-        if not args.task_id:
-            parser.error("--task-id is required with --write")
-        values["catalog.lockUpdatedByTask"] = args.task_id
         MANIFEST.write_text(expected_manifest, encoding="utf-8")
         METADATA.write_text(replace_metadata(metadata_lines(), values), encoding="utf-8")
         print(f"catalog lock updated: {len(files)} files, {values['catalog.propertyCount']} properties")

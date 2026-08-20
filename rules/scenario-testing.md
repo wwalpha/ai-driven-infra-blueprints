@@ -10,7 +10,7 @@
 
 ## Scenario definition
 
-- scenario IDはstableなlower-kebab-caseとし、task IDを使用しない。
+- scenario IDはstableなlower-kebab-caseとする。
 - scenarioは`tests/scenarios/<scenario-id>/`に置く。
 - 各scenario directoryに`scenario.md`を置き、`- Scenario ID: <scenario-id>`を正確に1件記載する。
 - scenario definitionにはpurpose、prerequisites、required resources、expected behavior、execution procedure、pass/fail criteria、cleanup、AWS mutationの有無、destructive operationの有無を記載する。
@@ -23,7 +23,7 @@
 - current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/result.md`に置く。
 - AWS regionはdirectoryに追加せず、`project-topology.json`と一致する値をresult metadataに記録する。
 - 同じscopeの再実行では同じ`result.md`とaccount directory直下のstable evidence fileを更新する。
-- task ID別、execution date別、timestamp別のdirectoryまたはfileを追加しない。
+- execution date別、timestamp別のdirectoryまたはfileを追加しない。
 - account directory配下に追加directoryを作らない。
 - scenarioが存在しresultがまだない状態は許可する。対応scenarioがないorphan resultは禁止する。
 - 過去resultはGit履歴で追跡し、active treeにcopyやarchiveを残さない。
@@ -39,7 +39,6 @@
 - AWS region: `<region>`
 - Status: `<PASS|FAIL|BLOCKED|STALE|NOT_EXECUTED>`
 - Executed at: `<RFC 3339 timestamp or NOT_EXECUTED>`
-- Executed by task: `<task-id>`
 ```
 
 本文にはexpected behavior、actual behavior、executed command/procedure、evidence file一覧、cleanup result、blocker/failure reasonを記載する。

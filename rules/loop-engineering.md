@@ -16,7 +16,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 - active task promptと有効なTask typeが存在する
 - changed pathsがTask type boundaryとAllowed paths内にある
-- task directoryには`prompt.md`だけがある
+- `tasks/`には`active.md`だけがある
 - `materials/aws/`が`materials/catalog.sha256`と一致する
 - required directory/file structureが存在する
 - `project-topology.json`とenvironment/AWS account pathが一致する

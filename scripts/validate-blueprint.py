@@ -42,7 +42,6 @@ MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-TASK_ID_PATTERN = re.compile(r"task-[a-z0-9]+(?:-[a-z0-9]+)*")
 TASK_TYPES = {
     "initialization",
     "design",
@@ -60,14 +59,12 @@ RESULT_METADATA = (
     "AWS region",
     "Status",
     "Executed at",
-    "Executed by task",
 )
 
 
 class Validator:
-    def __init__(self, root: Path, task_id: str) -> None:
+    def __init__(self, root: Path) -> None:
         self.root = root
-        self.task_id = task_id
         self.errors: list[str] = []
         self.checks = 0
         self.changed_paths: set[str] = set()
@@ -88,7 +85,7 @@ class Validator:
     def run(self) -> int:
         self.check_structure()
         self.check_task_scope()
-        self.check_task_directories()
+        self.check_tasks()
         self.check_project_topology()
         self.check_initialized_paths()
         self.check_catalog()
@@ -106,7 +103,6 @@ class Validator:
             return 1
 
         print(f"Blueprint local loop: PASS ({self.checks} checks)")
-        print(f"- task: {self.task_id}")
         print(f"- task type: {self.task_type}")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
         print("- task scope, catalog integrity, design mirrors, IaC selection, and scenario/result structure: valid")
@@ -135,7 +131,7 @@ class Validator:
         return set(result.stdout.splitlines()) if result.returncode == 0 else set()
 
     def check_task_scope(self) -> None:
-        prompt = self.root / "tasks" / self.task_id / "prompt.md"
+        prompt = self.root / "tasks" / "active.md"
         self.check(prompt.is_file(), f"active task prompt missing: {self.relative(prompt)}")
         if not prompt.is_file():
             return
@@ -211,18 +207,15 @@ class Validator:
                 forbidden = self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
                 self.check(not forbidden, f"{self.task_type} task boundary violation: {changed}")
 
-    def check_task_directories(self) -> None:
+    def check_tasks(self) -> None:
         tasks = self.root / "tasks"
         if not tasks.is_dir():
             return
-        for entry in sorted(tasks.iterdir()):
-            self.check(entry.is_dir(), f"tasks root may contain only task directories: {self.relative(entry)}")
-            if not entry.is_dir():
-                continue
-            children = sorted(entry.iterdir())
-            self.check(bool(children), f"task directory is empty: {self.relative(entry)}")
-            for child in children:
-                self.check(child.is_file() and child.name == "prompt.md", f"task directory may contain only prompt.md: {self.relative(child)}")
+        entries = sorted(tasks.iterdir())
+        self.check(
+            len(entries) == 1 and entries[0].is_file() and entries[0].name == "active.md",
+            "tasks directory must contain only tasks/active.md",
+        )
 
     def check_project_topology(self) -> None:
         path = self.root / "project-topology.json"
@@ -497,7 +490,7 @@ class Validator:
             if not entry.is_dir():
                 continue
             scenario_id = entry.name
-            valid_id = LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None and not scenario_id.startswith("task-")
+            valid_id = LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None
             self.check(valid_id, f"invalid scenario ID: {scenario_id}")
             scenario_file = entry / "scenario.md"
             self.check(scenario_file.is_file(), f"scenario.md missing: {self.relative(entry)}")
@@ -543,9 +536,6 @@ class Validator:
                 self.check(executed_at != "NOT_EXECUTED", f"{status} result must have execution timestamp: {self.relative(path)}")
             if status == "NOT_EXECUTED":
                 self.check(executed_at == "NOT_EXECUTED", f"NOT_EXECUTED result must use NOT_EXECUTED timestamp: {self.relative(path)}")
-        if "Executed by task" in metadata:
-            self.check(TASK_ID_PATTERN.fullmatch(metadata["Executed by task"]) is not None, f"invalid Executed by task: {self.relative(path)}")
-
     def check_results(self) -> None:
         root = self.root / "tests" / "results"
         if not root.is_dir():
@@ -557,7 +547,6 @@ class Validator:
             if not scenario_entry.is_dir():
                 continue
             scenario_id = scenario_entry.name
-            self.check(not scenario_id.startswith("task-"), f"task-scoped result directory is forbidden: {self.relative(scenario_entry)}")
             self.check(LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None, f"invalid result scenario ID: {scenario_id}")
             scenario_file = self.root / "tests" / "scenarios" / scenario_id / "scenario.md"
             self.check(scenario_file.is_file(), f"orphan result without scenario: {self.relative(scenario_entry)}")
@@ -600,7 +589,6 @@ class Validator:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
-    parser.add_argument("--task-id", required=True)
     return parser.parse_args()
 
 
@@ -610,7 +598,7 @@ def main() -> int:
     if not (root / ".git").exists():
         print(f"repository root is invalid: {root}", file=sys.stderr)
         return 2
-    return Validator(root, args.task_id).run()
+    return Validator(root).run()
 
 
 if __name__ == "__main__":
