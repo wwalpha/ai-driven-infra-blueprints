@@ -21,7 +21,7 @@
 
 - result scopeはscenario ID、environment、AWS account IDの組み合わせとする。
 - current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/result.md`に置く。
-- AWS regionはdirectoryに追加せず、System Overviewと一致する値をresult metadataに記録する。
+- AWS regionはdirectoryに追加せず、`project-topology.json`と一致する値をresult metadataに記録する。
 - 同じscopeの再実行では同じ`result.md`とaccount directory直下のstable evidence fileを更新する。
 - task ID別、execution date別、timestamp別のdirectoryまたはfileを追加しない。
 - account directory配下に追加directoryを作らない。

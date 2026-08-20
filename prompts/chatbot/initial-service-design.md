@@ -5,8 +5,8 @@
 ## User input
 
 - Design target: `{{設計対象の機能またはservice}}`
-- Target environment: `{{System OverviewのEnvironment ID}}`
-- Target AWS account: `{{System Overviewの12桁AWS account ID。複数可}}`
+- Target environment: `{{project-topology.jsonのenvironment}}`
+- Target AWS account: `{{project-topology.jsonの12桁AWS account ID。複数可}}`
 - Candidate AWS services: `{{未定の場合は「未定」}}`
 - Expected design files: `{{未定の場合は「未定」}}`
 
@@ -21,16 +21,17 @@
 質問前と、user が「続き」「再開」と指示した時に、repository の最新情報を次の順で確認してください。
 
 1. `README.md`
-2. `docs/system-overview.md`
-3. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<resource-group>.md`
-4. 対象が依存または参照する他の `docs/designs/**/*.md`
-5. `rules/detailed-design.md`
-6. `rules/llm-design-information.md`
-7. 対象 service と必須前提 service に関係する `materials/aws/*.properties`
+2. `project-topology.json`
+3. `docs/system-overview.md`
+4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<resource-group>.md`
+5. 対象が依存または参照する他の `docs/designs/**/*.md`
+6. `rules/detailed-design.md`
+7. `rules/llm-design-information.md`
+8. 対象 service と必須前提 service に関係する `materials/aws/*.properties`
 
-`README.md` を repository 全体の指示、`docs/system-overview.md` を system 全体の前提として扱ってください。
+`README.md`をrepository全体の指示、`project-topology.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
-Target environment/AWS accountがSystem Overviewに存在しない場合は推測せず、正しいtargetの指定を求めてください。複数AWS accountが対象の場合は、各resourceの所有AWS accountとcross-account dependencyを先に確認してください。
+Target environment/AWS accountが`project-topology.json`に存在しない場合は推測せず、正しいtargetの指定を求めてください。複数AWS accountが対象の場合は、各resourceの所有AWS accountとcross-account dependencyを先に確認してください。
 
 既存詳細設計に記載済みの決定は再質問しないでください。system overview、既存設計、user 回答が矛盾する場合は推測せず、矛盾を説明してください。
 

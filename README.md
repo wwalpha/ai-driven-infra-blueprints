@@ -4,30 +4,32 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 ## Initial setup
 
-1. `docs/system-overview.md`にsystem全体の目的、capability、制約、必要な全environment/AWS accountを記入する。
-2. `prompts/codex/initialize-repository.md`を使い、System Overviewに定義したtarget pathだけを初期化する。
+1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineをまとめて確認する。
+2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成する。
 3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
-`docs/system-overview.md`がproject、environment、AWS account、region、IaC engineの単一正本です。environment名、environment数、AWS account数はblueprintで固定しません。System Overviewに`UNSET`が残る状態では初期化しません。
+`docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project-topology.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
 ## Repository instructions
 
 - `README.md`: repository全体の役割、情報優先順位、workflow
 - `prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
-- `prompts/codex/initialize-repository.md`: 完成済みSystem Overviewからrepositoryを初期化する指示
+- `prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
+- `project-topology.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/<task-id>/prompt.md`: Codexが一つの独立taskを実行するためのtask contract
 
 ## Context priority
 
 1. `README.md`
-2. `docs/system-overview.md`
-3. `docs/designs/**/*.md`
-4. taskに関係する`rules/*.md`
-5. taskに関係する`materials/aws/*.properties`
-6. `llm/designs/`と`llm/actuals/`
-7. userが明示的に許可した外部情報
+2. `project-topology.json`（存在する場合）
+3. `docs/system-overview.md`
+4. `docs/designs/**/*.md`
+5. taskに関係する`rules/*.md`
+6. taskに関係する`materials/aws/*.properties`
+7. `llm/designs/`と`llm/actuals/`
+8. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem全体とproject topologyの前提、`docs/designs/**/*.md`はenvironment/AWS account別resource groupの詳細設計の正本とする。矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project-topology.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別resource groupの詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -39,7 +41,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 
 許可するtask type:
 
-- `initialization`: 完成済みSystem Overviewからproject pathを初期化する。
+- `initialization`: 必要値をhumanへ確認し、project topologyとtarget pathを初期化する。
 - `design`: 詳細設計と対応するLLM design mirrorを更新し、local validation後に終了する。
 - `infrastructure`: 承認済みdesignをinputとしてIaCを変更し、安全確認、許可されたdeploy/apply、成功後のactuals更新までで終了する。
 - `scenario-test`: scenario、test implementation、実行、scenario-scoped current resultを更新して終了する。
@@ -53,7 +55,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 
 ### Human
 
-- system overviewを記入する
+- system overviewを必要に応じて記入する
 - Ask形式の質問へ回答し、設計判断を承認する
 - 実行するtask typeとscopeを決める
 - deploy/apply許可を明示する
@@ -102,6 +104,7 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 
 ```text
 AGENTS.md
+project-topology.json  # initialization後にCodexが生成
 prompts/
   chatbot/
     initial-service-design.md
@@ -184,4 +187,4 @@ local loop:
 bash scripts/blueprint-loop.sh --task-id <task-id> --mode local
 ```
 
-local loopはtask type、task scope、System Overview topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。
+local loopはtask type、task scope、project topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

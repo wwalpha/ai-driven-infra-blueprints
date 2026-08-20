@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import fnmatch
+import json
 import re
 import subprocess
 import sys
@@ -40,11 +41,6 @@ PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
 MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
-TOPOLOGY_HEADER = (
-    "| Environment ID | Environment name | Purpose | AWS account ID | "
-    "AWS account role | AWS region | IaC engine |"
-)
-TOPOLOGY_ALIGNMENT = "| --- | --- | --- | --- | --- | --- | --- |"
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 TASK_ID_PATTERN = re.compile(r"task-[a-z0-9]+(?:-[a-z0-9]+)*")
 TASK_TYPES = {
@@ -76,7 +72,6 @@ class Validator:
         self.checks = 0
         self.changed_paths: set[str] = set()
         self.task_type = ""
-        self.project_name = "UNSET"
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
@@ -94,7 +89,7 @@ class Validator:
         self.check_structure()
         self.check_task_scope()
         self.check_task_directories()
-        self.check_system_overview()
+        self.check_project_topology()
         self.check_initialized_paths()
         self.check_catalog()
         self.check_designs()
@@ -229,60 +224,62 @@ class Validator:
             for child in children:
                 self.check(child.is_file() and child.name == "prompt.md", f"task directory may contain only prompt.md: {self.relative(child)}")
 
-    @staticmethod
-    def table_cells(line: str) -> list[str]:
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        return [cell[1:-1] if len(cell) >= 2 and cell.startswith("`") and cell.endswith("`") else cell for cell in cells]
-
-    def check_system_overview(self) -> None:
-        path = self.root / "docs" / "system-overview.md"
-        if not path.is_file():
-            return
-        lines = path.read_text(encoding="utf-8").splitlines()
-
-        project_lines = [line for line in lines if line.startswith("- Project name:")]
-        self.check(len(project_lines) == 1, "System Overview must contain exactly one Project name")
-        if project_lines:
-            self.project_name = self.table_cells(project_lines[0].partition(":")[2].strip())[0]
-        self.template_mode = self.project_name in {"", "UNSET"}
-
-        header_indexes = [index for index, line in enumerate(lines) if line == TOPOLOGY_HEADER]
-        self.check(len(header_indexes) == 1, "System Overview must contain exactly one Environment topology table")
-        if not header_indexes:
-            return
-        index = header_indexes[0]
-        self.check(index + 1 < len(lines) and lines[index + 1] == TOPOLOGY_ALIGNMENT, "invalid Environment topology table alignment")
-        rows: list[list[str]] = []
-        for line in lines[index + 2 :]:
-            if not line.startswith("|"):
-                break
-            cells = self.table_cells(line)
-            self.check(len(cells) == 7, f"Environment topology row must have seven cells: {line}")
-            if len(cells) == 7:
-                rows.append(cells)
-        self.check(bool(rows), "Environment topology must contain at least one row")
+    def check_project_topology(self) -> None:
+        path = self.root / "project-topology.json"
+        self.template_mode = not path.is_file()
         if self.template_mode:
-            self.check(all(value == "UNSET" for row in rows for value in row), "template topology values must be UNSET")
             return
 
-        environment_details: dict[str, tuple[str, str]] = {}
-        for row in rows:
-            environment, name, purpose, account, role, region, engine = row
+        text = path.read_text(encoding="utf-8")
+        self.check(text.endswith("\n"), "project-topology.json must end with a newline")
+        try:
+            topology = json.loads(text)
+        except json.JSONDecodeError as error:
+            self.errors.append(f"invalid project-topology.json: {error}")
+            return
+
+        self.check(isinstance(topology, dict), "project-topology.json root must be an object")
+        if not isinstance(topology, dict):
+            return
+        self.check(set(topology) == {"projectName", "targets"}, "project-topology.json must contain only projectName and targets")
+
+        project_name = topology.get("projectName")
+        self.check(isinstance(project_name, str) and project_name not in {"", "UNSET"}, "projectName is required")
+
+        targets = topology.get("targets")
+        self.check(isinstance(targets, list) and bool(targets), "targets must be a non-empty array")
+        if not isinstance(targets, list):
+            return
+
+        order: list[tuple[str, str]] = []
+        required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
+        for index, target_values in enumerate(targets, 1):
+            self.check(isinstance(target_values, dict), f"target {index} must be an object")
+            if not isinstance(target_values, dict):
+                continue
+            self.check(set(target_values) == required, f"target {index} must contain only {sorted(required)}")
+            if not required <= set(target_values):
+                continue
+            values = [target_values[key] for key in required]
+            self.check(all(isinstance(value, str) for value in values), f"target {index} values must be strings")
+            if not all(isinstance(value, str) for value in values):
+                continue
+            environment = target_values["environment"]
+            account = target_values["awsAccountId"]
+            region = target_values["awsRegion"]
+            engine = target_values["iacEngine"]
             target = f"{environment}/{account}"
-            self.check("UNSET" not in row and all(row), f"initialized topology contains unset value: {target}")
+            self.check("UNSET" not in values and all(values), f"target contains unset value: {target}")
             self.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")
             self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account: {target}")
             self.check(region not in {"", "UNSET"}, f"AWS region is required: {target}")
             self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine: {target}")
-            previous = environment_details.setdefault(environment, (name, purpose))
-            self.check(previous == (name, purpose), f"inconsistent environment name or purpose: {environment}")
             key = (environment, account)
+            order.append(key)
             self.check(key not in self.accounts, f"duplicate AWS account in environment: {target}")
-            self.accounts[key] = {
-                "region": region,
-                "engine": engine,
-                "role": role,
-            }
+            if key not in self.accounts:
+                self.accounts[key] = {"region": region, "engine": engine}
+        self.check(order == sorted(order), "targets must be sorted by environment and AWS account ID")
 
     def check_initialized_paths(self) -> None:
         if self.template_mode:
@@ -329,7 +326,7 @@ class Validator:
         if len(parts) != 3:
             return None
         target = (parts[0], parts[1])
-        self.check(target in self.accounts, f"target is not defined in System Overview: {self.relative(path)}")
+        self.check(target in self.accounts, f"target is not defined in project-topology.json: {self.relative(path)}")
         return target
 
     def check_designs(self) -> None:
@@ -535,7 +532,7 @@ class Validator:
 
         target = (environment, account)
         if "AWS region" in metadata and target in self.accounts:
-            self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match System Overview: {self.relative(path)}")
+            self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match project-topology.json: {self.relative(path)}")
         if "Status" in metadata:
             status = metadata["Status"]
             self.check(status in RESULT_STATUSES, f"invalid result Status: {self.relative(path)}: {status}")
@@ -576,7 +573,7 @@ class Validator:
                     account = account_entry.name
                     self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid result AWS account ID: {self.relative(account_entry)}")
                     target = (environment, account)
-                    self.check(target in self.accounts, f"result target is not defined in System Overview: {self.relative(account_entry)}")
+                    self.check(target in self.accounts, f"result target is not defined in project-topology.json: {self.relative(account_entry)}")
                     self.check(not self.template_mode, f"template mode cannot contain scenario results: {self.relative(account_entry)}")
                     for child in sorted(account_entry.iterdir()):
                         self.check(child.is_file(), f"result account directory cannot contain subdirectories: {self.relative(child)}")

@@ -1,6 +1,8 @@
 # System Overview
 
-このfileはsystem全体とproject topologyのhuman-maintained source of truthです。分かる範囲を記入し、未決定事項は`UNSET`とする。
+このfileはsystem全体の背景を共有するためのhuman-maintained referenceです。分かる範囲を記入し、未決定事項は`UNSET`のままでよい。
+
+このfileの有無や`UNSET`はinitializationの入力条件ではなく、design、infrastructure、scenario-testの一律blockerでもない。各taskは、そのtaskで必要な情報だけを確認する。projectのmachine-readable topologyは、このfileとは独立してCodexが作成する`project-topology.json`で管理する。
 
 ## System identity
 
@@ -41,17 +43,11 @@
 
 `UNSET`
 
-## Environment topology
+## Environment and AWS account context
 
-必要なenvironmentとAWS accountを1行ずつ記載する。environment数、名前、AWS account数はsystemごとに決め、固定のsample構成を前提にしない。
+environmentの用途、AWS accountの役割、分離方針など、分かっている背景を記載する。正確なaccount ID、region、IaC engineが未決定でもよく、初期化設定の形式に合わせる必要はない。
 
-`Environment ID`はdirectory名として使用するlower-kebab-caseとする。AWS accountのdirectory名には、曖昧なaliasではなく12桁の`AWS account ID`を使用する。
-
-| Environment ID | Environment name | Purpose | AWS account ID | AWS account role | AWS region | IaC engine |
-| --- | --- | --- | --- | --- | --- | --- |
-| `UNSET` | `UNSET` | `UNSET` | `UNSET` | `UNSET` | `UNSET` | `UNSET` |
-
-project初期化前に全fieldを確定する。`IaC engine`は`cloudformation`または`terraform`とする。同じAWS accountを複数environmentで使用する場合もenvironmentごとに別行で明示する。
+`UNSET`
 
 ## Security and compliance
 

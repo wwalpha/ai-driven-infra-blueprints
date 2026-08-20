@@ -19,7 +19,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - task directoryには`prompt.md`だけがある
 - `materials/aws/`が`materials/catalog.sha256`と一致する
 - required directory/file structureが存在する
-- System Overviewのproject topologyとenvironment/AWS account pathが一致する
+- `project-topology.json`とenvironment/AWS account pathが一致する
 - resource design table、row numbering、relative link、explicit anchorが有効
 - design/LLM groupingとreferenceが一貫する
 - generated ARNが`llm/actuals/`に存在しない

@@ -9,7 +9,8 @@
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
 - 人間向けの現行設計は`docs/designs/<environment>/<aws-account-id>/`、機械可読な設計情報は`llm/designs/<environment>/<aws-account-id>/`、現行actual情報は`llm/actuals/<environment>/<aws-account-id>/`に置く。
-- project、environment、AWS account/region、IaC engineの正本は`docs/system-overview.md`とし、他のactive fileに同じ設定値を重複管理しない。
+- `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
+- initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project-topology.json`とする。
 - `materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
 - 変更前にactive promptとtask typeに関係する`rules/*.md`を読む。
 - 人間が決めていないresource選択やparameter値を推測しない。不足値は明示して停止する。
@@ -43,8 +44,9 @@
 
 ## Project configuration
 
-- 未設定の配布状態は`docs/system-overview.md`のproject topologyを`UNSET`のままにする。
-- humanがSystem Overviewを完成させた後、`prompts/codex/initialize-repository.md`を使ってprojectを初期化する。
+- 未初期化の配布状態では`project-topology.json`を置かない。
+- `docs/system-overview.md`の作成・記入状態に関係なく、`prompts/codex/initialize-repository.md`を使用できる。Codexが必要な確定値を質問し、`project-topology.json`とtarget pathを作成する。
 - environment数、environment名、AWS account数を固定しない。
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとする。
-- project初期化後に`UNSET`が残るtopologyや、設定と一致しないpath/IaC implementationはlocal loopを通さない。
+- humanへ`project-topology.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
+- `project-topology.json`と一致しないpath/IaC implementationはlocal loopを通さない。
