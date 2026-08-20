@@ -4,7 +4,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 ## Initial setup
 
-1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを質問形式でまとめて確認する。
+1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを一問一答で順番に確認する。
 2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成する。
 3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 

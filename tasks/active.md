@@ -1,9 +1,9 @@
-# Codex Task: Simplify active task contracts
+# Codex Task: Make initialization questions step-by-step
 
 ## Task contract
 
-- Task type: `migration`
-- Goal: use one fixed active task contract and remove identifier-based task storage and metadata
+- Task type: `governance`
+- Goal: collect repository initialization values through one question per response
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,16 +12,15 @@
 
 ## Required changes
 
-1. Use `tasks/active.md` as the only active task contract.
-2. Remove identifier fields, arguments, metadata, validation, and per-task directories.
-3. Keep Task type and Allowed paths as the task boundary.
-4. Do not retain legacy task prompts or add a task history mechanism.
-5. Keep scenario identity based on Scenario ID.
+1. Replace the batched initialization questionnaire with a one-question-at-a-time flow.
+2. Keep all answers in conversation context without questionnaire or session files.
+3. Confirm the collected topology before changing repository files.
 
 ## Allowed paths
 
 - `AGENTS.md`
 - `README.md`
+- `materials/catalog.properties`
 - `prompts/codex/initialize-repository.md`
 - `rules/detailed-design.md`
 - `rules/loop-engineering.md`
@@ -31,13 +30,9 @@
 - `scripts/update-catalog-lock.py`
 - `scripts/validate-blueprint.py`
 - `tasks/**`
-- `materials/catalog.properties`
 
 ## Verification
 
-- Run Python and shell syntax checks.
-- Run catalog integrity check.
-- Run the local loop using `tasks/active.md`.
-- Use temporary fixtures to verify active task validation and task boundary behavior.
+- Run the local loop.
 - Run `git diff --check`.
 - Do not call AWS APIs or save verification evidence in the repository.

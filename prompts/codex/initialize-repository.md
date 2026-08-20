@@ -6,21 +6,13 @@ humanへJSONの作成・編集を依頼してはいけない。質問、回答�
 
 ## First response
 
-prompt実行後の最初の応答ではfileを変更せず、次の形式でまとめて質問する。
+prompt実行後の最初の応答ではfileを変更せず、Project nameだけを質問する。
 
 ```text
-repository初期化に必要な情報をまとめて回答してください。
+repository初期化を始めます。
 
-1. Project name
-2. EnvironmentとAWS account
-
-| Environment ID | AWS account ID | AWS region | IaC engine |
-| --- | --- | --- | --- |
-| 例ではなく実値を入力 | 12桁 | 例: ap-northeast-1 | cloudformation または terraform |
-
-- EnvironmentまたはAWS accountが複数ある場合は行を追加してください。
-- 1つのenvironmentに複数AWS accountを指定できます。
-- 分からない項目がある場合は、その項目を「不明」としてください。
+Step 1: Project
+Project nameを入力してください。
 ```
 
 ## Read first
@@ -36,17 +28,24 @@ repository初期化に必要な情報をまとめて回答してください。
 
 ## Collect required values
 
-First responseで次を一つのbatchとして確認する。
+次の順序で、一回の応答につき一つだけ質問する。複数の質問、質問一覧、入力tableを一度に提示しない。
 
 1. Project name
-2. 使用する全Environment ID
-3. 各environmentで使用する全AWS account ID
-4. 各environment/AWS accountのAWS region
-5. 各environment/AWS accountのIaC engine
+2. Environment IDを一つ確認し、別のenvironmentを追加するか確認する。追加がなくなるまで繰り返す
+3. 各environmentについてAWS account IDを一つ確認し、同じenvironmentへ別のaccountを追加するか確認する。追加がなくなるまで繰り返す
+4. 各environment/AWS accountについてAWS regionを一つずつ確認する
+5. 各environment/AWS accountについてIaC engineを一つずつ確認する
 
 Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
-質問票、回答履歴、session state fileを作成しない。回答に不足や矛盾がある場合だけ、未解決項目をまとめて再質問する。値を推測しない。
+- 回答を受けるたびに形式と既存回答との矛盾を確認してから次へ進む。
+- 不正または不明な回答は理由を短く説明し、同じ項目だけを再質問する。
+- humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。
+- humanが修正を求めた場合は該当値を更新し、依存する未解決項目へ戻る。
+- 質問票、回答履歴、session state fileを作成せず、進行中の回答はconversation contextだけで保持する。
+- 値を推測しない。
+
+すべての値が揃ったら、projectと全targetを一覧で提示し、repositoryを初期化してよいか一つだけ確認する。humanが明示的に承認するまでfileを変更しない。
 
 ## Validate answers
 
