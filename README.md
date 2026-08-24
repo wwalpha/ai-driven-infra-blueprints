@@ -5,7 +5,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 ## Initial setup
 
 1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを一問一答で順番に確認する。
-2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成する。
+2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
 3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project-topology.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
@@ -123,9 +123,11 @@ llm/
   designs/<environment>/<aws-account-id>/
   actuals/<environment>/<aws-account-id>/
 infra/
-  cloudformation/templates/
-  cloudformation/parameters/<environment>/<aws-account-id>/
-  terraform/environments/<environment>/<aws-account-id>/
+  cloudformation/  # CloudFormationを選択したtargetがある場合だけ
+    templates/
+    parameters/<environment>/<aws-account-id>/
+  terraform/  # Terraformを選択したtargetがある場合だけ
+    environments/<environment>/<aws-account-id>/
 scripts/
   blueprint-loop.sh
   update-catalog-lock.py

@@ -71,7 +71,7 @@ file変更前に次を確認する。
 
 - goalは確認済みproject topologyとtarget pathの初期化だけとする
 - AWS mutation、AWS API、deploy、applyは禁止する
-- allowed pathsは`project-topology.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、`tasks/active.md`に限定する
+- allowed pathsは`project-topology.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない
 
@@ -117,12 +117,20 @@ IaC engineが`terraform`の場合:
 infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 ```
 
+全targetの`iacEngine`を確認し、1件も選択されていないIaC engineのrootを削除する。
+
+- CloudFormationを選択したtargetがなければ`infra/cloudformation/`を削除する。
+- Terraformを選択したtargetがなければ`infra/terraform/`を削除する。
+- 両方が選択されている場合だけ両方のrootを残す。
+- 削除対象に`.gitkeep`以外のfileがある場合は、既存implementationとして削除せず停止する。
+
 ## Do not create
 
 - 空の詳細設計Markdown
 - 空のLLM design properties
 - CloudFormation template
 - Terraform module、resource、provider、state設定
+- 全targetで未選択のIaC engine directory
 - questionnaire、回答履歴、session state
 - sample environment、sample AWS account
 - scenario、scenario result、general task evidence

@@ -26,9 +26,7 @@ REQUIRED_DIRECTORIES = (
     "docs/designs",
     "llm/designs",
     "llm/actuals",
-    "infra/cloudformation/templates",
-    "infra/cloudformation/parameters",
-    "infra/terraform",
+    "infra",
     "tasks",
     "tests/scenarios",
     "tests/results",
@@ -423,15 +421,19 @@ class Validator:
     def check_iac_selection(self) -> None:
         active_engines = {values["engine"] for values in self.accounts.values()}
         for engine in ("cloudformation", "terraform"):
+            engine_root = self.root / "infra" / engine
             files = [
                 path
-                for path in (self.root / "infra" / engine).rglob("*")
+                for path in engine_root.rglob("*")
                 if path.is_file() and not path.name.startswith(".")
             ]
             if self.template_mode:
+                self.check(engine_root.is_dir(), f"template IaC engine directory missing: {engine}")
                 self.check(not files, f"template mode contains {engine} implementation")
-            elif engine not in active_engines:
-                self.check(not files, f"unselected IaC engine contains implementation: {engine}")
+            elif engine in active_engines:
+                self.check(engine_root.is_dir(), f"selected IaC engine directory missing: {engine}")
+            else:
+                self.check(not engine_root.exists(), f"unselected IaC engine directory remains: {engine}")
 
         cloudformation_base = self.root / "infra" / "cloudformation" / "parameters"
         for path in cloudformation_base.rglob("*"):

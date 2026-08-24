@@ -1,9 +1,9 @@
-# Codex Task: Make initialization questions step-by-step
+# Codex Task: Remove globally unselected IaC engine directories
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: collect repository initialization values through one question per response
+- Goal: keep only IaC engine directories selected by the confirmed project topology after initialization
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,27 +12,21 @@
 
 ## Required changes
 
-1. Replace the batched initialization questionnaire with a one-question-at-a-time flow.
-2. Keep all answers in conversation context without questionnaire or session files.
-3. Confirm the collected topology before changing repository files.
+1. Remove an IaC engine root during initialization when no confirmed target selects that engine.
+2. Keep both engine roots only when the confirmed topology selects both engines.
+3. Make the local validator reject globally unselected IaC engine directories after initialization.
 
 ## Allowed paths
 
-- `AGENTS.md`
 - `README.md`
-- `materials/catalog.properties`
 - `prompts/codex/initialize-repository.md`
-- `rules/detailed-design.md`
-- `rules/loop-engineering.md`
-- `rules/post-deploy-actuals.md`
-- `rules/scenario-testing.md`
-- `scripts/blueprint-loop.sh`
-- `scripts/update-catalog-lock.py`
 - `scripts/validate-blueprint.py`
-- `tasks/**`
+- `tasks/active.md`
 
 ## Verification
 
 - Run the local loop.
+- Run focused initialized-topology checks for CloudFormation-only, Terraform-only, and mixed selections.
+- Run `python3 -m py_compile scripts/validate-blueprint.py`.
 - Run `git diff --check`.
 - Do not call AWS APIs or save verification evidence in the repository.
