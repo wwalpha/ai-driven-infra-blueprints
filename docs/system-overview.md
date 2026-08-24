@@ -2,7 +2,7 @@
 
 このfileはsystem全体の背景を共有するためのhuman-maintained referenceです。分かる範囲を記入し、未決定事項は`UNSET`のままでよい。
 
-このfileの有無や`UNSET`はinitializationの入力条件ではなく、design、infrastructure、scenario-testの一律blockerでもない。各taskは、そのtaskで必要な情報だけを確認する。projectのmachine-readable topologyは、このfileとは独立してCodexが作成する`project-topology.json`で管理する。
+このfileの有無や`UNSET`はinitializationの入力条件ではなく、design、infrastructure、scenario-testの一律blockerでもない。各taskは、そのtaskで必要な情報だけを確認する。projectのmachine-readable topologyは、このfileとは独立してCodexが作成する`project.json`で管理する。
 
 ## System identity
 

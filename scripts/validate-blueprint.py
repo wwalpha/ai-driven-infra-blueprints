@@ -243,23 +243,23 @@ class Validator:
         )
 
     def check_project_topology(self) -> None:
-        path = self.root / "project-topology.json"
+        path = self.root / "project.json"
         self.template_mode = not path.is_file()
         if self.template_mode:
             return
 
         text = path.read_text(encoding="utf-8")
-        self.check(text.endswith("\n"), "project-topology.json must end with a newline")
+        self.check(text.endswith("\n"), "project.json must end with a newline")
         try:
             topology = json.loads(text)
         except json.JSONDecodeError as error:
-            self.errors.append(f"invalid project-topology.json: {error}")
+            self.errors.append(f"invalid project.json: {error}")
             return
 
-        self.check(isinstance(topology, dict), "project-topology.json root must be an object")
+        self.check(isinstance(topology, dict), "project.json root must be an object")
         if not isinstance(topology, dict):
             return
-        self.check(set(topology) == {"projectName", "targets"}, "project-topology.json must contain only projectName and targets")
+        self.check(set(topology) == {"projectName", "targets"}, "project.json must contain only projectName and targets")
 
         project_name = topology.get("projectName")
         self.check(isinstance(project_name, str) and project_name not in {"", "UNSET"}, "projectName is required")
@@ -344,7 +344,7 @@ class Validator:
         if len(parts) != 3:
             return None
         target = (parts[0], parts[1])
-        self.check(target in self.accounts, f"target is not defined in project-topology.json: {self.relative(path)}")
+        self.check(target in self.accounts, f"target is not defined in project.json: {self.relative(path)}")
         return target
 
     def check_designs(self) -> None:
@@ -818,7 +818,7 @@ class Validator:
 
         target = (environment, account)
         if "AWS region" in metadata and target in self.accounts:
-            self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match project-topology.json: {self.relative(path)}")
+            self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match project.json: {self.relative(path)}")
         if "Status" in metadata:
             status = metadata["Status"]
             self.check(status in RESULT_STATUSES, f"invalid result Status: {self.relative(path)}: {status}")
@@ -855,7 +855,7 @@ class Validator:
                     account = account_entry.name
                     self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid result AWS account ID: {self.relative(account_entry)}")
                     target = (environment, account)
-                    self.check(target in self.accounts, f"result target is not defined in project-topology.json: {self.relative(account_entry)}")
+                    self.check(target in self.accounts, f"result target is not defined in project.json: {self.relative(account_entry)}")
                     self.check(not self.template_mode, f"template mode cannot contain scenario results: {self.relative(account_entry)}")
                     for child in sorted(account_entry.iterdir()):
                         self.check(child.is_file(), f"result account directory cannot contain subdirectories: {self.relative(child)}")

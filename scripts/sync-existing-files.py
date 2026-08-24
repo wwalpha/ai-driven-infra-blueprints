@@ -12,7 +12,11 @@ from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TARGET_ROOT = SOURCE_ROOT.parent / "viewcard-code"
-PROTECTED_PATHS = {Path("tasks/active.md")}
+PROTECTED_PATHS = {
+    Path("scripts/sync-existing-files.py"),
+    Path("tasks/active.md"),
+}
+NEW_FILE_ROOTS = {"copilot", "materials", "prompts", "rules", "scripts"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,36 +49,57 @@ def main() -> int:
     args = parse_args()
     try:
         target = resolve_target(args.target)
-        changed: list[tuple[Path, Path, Path]] = []
+        changed: list[tuple[Path, Path, Path, bool]] = []
         unchanged = missing = protected = 0
 
         for source_file in SOURCE_ROOT.rglob("*"):
             relative = source_file.relative_to(SOURCE_ROOT)
-            if ".git" in relative.parts or not source_file.is_file():
+            if (
+                ".git" in relative.parts
+                or "__pycache__" in relative.parts
+                or source_file.suffix in {".pyc", ".pyo"}
+                or not source_file.is_file()
+            ):
                 continue
             if relative in PROTECTED_PATHS:
                 protected += 1
                 continue
 
             target_file = target / relative
-            if not target_file.exists() or not target_file.is_file():
-                missing += 1
+            resolved_target_file = target_file.resolve(strict=False)
+            if target not in resolved_target_file.parents:
+                raise ValueError(f"Target path escapes the repository: {relative}")
+            if not target_file.exists():
+                if relative.parts[0] in NEW_FILE_ROOTS:
+                    changed.append((relative, source_file, target_file, True))
+                else:
+                    missing += 1
                 continue
+            if not target_file.is_file():
+                raise ValueError(f"Target path is not a file: {relative}")
             if source_file.is_symlink() or target_file.is_symlink():
                 raise ValueError(f"Symbolic links are not supported: {relative}")
             if filecmp.cmp(source_file, target_file, shallow=False):
                 unchanged += 1
                 continue
-            changed.append((relative, source_file, target_file))
+            changed.append((relative, source_file, target_file, False))
 
-        action = "WOULD COPY" if args.dry_run else "COPIED"
-        for relative, source_file, target_file in changed:
+        copied = added = 0
+        for relative, source_file, target_file, is_new in changed:
             if not args.dry_run:
+                target_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, target_file)
+            if is_new:
+                added += 1
+                action = "WOULD ADD" if args.dry_run else "ADDED"
+            else:
+                copied += 1
+                action = "WOULD COPY" if args.dry_run else "COPIED"
             print(f"{action}: {relative.as_posix()}")
 
         print(
-            f"Summary: copied={0 if args.dry_run else len(changed)} "
+            f"Summary: copied={0 if args.dry_run else copied} "
+            f"added={0 if args.dry_run else added} "
             f"pending={len(changed) if args.dry_run else 0} unchanged={unchanged} "
             f"missing_in_target={missing} protected={protected}"
         )

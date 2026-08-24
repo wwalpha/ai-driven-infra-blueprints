@@ -1,6 +1,6 @@
 # Repository Initialization Prompt
 
-このpromptは、Codexが初期化に必要な確定値をhumanへ確認し、`project-topology.json`とtarget pathを作成するために使用する。`docs/system-overview.md`の作成・記入状態を前提にしない。
+このpromptは、Codexが初期化に必要な確定値をhumanへ確認し、`project.json`とtarget pathを作成するために使用する。`docs/system-overview.md`の作成・記入状態を前提にしない。
 
 humanへJSONの作成・編集を依頼してはいけない。質問、回答、正規化、file作成はこのinitialization task内で完結させる。
 
@@ -19,12 +19,12 @@ Project nameを入力してください。
 
 1. `AGENTS.md`
 2. `README.md`
-3. 既存の`project-topology.json`（存在する場合）
+3. 既存の`project.json`（存在する場合）
 4. `rules/loop-engineering.md`
 
 ## Stop before reinitialization
 
-`project-topology.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、topology変更には別のmigration taskが必要であることを報告して停止する。
+`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、topology変更には別のmigration taskが必要であることを報告して停止する。
 
 ## Collect required values
 
@@ -71,13 +71,13 @@ file変更前に次を確認する。
 
 - goalは確認済みproject topologyとtarget pathの初期化だけとする
 - AWS mutation、AWS API、deploy、applyは禁止する
-- allowed pathsは`project-topology.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
+- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない
 
 ## Create project topology
 
-humanが確認した値からrepository rootに`project-topology.json`を作成する。UTF-8、2-space indentation、final newlineを使用し、targetはenvironment、AWS account IDの順に並べる。
+humanが確認した値からrepository rootに`project.json`を作成する。UTF-8、2-space indentation、final newlineを使用し、targetはenvironment、AWS account IDの順に並べる。
 
 ```json
 {

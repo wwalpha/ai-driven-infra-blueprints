@@ -5,15 +5,15 @@
 ## User input
 
 - Scenario ID: `{{lower-kebab-case ID}}`
-- Target environment: `{{project-topology.jsonのenvironment}}`
-- Target AWS account: `{{project-topology.jsonの12桁AWS account ID}}`
+- Target environment: `{{project.jsonのenvironment}}`
+- Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Expected behavior: `{{検証するapplication behavior}}`
 - AWS mutation: `forbidden`
 - Destructive operation: `forbidden`
 
 ## Resolve missing input
 
-placeholder、空、不明な必須inputは、Scenario ID、Target environment、Target AWS account、Expected behaviorの順で一回の応答につき一つだけ質問する。environmentとaccountは`project-topology.json`に存在する候補だけを提示し、自動選択しない。
+placeholder、空、不明な必須inputは、Scenario ID、Target environment、Target AWS account、Expected behaviorの順で一回の応答につき一つだけ質問する。environmentとaccountは`project.json`に存在する候補だけを提示し、自動選択しない。
 
 AWS mutationまたはdestructive operationが必要なscenarioは、対象operation、resource、cleanup、許可範囲がUser inputに明記されるまで実行しない。
 
@@ -21,7 +21,7 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 
 1. `AGENTS.md`
 2. `README.md`
-3. `project-topology.json`
+3. `project.json`
 4. `rules/scenario-testing.md`
 5. `rules/loop-engineering.md`
 6. 対象の`tests/scenarios/<scenario-id>/`

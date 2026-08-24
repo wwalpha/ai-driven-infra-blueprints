@@ -38,7 +38,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
-- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project-topology.json`、`docs/system-overview.md`、active task、`llm/actuals/**`の該当する正本を参照する。
+- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`llm/actuals/**`の該当する正本を参照する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
 - 対象外事項はactive taskまたはchatの完了報告だけに記載する。

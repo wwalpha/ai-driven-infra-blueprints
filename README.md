@@ -5,10 +5,10 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 ## Initial setup
 
 1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを一問一答で順番に確認する。
-2. Codexが回答から`project-topology.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
+2. Codexが回答から`project.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
 3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
-`docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project-topology.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
+`docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
 ## Repository instructions
 
@@ -18,13 +18,13 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、deterministic preflight、安全確認、許可されたdeploy/apply、deploy完了確認を実行する指示
 - `prompts/codex/run-scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
-- `project-topology.json`: Codexがinitialization時に生成するmachine-readable project topology
+- `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
 
 ## Context priority
 
 1. `README.md`
-2. `project-topology.json`（存在する場合）
+2. `project.json`（存在する場合）
 3. `docs/system-overview.md`
 4. `docs/designs/**/*.md`
 5. taskに関係する`rules/*.md`
@@ -32,7 +32,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 7. `llm/designs/`と`llm/actuals/`
 8. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem背景のreference、`project-topology.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -109,7 +109,7 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 
 ```text
 AGENTS.md
-project-topology.json  # initialization後にCodexが生成
+project.json  # initialization後にCodexが生成
 prompts/
   chatbot/
     initial-service-design.md

@@ -21,7 +21,7 @@ OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command�
 - `tasks/`には`active.md`だけがある
 - `materials/aws/`が`materials/catalog.sha256`と一致する
 - required directory/file structureが存在する
-- `project-topology.json`とenvironment/AWS account pathが一致する
+- `project.json`とenvironment/AWS account pathが一致する
 - `rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
 - service ownership、Markdown/LLM service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない

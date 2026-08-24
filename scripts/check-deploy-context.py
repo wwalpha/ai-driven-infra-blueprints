@@ -20,17 +20,17 @@ def load_target(root: Path, environment: str, account_id: str) -> dict[str, str]
     if not re.fullmatch(r"\d{12}", account_id):
         raise DeployContextError("AWS account ID must be 12 digits")
 
-    path = root / "project-topology.json"
+    path = root / "project.json"
     try:
         topology = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
-        raise DeployContextError("project-topology.json is missing") from error
+        raise DeployContextError("project.json is missing") from error
     except json.JSONDecodeError as error:
-        raise DeployContextError(f"project-topology.json is invalid: {error}") from error
+        raise DeployContextError(f"project.json is invalid: {error}") from error
 
     targets = topology.get("targets") if isinstance(topology, dict) else None
     if not isinstance(targets, list):
-        raise DeployContextError("project-topology.json targets must be an array")
+        raise DeployContextError("project.json targets must be an array")
 
     matches = [
         target

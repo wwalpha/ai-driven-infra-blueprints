@@ -21,7 +21,7 @@ SPEC.loader.exec_module(MODULE)
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        (root / "project-topology.json").write_text(
+        (root / "project.json").write_text(
             json.dumps(
                 {
                     "projectName": "test",

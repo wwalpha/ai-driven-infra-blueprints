@@ -1,11 +1,11 @@
 # Infrastructure Implementation and Deployment Prompt
 
-このpromptは、承認済みの詳細設計を`project-topology.json`で選択済みのCloudFormationまたはTerraformへ変換し、安全確認、許可されたdeploy/apply、deploy完了確認までを一つの`infrastructure` taskで実行するために使用する。application behaviorの検証は別の`scenario-test` taskで行う。
+このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、安全確認、許可されたdeploy/apply、deploy完了確認までを一つの`infrastructure` taskで実行するために使用する。application behaviorの検証は別の`scenario-test` taskで行う。
 
 ## User input
 
-- Target environment: `{{project-topology.jsonのenvironment}}`
-- Target AWS account: `{{project-topology.jsonの12桁AWS account ID}}`
+- Target environment: `{{project.jsonのenvironment}}`
+- Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Implementation scope: `{{対象の詳細設計fileまたはresource group。複数可。「対象accountの承認済み設計すべて」も可}}`
 - Deploy/apply: `{{allowedまたはforbidden}}`
 - Authorized delete/replacement: `none`
@@ -20,18 +20,18 @@ fileを変更する前にUser inputを確認する。placeholder、空、不明�
 3. Implementation scope
 4. Deploy/apply
 
-environmentとAWS accountは`project-topology.json`に存在する候補だけを提示し、自動選択しない。Deploy/applyは`allowed`が明示された場合だけ許可し、それ以外は`forbidden`とする。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。
+environmentとAWS accountは`project.json`に存在する候補だけを提示し、自動選択しない。Deploy/applyは`allowed`が明示された場合だけ許可し、それ以外は`forbidden`とする。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。
 
 AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
 
-`project-topology.json`、対象の承認済み詳細設計、または対応するLLM designが存在しない場合は、値を推測せず停止する。
+`project.json`、対象の承認済み詳細設計、または対応するLLM designが存在しない場合は、値を推測せず停止する。
 
 ## Read before changing files
 
 1. `AGENTS.md`
 2. `README.md`
 3. `tasks/active.md`
-4. `project-topology.json`
+4. `project.json`
 5. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`
 6. 対応する`llm/designs/<environment>/<aws-account-id>/*.properties`
 7. `rules/detailed-design.md`

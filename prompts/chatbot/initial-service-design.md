@@ -5,8 +5,8 @@
 ## User input
 
 - Design target: `{{設計対象の機能またはservice}}`
-- Target environment: `{{project-topology.jsonのenvironment}}`
-- Target AWS account: `{{project-topology.jsonの12桁AWS account ID。複数可}}`
+- Target environment: `{{project.jsonのenvironment}}`
+- Target AWS account: `{{project.jsonの12桁AWS account ID。複数可}}`
 - Candidate AWS services: `{{未定の場合は「未定」}}`
 - Expected design files: `{{未定の場合は「未定」}}`
 
@@ -17,12 +17,12 @@ designに関する質問を始める前に、User inputを確認する。placeho
 次の必須inputを順番に確認する。
 
 1. Design targetがmissingの場合は、設計したい機能またはserviceを質問する。
-2. Target environmentがmissingの場合は、`project-topology.json`に存在するEnvironment IDを提示して選択を求める。
+2. Target environmentがmissingの場合は、`project.json`に存在するEnvironment IDを提示して選択を求める。
 3. Target AWS accountがmissingの場合は、選択済みenvironmentに存在するAWS account IDを提示して選択を求める。複数選択を許可する。
 
-missing inputの確認中は、一回の応答につき一つだけ質問する。候補が一つしかない場合も自動決定せず、候補を示して確認する。指定値が`project-topology.json`に存在しない場合も、正しい候補を提示して同じ項目だけを再質問する。
+missing inputの確認中は、一回の応答につき一つだけ質問する。候補が一つしかない場合も自動決定せず、候補を示して確認する。指定値が`project.json`に存在しない場合も、正しい候補を提示して同じ項目だけを再質問する。
 
-`project-topology.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
+`project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
 
 Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
 
@@ -41,7 +41,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 質問前と、user が「続き」「再開」と指示した時に、repository の最新情報を次の順で確認してください。
 
 1. `README.md`
-2. `project-topology.json`
+2. `project.json`
 3. `docs/system-overview.md`
 4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
@@ -49,7 +49,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 7. `rules/llm-design-information.md`
 8. 対象 service と必須前提 service に関係する `materials/aws/*.properties`
 
-`README.md`をrepository全体の指示、`project-topology.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
+`README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
 複数AWS accountが対象の場合は、各resourceの所有AWS accountとcross-account dependencyを先に確認してください。
 
