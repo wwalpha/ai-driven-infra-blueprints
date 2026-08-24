@@ -12,6 +12,8 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Local loop
 
+OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
+
 各coherent logical change後に次を決定的に確認する。
 
 - active task promptと有効なTask typeが存在する

@@ -139,6 +139,7 @@ class Validator:
             "prompts/codex/initialize-repository.md",
             "prompts/codex/implement-infrastructure.md",
             "prompts/codex/run-scenario-test.md",
+            "scripts/blueprint-loop.py",
             "scripts/check-deploy-context.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")

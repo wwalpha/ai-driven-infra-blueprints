@@ -60,7 +60,7 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定しない。repository rootから次を実行する。AWS profileが空の場合は`--profile`を省略する。
 
 ```text
-python3 scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
+python scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
 scriptが終了code 0を返した場合だけ、出力されたregionとIaC engineを使用して続行する。失敗時は推測、credential切替、account変更、check bypassを行わず、scriptの理由を簡潔に報告して停止する。secretやcredential値を表示または保存しない。
@@ -131,7 +131,7 @@ deploy完了status、resource存在、actual収集をapplication behaviorの検�
 ## Verify and finish
 
 1. 選択済みIaCのsyntax/static validationを再確認する。
-2. `bash scripts/blueprint-loop.sh --mode local`
+2. `python scripts/blueprint-loop.py --mode local`
 3. `git diff --check`
 
 target、account、region、engine、preflight結果、変更file、deployment unitとdependency順、plan/change set summary、deploy完了status、actual更新、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。

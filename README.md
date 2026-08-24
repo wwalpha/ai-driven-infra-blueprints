@@ -136,7 +136,7 @@ infra/
   terraform/  # Terraformを選択したtargetがある場合だけ
     environments/<environment>/<aws-account-id>/
 scripts/
-  blueprint-loop.sh
+  blueprint-loop.py
   check-deploy-context.py
   update-catalog-lock.py
   validate-blueprint.py
@@ -174,8 +174,8 @@ tests/
 
 - provenanceと件数: `materials/catalog.properties`
 - file integrity: `materials/catalog.sha256`
-- check: `python3 scripts/update-catalog-lock.py`
-- authorized catalog maintenance後のlock更新: `python3 scripts/update-catalog-lock.py --write`
+- check: `python scripts/update-catalog-lock.py`
+- authorized catalog maintenance後のlock更新: `python scripts/update-catalog-lock.py --write`
 
 通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
 
@@ -197,8 +197,10 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 
 local loop:
 
-```bash
-bash scripts/blueprint-loop.sh --mode local
+```console
+python scripts/blueprint-loop.py --mode local
 ```
+
+command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
 local loopはtask type、task scope、project topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

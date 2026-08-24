@@ -143,9 +143,8 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 
 ## Verify and finish
 
-1. `bash scripts/blueprint-loop.sh --mode local`
-2. `python3 -m py_compile scripts/validate-blueprint.py`
-3. `bash -n scripts/blueprint-loop.sh`
-4. `git diff --check`
+1. `python scripts/blueprint-loop.py --mode local`
+2. `python -m py_compile scripts/blueprint-loop.py scripts/validate-blueprint.py`
+3. `git diff --check`
 
 validation結果、作成したtopology、作成path、既存のため変更しなかったpath、blockerはCodexの完了報告だけに記載する。repositoryへverification resultを保存しない。初期化完了後にdesign task、infrastructure task、scenario-test taskを作成または実行しない。

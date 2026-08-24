@@ -50,7 +50,7 @@ failure時もdesign変更、IaC修正、redeploy、別task作成を行わない�
 
 ## Verify and finish
 
-1. `bash scripts/blueprint-loop.sh --mode local`
+1. `python scripts/blueprint-loop.py --mode local`
 2. `git diff --check`
 
 scenario ID、target、実行手順、status、expected/actual behavior、evidence、cleanup、blockerを完了報告に記載する。
