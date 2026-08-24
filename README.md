@@ -82,7 +82,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 4. 必須判断が揃ったら、完成形の詳細設計Markdownをfile単位で出力する。
 5. design taskで`docs/designs/**`と対応する`llm/designs/**`を更新し、local validation後に終了する。
 
-design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
+chatの完了報告と保存対象Markdownは分離します。保存対象Markdownの正本形式は`rules/detailed-design.md`に従い、topology/state metadata、design decisions、out-of-scope、generated-values sectionを含めません。design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
 
 ## Post-design SDD
 
@@ -149,10 +149,12 @@ tests/
 
 - `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
 - `llm/designs/<environment>/<aws-account-id>/`は同じintended designのmachine-readable mirror。
-- 一つのMarkdownとproperties pairは一つのAWS service boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
+- 一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
 - service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとLLM stable logical referenceで表す。
+- topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`rules/detailed-design.md`を正本とする。
 - `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のcurrent actual情報。
-- generated current valueはdeploy前に`PENDING_DEPLOY`、teardown後は`NOT_DEPLOYED`とする。
+- 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
+- `llm/designs/**`はintended designとstable referenceだけを保持し、machine-readable current IDは`llm/actuals/**`へ置く。
 - generated ARNはcurrent actualとして保存しない。
 
 ## Scenario evidence

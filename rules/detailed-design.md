@@ -6,13 +6,14 @@
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
-## AWS service boundary
+## AWS service ownership boundary
 
-詳細設計のfile grouping unitはAWS service boundaryとする。一つのdesign fileは一つのAWS service boundaryだけを所有する。
+詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのdesign fileは一つのAWS serviceだけを所有する。
 
 - fileは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に置く。
 - Service IDはlower-kebab-caseとし、file stemおよび対応する`llm/designs/<environment>/<aws-account-id>/<service-id>.properties`と一致させる。
 - 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
+- 運用上関連するだけの別AWS serviceを同じfileへ入れない。CloudFormation resource namespaceだけでgroupingを決めない。
 - child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
 - IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
@@ -21,7 +22,7 @@
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
 
-各Markdownには次を正確に1件ずつ記載する。
+generic validatorがservice ownershipを判断するため、各Markdownには次のmachine-readable service metadataだけを正確に1件ずつ記載する。
 
 ```md
 - Design service ID: `vpc`
@@ -30,6 +31,16 @@
 
 - Owned catalog resource typesには`materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
 - 同じenvironment/AWS account内で同じcatalog resource typeを複数service fileが所有してはいけない。
+
+## Markdown structure
+
+保存対象Markdownは、原則としてH1 title、service metadata、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+
+- catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
+- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project-topology.json`、`docs/system-overview.md`、active task、`llm/actuals/**`の該当する正本を参照する。
+- `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
+- 確定済みの設計値は該当resource/component tableへ記載する。
+- 対象外事項はactive taskまたはchatの完了報告だけに記載する。
 
 ## Resource-detail table
 
@@ -60,9 +71,12 @@
 
 ## Generated values and deployment state
 
-- deploy 前の generated current value は `PENDING_DEPLOY` と表示する。
-- desired resource があるが current environment を teardown 済みの場合は `DeploymentState` などの row を `NOT_DEPLOYED` とする。historical physical ID を current ID として残さない。
-- deploy / apply 後は `PENDING_DEPLOY` を current valueに置き換え、`Source / Comment`に更新根拠を記録する。
-- destroy後はcurrent physical valueを削除し、generated fieldを`PENDING_DEPLOY`に戻す。
+- 必要なnon-ARN generated current identifierは独立sectionではなく、該当resource tableの個別行にhuman-readableなresource固有名で記載する。例は`VPC ID`、`Subnet ID`、`Flow Log ID`とする。
+- deploy前は値を`PENDING_DEPLOY`、`Source / Comment`を`Generated current value`とする。
+- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新し、`Source / Comment`の`Generated current value`に続けて更新根拠を記録する。
+- destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
+- human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
+- local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。
+- generated ARNは詳細設計にも`llm/actuals/**`にも永続化しない。
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
-- 全候補 field を並べた mandatory な別 actual-values table は作らない。必要な actual は該当 resource/component table に置く。
+- `llm/designs/**`はintended designとstable referenceだけを保持し、必要なmachine-readable current IDは`llm/actuals/**`へ置く。

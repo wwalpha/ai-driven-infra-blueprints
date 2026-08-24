@@ -8,11 +8,12 @@
 - generated ARNはpersistent actual-value recordから除外する。
 - AWS APIがARNを要求する場合はtransientに取得してよいが、detailed designや`llm/actuals/`に書かない。
 - AWS managed-policy ARNなどのhuman-provided/design ARNはpost-deploy actualではなく、必要なdesign inputとして残してよい。
-- current valueがまだ存在しないgenerated fieldは`PENDING_DEPLOY`とする。
+- current valueがまだ存在しないgenerated fieldは、詳細設計の該当resource tableで`PENDING_DEPLOY`とする。
 - current physical valueはresourceが現在存在する間だけ保持する。
 - destroy後はenvironment/resourceを`NOT_DEPLOYED`とし、generated design fieldを`PENDING_DEPLOY`に戻す。
 - actualsはcreateだけでなく、成功したupdate/destroyの後にも更新する。
-- LLM actual informationまたはaccompanying metadataにenvironment、AWS account、region、collection method、observation date/timeを記録してよい。
+- LLM actual informationまたはaccompanying metadataにenvironment、AWS account、region、collection method、observation date/timeを記録してよい。これらを詳細設計Markdownのfile metadataへ複製しない。
+- 必要なnon-ARN current IDは`llm/actuals/**`へmachine-readableに保存し、成功したinfrastructure taskだけが詳細設計の対応するgenerated identifier rowを同じcurrent valueへ更新する。
 - obsoleteなphysical IDと過去actualはGit履歴、CloudFormation/Terraform、AWS側のdeployment historyで追跡する。
 - 過去actualをscenario evidenceへ転記しない。
 - old result fileだけを根拠にold IDがcurrentであると仮定しない。

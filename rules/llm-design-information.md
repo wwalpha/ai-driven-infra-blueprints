@@ -8,12 +8,13 @@
 - `llm/designs/` は同期 mirror であり、design value を独自に発明・override しない。
 - Markdown と LLM information の conflict は error とし、片方を黙って採用しない。
 - Markdown と関連 LLM design information は同じ coherent logical change で更新する。
+- Markdownの構造、service grouping、generated identifier rowは`rules/detailed-design.md`を正本とする。
 
 ## Format
 
 UTF-8 の `.properties` file を使い、基本形は次とする。
 
-file先頭に対応するMarkdownと同じservice metadataを正確に1件ずつ記載する。
+対応するMarkdownと同じservice ownership metadataを正確に1件ずつ記載する。
 
 ```properties
 designService.vpc.serviceId=vpc
@@ -33,13 +34,14 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 
 ## Grouping
 
-- AWS service boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
+- AWS service ownership boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
 - `designService.<service-id>.serviceId`のkeyとvalueはfile stemと一致させる。
 - `designService.<service-id>.ownedCatalogResourceTypes`はMarkdownと同じresource typeを同じ順序でcomma区切りにする。
 - 同じAWS serviceのrelated child resourceだけを同じproperties fileに置いてよい。
 - 別serviceのresource referenceは`<resourceGroup>.<logicalId>`形式のstable logical referenceを使用する。
 - 別serviceのdesign valueを参照元properties fileへ複製しない。
-- intended design と current actual value を分離する。
+- `llm/designs/**`はintended design、service ownership、stable logical referenceだけを保持する。Markdownのgenerated current identifier rowやcurrent physical valueは複製しない。
+- current physical valueとtarget/collection metadataは`llm/actuals/**`へ分離する。
 - generated ARN を `llm/actuals/` に保存しない。
 - AWS managed-policy ARN のような既存／human-provided design input は必要な場合に `llm/designs/` へ残してよい。
 - referenceは同じenvironment/AWS account内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。

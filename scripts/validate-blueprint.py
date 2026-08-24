@@ -44,7 +44,17 @@ LLM_SERVICE_ID_PATTERN = re.compile(r"^designService\.(.+)\.serviceId=(.*)$")
 LLM_OWNED_TYPES_PATTERN = re.compile(
     r"^designService\.(.+)\.ownedCatalogResourceTypes=(.*)$"
 )
-LOGICAL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+RESOURCE_HEADING_PATTERN = re.compile(
+    r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_-]*)$"
+)
+FORBIDDEN_DESIGN_METADATA_PATTERN = re.compile(
+    r"^\s*-\s*(Environment|AWS account ID|AWS region|Purpose|Deployment state)\s*:",
+    re.IGNORECASE,
+)
+FORBIDDEN_DESIGN_SECTION_PATTERN = re.compile(
+    r"^#{1,6} +(Design decisions|Out of scope|Generated values|設計判断(?:事項)?|設計上の判断|設計上の決定|対象外|スコープ外|設計対象外|生成値|生成された値|デプロイ後生成値)(?:$|[:： -].*)",
+    re.IGNORECASE,
+)
 MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
@@ -431,15 +441,6 @@ class Validator:
         for markdown_path in markdown_paths:
             relative = markdown_path.relative_to(docs_base)
             llm_path = (llm_base / relative).with_suffix(".properties")
-            markdown_text = markdown_path.read_text(encoding="utf-8")
-            llm_text = llm_path.read_text(encoding="utf-8") if llm_path.is_file() else ""
-            changed = self.relative(markdown_path) in self.changed_paths or (
-                llm_path.is_file() and self.relative(llm_path) in self.changed_paths
-            )
-            has_metadata = "- Design service ID:" in markdown_text or "designService." in llm_text
-            if not changed and not has_metadata:
-                continue
-
             markdown_metadata = self.markdown_service_metadata(markdown_path, catalog_types)
             llm_metadata = self.llm_service_metadata(llm_path, catalog_types) if llm_path.is_file() else None
             if markdown_metadata is None or llm_metadata is None:
@@ -458,6 +459,63 @@ class Validator:
 
         return metadata, catalog_types, catalog_property_owners
 
+    @staticmethod
+    def normalized(value: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", value.lower())
+
+    @staticmethod
+    def unquoted(value: str) -> str:
+        value = value.strip()
+        return value[1:-1] if len(value) >= 2 and value[0] == value[-1] == "`" else value
+
+    @staticmethod
+    def resource_label(resource_type: str) -> str:
+        name = resource_type.split(".", 1)[1]
+        words = re.findall(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+", name)
+        return " ".join(words)
+
+    def check_generated_identifier(
+        self, path: Path, resource_type: str, rows: list[list[str]]
+    ) -> None:
+        resource_name = resource_type.split(".", 1)[1]
+        identifier_properties = {
+            self.normalized(resource_name + "Name"),
+            self.normalized(resource_name + "Identifier"),
+        }
+        has_selected_identifier = any(
+            self.normalized(row[1].split(".")[-1]) in identifier_properties
+            and self.unquoted(row[2]) not in {"", "UNSET", "PENDING_DEPLOY"}
+            for row in rows
+        )
+        identifier_label = f"{self.resource_label(resource_type)} ID"
+        generated_rows = [
+            row for row in rows if self.normalized(row[1]) == self.normalized(identifier_label)
+        ]
+        if has_selected_identifier:
+            self.check(
+                not generated_rows,
+                f"redundant generated identifier row: {self.relative(path)}: {identifier_label}",
+            )
+            return
+
+        self.check(
+            len(generated_rows) == 1,
+            f"generated identifier row must appear exactly once: {self.relative(path)}: {identifier_label}",
+        )
+        if len(generated_rows) != 1:
+            return
+        value = self.unquoted(generated_rows[0][2])
+        self.check(bool(value), f"generated identifier value is empty: {self.relative(path)}: {identifier_label}")
+        self.check(value != "NOT_DEPLOYED", f"generated identifier must use PENDING_DEPLOY after destroy: {self.relative(path)}: {identifier_label}")
+        self.check(
+            re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
+            f"generated ARN is forbidden in design: {self.relative(path)}: {identifier_label}",
+        )
+        self.check(
+            generated_rows[0][3].startswith("Generated current value"),
+            f"invalid generated identifier source: {self.relative(path)}: {identifier_label}",
+        )
+
     def check_design_tables(
         self,
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
@@ -466,16 +524,37 @@ class Validator:
     ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
+            self.check(
+                len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
+                f"design must contain exactly one H1 title: {self.relative(path)}",
+            )
+            for line in lines:
+                self.check(
+                    FORBIDDEN_DESIGN_METADATA_PATTERN.match(line) is None,
+                    f"forbidden design file metadata: {self.relative(path)}: {line}",
+                )
+                self.check(
+                    FORBIDDEN_DESIGN_SECTION_PATTERN.fullmatch(line) is None,
+                    f"forbidden design section: {self.relative(path)}: {line}",
+                )
             table_count = 0
             index = 0
+            current_resource_type = ""
             while index < len(lines):
-                if lines[index].startswith("##") and ":" in lines[index]:
-                    heading_type = lines[index].lstrip("#").split(":", 1)[0].strip()
-                    if heading_type in catalog_types and path in service_metadata:
+                heading_match = RESOURCE_HEADING_PATTERN.fullmatch(lines[index])
+                if heading_match:
+                    current_resource_type = heading_match.group(1)
+                    self.check(
+                        current_resource_type in catalog_types,
+                        f"unknown catalog resource type in heading: {self.relative(path)}: {current_resource_type}",
+                    )
+                    if current_resource_type in catalog_types and path in service_metadata:
                         self.check(
-                            heading_type in service_metadata[path][1],
-                            f"catalog resource type is outside declared service ownership: {self.relative(path)}: {heading_type}",
+                            current_resource_type in service_metadata[path][1],
+                            f"catalog resource type is outside declared service ownership: {self.relative(path)}: {current_resource_type}",
                         )
+                elif lines[index].startswith("#"):
+                    current_resource_type = ""
                 if not lines[index].startswith("|"):
                     index += 1
                     continue
@@ -489,27 +568,32 @@ class Validator:
                     continue
                 self.check(table[0] == TABLE_HEADER, f"invalid table header: {self.relative(path)}")
                 self.check(table[1] == TABLE_ALIGNMENT, f"invalid table alignment: {self.relative(path)}")
+                rows: list[list[str]] = []
                 for number, row in enumerate(table[2:], 1):
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(len(cells) == 4, f"table row must have four cells: {self.relative(path)}")
                     if len(cells) == 4:
+                        rows.append(cells)
                         self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
                         property_owners = catalog_property_owners.get(cells[1], set())
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
                             self.check(bool(property_owners & owned_types), f"catalog property is outside declared service ownership: {self.relative(path)}: {cells[1]}")
+                            if current_resource_type:
+                                self.check(current_resource_type in property_owners, f"catalog property does not belong to resource table: {self.relative(path)}: {current_resource_type}: {cells[1]}")
+                if current_resource_type in catalog_types:
+                    self.check_generated_identifier(path, current_resource_type, rows)
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
 
             previous = ""
             for line in lines:
-                if line.startswith("##") and ":" in line:
+                heading_match = RESOURCE_HEADING_PATTERN.fullmatch(line)
+                if heading_match:
                     anchor_match = ANCHOR_PATTERN.fullmatch(previous)
                     self.check(anchor_match is not None, f"resource heading lacks explicit anchor: {self.relative(path)}: {line}")
                     if path in service_metadata:
-                        logical_id = line.rsplit(":", 1)[1].strip()
-                        valid_logical_id = LOGICAL_ID_PATTERN.fullmatch(logical_id) is not None
-                        self.check(valid_logical_id, f"invalid logical ID in resource heading: {self.relative(path)}: {line}")
-                        if anchor_match is not None and valid_logical_id:
+                        logical_id = heading_match.group(2)
+                        if anchor_match is not None:
                             expected = f"{service_metadata[path][0]}-{logical_id.lower()}"
                             self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
@@ -525,6 +609,7 @@ class Validator:
                 if raw.startswith(("http://", "https://", "mailto:")):
                     continue
                 target_text, separator, fragment = raw.partition("#")
+                self.check(not Path(target_text).is_absolute(), f"design link must be relative: {self.relative(source)}: {raw}")
                 target = (source if not target_text else source.parent / target_text).resolve()
                 self.check(target.is_file(), f"broken design link: {self.relative(source)}: {raw}")
                 if separator and target.is_file():
