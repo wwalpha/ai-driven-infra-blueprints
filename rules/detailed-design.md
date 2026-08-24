@@ -36,6 +36,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 保存対象Markdownは、原則としてH1 title、service metadata、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
+- title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project-topology.json`、`docs/system-overview.md`、active task、`llm/actuals/**`の該当する正本を参照する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
@@ -59,6 +60,21 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
 
+## JSON design artifacts
+
+選択済みpropertyをJSON documentとして表現する必要がある場合、JSONをMarkdown tableやLLM propertiesへ埋め込まず、次の独立artifactとして保存する。
+
+```text
+docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json
+```
+
+- `<artifact-id>`は内容と所有resourceを表すstableなlower-kebab-caseとする。
+- artifactはそのJSON propertyを持つresourceのAWS service ownership boundaryへ置く。IAM Roleのtrust/permissions policyは`iam/`、`EC2.VPCEndpoint.PolicyDocument`はendpointを所有する`vpc/`へ置く。
+- 一つのJSON fileは一つのpolicy documentを保持する。複数のinline policyは別fileへ分ける。
+- resource tableの`Value`は同じservice directoryのJSON fileへのrelative Markdown linkとする。
+- JSONは構文的に有効なobjectとし、AWS policy key、Action、Condition keyなどの識別子を日本語化しない。
+- 対応するLLM design mirrorはJSON本文を複製せず、同じtarget rootからのrelative artifact pathを保持する。
+
 ## Links and anchors
 
 - 関連 resource は `Value` column の Markdown link で表す。
@@ -72,8 +88,8 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 ## Generated values and deployment state
 
 - 必要なnon-ARN generated current identifierは独立sectionではなく、該当resource tableの個別行にhuman-readableなresource固有名で記載する。例は`VPC ID`、`Subnet ID`、`Flow Log ID`とする。
-- deploy前は値を`PENDING_DEPLOY`、`Source / Comment`を`Generated current value`とする。
-- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新し、`Source / Comment`の`Generated current value`に続けて更新根拠を記録する。
+- deploy前は値を`PENDING_DEPLOY`、`Source / Comment`を`デプロイ後生成値`とする。
+- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新し、`Source / Comment`の`デプロイ後生成値`に続けて更新根拠を日本語で記録する。
 - destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
 - human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
 - local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。

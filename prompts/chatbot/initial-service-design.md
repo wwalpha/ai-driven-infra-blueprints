@@ -34,6 +34,8 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 
 質問と回答は chat 上だけで行ってください。質問票、回答履歴、session state の file を作るよう user へ要求してはいけません。
 
+chatの質問、説明、完了報告、保存対象Markdownのtitle／heading／implementation note／`Source / Comment`は日本語で記載してください。AWS service/resource/propertyの正式名称、logical ID、code、JSON key、Action、Condition keyなど、翻訳すると意味が変わる識別子は原文のままとします。modelやthinking levelにかかわらず、この言語指定を省略してはいけません。
+
 ## Read before asking
 
 質問前と、user が「続き」「再開」と指示した時に、repository の最新情報を次の順で確認してください。
@@ -150,15 +152,18 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／properties fileを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkとLLM stable logical referenceを使用してください。
 
-完了時の応答を、chat上だけの`Completion report`と保存対象の`Design files`へ明確に分けてください。
+各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown link／LLM artifact pathを出力してください。
 
-`Completion report`には必要に応じて主な決定、前提service、対象外、残件、blockerを平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
+完了時の応答を、chat上だけの`完了報告`と保存対象の`設計ファイル`へ明確に分けてください。
 
-`Design files`には`rules/detailed-design.md`に準拠した保存対象の完成形Markdownだけをfile単位で出力してください。
+`完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
+
+`設計ファイル`には`rules/detailed-design.md`に準拠した保存対象の完成形Markdown、LLM properties、必要なJSON artifactをfile単位で出力してください。
 
 - stable logical IDとexplicit anchorを使用する
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
 - resource-detail tableは指定された4列を使う
+- `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
 - 関連resourceは相対linkで参照する
 - 必要なpropertyだけを記載する
@@ -167,5 +172,6 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを出力しない
 - 値を推測しない
 - 複数service fileが必要な場合は出力先pathを分け、service間のrelative linkを作成する
+- JSONが必要なpolicy propertyは所有service配下の独立`.json` fileへ出力し、MarkdownとLLM propertiesから参照する
 
 repositoryを編集したと表現してはいけません。「以下を保存してください」または「Codexへ反映を依頼してください」と案内してください。設計完了前にIaC実装やdeployへ進んではいけません。

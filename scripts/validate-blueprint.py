@@ -35,6 +35,7 @@ TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+VALUE_LINK_PATTERN = re.compile(r"^\[[^\]]+\]\(([^)#]+)\)$")
 PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
 MARKDOWN_SERVICE_ID_PATTERN = re.compile(r"^- Design service ID: `([^`]+)`$")
 MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
@@ -55,6 +56,7 @@ FORBIDDEN_DESIGN_SECTION_PATTERN = re.compile(
     r"^#{1,6} +(Design decisions|Out of scope|Generated values|設計判断(?:事項)?|設計上の判断|設計上の決定|対象外|スコープ外|設計対象外|生成値|生成された値|デプロイ後生成値)(?:$|[:： -].*)",
     re.IGNORECASE,
 )
+JAPANESE_TEXT_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
@@ -90,6 +92,8 @@ class Validator:
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
         self.result_files: dict[str, list[Path]] = {}
+        self.markdown_design_artifacts: set[Path] = set()
+        self.llm_design_artifacts: set[Path] = set()
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -362,6 +366,7 @@ class Validator:
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners)
         self.check_design_links()
         self.check_llm_references()
+        self.check_design_artifacts()
 
     def catalog_design_properties(self) -> tuple[set[str], dict[str, set[str]]]:
         resource_types: set[str] = set()
@@ -512,8 +517,16 @@ class Validator:
             f"generated ARN is forbidden in design: {self.relative(path)}: {identifier_label}",
         )
         self.check(
-            generated_rows[0][3].startswith("Generated current value"),
+            generated_rows[0][3].startswith("デプロイ後生成値"),
             f"invalid generated identifier source: {self.relative(path)}: {identifier_label}",
+        )
+
+    @staticmethod
+    def is_policy_document_property(property_name: str) -> bool:
+        leaf = property_name.split(".")[-1].replace("[]", "")
+        return leaf.endswith("PolicyDocument") or (
+            leaf.endswith("Policy")
+            and leaf not in {"BlockPublicPolicy", "StreamExceptionPolicy"}
         )
 
     def check_design_tables(
@@ -575,12 +588,27 @@ class Validator:
                     if len(cells) == 4:
                         rows.append(cells)
                         self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
+                        self.check(
+                            JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
+                            f"Source / Comment must be Japanese: {self.relative(path)}: {cells[3]}",
+                        )
                         property_owners = catalog_property_owners.get(cells[1], set())
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
                             self.check(bool(property_owners & owned_types), f"catalog property is outside declared service ownership: {self.relative(path)}: {cells[1]}")
                             if current_resource_type:
                                 self.check(current_resource_type in property_owners, f"catalog property does not belong to resource table: {self.relative(path)}: {current_resource_type}: {cells[1]}")
+                        link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
+                        artifact_link = link_match.group(1) if link_match else ""
+                        is_json_link = artifact_link.endswith(".json")
+                        if self.is_policy_document_property(cells[1]):
+                            self.check(is_json_link, f"policy property must link to a JSON artifact: {self.relative(path)}: {cells[1]}")
+                        if is_json_link:
+                            artifact = (path.parent / artifact_link).resolve()
+                            expected_directory = path.with_suffix("").resolve()
+                            self.check(artifact.parent == expected_directory, f"design JSON artifact must be stored under owning service: {self.relative(path)}: {artifact_link}")
+                            self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact path: {self.relative(path)}: {artifact_link}")
+                            self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
                     self.check_generated_identifier(path, current_resource_type, rows)
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
@@ -636,8 +664,42 @@ class Validator:
                     target_definitions.add(f"{group}.{logical_id}")
                 if property_name.lower().endswith(("ref", "refs")):
                     references.extend((path, target, item) for item in value.split(",") if item)
+                is_policy_path = re.search(r"policy(?:document)?path$", property_name, re.IGNORECASE) is not None
+                is_json_path = value.endswith(".json")
+                if is_policy_path:
+                    self.check(is_json_path, f"LLM policy artifact path must reference JSON: {self.relative(path)}: {value}")
+                if is_json_path:
+                    artifact_path = Path(value)
+                    self.check(property_name.lower().endswith("path"), f"LLM design JSON artifact property must end with Path: {self.relative(path)}: {property_name}")
+                    self.check(not artifact_path.is_absolute(), f"LLM design JSON artifact path must be relative: {self.relative(path)}: {value}")
+                    self.check(len(artifact_path.parts) == 2 and artifact_path.parts[0] == path.stem, f"LLM design JSON artifact must be stored under owning service: {self.relative(path)}: {value}")
+                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / artifact_path).resolve()
+                    self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid LLM design JSON artifact path: {self.relative(path)}: {value}")
+                    self.llm_design_artifacts.add(artifact)
         for path, target, reference in references:
             self.check(reference in definitions.get(target, set()), f"unresolved LLM reference: {self.relative(path)}: {reference}")
+
+    def check_design_artifacts(self) -> None:
+        base = self.root / "docs" / "designs"
+        artifacts = {path.resolve() for path in base.rglob("*.json")}
+        for artifact in sorted(artifacts):
+            relative = artifact.relative_to(base)
+            self.check(len(relative.parts) == 4, f"design JSON artifact must be <environment>/<aws-account-id>/<service-id>/<file>: {self.relative(artifact)}")
+            if len(relative.parts) != 4:
+                continue
+            target = (relative.parts[0], relative.parts[1])
+            self.check(target in self.accounts, f"design JSON artifact target is not defined: {self.relative(artifact)}")
+            self.check(LOWER_KEBAB_PATTERN.fullmatch(relative.parts[2]) is not None, f"invalid design JSON service ID: {self.relative(artifact)}")
+            self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact ID: {self.relative(artifact)}")
+            self.check((artifact.parent.parent / f"{relative.parts[2]}.md").is_file(), f"design JSON artifact has no owning service Markdown: {self.relative(artifact)}")
+            try:
+                content = json.loads(artifact.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as error:
+                self.errors.append(f"invalid design JSON artifact: {self.relative(artifact)}: {error}")
+                continue
+            self.check(isinstance(content, dict), f"design JSON artifact root must be an object: {self.relative(artifact)}")
+        self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
+        self.check(artifacts == self.llm_design_artifacts, "design JSON artifacts must match LLM artifact paths")
 
     def check_actuals(self) -> None:
         for path in (self.root / "llm" / "actuals").rglob("*"):

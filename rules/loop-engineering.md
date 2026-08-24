@@ -23,6 +23,8 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - `rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
 - service ownership、Markdown/LLM service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
+- resource tableの`Source / Comment`が日本語で記載されている
+- JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、LLM mirrorのartifact pathと一致する
 - 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
 - cross-service relative linkとLLM stable logical referenceが解決できる
 - generated ARNが`llm/actuals/`に存在しない

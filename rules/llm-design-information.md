@@ -32,6 +32,13 @@ natGateway.NATA01.subnetRef=subnet.PUBLICAZ1
 routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 ```
 
+policy JSONは本文を複製せず、対応するhuman design target rootからのrelative pathを保持する。
+
+```properties
+iamRole.FLOWLOGROLE01.assumeRolePolicyDocumentPath=iam/flowlogrole01-assume-role-policy-document.json
+vpcEndpoint.S3ENDPOINT01.policyDocumentPath=vpc/s3endpoint01-policy-document.json
+```
+
 ## Grouping
 
 - AWS service ownership boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
@@ -40,6 +47,7 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 - 同じAWS serviceのrelated child resourceだけを同じproperties fileに置いてよい。
 - 別serviceのresource referenceは`<resourceGroup>.<logicalId>`形式のstable logical referenceを使用する。
 - 別serviceのdesign valueを参照元properties fileへ複製しない。
+- `*PolicyPath`と`*PolicyDocumentPath`は対応するservice directory内の有効なJSON design artifactを参照する。
 - `llm/designs/**`はintended design、service ownership、stable logical referenceだけを保持する。Markdownのgenerated current identifier rowやcurrent physical valueは複製しない。
 - current physical valueとtarget/collection metadataは`llm/actuals/**`へ分離する。
 - generated ARN を `llm/actuals/` に保存しない。
