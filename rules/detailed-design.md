@@ -60,6 +60,16 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
 
+`Source / Comment`は、そのrowの`Property`が何を設定、識別、制御する属性なのかを日本語で説明する。次の内容は記載しない。
+
+- `確定済み設計値`、`選択済み`、`承認済み`などの決定状態
+- `人間が選択した`、`human-selected`などの決定主体
+- `共通タグ`、`リソース固有タグ`などの分類だけの説明
+- 設計値の出典、決定経緯、更新証跡、verification結果
+- `Value`を意味なく言い換えただけの説明
+
+例えば、VPCのCIDRには`VPCで使用するIPv4アドレス範囲`、inline policy nameには`IAM Roleへ埋め込む権限ポリシーの名前`、project tag keyには`リソースが属するプロジェクトを識別するタグのキー`と記載する。更新根拠やverification結果は詳細設計へ保存せず、現行actual情報または完了報告を扱う既存ルールに従う。
+
 ## JSON design artifacts
 
 選択済みpropertyをJSON documentとして表現する必要がある場合、JSONをMarkdown tableやLLM propertiesへ埋め込まず、次の独立artifactとして保存する。
@@ -75,6 +85,25 @@ docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json
 - JSONは構文的に有効なobjectとし、AWS policy key、Action、Condition keyなどの識別子を日本語化しない。
 - 対応するLLM design mirrorはJSON本文を複製せず、同じtarget rootからのrelative artifact pathを保持する。
 
+### IAM Role policy artifact names
+
+IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-artifact-id>`として次の名前を使う。
+
+- `IAM.Role.AssumeRolePolicyDocument`は`<role-artifact-id>-trust-policy.json`とする。`assume-role-policy-document`、`assume-role-policy`などの旧suffixを使わない。
+- `IAM.Role.Policies[].PolicyDocument`は、同じinline policyの`IAM.Role.Policies[].PolicyName`を直前のrowへ明示し、`<role-artifact-id>-<policy-name-artifact-id>.json`とする。
+- `PolicyName`が未確定の場合はartifact名を推測せずblockerとして停止する。一つのinline policy artifactは一つの`PolicyName`と一対一にし、複数policyはそれぞれ別artifactとする。
+- `inline-policy-document`、`inline-policy`、`permissions-policy`など、`PolicyName`を表さないgeneric suffixを使わない。
+
+`<role-artifact-id>`と`<policy-name-artifact-id>`は入力literalを次の順でlower-kebab-caseへ変換する。
+
+1. acronymと通常wordの境界を分割する。
+2. lowercaseまたはdigitからuppercaseへの境界を分割する。
+3. 英数字以外を`-`へ置換する。
+4. lowercase化する。
+5. 連続する`-`を一つにし、先頭末尾の`-`を除去する。
+
+例は`VPCFLOWLOGROLE01`から`vpcflowlogrole01`、`VPCFlowLogsToCloudWatchLogs`から`vpc-flow-logs-to-cloud-watch-logs`とする。AWS service名辞書や個別例外は使わない。IAM Role以外のpolicy artifactは既存のstable lower-kebab-case規約を維持する。
+
 ## Links and anchors
 
 - 関連 resource は `Value` column の Markdown link で表す。
@@ -88,8 +117,8 @@ docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json
 ## Generated values and deployment state
 
 - 必要なnon-ARN generated current identifierは独立sectionではなく、該当resource tableの個別行にhuman-readableなresource固有名で記載する。例は`VPC ID`、`Subnet ID`、`Flow Log ID`とする。
-- deploy前は値を`PENDING_DEPLOY`、`Source / Comment`を`デプロイ後生成値`とする。
-- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新し、`Source / Comment`の`デプロイ後生成値`に続けて更新根拠を日本語で記録する。
+- deploy前は値を`PENDING_DEPLOY`とし、`Source / Comment`には他のrowと同様に属性の意味を記載する。例えば`VPC ID`には`デプロイされたVPCを一意に識別するID`と記載する。
+- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新する。`Source / Comment`は属性の意味を維持する。
 - destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
 - human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
 - local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。

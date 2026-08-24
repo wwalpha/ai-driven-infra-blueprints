@@ -35,9 +35,13 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 policy JSONは本文を複製せず、対応するhuman design target rootからのrelative pathを保持する。
 
 ```properties
-iamRole.FLOWLOGROLE01.assumeRolePolicyDocumentPath=iam/flowlogrole01-assume-role-policy-document.json
+iamRole.VPCFLOWLOGROLE01.assumeRolePolicyDocumentPath=iam/vpcflowlogrole01-trust-policy.json
+iamRole.VPCFLOWLOGROLE01.inlinePolicyName=VPCFlowLogsToCloudWatchLogs
+iamRole.VPCFLOWLOGROLE01.inlinePolicyDocumentPath=iam/vpcflowlogrole01-vpc-flow-logs-to-cloud-watch-logs.json
 vpcEndpoint.S3ENDPOINT01.policyDocumentPath=vpc/s3endpoint01-policy-document.json
 ```
+
+IAM Roleのinline policyでは、同じstable prefixを持つ`<policy-key>PolicyName`と`<policy-key>PolicyDocumentPath`が同じpolicyを表す。`PolicyName`を明示し、その値を`rules/detailed-design.md`の規約でartifact名へ変換する。複数inline policyは重複しない`<policy-key>`で別々のpairとして記録し、`PolicyName`が未確定ならpathを推測しない。
 
 ## Grouping
 

@@ -154,6 +154,10 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown link／LLM artifact pathを出力してください。
 
+IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
+
+完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`などの決定状態、`人間が選択した`などの決定主体、分類だけの説明、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。generated current identifierのrowも同じ基準で確認してください。判定基準の正本は`rules/detailed-design.md`です。
+
 完了時の応答を、chat上だけの`完了報告`と保存対象の`設計ファイル`へ明確に分けてください。
 
 `完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
@@ -173,5 +177,6 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - 値を推測しない
 - 複数service fileが必要な場合は出力先pathを分け、service間のrelative linkを作成する
 - JSONが必要なpolicy propertyは所有service配下の独立`.json` fileへ出力し、MarkdownとLLM propertiesから参照する
+- IAM inline policyは同じpolicyを表す`PolicyName`と`PolicyDocumentPath`をMarkdown／LLM propertiesの両方へ明示する
 
 repositoryを編集したと表現してはいけません。「以下を保存してください」または「Codexへ反映を依頼してください」と案内してください。設計完了前にIaC実装やdeployへ進んではいけません。

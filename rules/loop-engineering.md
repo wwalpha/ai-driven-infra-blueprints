@@ -27,6 +27,7 @@ OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command�
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
 - resource tableの`Source / Comment`が日本語で記載されている
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、LLM mirrorのartifact pathと一致する
+- IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
 - cross-service relative linkとLLM stable logical referenceが解決できる
 - generated ARNが`llm/actuals/`に存在しない

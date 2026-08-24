@@ -81,6 +81,18 @@ RESULT_METADATA = (
 )
 
 
+def artifact_id(value: str) -> str:
+    value = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", value)
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", value)
+    value = re.sub(r"[^A-Za-z0-9]+", "-", value).lower()
+    return re.sub(r"-+", "-", value).strip("-")
+
+
+def iam_role_policy_artifact_filename(role_logical_id: str, policy_name: str | None = None) -> str:
+    suffix = "trust-policy" if policy_name is None else artifact_id(policy_name)
+    return f"{artifact_id(role_logical_id)}-{suffix}.json"
+
+
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -94,6 +106,8 @@ class Validator:
         self.result_files: dict[str, list[Path]] = {}
         self.markdown_design_artifacts: set[Path] = set()
         self.llm_design_artifacts: set[Path] = set()
+        self.markdown_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
+        self.llm_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -530,6 +544,47 @@ class Validator:
             and leaf not in {"BlockPublicPolicy", "StreamExceptionPolicy"}
         )
 
+    def check_markdown_iam_policy_artifacts(
+        self, path: Path, logical_id: str, rows: list[list[str]]
+    ) -> None:
+        relative = path.relative_to(self.root / "docs" / "designs")
+        if len(relative.parts) < 3:
+            return
+        target = (relative.parts[0], relative.parts[1])
+        properties = [row[1].removeprefix("IAM.Role.") for row in rows]
+
+        for index, row in enumerate(rows):
+            property_name = properties[index]
+            link = VALUE_LINK_PATTERN.fullmatch(row[2])
+            if property_name == "AssumeRolePolicyDocument" and link:
+                artifact = (path.parent / link.group(1)).resolve()
+                expected = iam_role_policy_artifact_filename(logical_id)
+                self.check(artifact.name == expected, f"invalid IAM trust policy artifact name: {self.relative(path)}: expected {expected}")
+                key = (*target, logical_id, "trust")
+                self.check(key not in self.markdown_iam_policy_artifacts, f"duplicate IAM trust policy artifact: {self.relative(path)}: {logical_id}")
+                self.markdown_iam_policy_artifacts.setdefault(key, artifact)
+
+            if property_name == "Policies[].PolicyName":
+                paired = index + 1 < len(rows) and properties[index + 1] == "Policies[].PolicyDocument"
+                self.check(paired, f"IAM inline PolicyName must immediately precede PolicyDocument: {self.relative(path)}: {logical_id}")
+            if property_name != "Policies[].PolicyDocument":
+                continue
+
+            paired = index > 0 and properties[index - 1] == "Policies[].PolicyName"
+            self.check(paired, f"IAM inline PolicyDocument requires a preceding PolicyName: {self.relative(path)}: {logical_id}")
+            if not paired or not link:
+                continue
+            policy_name = self.unquoted(rows[index - 1][2])
+            self.check(policy_name not in {"", "UNSET", "PENDING_DEPLOY"}, f"IAM inline PolicyName is required: {self.relative(path)}: {logical_id}")
+            if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
+                continue
+            artifact = (path.parent / link.group(1)).resolve()
+            expected = iam_role_policy_artifact_filename(logical_id, policy_name)
+            self.check(artifact.name == expected, f"invalid IAM inline policy artifact name: {self.relative(path)}: expected {expected}")
+            key = (*target, logical_id, f"inline:{policy_name}")
+            self.check(key not in self.markdown_iam_policy_artifacts, f"duplicate IAM inline PolicyName: {self.relative(path)}: {logical_id}: {policy_name}")
+            self.markdown_iam_policy_artifacts.setdefault(key, artifact)
+
     def check_design_tables(
         self,
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
@@ -554,10 +609,12 @@ class Validator:
             table_count = 0
             index = 0
             current_resource_type = ""
+            current_logical_id = ""
             while index < len(lines):
                 heading_match = RESOURCE_HEADING_PATTERN.fullmatch(lines[index])
                 if heading_match:
                     current_resource_type = heading_match.group(1)
+                    current_logical_id = heading_match.group(2)
                     self.check(
                         current_resource_type in catalog_types,
                         f"unknown catalog resource type in heading: {self.relative(path)}: {current_resource_type}",
@@ -569,6 +626,7 @@ class Validator:
                         )
                 elif lines[index].startswith("#"):
                     current_resource_type = ""
+                    current_logical_id = ""
                 if not lines[index].startswith("|"):
                     index += 1
                     continue
@@ -612,6 +670,8 @@ class Validator:
                             self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
                     self.check_generated_identifier(path, current_resource_type, rows)
+                if current_resource_type == "IAM.Role":
+                    self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
 
             previous = ""
@@ -653,6 +713,7 @@ class Validator:
             if target is None:
                 continue
             target_definitions = definitions.setdefault(target, set())
+            iam_roles: dict[str, dict[str, str]] = {}
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line or line.startswith("#"):
                     continue
@@ -663,6 +724,10 @@ class Validator:
                 group, logical_id, property_name, value = match.groups()
                 if group != "designService":
                     target_definitions.add(f"{group}.{logical_id}")
+                if group == "iamRole":
+                    properties = iam_roles.setdefault(logical_id, {})
+                    self.check(property_name not in properties, f"duplicate LLM IAM Role property: {self.relative(path)}: {logical_id}: {property_name}")
+                    properties.setdefault(property_name, value)
                 if property_name.lower().endswith(("ref", "refs")):
                     references.extend((path, target, item) for item in value.split(",") if item)
                 is_policy_path = re.search(r"policy(?:document)?path$", property_name, re.IGNORECASE) is not None
@@ -677,6 +742,36 @@ class Validator:
                     artifact = (self.root / "docs" / "designs" / target[0] / target[1] / artifact_path).resolve()
                     self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid LLM design JSON artifact path: {self.relative(path)}: {value}")
                     self.llm_design_artifacts.add(artifact)
+            for logical_id, properties in iam_roles.items():
+                trust_path = properties.get("assumeRolePolicyDocumentPath")
+                if trust_path is not None:
+                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / trust_path).resolve()
+                    expected = iam_role_policy_artifact_filename(logical_id)
+                    self.check(artifact.name == expected, f"invalid LLM IAM trust policy artifact name: {self.relative(path)}: expected {expected}")
+                    self.llm_iam_policy_artifacts[(*target, logical_id, "trust")] = artifact
+
+                names = {
+                    name.removesuffix("PolicyName"): value
+                    for name, value in properties.items()
+                    if name.endswith("PolicyName")
+                }
+                documents = {
+                    name.removesuffix("PolicyDocumentPath"): value
+                    for name, value in properties.items()
+                    if name.endswith("PolicyDocumentPath") and name != "assumeRolePolicyDocumentPath"
+                }
+                self.check(names.keys() == documents.keys(), f"LLM IAM inline PolicyName/PolicyDocumentPath pair mismatch: {self.relative(path)}: {logical_id}")
+                for prefix in names.keys() & documents.keys():
+                    policy_name = names[prefix]
+                    self.check(policy_name not in {"", "UNSET", "PENDING_DEPLOY"}, f"LLM IAM inline PolicyName is required: {self.relative(path)}: {logical_id}")
+                    if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
+                        continue
+                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / documents[prefix]).resolve()
+                    expected = iam_role_policy_artifact_filename(logical_id, policy_name)
+                    self.check(artifact.name == expected, f"invalid LLM IAM inline policy artifact name: {self.relative(path)}: expected {expected}")
+                    key = (*target, logical_id, f"inline:{policy_name}")
+                    self.check(key not in self.llm_iam_policy_artifacts, f"duplicate LLM IAM inline PolicyName: {self.relative(path)}: {logical_id}: {policy_name}")
+                    self.llm_iam_policy_artifacts.setdefault(key, artifact)
         for path, target, reference in references:
             self.check(reference in definitions.get(target, set()), f"unresolved LLM reference: {self.relative(path)}: {reference}")
 
@@ -701,6 +796,7 @@ class Validator:
             self.check(isinstance(content, dict), f"design JSON artifact root must be an object: {self.relative(artifact)}")
         self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
         self.check(artifacts == self.llm_design_artifacts, "design JSON artifacts must match LLM artifact paths")
+        self.check(self.markdown_iam_policy_artifacts == self.llm_iam_policy_artifacts, "IAM policy artifacts and PolicyName values must match between Markdown and LLM")
 
     def check_actuals(self) -> None:
         for path in (self.root / "llm" / "actuals").rglob("*"):
