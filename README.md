@@ -32,7 +32,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 7. `llm/designs/`と`llm/actuals/`
 8. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem背景のreference、`project-topology.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別resource groupの詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project-topology.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -86,7 +86,7 @@ design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを
 
 ## Post-design SDD
 
-- humanは`docs/designs/<environment>/<aws-account-id>/<resource-group>.md`を現在設計として変更する。
+- humanは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`を現在設計として変更する。
 - design taskは変更された詳細設計と対応するLLM design mirrorだけを同期して終了する。
 - IaC反映が必要な場合は、別の`infrastructure` taskを明示的に開始する。
 - scenario確認が必要な場合は、infrastructure task完了後に別の`scenario-test` taskを明示的に開始する。
@@ -149,7 +149,8 @@ tests/
 
 - `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
 - `llm/designs/<environment>/<aws-account-id>/`は同じintended designのmachine-readable mirror。
-- Markdownとpropertiesはresource groupから動的に決まり、同じ相対pathとfile stemを使う。
+- 一つのMarkdownとproperties pairは一つのAWS service boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
+- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとLLM stable logical referenceで表す。
 - `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のcurrent actual情報。
 - generated current valueはdeploy前に`PENDING_DEPLOY`、teardown後は`NOT_DEPLOYED`とする。
 - generated ARNはcurrent actualとして保存しない。

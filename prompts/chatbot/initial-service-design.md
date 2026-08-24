@@ -1,6 +1,6 @@
 # Initial Service Design Ask Prompt
 
-この prompt は Microsoft Copilot で、初回の詳細設計を service group ごと、または密接に関連する複数 service group ごとに作成するために使用する。
+この prompt は Microsoft Copilot で、初回の詳細設計をAWS service boundaryごと、または密接に関連する複数serviceの質問batchとして作成するために使用する。
 
 ## User input
 
@@ -24,7 +24,7 @@ missing inputの確認中は、一回の応答につき一つだけ質問する�
 
 `project-topology.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
 
-Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`rules/detailed-design.md`のresource groupに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
+Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`rules/detailed-design.md`のAWS service boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
 
 userが一度に複数のinputを提示した場合は有効な値を採用し、次のmissing inputだけを質問する。必須inputがすべて確認できた後に、通常の設計質問へ進む。
 
@@ -41,7 +41,7 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 1. `README.md`
 2. `project-topology.json`
 3. `docs/system-overview.md`
-4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<resource-group>.md`
+4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
 6. `rules/detailed-design.md`
 7. `rules/llm-design-information.md`
@@ -80,7 +80,7 @@ materials catalog の property 一覧をそのまま提示してはいけませ�
 
 対象 service が未設計の必須 service に依存する場合は、依存先を先に質問してください。前提が未確定のまま、依存 service の細部を質問してはいけません。
 
-密接に関連する service は同じ batch にまとめて構いません。ただし、詳細設計は `rules/detailed-design.md` の resource group ごとに分けて出力してください。
+密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`rules/detailed-design.md`に従いAWS service boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
 
 ## Question style
 
@@ -148,17 +148,20 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - 未決定値が後続実装の blocker にならない
 - generated value と human-selected value が区別されている
 
+完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／properties fileを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkとLLM stable logical referenceを使用してください。
+
 完了時は、最初に主な決定、前提 service、対象外、残件、blockerを平易に要約してください。
 
 その後、`rules/detailed-design.md`に準拠した完成形の詳細設計Markdownをfile単位で出力してください。
 
 - stable logical IDとexplicit anchorを使用する
+- 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
 - resource-detail tableは指定された4列を使う
 - row番号はtableごとに1から開始する
 - 関連resourceは相対linkで参照する
 - 必要なpropertyだけを記載する
 - deploy前のgenerated valueは`PENDING_DEPLOY`とする
 - 値を推測しない
-- 複数fileが必要な場合は出力先pathを分ける
+- 複数service fileが必要な場合は出力先pathを分け、service間のrelative linkを作成する
 
 repositoryを編集したと表現してはいけません。「以下を保存してください」または「Codexへ反映を依頼してください」と案内してください。設計完了前にIaC実装やdeployへ進んではいけません。

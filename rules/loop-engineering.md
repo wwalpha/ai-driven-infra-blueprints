@@ -20,8 +20,9 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - `materials/aws/`が`materials/catalog.sha256`と一致する
 - required directory/file structureが存在する
 - `project-topology.json`とenvironment/AWS account pathが一致する
-- resource design table、row numbering、relative link、explicit anchorが有効
-- design/LLM groupingとreferenceが一貫する
+- resource design table、row numbering、service-based explicit anchorが有効
+- service ownership、Markdown/LLM metadata、catalog resource type ownershipが一貫する
+- cross-service relative linkとLLM stable logical referenceが解決できる
 - generated ARNが`llm/actuals/`に存在しない
 - scenario/result structureとmetadataが有効
 - formatting/static checkが成功する

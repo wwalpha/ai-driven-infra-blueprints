@@ -13,6 +13,13 @@
 
 UTF-8 の `.properties` file を使い、基本形は次とする。
 
+file先頭に対応するMarkdownと同じservice metadataを正確に1件ずつ記載する。
+
+```properties
+designService.vpc.serviceId=vpc
+designService.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet,EC2.FlowLog
+```
+
 ```properties
 <resourceGroup>.<logicalId>.<property>=<value>
 ```
@@ -26,9 +33,12 @@ routeTable.PUBLICRT01.defaultRouteTargetRef=internetGateway.WEBNGINXIGW
 
 ## Grouping
 
-- detailed-design file と LLM file の group を一致させる。
-- human design resource group ごとに同じ stem の Markdown と properties file を一つずつ置く。
-- related child resource は親と同じ resource group file に置いてよい。
+- AWS service boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
+- `designService.<service-id>.serviceId`のkeyとvalueはfile stemと一致させる。
+- `designService.<service-id>.ownedCatalogResourceTypes`はMarkdownと同じresource typeを同じ順序でcomma区切りにする。
+- 同じAWS serviceのrelated child resourceだけを同じproperties fileに置いてよい。
+- 別serviceのresource referenceは`<resourceGroup>.<logicalId>`形式のstable logical referenceを使用する。
+- 別serviceのdesign valueを参照元properties fileへ複製しない。
 - intended design と current actual value を分離する。
 - generated ARN を `llm/actuals/` に保存しない。
 - AWS managed-policy ARN のような既存／human-provided design input は必要な場合に `llm/designs/` へ残してよい。

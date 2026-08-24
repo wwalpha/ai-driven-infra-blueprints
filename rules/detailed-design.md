@@ -6,18 +6,30 @@
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
-## Grouping principle
+## AWS service boundary
 
-詳細設計の grouping unit は human design resource group とする。CloudFormation resource type 単位でも AWS service namespace 単位でもない。
+詳細設計のfile grouping unitはAWS service boundaryとする。一つのdesign fileは一つのAWS service boundaryだけを所有する。
 
-- 同じ resource group の複数 instance は同じ Markdown file に記載する。
-- 関連 child resource は同じ file に置いてよいが、別 heading と別 table を使用できる。
-- 同じ file にあることは、同じ table にまとめることを意味しない。
-- fileは`docs/designs/<environment>/<aws-account-id>/<resource-group>.md`に置く。
-- file nameはresource groupを表すlower-kebab-caseとし、対応する`llm/designs/<environment>/<aws-account-id>/<resource-group>.properties`と相対path及びstemを一致させる。
-- resource group は active task で選択した resource と運用上のまとまりから決め、validator や blueprint が固定一覧を要求しない。
-- 未使用 resource group の空 design file を作らない。
-- 同じresource groupでもenvironment/AWS accountが異なる場合は別fileとして明示する。
+- fileは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に置く。
+- Service IDはlower-kebab-caseとし、file stemおよび対応する`llm/designs/<environment>/<aws-account-id>/<service-id>.properties`と一致させる。
+- 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
+- child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
+- IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
+- CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
+- VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
+- service間dependencyはfile統合ではなく、relative Markdown linkとLLM stable logical referenceで表す。
+- 未使用serviceの空design fileを作らない。
+- design file boundaryとCloudFormation stack/template boundaryは別概念とする。
+
+各Markdownには次を正確に1件ずつ記載する。
+
+```md
+- Design service ID: `vpc`
+- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`, `EC2.FlowLog`
+```
+
+- Owned catalog resource typesには`materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
+- 同じenvironment/AWS account内で同じcatalog resource typeを複数service fileが所有してはいけない。
 
 ## Resource-detail table
 
@@ -41,9 +53,9 @@
 - 関連 resource は `Value` column の Markdown link で表す。
 - link は relative path を使う。
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
-- anchor は lower-case resource group と lower-case logical ID を `-` で結ぶ。
-- 別 file の例: `[RESOURCE01](resource-group.md#resource-group-resource01)`。
-- 同じ file の例: `[CHILD01](#child-group-child01)`。
+- anchorはlower-case Service IDとlower-case logical IDを`-`で結ぶ。
+- 別fileの例: `[FLOWLOGROLE01](iam.md#iam-flowlogrole01)`。
+- 同じfileの例: `[FLOWLOG01](#vpc-flowlog01)`。
 - file と anchor の存在を local loop で検証する。
 
 ## Generated values and deployment state

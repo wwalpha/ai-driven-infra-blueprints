@@ -36,6 +36,15 @@ TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
+MARKDOWN_SERVICE_ID_PATTERN = re.compile(r"^- Design service ID: `([^`]+)`$")
+MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
+    r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$"
+)
+LLM_SERVICE_ID_PATTERN = re.compile(r"^designService\.(.+)\.serviceId=(.*)$")
+LLM_OWNED_TYPES_PATTERN = re.compile(
+    r"^designService\.(.+)\.ownedCatalogResourceTypes=(.*)$"
+)
+LOGICAL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 MATERIAL_PATTERN = re.compile(
     r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
 )
@@ -339,16 +348,134 @@ class Validator:
             self.check_target_file(path, self.root / "docs" / "designs")
         for path in properties_paths:
             self.check_target_file(path, self.root / "llm" / "designs")
-        self.check_design_tables()
+        service_metadata, catalog_types, catalog_property_owners = self.check_design_service_ownership(markdown_paths)
+        self.check_design_tables(service_metadata, catalog_types, catalog_property_owners)
         self.check_design_links()
         self.check_llm_references()
 
-    def check_design_tables(self) -> None:
+    def catalog_design_properties(self) -> tuple[set[str], dict[str, set[str]]]:
+        resource_types: set[str] = set()
+        property_owners: dict[str, set[str]] = {}
+        for path in sorted((self.root / "materials" / "aws").glob("*.properties")):
+            resource_type = path.stem.replace("_", ".", 1)
+            prefix = f"{resource_type}."
+            resource_types.add(resource_type)
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.startswith(prefix) or not line.endswith("="):
+                    continue
+                property_path = line[len(prefix) : -1]
+                property_owners.setdefault(property_path, set()).add(resource_type)
+                property_owners.setdefault(f"{resource_type}.{property_path}", set()).add(resource_type)
+        return resource_types, property_owners
+
+    def markdown_service_metadata(
+        self, path: Path, catalog_types: set[str]
+    ) -> tuple[str, tuple[str, ...]] | None:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        service_lines = [line for line in lines if line.startswith("- Design service ID:")]
+        owned_lines = [line for line in lines if line.startswith("- Owned catalog resource types:")]
+        self.check(len(service_lines) == 1, f"Design service ID must appear exactly once: {self.relative(path)}")
+        self.check(len(owned_lines) == 1, f"Owned catalog resource types must appear exactly once: {self.relative(path)}")
+        if len(service_lines) != 1 or len(owned_lines) != 1:
+            return None
+
+        service_match = MARKDOWN_SERVICE_ID_PATTERN.fullmatch(service_lines[0])
+        owned_match = MARKDOWN_OWNED_TYPES_PATTERN.fullmatch(owned_lines[0])
+        self.check(service_match is not None, f"invalid Design service ID metadata: {self.relative(path)}")
+        self.check(owned_match is not None, f"invalid Owned catalog resource types metadata: {self.relative(path)}")
+        if service_match is None or owned_match is None:
+            return None
+
+        service_id = service_match.group(1)
+        owned_types = tuple(re.findall(r"`([^`]+)`", owned_match.group(1)))
+        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid Design service ID: {self.relative(path)}: {service_id}")
+        self.check(service_id == path.stem, f"Design service ID does not match file stem: {self.relative(path)}")
+        self.check(bool(owned_types), f"Owned catalog resource types must not be empty: {self.relative(path)}")
+        self.check(len(owned_types) == len(set(owned_types)), f"duplicate owned catalog resource type: {self.relative(path)}")
+        for resource_type in owned_types:
+            self.check(resource_type in catalog_types, f"unknown owned catalog resource type: {self.relative(path)}: {resource_type}")
+        return service_id, owned_types
+
+    def llm_service_metadata(
+        self, path: Path, catalog_types: set[str]
+    ) -> tuple[str, tuple[str, ...]] | None:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        service_matches = [match for line in lines if (match := LLM_SERVICE_ID_PATTERN.fullmatch(line))]
+        owned_matches = [match for line in lines if (match := LLM_OWNED_TYPES_PATTERN.fullmatch(line))]
+        self.check(len(service_matches) == 1, f"LLM service ID must appear exactly once: {self.relative(path)}")
+        self.check(len(owned_matches) == 1, f"LLM owned catalog resource types must appear exactly once: {self.relative(path)}")
+        if len(service_matches) != 1 or len(owned_matches) != 1:
+            return None
+
+        service_key, service_id = service_matches[0].groups()
+        owned_key, owned_value = owned_matches[0].groups()
+        owned_types = tuple(owned_value.split(",")) if owned_value else ()
+        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid LLM service ID: {self.relative(path)}: {service_id}")
+        self.check(service_key == service_id == owned_key, f"inconsistent LLM service metadata key: {self.relative(path)}")
+        self.check(service_id == path.stem, f"LLM service ID does not match file stem: {self.relative(path)}")
+        self.check(bool(owned_types), f"LLM owned catalog resource types must not be empty: {self.relative(path)}")
+        self.check(len(owned_types) == len(set(owned_types)), f"duplicate LLM owned catalog resource type: {self.relative(path)}")
+        for resource_type in owned_types:
+            self.check(resource_type in catalog_types, f"unknown LLM owned catalog resource type: {self.relative(path)}: {resource_type}")
+        return service_id, owned_types
+
+    def check_design_service_ownership(
+        self, markdown_paths: list[Path]
+    ) -> tuple[dict[Path, tuple[str, tuple[str, ...]]], set[str], dict[str, set[str]]]:
+        catalog_types, catalog_property_owners = self.catalog_design_properties()
+        metadata: dict[Path, tuple[str, tuple[str, ...]]] = {}
+        owners: dict[tuple[str, str, str], Path] = {}
+        docs_base = self.root / "docs" / "designs"
+        llm_base = self.root / "llm" / "designs"
+
+        for markdown_path in markdown_paths:
+            relative = markdown_path.relative_to(docs_base)
+            llm_path = (llm_base / relative).with_suffix(".properties")
+            markdown_text = markdown_path.read_text(encoding="utf-8")
+            llm_text = llm_path.read_text(encoding="utf-8") if llm_path.is_file() else ""
+            changed = self.relative(markdown_path) in self.changed_paths or (
+                llm_path.is_file() and self.relative(llm_path) in self.changed_paths
+            )
+            has_metadata = "- Design service ID:" in markdown_text or "designService." in llm_text
+            if not changed and not has_metadata:
+                continue
+
+            markdown_metadata = self.markdown_service_metadata(markdown_path, catalog_types)
+            llm_metadata = self.llm_service_metadata(llm_path, catalog_types) if llm_path.is_file() else None
+            if markdown_metadata is None or llm_metadata is None:
+                continue
+            self.check(markdown_metadata == llm_metadata, f"Markdown/LLM service metadata mismatch: {self.relative(markdown_path)}")
+            metadata[markdown_path] = markdown_metadata
+
+            target = relative.parts[:2]
+            if len(target) != 2:
+                continue
+            for resource_type in markdown_metadata[1]:
+                owner_key = (target[0], target[1], resource_type)
+                previous = owners.get(owner_key)
+                self.check(previous is None, f"duplicate catalog resource type ownership: {resource_type}: {self.relative(previous) if previous else self.relative(markdown_path)} and {self.relative(markdown_path)}")
+                owners.setdefault(owner_key, markdown_path)
+
+        return metadata, catalog_types, catalog_property_owners
+
+    def check_design_tables(
+        self,
+        service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
+        catalog_types: set[str],
+        catalog_property_owners: dict[str, set[str]],
+    ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             table_count = 0
             index = 0
             while index < len(lines):
+                if lines[index].startswith("##") and ":" in lines[index]:
+                    heading_type = lines[index].lstrip("#").split(":", 1)[0].strip()
+                    if heading_type in catalog_types and path in service_metadata:
+                        self.check(
+                            heading_type in service_metadata[path][1],
+                            f"catalog resource type is outside declared service ownership: {self.relative(path)}: {heading_type}",
+                        )
                 if not lines[index].startswith("|"):
                     index += 1
                     continue
@@ -367,12 +494,24 @@ class Validator:
                     self.check(len(cells) == 4, f"table row must have four cells: {self.relative(path)}")
                     if len(cells) == 4:
                         self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
+                        property_owners = catalog_property_owners.get(cells[1], set())
+                        if property_owners and path in service_metadata:
+                            owned_types = set(service_metadata[path][1])
+                            self.check(bool(property_owners & owned_types), f"catalog property is outside declared service ownership: {self.relative(path)}: {cells[1]}")
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
 
             previous = ""
             for line in lines:
                 if line.startswith("##") and ":" in line:
-                    self.check(ANCHOR_PATTERN.fullmatch(previous) is not None, f"resource heading lacks explicit anchor: {self.relative(path)}: {line}")
+                    anchor_match = ANCHOR_PATTERN.fullmatch(previous)
+                    self.check(anchor_match is not None, f"resource heading lacks explicit anchor: {self.relative(path)}: {line}")
+                    if path in service_metadata:
+                        logical_id = line.rsplit(":", 1)[1].strip()
+                        valid_logical_id = LOGICAL_ID_PATTERN.fullmatch(logical_id) is not None
+                        self.check(valid_logical_id, f"invalid logical ID in resource heading: {self.relative(path)}: {line}")
+                        if anchor_match is not None and valid_logical_id:
+                            expected = f"{service_metadata[path][0]}-{logical_id.lower()}"
+                            self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
                     previous = line.strip()
 
@@ -408,7 +547,8 @@ class Validator:
                 if not match:
                     continue
                 group, logical_id, property_name, value = match.groups()
-                target_definitions.add(f"{group}.{logical_id}")
+                if group != "designService":
+                    target_definitions.add(f"{group}.{logical_id}")
                 if property_name.lower().endswith(("ref", "refs")):
                     references.extend((path, target, item) for item in value.split(",") if item)
         for path, target, reference in references:
