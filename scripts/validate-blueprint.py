@@ -114,6 +114,9 @@ class Validator:
             "docs/system-overview.md",
             "prompts/chatbot/initial-service-design.md",
             "prompts/codex/initialize-repository.md",
+            "prompts/codex/implement-infrastructure.md",
+            "prompts/codex/run-scenario-test.md",
+            "scripts/check-deploy-context.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:

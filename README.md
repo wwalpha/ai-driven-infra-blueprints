@@ -15,6 +15,9 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `README.md`: repository全体の役割、情報優先順位、workflow
 - `prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
+- `prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、deterministic preflight、安全確認、許可されたdeploy/apply、deploy完了確認を実行する指示
+- `prompts/codex/run-scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
+- `scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `project-topology.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
 
@@ -88,6 +91,8 @@ design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを
 - IaC反映が必要な場合は、別の`infrastructure` taskを明示的に開始する。
 - scenario確認が必要な場合は、infrastructure task完了後に別の`scenario-test` taskを明示的に開始する。
 
+IaC実装には`prompts/codex/implement-infrastructure.md`を使用する。対象environment、AWS account、implementation scope、deploy/apply許可を確認し、`scripts/check-deploy-context.py`がcredentialとdeploy contextを検証してから、選択済みのCloudFormationまたはTerraformだけを実装する。deploy完了確認とactual更新までで`infrastructure` taskを終了し、application behaviorは別taskで`prompts/codex/run-scenario-test.md`を使用して検証する。
+
 ## Operating model
 
 1. humanが独立したtaskのtypeと対象scopeを決める。
@@ -110,6 +115,8 @@ prompts/
     initial-service-design.md
   codex/
     initialize-repository.md
+    implement-infrastructure.md
+    run-scenario-test.md
 rules/
 tasks/active.md
 materials/
@@ -130,6 +137,7 @@ infra/
     environments/<environment>/<aws-account-id>/
 scripts/
   blueprint-loop.sh
+  check-deploy-context.py
   update-catalog-lock.py
   validate-blueprint.py
 tests/
