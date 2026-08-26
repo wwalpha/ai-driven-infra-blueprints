@@ -14,11 +14,19 @@
 
 ## Validation and execution
 
+`implement` phase:
+
 1. target regionを指定した`cfn-lint`でCloudFormation provider schemaに基づくproperty、型、制約のstatic checkを実行する。
+2. AWS API、`aws cloudformation validate-template`、change set、deploy/updateを実行しない。
+
+`deploy` phase:
+
+1. 対象templateを変更せず、target regionを指定した`cfn-lint`を再実行する。
 2. `aws cloudformation validate-template`でtemplate構文を検証する。このcommandだけをproperty validationの代替にしない。
-3. change setまたは同等のchange summaryを作成してscope、delete、replacementを確認する。
+3. change setを作成してscope、delete、replacementを確認する。
 4. repository-levelのmandatory human stopは設けない。
 5. active promptがdeploy/updateを許可し、change scopeがpromptと一致する場合だけexecutionへ進む。
+6. IaC修正が必要な場合はこのphaseで変更せず停止する。
 
 次の場合は停止する。
 
@@ -28,6 +36,6 @@
 - task promptが許可していないdelete/replacement
 - intended designの不足または変更が必要
 
-active promptが対象を限定している場合は、一部のtemplate、stack、resourceだけを作成・deployして終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
+active promptが対象を限定している場合は、implement phaseでは一部のtemplate、deploy phaseでは一部のstack/resourceだけを処理して終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
 
 deploy/update後は必要な非ARN actualと詳細設計内のgenerated current valueだけを更新し、local loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。

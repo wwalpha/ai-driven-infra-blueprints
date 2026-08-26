@@ -53,7 +53,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 - `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
 - `design`: 対象Markdownとgenerated service modelが同じ変更に含まれ、内容が決定的生成結果と一致
-- `infrastructure`: 選択済みIaC implementationが変更され、intended designとscenarioは未変更
+- `infrastructure`: `implement` phaseでは選択済みIaC implementationが変更され、`deploy` phaseではIaCが未変更。どちらもintended designとscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
@@ -70,12 +70,22 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 ## Infrastructure task completion
 
-1. 承認済みdesignとservice modelをinputとして読む。
-2. active promptで指定されたIaCだけを作成または変更する。
-3. CloudFormationはtarget region指定の`cfn-lint`と`aws cloudformation validate-template`、Terraformはsyntax/static validationを実行し、CloudFormation change setまたはTerraform planを確認する。
-4. active promptが明示許可した場合だけdeploy/applyする。
-5. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
-6. local loopを実行し、scenario testへ進まずtaskを終了する。
+infrastructure taskのTask contractには`Infrastructure phase`を正確に1件記載し、`implement`または`deploy`だけを許可する。
+
+`implement` phase:
+
+1. 承認済みdesignとservice modelをinputとして、active promptで指定されたIaCだけを作成または変更する。
+2. CloudFormationはtarget region指定の`cfn-lint`、Terraformは`terraform fmt -check`、`terraform init -backend=false`、`terraform validate`でlocal static validationする。
+3. AWS API、CloudFormation change set、Terraform plan、deploy/apply、observed value更新を行わない。
+4. local loopを実行して終了する。
+
+`deploy` phase:
+
+1. 作成・検証済みIaCを変更せず、deterministic preflightを実行する。
+2. CloudFormationは`cfn-lint`、`aws cloudformation validate-template`、change set、Terraformはvalidationと保存済みplanでscopeを確認する。
+3. active promptが許可した対象だけをdeploy/applyする。
+4. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
+5. local loopを実行し、scenario testへ進まず終了する。
 
 ## Scenario-test task completion
 

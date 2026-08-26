@@ -69,6 +69,44 @@ def check_task_contract() -> None:
         validator.check_task_scope()
         assert "requirement has no Acceptance check: R1" in validator.errors
 
+        active.write_text(
+            """# Test
+
+## Task contract
+
+- Task type: `infrastructure`
+- Infrastructure phase: `implement`
+
+## Required changes
+
+- [R1] IaCを更新する。
+
+## Acceptance checks
+
+- [R1] `changed:README.md`
+
+## Allowed paths
+
+- `README.md`
+- `tasks/active.md`
+""",
+            encoding="utf-8",
+        )
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert not validator.errors, validator.errors
+        assert validator.infrastructure_phase == "implement"
+
+        active.write_text(
+            active.read_text(encoding="utf-8").replace(
+                "- Infrastructure phase: `implement`\n", ""
+            ),
+            encoding="utf-8",
+        )
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert any("Infrastructure phase must appear exactly once" in error for error in validator.errors)
+
 
 def check_task_type_dispatch() -> None:
     valid = {
@@ -83,9 +121,21 @@ def check_task_type_dispatch() -> None:
     for task_type, changed in valid.items():
         validator = MODULE.Validator(SCRIPT.parents[2])
         validator.task_type = task_type
+        validator.infrastructure_phase = "implement" if task_type == "infrastructure" else ""
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()
         assert not validator.errors, (task_type, validator.errors)
+
+    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator.task_type = "infrastructure"
+    validator.infrastructure_phase = "deploy"
+    validator.changed_paths = {"tasks/active.md"}
+    validator.check_task_type_requirements()
+    assert not validator.errors, validator.errors
+
+    validator.changed_paths.add("infra/cloudformation/templates/vpc.yaml")
+    validator.check_task_type_requirements()
+    assert "infrastructure deploy phase must not change IaC" in validator.errors
 
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.task_type = "design"
@@ -179,7 +229,7 @@ def main() -> None:
     check_task_type_dispatch()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
-    print("validate-blueprint: PASS (12 focused checks)")
+    print("validate-blueprint: PASS (14 focused checks)")
 
 
 if __name__ == "__main__":

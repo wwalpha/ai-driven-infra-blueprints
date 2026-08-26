@@ -10,10 +10,12 @@
 
 ## Validation and execution
 
-- `terraform fmt -check`、`terraform validate`、`terraform plan`を必須とする。
+- `implement` phaseは`terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行し、plan、apply、AWS APIを実行しない。
+- `deploy` phaseはIaCを変更せず、`terraform fmt -check`、`terraform validate`、repository外へ保存する`terraform plan`を実行する。
+- deploy phaseでIaC修正が必要な場合は変更せず停止する。
 - plan後にrepository-levelのmandatory human stopは設けない。
-- applyはactive promptが明示的に許可し、plan scopeがpromptと一致するときだけ実行する。
-- active promptが対象を限定している場合は、指定environment/module/resourceだけを変更して終了できる。
+- applyはdeploy phaseのactive promptが明示的に許可し、plan scopeがpromptと一致するときだけ保存済みplanを実行する。
+- active promptが対象を限定している場合は、implement phaseでは指定environment/module/resourceだけを変更し、deploy phaseでは指定対象だけをapplyして終了できる。
 - unauthorized delete/replacement、wrong workspace/account/region、missing input、sensitive output、plan failure、intended designの不足で停止する。
 - state fileとplan binaryをcommitしない。
 - remote stateはaccess control、locking、encryption、backupを備える構成としてproject designに記録する。

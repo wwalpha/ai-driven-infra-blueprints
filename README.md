@@ -20,7 +20,8 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
 - `framework/prompts/codex/add-project-target.md`: 初期化後に確定したtargetを1件追加するmigration指示
 - `framework/prompts/codex/apply-design.md`: chatで確定した詳細設計を保存し、service modelを生成するdesign指示
-- `framework/prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、deterministic preflight、安全確認、許可されたdeploy/apply、deploy完了確認を実行する指示
+- `framework/prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、local static validationまでを行う指示
+- `framework/prompts/codex/deploy-infrastructure.md`: 作成・検証済みIaCを変更せず、安全確認、deploy/apply、deploy完了確認を行う指示
 - `framework/prompts/codex/run-scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
@@ -57,11 +58,17 @@ active promptの`## Task contract`には次を正確に1件記載します。
 - Task type: `<task-type>`
 ```
 
+`infrastructure` taskでは、同じTask contractへ次も正確に1件記載します。
+
+```md
+- Infrastructure phase: `<implement-or-deploy>`
+```
+
 許可するtask type:
 
 - `initialization`: 必要値をhumanへ確認し、project topologyとtarget pathを初期化する。
 - `design`: 詳細設計と対応するservice modelを更新し、local validation後に終了する。
-- `infrastructure`: 承認済みdesignをinputとしてIaCを変更し、安全確認、許可されたdeploy/apply、成功後のobserved value更新までで終了する。
+- `infrastructure`: `implement` phaseでIaCを作成・検証するか、別taskの`deploy` phaseで既存IaCをdeploy/applyしてobserved valueを更新する。
 - `scenario-test`: scenario、test implementation、実行、scenario-scoped current resultを更新して終了する。
 - `governance`: repository ruleやworkflowを変更する。
 - `catalog-maintenance`: materials catalogを明示scopeで保守する。
@@ -98,7 +105,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 
 - active prompt、task type、repository ruleの範囲だけを実行する
 - design taskでは詳細設計とservice modelのdesired namespaceまでで終了する
-- infrastructure taskではIaC safety check、許可されたexecution、observed namespace更新までで終了する
+- infrastructure taskでは`implement`または`deploy`の一方だけを実行する
 - scenario-test taskではscenarioとcurrent resultだけを変更する
 - task完了後に次工程へ自動的に進まない
 
@@ -119,17 +126,17 @@ chatの完了報告と保存対象Markdownは分離します。chatとMarkdown�
 - humanは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`を現在設計として変更する。
 - design taskは変更された詳細設計と対応するservice modelだけを同期して終了する。
 - IaC反映が必要な場合は、別の`infrastructure` taskを明示的に開始する。
-- scenario確認が必要な場合は、infrastructure task完了後に別の`scenario-test` taskを明示的に開始する。
+- scenario確認が必要な場合は、infrastructure `deploy` phase完了後に別の`scenario-test` taskを明示的に開始する。
 
-IaC実装には`framework/prompts/codex/implement-infrastructure.md`を使用する。対象environment、AWS account、implementation scope、deploy/apply許可を確認し、`framework/scripts/check-deploy-context.py`がcredentialとdeploy contextを検証してから、選択済みのCloudFormationまたはTerraformだけを実装する。deploy完了確認とobserved value更新までで`infrastructure` taskを終了し、application behaviorは別taskで`framework/prompts/codex/run-scenario-test.md`を使用して検証する。
+IaC実装には`framework/prompts/codex/implement-infrastructure.md`を使用し、選択済みのCloudFormationまたはTerraformを作成してlocal static validationまでで終了する。deploy/applyには別taskで`framework/prompts/codex/deploy-infrastructure.md`を使用し、`framework/scripts/check-deploy-context.py`でcredentialとdeploy contextを検証してから、既存IaCを変更せずに実行する。deploy完了後のapplication behaviorは、さらに別taskで`framework/prompts/codex/run-scenario-test.md`を使用して検証する。
 
 ## Operating model
 
 1. humanが独立したtaskのtypeと対象scopeを決める。
 2. Codexはactive prompt、`AGENTS.md`、関連rulesを読み、同じtask type内だけで作業する。
 3. `design` taskはintended designとservice modelを更新して終了する。
-4. `infrastructure` taskはIaC syntax/static validation、CloudFormation change setまたはTerraform planを確認する。これらはscenario testではない。
-5. active promptが許可した場合だけdeploy/applyし、成功後のobserved value更新まででinfrastructure taskを終了する。
+4. `infrastructure` taskの`implement` phaseはIaC作成とlocal static validationまでで終了する。
+5. 別の`infrastructure` taskの`deploy` phaseは既存IaCを変更せず、CloudFormation change setまたはTerraform planを確認してdeploy/applyし、成功後のobserved value更新までで終了する。
 6. `scenario-test` taskは別途開始し、指定scenarioのtestとcurrent resultだけを更新する。
 7. scenario testが失敗しても、同じtaskでdesign変更、IaC修正、redeploy、remediation task作成へ進まない。
 
@@ -158,6 +165,7 @@ framework/
       initial-service-design.md
     codex/
       apply-design.md
+      deploy-infrastructure.md
       initialize-repository.md
       implement-infrastructure.md
       run-scenario-test.md
@@ -270,4 +278,4 @@ python framework/scripts/blueprint-loop.py --mode local
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
-local loopはtask type、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。
+local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC作成、deploy/apply、scenario executionはそれぞれ別taskで実行します。

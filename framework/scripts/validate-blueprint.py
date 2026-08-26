@@ -100,6 +100,7 @@ class Validator:
         self.checks = 0
         self.changed_paths: set[str] = set()
         self.task_type = ""
+        self.infrastructure_phase = ""
         self.requirement_ids: list[str] = []
         self.acceptance_checks: list[tuple[str, str, str]] = []
         self.acceptance_results: list[str] = []
@@ -160,6 +161,7 @@ class Validator:
             "framework/prompts/codex/apply-design.md",
             "framework/prompts/codex/initialize-repository.md",
             "framework/prompts/codex/implement-infrastructure.md",
+            "framework/prompts/codex/deploy-infrastructure.md",
             "framework/prompts/codex/run-scenario-test.md",
             "framework/scripts/blueprint-loop.py",
             "framework/scripts/check-deploy-context.py",
@@ -207,6 +209,23 @@ class Validator:
         if task_types:
             self.task_type = task_types[0]
             self.check(self.task_type in TASK_TYPES, f"unknown Task type: {self.task_type}")
+
+        infrastructure_phases = []
+        for line in contract:
+            match = re.fullmatch(r"- Infrastructure phase: `([^`]+)`", line)
+            if match:
+                infrastructure_phases.append(match.group(1))
+        expected_phase_count = 1 if self.task_type == "infrastructure" else 0
+        self.check(
+            len(infrastructure_phases) == expected_phase_count,
+            f"Infrastructure phase must appear exactly once for infrastructure tasks only: {self.relative(prompt)}",
+        )
+        if infrastructure_phases:
+            self.infrastructure_phase = infrastructure_phases[0]
+            self.check(
+                self.infrastructure_phase in {"implement", "deploy"},
+                f"unknown Infrastructure phase: {self.infrastructure_phase}",
+            )
 
         requirement_ids: list[str] = []
         for line in self.section(lines, "## Required changes"):
@@ -332,7 +351,11 @@ class Validator:
                     expected = f"model/{parts[2]}/{parts[3]}/{parts[4]}.properties"
                     self.check(expected in changed, f"changed design JSON lacks changed service model: {path}")
         elif self.task_type == "infrastructure":
-            self.check(any(self.under(path, "infra") for path in changed), "infrastructure task must change selected IaC")
+            iac_changed = any(self.under(path, "infra") for path in changed)
+            if self.infrastructure_phase == "implement":
+                self.check(iac_changed, "infrastructure implement phase must change selected IaC")
+            elif self.infrastructure_phase == "deploy":
+                self.check(not iac_changed, "infrastructure deploy phase must not change IaC")
         elif self.task_type == "scenario-test":
             self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
             self.check(any(self.under(path, "tests/results") for path in changed), "scenario-test task must change its current result")
@@ -439,6 +462,7 @@ class Validator:
         paths = (
             self.root / "framework" / "rules" / "cloudformation.md",
             self.root / "framework" / "prompts" / "codex" / "implement-infrastructure.md",
+            self.root / "framework" / "prompts" / "codex" / "deploy-infrastructure.md",
             self.root / "framework" / "scripts" / "check-deploy-context.py",
         )
         for path in paths:
