@@ -2,36 +2,25 @@
 
 このpromptは、人間が既存の詳細設計Markdownを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、service model同期、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
 
-## User input
+## Optional user input
 
-- Target environment: `{{project.jsonのenvironment}}`
-- Target AWS account: `{{project.jsonの12桁AWS account ID}}`
-- Authorized delete/replacement: `none`
-- AWS profile: `{{使用するprofile名。default credential chainの場合は空}}`
+- Authorized delete/replacement: 省略時は`none`
+- AWS profile: 省略時はdefault credential chain
 
-Design scopeとDeployment scopeはuserへ入力を要求せず、repositoryのuncommitted diffと既存IaCからCodexが特定する。
+通常はどちらも入力不要とする。delete/replacementは対象resourceと理由が明記されている場合だけ許可する。
 
-## Resolve missing input
+## Resolve target and scope from repository state
 
-fileまたはAWSを変更する前にUser inputを確認する。placeholder、空、不明な値はmissingとして扱い、次の順序で一回の応答につき一つだけ質問する。
+fileを変更する前に、次の順序でtargetとscopeを特定する。
 
-1. Target environment
-2. Target AWS account
+1. `git status --short`と`git diff --name-only HEAD -- docs/designs/`を確認する。
+2. humanが変更した既存詳細設計Markdownのpathが`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に一致することを確認し、pathからenvironmentとAWS accountを取得する。
+3. 取得したenvironment／AWS accountの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認する。変更済み詳細設計がない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
+4. 同じtargetでhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
+5. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。
+6. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。
 
-environmentとAWS accountは`project.json`に存在する候補だけを提示し、自動選択しない。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
-
-## Resolve scope from repository state
-
-fileを変更する前に、次の順序でscopeを特定する。
-
-1. `git status --short`と`git diff --name-only HEAD -- docs/designs/<environment>/<aws-account-id>/`を確認する。
-2. 対象environment／AWS account配下でhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
-3. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。
-4. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。
-
-Design scopeが空の場合は停止する。複数の変更済み詳細設計fileがあれば、同じtargetに属するものをすべて対象とする。scope外のuncommitted changeがある場合は取り込まず停止する。
-
-repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるfile pathやscope全体をuserへ再入力させず、値を推測しない。
+scope外のuncommitted changeがある場合は取り込まず停止する。repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるtarget、file path、scope全体をuserへ再入力させず、値を推測しない。
 
 ## Read before changing files
 
@@ -71,7 +60,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 - Infrastructure phaseは`update`とする。
 - goalにtarget environment、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
 - AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
-- Authorized delete/replacementは確認済みUser inputの値をそのまま記載する。
+- Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。
 - `Required changes`は一意なRequirement ID付きで、human design diffの検証、service model同期、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
 - `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
 - Allowed pathsはDesign scope、対応するJSON artifactとmodel、対象IaC、`tasks/active.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
@@ -85,7 +74,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 ## Preflight and deploy
 
-credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。AWS profileが空の場合は`--profile`を省略する。
+credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。AWS profileが指定されていない場合は`--profile`を省略する。
 
 ```text
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]

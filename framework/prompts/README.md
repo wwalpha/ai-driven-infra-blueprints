@@ -138,15 +138,12 @@ AWS profile:
 
 - Description: humanが既存詳細設計Markdownへ作成したuncommitted diffを確定済みdesignとして受け取り、model同期、IaC反映、deploy/applyまでを行う。
 - Timing: 既存詳細設計をhumanが直接修正し、その差分をcommit前にCloudFormation／TerraformとAWS resourceへ反映するとき。
-- How to use: environmentとAWS accountを渡す。Design scopeは対象account配下のgit diff、Deployment scopeは対応する既存IaCからCodexが自動特定する。delete/replacement許可を省略した場合は`none`、AWS profileを省略した場合はdefault credential chainを使用する。対応が一意に決まらない項目だけ追加で回答する。
+- How to use: promptの使用だけを指示する。Codexが変更済み詳細設計のpathからenvironment、AWS account、Design scopeを取得し、対応する既存IaCからDeployment scopeを特定する。delete/replacement許可の省略時は`none`、AWS profileの省略時はdefault credential chainを使用する。複数targetの設計差分が混在する場合は変更せず停止し、deployment unitの不足項目だけ必要に応じて質問する。
 
 使用例:
 
 ```text
 framework/prompts/codex/05_update.mdを使ってください。
-
-Target environment: staging
-Target AWS account: 123456789012
 ```
 
 ### `codex/06_scenario-test.md`

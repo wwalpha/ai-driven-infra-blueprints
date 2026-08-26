@@ -3,7 +3,7 @@
 ## Task contract
 
 - Task type: `governance`
-- Goal: `05_update.md`がscopeを自動特定し、省略可能なdefault入力なしで使用できるようにする
+- Goal: `05_update.md`がtargetとscopeをrepository差分から自動特定し、追加inputなしで使用できるようにする
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,9 +11,9 @@
 
 ## Required changes
 
-- [R1] 手動修正された詳細設計fileを対象environment／AWS accountのgit diffから自動特定する。
+- [R1] 手動修正された詳細設計fileのpathからenvironment、AWS account、Design scopeを自動特定する。
 - [R2] 対応するdeployment unitを既存IaCから自動特定し、一意に決まらない項目だけ質問する。
-- [R3] scopeとdefault入力の指定が不要な最小使用例へPrompt Guideを更新する。
+- [R3] target、scope、default入力の指定が不要な最小使用例へPrompt Guideを更新する。
 
 ## Acceptance checks
 
