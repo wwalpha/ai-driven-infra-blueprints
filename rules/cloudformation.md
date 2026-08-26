@@ -14,10 +14,11 @@
 
 ## Validation and execution
 
-1. syntax/static checkと`aws cloudformation validate-template`を実行する。
-2. change setまたは同等のchange summaryを作成してscope、delete、replacementを確認する。
-3. repository-levelのmandatory human stopは設けない。
-4. active promptがdeploy/updateを許可し、change scopeがpromptと一致する場合だけexecutionへ進む。
+1. target regionを指定した`cfn-lint`でCloudFormation provider schemaに基づくproperty、型、制約のstatic checkを実行する。
+2. `aws cloudformation validate-template`でtemplate構文を検証する。このcommandだけをproperty validationの代替にしない。
+3. change setまたは同等のchange summaryを作成してscope、delete、replacementを確認する。
+4. repository-levelのmandatory human stopは設けない。
+5. active promptがdeploy/updateを許可し、change scopeがpromptと一致する場合だけexecutionへ進む。
 
 次の場合は停止する。
 

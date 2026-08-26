@@ -56,9 +56,7 @@ def check_deploy_context(
     root: Path, environment: str, account_id: str, profile: str | None = None
 ) -> dict[str, str]:
     target = load_target(root, environment, account_id)
-    required_commands = ["aws"]
-    if target["iacEngine"] == "terraform":
-        required_commands.append("terraform")
+    required_commands = ["aws", "cfn-lint"] if target["iacEngine"] == "cloudformation" else ["aws", "terraform"]
     command_paths = {command: shutil.which(command) for command in required_commands}
     missing = [command for command, path in command_paths.items() if path is None]
     if missing:

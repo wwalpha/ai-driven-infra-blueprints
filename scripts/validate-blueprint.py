@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
+
 
 REQUIRED_RULES = {
     "cloudformation.md",
@@ -108,6 +110,7 @@ class Validator:
         self.result_files: dict[str, list[Path]] = {}
         self.markdown_design_artifacts: set[Path] = set()
         self.markdown_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
+        self.schema_catalog: CloudFormationSchemaCatalog | None = None
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -161,6 +164,7 @@ class Validator:
             "prompts/codex/run-scenario-test.md",
             "scripts/blueprint-loop.py",
             "scripts/check-deploy-context.py",
+            "scripts/cloudformation_schema.py",
             "scripts/sync-design-mirror.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
@@ -347,6 +351,9 @@ class Validator:
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-design-mirror": self.check_generated_design_mirrors,
+            "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
+            "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
+            "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
         }
         for requirement_id, kind, value in self.acceptance_checks:
             before = len(self.errors)
@@ -410,6 +417,27 @@ class Validator:
             text=True,
         )
         self.check(result.returncode == 0, result.stdout.strip() or result.stderr.strip() or "generated design mirror check failed")
+
+    def check_framework_cloudformation_schema_catalog(self) -> None:
+        errors = snapshot_errors(self.root)
+        self.check(not errors, "; ".join(errors) or "CloudFormation schema snapshot is invalid")
+
+    def check_framework_schema_backed_design_validation(self) -> None:
+        rules = (self.root / "rules" / "detailed-design.md").read_text(encoding="utf-8")
+        prompt = (self.root / "prompts" / "chatbot" / "initial-service-design.md").read_text(encoding="utf-8")
+        self.check("CloudFormation provider schema" in rules, "detailed design rules do not apply provider schemas")
+        self.check("CloudFormation provider schema" in prompt, "initial design prompt does not apply provider schemas")
+        catalog = CloudFormationSchemaCatalog(self.root)
+        self.check(bool(catalog.literal_errors("Logs.LogGroup", "KmsKeyId", "not-used")), "schema-backed literal validation is inactive")
+
+    def check_framework_cfn_lint_validation(self) -> None:
+        paths = (
+            self.root / "rules" / "cloudformation.md",
+            self.root / "prompts" / "codex" / "implement-infrastructure.md",
+            self.root / "scripts" / "check-deploy-context.py",
+        )
+        for path in paths:
+            self.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {self.relative(path)}")
 
     def check_tasks(self) -> None:
         tasks = self.root / "tasks"
@@ -503,6 +531,11 @@ class Validator:
             text=True,
         )
         self.check(result.returncode == 0, result.stdout.strip() or "catalog lock check failed")
+
+        schema_failures = snapshot_errors(self.root)
+        self.check(not schema_failures, "; ".join(schema_failures) or "CloudFormation schema snapshot check failed")
+        if not schema_failures:
+            self.schema_catalog = CloudFormationSchemaCatalog(self.root)
 
         for path in sorted((self.root / "materials" / "aws").glob("*.properties")):
             text = path.read_text(encoding="utf-8")
@@ -658,6 +691,16 @@ class Validator:
         name = resource_type.split(".", 1)[1]
         words = re.findall(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+", name)
         return " ".join(words)
+
+    def is_generated_identifier_property(self, resource_type: str, property_name: str) -> bool:
+        return self.normalized(property_name) == self.normalized(
+            f"{self.resource_label(resource_type)} ID"
+        )
+
+    @staticmethod
+    def resource_property_path(resource_type: str, property_name: str) -> str:
+        prefix = resource_type + "."
+        return property_name[len(prefix) :] if property_name.startswith(prefix) else property_name
 
     def check_generated_identifier(
         self, path: Path, resource_type: str, rows: list[list[str]]
@@ -817,11 +860,33 @@ class Validator:
                             f"Source / Comment must be Japanese: {self.relative(path)}: {cells[3]}",
                         )
                         property_owners = catalog_property_owners.get(cells[1], set())
+                        generated_identifier = bool(current_resource_type) and self.is_generated_identifier_property(
+                            current_resource_type, cells[1]
+                        )
+                        if current_resource_type in catalog_types and not generated_identifier:
+                            self.check(
+                                current_resource_type in property_owners,
+                                f"resource table property is not selected by materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
+                            )
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
                             self.check(bool(property_owners & owned_types), f"catalog property is outside declared service ownership: {self.relative(path)}: {cells[1]}")
                             if current_resource_type:
                                 self.check(current_resource_type in property_owners, f"catalog property does not belong to resource table: {self.relative(path)}: {current_resource_type}: {cells[1]}")
+                        if (
+                            self.schema_catalog is not None
+                            and current_resource_type in property_owners
+                            and LINK_PATTERN.fullmatch(cells[2]) is None
+                        ):
+                            property_path = self.resource_property_path(current_resource_type, cells[1])
+                            raw_value = self.unquoted(cells[2])
+                            for error in self.schema_catalog.literal_errors(
+                                current_resource_type, property_path, raw_value
+                            ):
+                                self.check(
+                                    False,
+                                    f"provider schema violation: {self.relative(path)}: {current_resource_type}.{property_path}: {raw_value!r} {error}",
+                                )
                         link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
                         artifact_link = link_match.group(1) if link_match else ""
                         is_json_link = artifact_link.endswith(".json")
@@ -834,6 +899,23 @@ class Validator:
                             self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact path: {self.relative(path)}: {artifact_link}")
                             self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
+                    if self.schema_catalog is not None:
+                        present = {
+                            self.resource_property_path(current_resource_type, row[1])
+                            for row in rows
+                            if current_resource_type in catalog_property_owners.get(row[1], set())
+                        }
+                        selected_required = {
+                            property_name
+                            for property_name in self.schema_catalog.required_properties(current_resource_type)
+                            if current_resource_type
+                            in catalog_property_owners.get(property_name, set())
+                        }
+                        for property_name in sorted(selected_required - present):
+                            self.check(
+                                False,
+                                f"required provider schema property missing: {self.relative(path)}: {current_resource_type}.{property_name}",
+                            )
                     self.check_generated_identifier(path, current_resource_type, rows)
                 if current_resource_type == "IAM.Role":
                     self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)

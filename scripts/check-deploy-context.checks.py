@@ -27,6 +27,12 @@ def main() -> None:
                     "projectName": "test",
                     "targets": [
                         {
+                            "environment": "production",
+                            "awsAccountId": "210987654321",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        },
+                        {
                             "environment": "staging",
                             "awsAccountId": "123456789012",
                             "awsRegion": "ap-northeast-1",
@@ -48,6 +54,19 @@ def main() -> None:
             assert target == {"awsRegion": "ap-northeast-1", "iacEngine": "terraform"}
             assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", "deploy"]
             assert run.call_args.args[0][3:5] == ["--region", "ap-northeast-1"]
+
+        commands: list[str] = []
+        with mock.patch.object(
+            MODULE.shutil,
+            "which",
+            side_effect=lambda command: commands.append(command) or f"/mock/{command}",
+        ), mock.patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
+        ):
+            MODULE.check_deploy_context(root, "production", "210987654321")
+            assert commands == ["aws", "cfn-lint"]
 
         with mock.patch.object(MODULE.shutil, "which", return_value="/mock/aws"), mock.patch.object(
             MODULE.subprocess,

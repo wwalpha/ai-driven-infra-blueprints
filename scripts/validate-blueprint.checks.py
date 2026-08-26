@@ -98,6 +98,55 @@ def check_task_type_dispatch() -> None:
     assert not validator.errors, validator.errors
 
 
+def check_schema_backed_design_rows() -> None:
+    repository = SCRIPT.parents[1]
+    _, property_owners = MODULE.Validator(repository).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs" / "designs" / "staging" / "123456789012" / "logs.md"
+        design.parent.mkdir(parents=True)
+        invalid = """# CloudWatch Logs
+
+- Design service ID: `logs`
+- Owned catalog resource types: `Logs.LogGroup`
+
+<a id="logs-vpcflowloggroup01"></a>
+## Logs.LogGroup: VPCFLOWLOGGROUP01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |
+| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |
+| 3 | Log Group ID | `PENDING_DEPLOY` | デプロイ後生成値としてロググループを識別するID |
+"""
+        design.write_text(invalid, encoding="utf-8")
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.check_design_tables(
+            {design: ("logs", ("Logs.LogGroup",))}, {"Logs.LogGroup"}, property_owners
+        )
+        assert any("provider schema violation" in error for error in validator.errors)
+        assert any("not selected by materials/aws" in error for error in validator.errors)
+
+        design.write_text(
+            invalid.replace(
+                "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
+                "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |\n"
+                "| 3 | Log Group ID",
+                "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
+                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 3 | Log Group ID",
+            ),
+            encoding="utf-8",
+        )
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.check_design_tables(
+            {design: ("logs", ("Logs.LogGroup",))}, {"Logs.LogGroup"}, property_owners
+        )
+        assert not validator.errors, validator.errors
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -111,7 +160,8 @@ def main() -> None:
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
     check_task_contract()
     check_task_type_dispatch()
-    print("validate-blueprint: PASS (9 focused checks)")
+    check_schema_backed_design_rows()
+    print("validate-blueprint: PASS (11 focused checks)")
 
 
 if __name__ == "__main__":

@@ -33,12 +33,14 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - changed pathsがTask type boundaryとAllowed paths内にある
 - `tasks/`には`active.md`だけがある
 - `materials/aws/`が`materials/catalog.sha256`と一致する
+- 東京regionのCloudFormation provider schema snapshotがlockと一致し、`materials/aws/`の全property pathを解決できる
 - required directory/file structureが存在する
 - `project.json`とenvironment/AWS account pathが一致する
 - `rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
 - service ownership、Markdown/LLM service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
 - resource tableの`Source / Comment`が日本語で記載されている
+- resource tableがproperties選択リスト外の設定項目を含まず、literal値がprovider schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、LLM mirrorのartifact pathと一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
@@ -70,7 +72,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 1. 承認済みdesignとLLM designをinputとして読む。
 2. active promptで指定されたIaCだけを作成または変更する。
-3. IaC syntax/static validationとCloudFormation change setまたはTerraform planを確認する。
+3. CloudFormationはtarget region指定の`cfn-lint`と`aws cloudformation validate-template`、Terraformはsyntax/static validationを実行し、CloudFormation change setまたはTerraform planを確認する。
 4. active promptが明示許可した場合だけdeploy/applyする。
 5. 成功したAWS mutationがある場合だけ必要なactualsとgenerated current valueを更新する。
 6. local loopを実行し、scenario testへ進まずtaskを終了する。

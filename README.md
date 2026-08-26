@@ -42,8 +42,9 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 4. `docs/designs/**/*.md`
 5. taskに関係する`rules/*.md`
 6. taskに関係する`materials/aws/*.properties`
-7. `llm/designs/`と`llm/actuals/`
-8. userが明示的に許可した外部情報
+7. taskに関係する`materials/cloudformation-schema/ap-northeast-1/*.json`
+8. `llm/designs/`と`llm/actuals/`
+9. userが明示的に許可した外部情報
 
 `docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
@@ -152,6 +153,9 @@ materials/
   catalog.properties
   catalog.sha256
   aws/
+  cloudformation-schema.properties
+  cloudformation-schema.sha256
+  cloudformation-schema/ap-northeast-1/
 docs/
   system-overview.md
   designs/<environment>/<aws-account-id>/
@@ -200,7 +204,7 @@ tests/
 
 ## Materials catalog
 
-`materials/aws/`はAWS CloudFormation Resource Specificationから作成したcurated partial catalogです。AWS resourceの完全一覧ではありません。
+`materials/aws/`はAWS CloudFormation Resource Specificationから作成したcurated partial catalogで、詳細設計へ載せる候補項目を選択します。廃止せず、provider schemaの全項目を設計書へ機械的に掲載する用途には使いません。
 
 - provenanceと件数: `materials/catalog.properties`
 - file integrity: `materials/catalog.sha256`
@@ -208,6 +212,15 @@ tests/
 - authorized catalog maintenance後のlock更新: `python scripts/update-catalog-lock.py --write`
 
 通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
+
+`materials/cloudformation-schema/ap-northeast-1/`は、propertiesで選択した82 resource typeについて公式CloudFormation provider schemaのfull propertyと型・制約を保持します。設計値とCloudFormation templateのproperty名、`type`、`enum`、`pattern`、長さ、範囲、`required`の検証元です。
+
+- provenance: `materials/cloudformation-schema.properties`
+- file integrity: `materials/cloudformation-schema.sha256`
+- offline check: `python scripts/cloudformation_schema.py`
+- 公式regional schemaからの明示的なrefresh: `python scripts/cloudformation_schema.py --write`
+
+通常のlocal loopはnetworkへ接続せずsnapshotとpropertiesの対応を検証します。refreshは公式schema更新を取り込む明示的なgovernanceまたはcatalog-maintenance taskだけで実行します。CloudFormation template自体は、target regionを指定した`cfn-lint`でprovider schema validationを行い、続けて`aws cloudformation validate-template`で構文を検証します。
 
 ## Validation
 
@@ -243,4 +256,4 @@ python scripts/blueprint-loop.py --mode local
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
-local loopはtask type、task scope、project topology、catalog integrity、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。
+local loopはtask type、task scope、project topology、catalog/schema integrity、schema-backed design value、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

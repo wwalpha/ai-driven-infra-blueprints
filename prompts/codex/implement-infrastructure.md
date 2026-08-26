@@ -40,6 +40,7 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 10. `rules/post-deploy-actuals.md`
 11. `rules/loop-engineering.md`
 12. 対象resourceに関係する`materials/aws/*.properties`
+13. `materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 詳細設計とLLM designが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、どちらかを推測して採用せず、別の`design` taskが必要であることを報告して停止する。
 
@@ -90,13 +91,14 @@ preflightはtarget environment／AWS accountにつき一回だけ実行する。
 CloudFormationの場合:
 
 1. `infra/cloudformation/templates/`と対象の`infra/cloudformation/parameters/<environment>/<aws-account-id>/`だけを変更する。
-2. 対象となる全templateのsyntax/static checkと`aws cloudformation validate-template`を先に実行する。
-3. validation failureは根本原因を調査し、確定済みdesign内で修正可能なら最小修正して再実行する。
-4. validation完了後、dependency順にdeployment unitを一つずつ処理する。
-5. 各unitで最新parameterを解決し、change setを作成してadd、change、delete、replacementがimplementation scopeと許可範囲内であることを確認する。
-6. Deploy/applyが`allowed`の場合だけchange setを実行し、stackがterminal successになるまで待つ。
-7. stack成功後に必要なactualとgenerated current valueを更新してから、次のunitへ進む。
-8. Deploy/applyが`forbidden`の場合はchange set結果までを報告し、実行しない。
+2. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行し、provider schemaに基づくproperty、型、制約を検証する。
+3. 全templateへ`aws cloudformation validate-template`を実行して構文を検証する。これだけをschema validationの代替にしない。
+4. validation failureは根本原因を調査し、確定済みdesign内で修正可能なら最小修正して再実行する。
+5. validation完了後、dependency順にdeployment unitを一つずつ処理する。
+6. 各unitで最新parameterを解決し、change setを作成してadd、change、delete、replacementがimplementation scopeと許可範囲内であることを確認する。
+7. Deploy/applyが`allowed`の場合だけchange setを実行し、stackがterminal successになるまで待つ。
+8. stack成功後に必要なactualとgenerated current valueを更新してから、次のunitへ進む。
+9. Deploy/applyが`forbidden`の場合はchange set結果までを報告し、実行しない。
 
 Terraformの場合:
 

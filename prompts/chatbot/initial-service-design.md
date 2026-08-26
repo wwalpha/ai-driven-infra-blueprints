@@ -48,6 +48,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 6. `rules/detailed-design.md`
 7. `rules/llm-design-information.md`
 8. 対象 service と必須前提 service に関係する `materials/aws/*.properties`
+9. `materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -68,7 +69,9 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 前提 service の設計済み／未設計
 - 一緒に確認した方が理解しやすい関連 service
 
-materials catalog の property 一覧をそのまま提示してはいけません。使用しない property や、将来必要かもしれないだけの optional 設定を質問しないでください。
+`materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
+
+回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
 ## Dependency priority
 
