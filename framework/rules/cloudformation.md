@@ -28,6 +28,13 @@
 5. active promptがdeploy/updateを許可し、change scopeがpromptと一致する場合だけexecutionへ進む。
 6. IaC修正が必要な場合はこのphaseで変更せず停止する。
 
+`update` phase:
+
+1. humanがtask開始前に手動修正した詳細設計を変更せず、service modelを同期する。
+2. implement phaseと同じ`cfn-lint`を実行して対象templateを作成・変更する。
+3. deploy phaseと同じpreflight、`aws cloudformation validate-template`、change set確認、execution、完了確認を続けて実行する。
+4. このphase内で生成した対象templateのuncommitted diffだけをdeploy対象として許可する。
+
 次の場合は停止する。
 
 - validation failure

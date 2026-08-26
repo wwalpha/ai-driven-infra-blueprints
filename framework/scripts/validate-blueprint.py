@@ -71,6 +71,7 @@ TASK_TYPES = {
     "migration",
 }
 RESULT_STATUSES = {"PASS", "FAIL", "BLOCKED", "STALE", "NOT_EXECUTED"}
+CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 RESULT_METADATA = (
     "Scenario ID",
     "Environment",
@@ -156,13 +157,15 @@ class Validator:
             "README.md",
             "framework/chatbot/personal-custom-instructions.md",
             "docs/system-overview.md",
+            "framework/prompts/README.md",
             "framework/prompts/chatbot/initial-service-design.md",
-            "framework/prompts/codex/add-project-target.md",
-            "framework/prompts/codex/apply-design.md",
-            "framework/prompts/codex/initialize-repository.md",
-            "framework/prompts/codex/implement-infrastructure.md",
-            "framework/prompts/codex/deploy-infrastructure.md",
-            "framework/prompts/codex/run-scenario-test.md",
+            "framework/prompts/codex/01_initialize.md",
+            "framework/prompts/codex/02_add-target.md",
+            "framework/prompts/codex/03_apply-design.md",
+            "framework/prompts/codex/04_implement.md",
+            "framework/prompts/codex/05_deploy.md",
+            "framework/prompts/codex/06_update.md",
+            "framework/prompts/codex/07_scenario-test.md",
             "framework/scripts/blueprint-loop.py",
             "framework/scripts/check-deploy-context.py",
             "framework/scripts/cloudformation_schema.py",
@@ -171,6 +174,20 @@ class Validator:
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:
             self.check((self.root / directory).is_dir(), f"required directory missing: {directory}")
+        codex_prompt_names = sorted(
+            path.name
+            for path in (self.root / "framework" / "prompts" / "codex").glob("*")
+            if path.is_file()
+        )
+        invalid_prompt_names = [
+            name for name in codex_prompt_names if not CODEX_PROMPT_FILENAME_PATTERN.fullmatch(name)
+        ]
+        self.check(not invalid_prompt_names, f"invalid Codex prompt filenames: {invalid_prompt_names}")
+        prompt_numbers = [name.split("_", 1)[0] for name in codex_prompt_names]
+        self.check(
+            len(prompt_numbers) == len(set(prompt_numbers)),
+            "Codex prompt numbers must be unique",
+        )
         actual_rules = {
             path.name for path in (self.root / "framework" / "rules").glob("*.md")
         }
@@ -223,7 +240,7 @@ class Validator:
         if infrastructure_phases:
             self.infrastructure_phase = infrastructure_phases[0]
             self.check(
-                self.infrastructure_phase in {"implement", "deploy"},
+                self.infrastructure_phase in {"implement", "deploy", "update"},
                 f"unknown Infrastructure phase: {self.infrastructure_phase}",
             )
 
@@ -356,6 +373,16 @@ class Validator:
                 self.check(iac_changed, "infrastructure implement phase must change selected IaC")
             elif self.infrastructure_phase == "deploy":
                 self.check(not iac_changed, "infrastructure deploy phase must not change IaC")
+            elif self.infrastructure_phase == "update":
+                self.check(iac_changed, "infrastructure update phase must change selected IaC")
+                self.check(
+                    any(path.startswith("docs/designs/") and path.endswith(".md") for path in changed),
+                    "infrastructure update phase must include a human-changed detailed design",
+                )
+                self.check(
+                    any(path.startswith("model/") and path.endswith(".properties") for path in changed),
+                    "infrastructure update phase must regenerate service models",
+                )
         elif self.task_type == "scenario-test":
             self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
             self.check(any(self.under(path, "tests/results") for path in changed), "scenario-test task must change its current result")
@@ -403,7 +430,7 @@ class Validator:
         self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
 
     def check_framework_design_handoff(self) -> None:
-        prompt = self.root / "framework" / "prompts" / "codex" / "apply-design.md"
+        prompt = self.root / "framework" / "prompts" / "codex" / "03_apply-design.md"
         chatbot = (
             self.root / "framework" / "prompts" / "chatbot" / "initial-service-design.md"
         ).read_text(encoding="utf-8")
@@ -412,7 +439,7 @@ class Validator:
             text = prompt.read_text(encoding="utf-8")
             self.check("Task typeは`design`" in text, "design application prompt lacks design task contract")
             self.check("sync-model.py" in text, "design application prompt does not generate the service model")
-        self.check("framework/prompts/codex/apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
+        self.check("framework/prompts/codex/03_apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
 
     def check_framework_task_completion_contract(self) -> None:
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
@@ -461,8 +488,8 @@ class Validator:
     def check_framework_cfn_lint_validation(self) -> None:
         paths = (
             self.root / "framework" / "rules" / "cloudformation.md",
-            self.root / "framework" / "prompts" / "codex" / "implement-infrastructure.md",
-            self.root / "framework" / "prompts" / "codex" / "deploy-infrastructure.md",
+            self.root / "framework" / "prompts" / "codex" / "04_implement.md",
+            self.root / "framework" / "prompts" / "codex" / "05_deploy.md",
             self.root / "framework" / "scripts" / "check-deploy-context.py",
         )
         for path in paths:

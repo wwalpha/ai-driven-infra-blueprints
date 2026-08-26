@@ -184,4 +184,4 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
-`Codex反映依頼`には`framework/prompts/codex/apply-design.md`を使用すること、Design target、environment、AWS account、出力した全Markdown／JSON artifact pathを含めてください。repositoryを編集したと表現してはいけません。設計完了前にIaC実装やdeployへ進んではいけません。
+`Codex反映依頼`には`framework/prompts/codex/03_apply-design.md`を使用すること、Design target、environment、AWS account、出力した全Markdown／JSON artifact pathを含めてください。repositoryを編集したと表現してはいけません。設計完了前にIaC実装やdeployへ進んではいけません。

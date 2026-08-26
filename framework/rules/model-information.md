@@ -7,6 +7,7 @@
 - Markdownとgenerated modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
 - design taskはMarkdownとJSON artifactを保存した後、同じcoherent logical changeでmodelを生成する。
 - infrastructure taskは成功したAWS mutation後にMarkdownのgenerated identifier rowを更新し、同じmodelを再生成する。
+- infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
 
 ## Format

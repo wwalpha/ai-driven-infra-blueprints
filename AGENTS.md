@@ -33,7 +33,7 @@
 ## Task boundary
 
 - `design`: `docs/designs/**`と対応する`model/**`のdesired namespaceを更新し、local validation後に終了する。IaC、observed value、scenarioへ進まない。
-- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。intended designやscenarioを変更しない。
+- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。`update` phaseではhumanがtask開始前に手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
 - `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<aws-account-id>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
 - `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
@@ -55,8 +55,8 @@
 ## Project configuration
 
 - 未初期化の配布状態では`project.json`を置かない。
-- `docs/system-overview.md`の作成・記入状態に関係なく、`framework/prompts/codex/initialize-repository.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
-- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`framework/prompts/codex/add-project-target.md`のmigrationで追加する。
+- `docs/system-overview.md`の作成・記入状態に関係なく、`framework/prompts/codex/01_initialize.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
+- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`framework/prompts/codex/02_add-target.md`のmigrationで追加する。
 - environment数、environment名、AWS account数を固定しない。
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとする。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
@@ -67,5 +67,5 @@
 - `docs/designs/**`をintended designのsource of truthとする。
 - `model/**`は`framework/scripts/sync-model.py`で生成し、手動編集しない。
 - 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
-- design taskと成功したinfrastructure taskはMarkdown更新後に同じservice modelを再生成する。
+- design task、infrastructure `update` phase、成功したAWS mutation後はMarkdown更新後に同じservice modelを再生成する。
 - local loopはgenerated modelがMarkdownと一致しない場合に失敗する。

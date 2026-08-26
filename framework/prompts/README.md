@@ -1,0 +1,127 @@
+# Prompt Guide
+
+このdirectoryは、AWS infrastructureを設計・実装・deploy・検証するためのpromptを保持する。各prompt本文を実行時の正本とし、このREADMEはpromptの選択、使用順、開始条件を確認するindexとして使用する。
+
+## Basic usage
+
+1. 実行したい作業に対応するpromptを一つ選ぶ。
+2. promptを対象のchatbotまたはCodexへ渡し、`User input`の確定値を依頼文に含める。
+3. 値が不足している場合は、promptに従って一問ずつ回答する。値を推測させない。
+4. 一つのpromptが完了したら結果を確認して終了する。次のpromptは必要な場合だけ別taskとして明示的に開始する。
+
+Codexでは、次のように対象promptと値を指定する。
+
+```text
+framework/prompts/codex/04_implement.mdを使ってください。
+Target environment: staging
+Target AWS account: 123456789012
+Implementation scope: docs/designs/staging/123456789012/vpc.md
+```
+
+## Choose the workflow
+
+| Situation | Use |
+| --- | --- |
+| chatbotとの設計で新しい詳細設計を作成する | `chatbot/initial-service-design.md` → `03_apply-design.md` → `04_implement.md` → `05_deploy.md` |
+| humanが既存の詳細設計Markdownを直接修正し、未commitのままIaC反映とdeployまで行う | `06_update.md` |
+| deploy後にapplication behaviorを確認する | どちらのworkflowでも必要な場合だけ`07_scenario-test.md` |
+
+手動修正時は`03_apply-design.md`、`04_implement.md`、`05_deploy.md`へ分割しない。`06_update.md`がhumanの設計差分をimmutable inputとして受け取り、model同期、IaC反映、deploy/applyまでを一つのtaskで行う。
+
+## Workflow order
+
+| Order | Prompt | Use when | Result |
+| ---: | --- | --- | --- |
+| 1 | [`codex/01_initialize.md`](codex/01_initialize.md) | `project.json`がないrepositoryを初期化するとき | project topologyとtarget pathを作成する |
+| 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | 初期化後にenvironment／AWS account targetを1件追加するとき | `project.json`と追加target pathを更新する |
+| Design | [`chatbot/initial-service-design.md`](chatbot/initial-service-design.md) | 新しいsystem、機能、serviceの詳細設計値をhumanと確定するとき | 保存対象Markdown／JSON artifactとCodex反映依頼をchatへ出力する |
+| 3 | [`codex/03_apply-design.md`](codex/03_apply-design.md) | chatbotが出力した確定済み詳細設計をrepositoryへ新規作成するとき | 詳細設計とgenerated service modelを作成する |
+| 4 | [`codex/04_implement.md`](codex/04_implement.md) | 承認済み詳細設計をCloudFormation／Terraformへ反映するとき | IaCを作成・変更し、local static validationまで行う |
+| 5 | [`codex/05_deploy.md`](codex/05_deploy.md) | 作成・検証済みIaCをAWSへdeploy/applyするとき | IaCを変更せず実行し、必要なobserved valueを更新する |
+| 6 | [`codex/06_update.md`](codex/06_update.md) | humanが既存詳細設計を手動修正し、未commitのままIaC反映とdeployまで行うとき | model同期、IaC変更、deploy/apply、observed value更新を一つのtaskで行う |
+| 7 | [`codex/07_scenario-test.md`](codex/07_scenario-test.md) | deploy後にapplication behaviorを確認する必要があるとき | scenarioと同じtargetのcurrent resultを更新する |
+
+`02_add-target.md`、`06_update.md`、`07_scenario-test.md`は該当する場合だけ使用する。`06_update.md`は通常の新規設計workflowとは別の分岐である。
+
+## Prompt details
+
+### `chatbot/initial-service-design.md`
+
+- Description: AWS service ownership boundaryごとに、初回詳細設計に必要なhuman decisionをchatで確認する。
+- Timing: 新しいsystem、機能、serviceを設計し、まだ保存対象Markdown／JSON artifactが確定していないとき。
+- How to use: Design target、environment、AWS accountを渡し、質問batchへ回答する。chatbotはrepositoryを編集しないため、完成後に出力された`Codex反映依頼`を`03_apply-design.md`へ渡す。
+
+### `codex/01_initialize.md`
+
+- Description: project、environment、AWS account、region、IaC engineを一問ずつ確認し、repository topologyを初期化する。
+- Timing: `project.json`が存在しない最初の一回だけ。既に初期化済みの場合は使用しない。
+- How to use: promptをCodexへ渡し、Project nameから順に回答する。全値の最終確認へ明示的に同意するまでrepositoryは変更されない。
+
+### `codex/02_add-target.md`
+
+- Description: 初期化済みrepositoryへ、確定済みのenvironment／AWS account targetを1件追加する。
+- Timing: `project.json`は存在するが、必要なtargetがまだ登録されていないとき。
+- How to use: promptをCodexへ渡し、Environment ID、AWS account ID、region、IaC engineを順に回答する。一回の実行で追加するtargetは1件だけとする。
+
+### `codex/03_apply-design.md`
+
+- Description: chatbotが完成させた詳細設計Markdown／JSON artifactをrepositoryへfileとして作成し、対応するservice modelを生成する。
+- Timing: `initial-service-design.md`が出力した確定済み詳細設計をrepositoryへ新規作成するとき。humanが既存Markdownを直接修正した場合は使用しない。
+- How to use: Design target、environment、AWS account、chatbotが完成させた全設計fileのpathと内容を渡す。このtaskではIaC、AWS resource、scenarioを変更しない。
+
+### `codex/04_implement.md`
+
+- Description: 承認済み詳細設計とservice modelから、選択済みCloudFormation／Terraformを作成・変更する。
+- Timing: `03_apply-design.md`が完了し、IaCへ反映すべき設計差分があるとき。
+- How to use: environment、AWS account、implementation scopeを渡す。CloudFormationは`cfn-lint`、Terraformはbackendを使わないlocal validationまで行い、AWS APIやdeploy/applyは実行しない。
+
+### `codex/05_deploy.md`
+
+- Description: 作成・検証済みIaCを変更せず、対象AWS accountへdeploy/applyする。
+- Timing: `04_implement.md`のIaCが確定し、対象IaCにuncommitted changeがないとき。
+- How to use: environment、AWS account、deployment scope、許可するdelete/replacement、必要ならAWS profileを渡す。preflight、change set／plan確認、実行、完了確認、必要なobserved value更新までを行う。
+
+### `codex/06_update.md`
+
+- Description: humanが既存詳細設計Markdownへ作成したuncommitted diffを確定済みdesignとして受け取り、model同期、IaC反映、deploy/applyまでを行う。
+- Timing: 既存詳細設計をhumanが直接修正し、その差分をcommit前にCloudFormation／TerraformとAWS resourceへ反映するとき。
+- How to use: environment、AWS account、手動修正したDesign scope、Deployment scope、許可するdelete/replacement、必要ならAWS profileを渡す。Codexはhumanのintended designを変更せず、generated current valueだけをdeploy成功後に更新する。
+
+### `codex/07_scenario-test.md`
+
+- Description: deployとは別taskでapplication behaviorを検証し、current resultとevidenceを更新する。
+- Timing: deploy後にresource存在では確認できないbehaviorを検証するとき。
+- How to use: Scenario ID、environment、AWS account、expected behaviorを渡す。失敗しても同じtaskで設計変更、IaC修正、redeployへ進まない。
+
+## SDD iteration
+
+新規設計をchatbotで作成する場合:
+
+```text
+chatbot/initial-service-design.md
+  -> 03_apply-design.md
+  -> 04_implement.md
+  -> 05_deploy.md
+  -> 07_scenario-test.md（behavior確認が必要な場合だけ）
+```
+
+既存詳細設計をhumanが直接修正する場合:
+
+```text
+humanがdocs/designs/**/*.mdを修正（未commit）
+  -> 06_update.md
+  -> 07_scenario-test.md（behavior確認が必要な場合だけ）
+```
+
+chatbotで確定済み設計をrepositoryへ新規作成する場合だけ`03_apply-design.md`を使用する。humanが既存Markdownを直接修正した場合は使用しない。
+
+設計変更に新しいhuman decisionが必要な場合は、repositoryを変更する前にchatで判断を確定する。`03_apply-design.md`へ未確定値、placeholder、推測値を渡さない。
+
+## Task boundaries
+
+- `03_apply-design.md`は詳細設計とmodelだけを変更する。
+- `04_implement.md`はIaCだけを変更し、AWS APIを実行しない。
+- `05_deploy.md`はIaCを変更せず、許可されたdeploy/applyだけを実行する。
+- `06_update.md`はhumanの詳細設計差分を変更せず、model、IaC、generated current valueだけを更新してdeploy/applyする。
+- `07_scenario-test.md`はscenarioとresultだけを変更し、設計やIaCを修正しない。
+- deploy成功をapplication behaviorのPASSとして扱わない。

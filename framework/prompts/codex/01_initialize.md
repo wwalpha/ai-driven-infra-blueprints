@@ -24,7 +24,7 @@ Project nameを入力してください。
 
 ## Stop before reinitialization
 
-`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、target追加には`framework/prompts/codex/add-project-target.md`のmigration taskが必要であることを報告して停止する。
+`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、target追加には`framework/prompts/codex/02_add-target.md`のmigration taskが必要であることを報告して停止する。
 
 ## Collect required values
 
@@ -39,7 +39,7 @@ Project nameを入力してください。
 Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
 - 現時点でEnvironment ID、AWS account ID、AWS region、IaC engineがすべて確定しているtargetだけを収集する。
-- 未作成または必要値が未確定のtargetは今回の初期化対象から除外し、placeholderや`UNSET`を記録しない。確定後に`framework/prompts/codex/add-project-target.md`で追加できることを説明する。
+- 未作成または必要値が未確定のtargetは今回の初期化対象から除外し、placeholderや`UNSET`を記録しない。確定後に`framework/prompts/codex/02_add-target.md`で追加できることを説明する。
 - 回答を受けるたびに形式と既存回答との矛盾を確認してから次へ進む。
 - 不正または不明な回答は理由を短く説明し、同じ項目だけを再質問する。
 - humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。

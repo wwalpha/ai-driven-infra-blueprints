@@ -1,6 +1,6 @@
 # Infrastructure Implementation Prompt
 
-このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/deploy-infrastructure.md`を使用する。
+このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/05_deploy.md`を使用する。
 
 ## User input
 
@@ -79,4 +79,4 @@ static validationが失敗した場合は根本原因を調査する。確定済
 
 target、account、region、engine、変更file、implementation unitとdependency、validation結果、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
-AWS API、change set、plan、deploy/apply、observed value更新、scenario、別target、次taskを作成または実行しない。deploy/applyはhumanが別taskとして`framework/prompts/codex/deploy-infrastructure.md`を明示的に使用した場合だけ行う。
+AWS API、change set、plan、deploy/apply、observed value更新、scenario、別target、次taskを作成または実行しない。deploy/applyはhumanが別taskとして`framework/prompts/codex/05_deploy.md`を明示的に使用した場合だけ行う。

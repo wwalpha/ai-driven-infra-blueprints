@@ -53,7 +53,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 - `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
 - `design`: 対象Markdownとgenerated service modelが同じ変更に含まれ、内容が決定的生成結果と一致
-- `infrastructure`: `implement` phaseでは選択済みIaC implementationが変更され、`deploy` phaseではIaCが未変更。どちらもintended designとscenarioは未変更
+- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更。`update` phaseではhuman-changed intended design、generated model、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
@@ -70,7 +70,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 ## Infrastructure task completion
 
-infrastructure taskのTask contractには`Infrastructure phase`を正確に1件記載し、`implement`または`deploy`だけを許可する。
+infrastructure taskのTask contractには`Infrastructure phase`を正確に1件記載し、`implement`、`deploy`、`update`のいずれかだけを許可する。
 
 `implement` phase:
 
@@ -86,6 +86,14 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 3. active promptが許可した対象だけをdeploy/applyする。
 4. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
 5. local loopを実行し、scenario testへ進まず終了する。
+
+`update` phase:
+
+1. humanがtask開始前に手動修正した未commitの詳細設計だけをimmutable intended-design inputとして確定する。
+2. service modelを同期し、対象IaCを作成・変更してlocal static validationする。
+3. deterministic preflight、change setまたはplanのscope確認、許可されたdeploy/applyを同じtaskで実行する。
+4. 成功したAWS mutation後だけgenerated current valueを更新し、service modelを再生成する。
+5. humanのintended-design diffをCodexが変更していないことを確認し、local loop後にscenario testへ進まず終了する。
 
 ## Scenario-test task completion
 

@@ -108,4 +108,4 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 
 target、account、region、engine、preflight結果、deployment unitとdependency順、plan/change set summary、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
-IaC、intended design、scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/run-scenario-test.md`を使用する。
+IaC、intended design、scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/07_scenario-test.md`を使用する。

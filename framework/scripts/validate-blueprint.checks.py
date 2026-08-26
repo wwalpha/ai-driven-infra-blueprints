@@ -138,6 +138,18 @@ def check_task_type_dispatch() -> None:
     assert "infrastructure deploy phase must not change IaC" in validator.errors
 
     validator = MODULE.Validator(SCRIPT.parents[2])
+    validator.task_type = "infrastructure"
+    validator.infrastructure_phase = "update"
+    validator.changed_paths = {
+        "docs/designs/dev/123456789012/vpc.md",
+        "model/dev/123456789012/vpc.properties",
+        "infra/cloudformation/templates/vpc.yaml",
+        "tasks/active.md",
+    }
+    validator.check_task_type_requirements()
+    assert not validator.errors, validator.errors
+
+    validator = MODULE.Validator(SCRIPT.parents[2])
     validator.task_type = "design"
     validator.changed_paths = {
         "docs/designs/dev/123456789012/iam/role01-policy.json",
@@ -225,11 +237,13 @@ def main() -> None:
     assert not errors_for([inline_name, inline])
     assert errors_for([inline_name, old_inline])
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
+    assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
+    assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
     check_task_contract()
     check_task_type_dispatch()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
-    print("validate-blueprint: PASS (14 focused checks)")
+    print("validate-blueprint: PASS (16 focused checks)")
 
 
 if __name__ == "__main__":

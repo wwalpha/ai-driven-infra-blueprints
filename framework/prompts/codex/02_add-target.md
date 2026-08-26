@@ -22,7 +22,7 @@ Step 1: Environment
 3. `project.json`
 4. `framework/rules/loop-engineering.md`
 
-`project.json`が存在しない場合はfileを変更せず、`framework/prompts/codex/initialize-repository.md`によるinitializationが必要であることを報告して停止する。
+`project.json`が存在しない場合はfileを変更せず、`framework/prompts/codex/01_initialize.md`によるinitializationが必要であることを報告して停止する。
 
 ## Collect required values
 
