@@ -17,6 +17,7 @@ from typing import Any
 
 REGION = "ap-northeast-1"
 SOURCE_URL = f"https://schema.cloudformation.{REGION}.amazonaws.com/CloudformationSchema.zip"
+IDENTIFIER_OUTPUT = "IDENTIFIER_OUTPUT"
 
 
 def aws_type(material: Path) -> str:
@@ -266,6 +267,8 @@ def snapshot_errors(root: Path) -> list[str]:
     for material in material_files(root):
         resource_type = design_type(material)
         prefix = resource_type + "."
+        catalog_pointers: set[str] = set()
+        identifier_outputs: set[str] = set()
         try:
             schema = catalog.schema(resource_type)
             if schema.get("typeName") != aws_type(material):
@@ -275,11 +278,41 @@ def snapshot_errors(root: Path) -> list[str]:
             errors.append(f"schema cannot be loaded: {resource_type}: {error}")
             continue
         for line in material.read_text(encoding="utf-8").splitlines():
-            property_path = line[len(prefix) : -1]
+            key, separator, marker = line.partition("=")
+            if not separator or not key.startswith(prefix) or marker not in {"", IDENTIFIER_OUTPUT}:
+                errors.append(f"invalid catalog line: {resource_type}: {line}")
+                continue
+            property_path = key[len(prefix) :]
             try:
                 catalog.property_schema(resource_type, property_path)
             except (KeyError, TypeError) as error:
                 errors.append(f"catalog property is absent from provider schema: {resource_type}.{property_path}: {error}")
+                continue
+            pointer = "/properties/" + property_path.replace("[]", "").replace(".", "/")
+            catalog_pointers.add(pointer)
+            if marker == IDENTIFIER_OUTPUT:
+                identifier_outputs.add(pointer)
+            elif pointer in schema.get("readOnlyProperties", []):
+                errors.append(f"read-only catalog property lacks identifier marker: {resource_type}.{property_path}")
+
+        primary = set(schema.get("primaryIdentifier", []))
+        read_only = set(schema.get("readOnlyProperties", []))
+        expected_outputs = {
+            pointer
+            for pointer in primary & read_only
+            if not pointer.rsplit("/", 1)[-1].lower().endswith("arn")
+        }
+        for pointer in sorted(expected_outputs - identifier_outputs):
+            errors.append(f"generated primary identifier is missing: {resource_type}: {pointer}")
+        for pointer in sorted(identifier_outputs - expected_outputs):
+            errors.append(f"invalid identifier output: {resource_type}: {pointer}")
+        for pointer in sorted((primary - read_only) - catalog_pointers):
+            errors.append(f"selected primary identifier is missing: {resource_type}: {pointer}")
+        for pointer in sorted(
+            pointer for pointer in primary & read_only if pointer.rsplit("/", 1)[-1].lower().endswith("arn")
+        ):
+            if pointer in catalog_pointers:
+                errors.append(f"generated ARN primary identifier is forbidden: {resource_type}: {pointer}")
     return errors
 
 

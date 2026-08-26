@@ -58,7 +58,7 @@ FORBIDDEN_DESIGN_SECTION_PATTERN = re.compile(
 )
 JAPANESE_TEXT_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 MATERIAL_PATTERN = re.compile(
-    r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=$"
+    r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=(?:IDENTIFIER_OUTPUT)?$"
 )
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 TASK_TYPES = {

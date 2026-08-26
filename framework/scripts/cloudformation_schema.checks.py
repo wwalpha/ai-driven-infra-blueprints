@@ -34,6 +34,21 @@ def main() -> None:
     assert catalog.literal_errors("Athena.WorkGroup", "State", "ENABLED") == []
     assert catalog.literal_errors("Athena.WorkGroup", "State", "unexpected")
     assert catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"] == "string"
+    materials = root / "framework" / "materials" / "aws"
+    assert sum(
+        line.endswith("=IDENTIFIER_OUTPUT")
+        for path in materials.glob("*.properties")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ) == 71
+    eip = (materials / "EC2_EIP.properties").read_text(encoding="utf-8")
+    assert "EC2.EIP.AllocationId=IDENTIFIER_OUTPUT" in eip
+    assert "EC2.EIP.PublicIp=IDENTIFIER_OUTPUT" in eip
+    assert "Glue.Database.DatabaseName=" in (
+        materials / "Glue_Database.properties"
+    ).read_text(encoding="utf-8")
+    assert "SNS.Topic.TopicArn" not in (
+        materials / "SNS_Topic.properties"
+    ).read_text(encoding="utf-8")
     print("cloudformation-schema: PASS")
 
 
