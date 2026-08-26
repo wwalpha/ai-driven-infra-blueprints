@@ -6,10 +6,10 @@
 
 - Target environment: `{{project.jsonのenvironment}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
-- Design scope: `{{人間が手動修正した詳細設計Markdown。複数可}}`
-- Deployment scope: `{{対象のtemplate/stackまたはTerraform root/resource。複数可}}`
 - Authorized delete/replacement: `none`
 - AWS profile: `{{使用するprofile名。default credential chainの場合は空}}`
+
+Design scopeとDeployment scopeはuserへ入力を要求せず、repositoryのuncommitted diffと既存IaCからCodexが特定する。
 
 ## Resolve missing input
 
@@ -17,10 +17,21 @@ fileまたはAWSを変更する前にUser inputを確認する。placeholder、�
 
 1. Target environment
 2. Target AWS account
-3. Design scope
-4. Deployment scope
 
 environmentとAWS accountは`project.json`に存在する候補だけを提示し、自動選択しない。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
+
+## Resolve scope from repository state
+
+fileを変更する前に、次の順序でscopeを特定する。
+
+1. `git status --short`と`git diff --name-only HEAD -- docs/designs/<environment>/<aws-account-id>/`を確認する。
+2. 対象environment／AWS account配下でhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
+3. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。
+4. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。
+
+Design scopeが空の場合は停止する。複数の変更済み詳細設計fileがあれば、同じtargetに属するものをすべて対象とする。scope外のuncommitted changeがある場合は取り込まず停止する。
+
+repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるfile pathやscope全体をuserへ再入力させず、値を推測しない。
 
 ## Read before changing files
 
@@ -28,8 +39,8 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 2. `README.md`
 3. `tasks/active.md`
 4. `project.json`
-5. `git status --short`とDesign scopeのdiff
-6. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`とJSON artifact
+5. `git status --short`と、repository差分から特定したDesign scopeのdiff
+6. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`と関連するJSON artifact
 7. 対応する`model/<environment>/<aws-account-id>/*.properties`
 8. `framework/prompts/codex/03_implement.md`
 9. `framework/prompts/codex/04_deploy.md`
@@ -43,9 +54,9 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 
 ## Validate human design diff
 
-- Design scopeは対象environment／AWS account配下の既存詳細設計Markdownだけとする。
+- 特定したDesign scopeは、対象environment／AWS account配下でhumanが変更した既存詳細設計Markdownと関連JSON artifactだけとする。
 - Design scopeのMarkdownにhumanが作成したuncommitted diffが存在しなければ停止する。
-- Design scope外のuncommitted changeがある場合は、今回のtaskへ取り込まず停止する。
+- 特定したDesign scope外のuncommitted changeがある場合は、今回のtaskへ取り込まず停止する。
 - 対応するmodelまたはIaCにtask開始前からuncommitted changeがある場合は停止する。
 - humanが変更したintended designをこのtaskで修正、補完、巻き戻ししない。
 - 詳細設計の不足、矛盾、placeholder、schema violation、未確定のhuman decisionがあれば停止する。
@@ -58,8 +69,8 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`update`とする。
-- goalにtarget environment、AWS account、Design scope、Deployment scope、選択済みIaC engineを記載する。
-- AWS API executionとdeploy/applyは今回のDeployment scopeに限り`allowed`とする。
+- goalにtarget environment、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
+- AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
 - Authorized delete/replacementは確認済みUser inputの値をそのまま記載する。
 - `Required changes`は一意なRequirement ID付きで、human design diffの検証、service model同期、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
 - `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
@@ -69,7 +80,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 1. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
 2. model生成失敗またはMarkdown validation failureではdesignを修正せず停止する。
-3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、Deployment scopeに必要なIaCだけを最小変更する。
+3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、自動特定したDeployment scopeに必要なIaCだけを最小変更する。
 4. IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。human decisionまたはdesign変更が必要なら停止する。
 
 ## Preflight and deploy
