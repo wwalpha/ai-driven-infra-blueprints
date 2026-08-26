@@ -31,8 +31,8 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 5. `git status --short`とDesign scopeのdiff
 6. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`とJSON artifact
 7. 対応する`model/<environment>/<aws-account-id>/*.properties`
-8. `framework/prompts/codex/04_implement.md`
-9. `framework/prompts/codex/05_deploy.md`
+8. `framework/prompts/codex/03_implement.md`
+9. `framework/prompts/codex/04_deploy.md`
 10. `framework/rules/detailed-design.md`
 11. `framework/rules/model-information.md`
 12. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
@@ -69,7 +69,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 1. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
 2. model生成失敗またはMarkdown validation failureではdesignを修正せず停止する。
-3. `04_implement.md`のimplementation unit解決とengine別local static validationに従い、Deployment scopeに必要なIaCだけを最小変更する。
+3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、Deployment scopeに必要なIaCだけを最小変更する。
 4. IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。human decisionまたはdesign変更が必要なら停止する。
 
 ## Preflight and deploy
@@ -84,7 +84,7 @@ scriptが終了code 0を返した場合だけ続行する。失敗時はcredenti
 
 このtaskでDesign scopeから生成した対象IaCのuncommitted diffだけはdeploy対象として許可する。task開始前から存在したIaC diffまたはDeployment scope外のdiffは許可しない。
 
-`05_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、未許可のdelete/replacement、credential/permission不足、またはdeployment failureでは後続unitを実行せず停止する。
+`04_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、未許可のdelete/replacement、credential/permission不足、またはdeployment failureでは後続unitを実行せず停止する。
 
 deploy/applyが成功した場合:
 
@@ -103,4 +103,4 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 
 target、Design scope、model同期、IaC変更、deployment unitとdependency順、plan/change set summary、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
-scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証が必要な場合は、humanが別taskとして`framework/prompts/codex/07_scenario-test.md`を使用する。
+scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証が必要な場合は、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。

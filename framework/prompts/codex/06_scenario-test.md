@@ -1,4 +1,4 @@
-# Scenario Test Prompt
+# Scenario Test
 
 このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
 

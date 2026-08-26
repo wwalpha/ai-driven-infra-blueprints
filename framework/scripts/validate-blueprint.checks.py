@@ -226,6 +226,12 @@ def check_schema_backed_design_rows() -> None:
         assert not validator.errors, validator.errors
 
 
+def check_design_handoff_prompt() -> None:
+    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator.check_framework_design_handoff()
+    assert not validator.errors, validator.errors
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -243,7 +249,8 @@ def main() -> None:
     check_task_type_dispatch()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
-    print("validate-blueprint: PASS (16 focused checks)")
+    check_design_handoff_prompt()
+    print("validate-blueprint: PASS (17 focused checks)")
 
 
 if __name__ == "__main__":

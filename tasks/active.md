@@ -1,9 +1,9 @@
-# Codex Task: Add manual design update deployment workflow
+# Codex Task: Simplify design handoff prompt flow
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: 人間が手動修正した未commitの詳細設計をIaCへ反映してdeployする専用promptと使い分けを追加する
+- Goal: `service-design.md`が自己完結したCodex promptを出力する形へ統一し、不要な`apply-design`を廃止して後続promptを繰り上げる
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,33 +11,37 @@
 
 ## Required changes
 
-- [R1] 手動修正した詳細設計のmodel同期、IaC反映、deployを一つのtaskで行う`06_update.md`を追加する。
-- [R2] `update` phaseがhuman-owned design diffをimmutable inputとして扱うruleを追加する。
-- [R3] 新規作成と手動修正のprompt使い分けをREADMEへ記載する。
-- [R4] 新prompt、番号、`update` phaseをlocal validatorで検証する。
+- [R1] chatbot promptを`service-design.md`へ短縮し、完成した詳細設計をrepositoryへ直接反映できる自己完結型Codex promptを出力させる。
+- [R2] `03_apply-design.md`を廃止し、implement、deploy、update、scenario-testを`03`から`06`へ繰り上げる。
+- [R3] 新規設計と手動修正の正しい使い分け、実行順、filenameをREADMEと関連referenceへ反映する。
+- [R4] 新しいdesign handoffとprompt構成をlocal validatorとfocused checkで検証する。
 
 ## Acceptance checks
 
-- [R1] `exists:framework/prompts/codex/06_update.md`
-- [R1] `exists:framework/prompts/codex/07_scenario-test.md`
-- [R1] `absent:framework/prompts/codex/06_scenario-test.md`
-- [R2] `changed:AGENTS.md`
-- [R2] `changed:framework/rules/detailed-design.md`
-- [R2] `changed:framework/rules/model-information.md`
-- [R2] `changed:framework/rules/loop-engineering.md`
-- [R2] `changed:framework/rules/cloudformation.md`
-- [R2] `changed:framework/rules/terraform.md`
+- [R1] `exists:framework/prompts/chatbot/service-design.md`
+- [R1] `absent:framework/prompts/chatbot/initial-service-design.md`
+- [R1] `changed:framework/prompts/chatbot/service-design.md`
+- [R2] `absent:framework/prompts/codex/03_apply-design.md`
+- [R2] `exists:framework/prompts/codex/03_implement.md`
+- [R2] `exists:framework/prompts/codex/04_deploy.md`
+- [R2] `exists:framework/prompts/codex/05_update.md`
+- [R2] `exists:framework/prompts/codex/06_scenario-test.md`
+- [R2] `absent:framework/prompts/codex/04_implement.md`
+- [R2] `absent:framework/prompts/codex/05_deploy.md`
+- [R2] `absent:framework/prompts/codex/06_update.md`
+- [R2] `absent:framework/prompts/codex/07_scenario-test.md`
 - [R3] `changed:README.md`
 - [R3] `changed:framework/prompts/README.md`
 - [R4] `changed:framework/scripts/validate-blueprint.py`
 - [R4] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R4] `check:framework.design-handoff`
 
 ## Allowed paths
 
 - `AGENTS.md`
 - `README.md`
 - `framework/prompts/README.md`
-- `framework/prompts/chatbot/initial-service-design.md`
+- `framework/prompts/chatbot/**`
 - `framework/prompts/codex/**`
 - `framework/rules/loop-engineering.md`
 - `framework/rules/cloudformation.md`
@@ -52,5 +56,4 @@
 
 - 既存projectのIaC、詳細設計、model、scenarioの変更
 - AWS API、deploy、apply
-- chatbotが生成する新規設計反映workflowの変更
 - 新しいtask typeの追加

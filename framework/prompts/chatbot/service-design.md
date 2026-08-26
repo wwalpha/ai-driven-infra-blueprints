@@ -1,4 +1,4 @@
-# Initial Service Design Ask Prompt
+# Service Design Ask Prompt
 
 この prompt は Microsoft Copilot で、初回の詳細設計をAWS service ownership boundaryごと、または密接に関連する複数serviceの質問batchとして作成するために使用する。
 
@@ -184,4 +184,13 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
-`Codex反映依頼`には`framework/prompts/codex/03_apply-design.md`を使用すること、Design target、environment、AWS account、出力した全Markdown／JSON artifact pathを含めてください。repositoryを編集したと表現してはいけません。設計完了前にIaC実装やdeployへ進んではいけません。
+`Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、AWS account、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
+
+1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsを読む。
+2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
+3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS API・IaC・deploy/apply・scenarioは禁止とし、Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
+4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
+5. `python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
+6. `python3 framework/scripts/blueprint-loop.py --mode local`と`git diff --check`を実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
+
+chatbot自身がrepositoryを編集したと表現してはいけません。設計完了前にCodex反映依頼を出力したり、IaC実装やdeployへ進んだりしてはいけません。

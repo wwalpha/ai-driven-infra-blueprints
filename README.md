@@ -20,11 +20,11 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `framework/prompts/codex/01_initialize.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
 - `framework/prompts/codex/02_add-target.md`: 初期化後に確定したtargetを1件追加するmigration指示
-- `framework/prompts/codex/03_apply-design.md`: chatbotが完成させた詳細設計fileをrepositoryへ作成し、service modelを生成するdesign指示
-- `framework/prompts/codex/04_implement.md`: 承認済み詳細設計を選択済みIaCへ変換し、local static validationまでを行う指示
-- `framework/prompts/codex/05_deploy.md`: 作成・検証済みIaCを変更せず、安全確認、deploy/apply、deploy完了確認を行う指示
-- `framework/prompts/codex/06_update.md`: humanが手動修正した未commitの詳細設計をIaCへ反映し、deploy/applyまで行う指示
-- `framework/prompts/codex/07_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
+- `framework/prompts/chatbot/service-design.md`: 詳細設計fileと、それをrepositoryへ作成する自己完結型Codex promptを出力するAsk指示
+- `framework/prompts/codex/03_implement.md`: 承認済み詳細設計を選択済みIaCへ変換し、local static validationまでを行う指示
+- `framework/prompts/codex/04_deploy.md`: 作成・検証済みIaCを変更せず、安全確認、deploy/apply、deploy完了確認を行う指示
+- `framework/prompts/codex/05_update.md`: humanが手動修正した未commitの詳細設計をIaCへ反映し、deploy/applyまで行う指示
+- `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
@@ -34,7 +34,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 repositoryを変更する新しい依頼を受けた場合、Codexは最新依頼のtask type、target、Goalを現在の`tasks/active.md`と比較します。いずれかが異なる場合は新しいtaskとして扱い、最初のrepository changeで`tasks/active.md`を上書きします。
 
-read-only調査と`framework/prompts/chatbot/initial-service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で`framework/prompts/codex/03_apply-design.md`を使用し、新しい`design` taskへ切り替えます。
+read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
 
 active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、focused check scriptを実行し、未対応または未実行のrequirementがある場合はFAILします。
 
@@ -119,17 +119,17 @@ active promptの`## Task contract`には次を正確に1件記載します。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
 4. 必須判断が揃ったら、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
-5. `framework/prompts/codex/03_apply-design.md`のdesign taskで`docs/designs/**`を作成し、`model/**`を生成してlocal validation後に終了する。
+5. chatbotが出力した自己完結型Codex promptのdesign taskで`docs/designs/**`を作成し、`model/**`を生成してlocal validation後に終了する。
 
 chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。service modelはMarkdownから生成し、design taskはCloudFormation/Terraform、observed value、scenario、scenario resultを変更しません。
 
 ## Post-design SDD
 
-新規設計では、`framework/prompts/codex/03_apply-design.md`で詳細設計とmodelを生成し、`04_implement.md`でIaCを作成・検証し、別taskの`05_deploy.md`でdeploy/applyする。
+新規設計では、`framework/prompts/chatbot/service-design.md`が出力したCodex promptで詳細設計とmodelを生成し、`03_implement.md`でIaCを作成・検証し、別taskの`04_deploy.md`でdeploy/applyする。
 
-既存詳細設計をhumanが直接変更し、未commit差分をIaCへ反映してdeploy/applyまで行う場合は、`framework/prompts/codex/06_update.md`だけを使用する。`03_apply-design.md`、`04_implement.md`、`05_deploy.md`を個別に実行しない。
+既存詳細設計をhumanが直接変更し、未commit差分をIaCへ反映してdeploy/applyまで行う場合は、`framework/prompts/codex/05_update.md`だけを使用する。`03_implement.md`、`04_deploy.md`を個別に実行しない。
 
-どちらのworkflowでもapplication behavior確認が必要な場合だけ、deploy完了後に別taskで`framework/prompts/codex/07_scenario-test.md`を使用する。詳細な使い分けは`framework/prompts/README.md`を参照する。
+どちらのworkflowでもapplication behavior確認が必要な場合だけ、deploy完了後に別taskで`framework/prompts/codex/06_scenario-test.md`を使用する。詳細な使い分けは`framework/prompts/README.md`を参照する。
 
 ## Operating model
 
@@ -165,15 +165,14 @@ framework/
   prompts/
     README.md
     chatbot/
-      initial-service-design.md
+      service-design.md
     codex/
       01_initialize.md
       02_add-target.md
-      03_apply-design.md
-      04_implement.md
-      05_deploy.md
-      06_update.md
-      07_scenario-test.md
+      03_implement.md
+      04_deploy.md
+      05_update.md
+      06_scenario-test.md
   rules/
   materials/
     catalog.properties

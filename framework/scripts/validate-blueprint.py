@@ -158,14 +158,13 @@ class Validator:
             "framework/chatbot/personal-custom-instructions.md",
             "docs/system-overview.md",
             "framework/prompts/README.md",
-            "framework/prompts/chatbot/initial-service-design.md",
+            "framework/prompts/chatbot/service-design.md",
             "framework/prompts/codex/01_initialize.md",
             "framework/prompts/codex/02_add-target.md",
-            "framework/prompts/codex/03_apply-design.md",
-            "framework/prompts/codex/04_implement.md",
-            "framework/prompts/codex/05_deploy.md",
-            "framework/prompts/codex/06_update.md",
-            "framework/prompts/codex/07_scenario-test.md",
+            "framework/prompts/codex/03_implement.md",
+            "framework/prompts/codex/04_deploy.md",
+            "framework/prompts/codex/05_update.md",
+            "framework/prompts/codex/06_scenario-test.md",
             "framework/scripts/blueprint-loop.py",
             "framework/scripts/check-deploy-context.py",
             "framework/scripts/cloudformation_schema.py",
@@ -430,16 +429,15 @@ class Validator:
         self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
 
     def check_framework_design_handoff(self) -> None:
-        prompt = self.root / "framework" / "prompts" / "codex" / "03_apply-design.md"
-        chatbot = (
-            self.root / "framework" / "prompts" / "chatbot" / "initial-service-design.md"
-        ).read_text(encoding="utf-8")
-        self.check(prompt.is_file(), "design application prompt is missing")
-        if prompt.is_file():
-            text = prompt.read_text(encoding="utf-8")
-            self.check("Task typeは`design`" in text, "design application prompt lacks design task contract")
-            self.check("sync-model.py" in text, "design application prompt does not generate the service model")
-        self.check("framework/prompts/codex/03_apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
+        path = self.root / "framework" / "prompts" / "chatbot" / "service-design.md"
+        self.check(path.is_file(), "service design prompt is missing")
+        if not path.is_file():
+            return
+        prompt = path.read_text(encoding="utf-8")
+        self.check("Task typeは`design`" in prompt, "service design prompt lacks design task contract")
+        self.check("sync-model.py" in prompt, "service design prompt does not generate the service model")
+        self.check("blueprint-loop.py --mode local" in prompt, "service design prompt lacks local validation")
+        self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
 
     def check_framework_task_completion_contract(self) -> None:
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
@@ -478,7 +476,7 @@ class Validator:
     def check_framework_schema_backed_design_validation(self) -> None:
         rules = (self.root / "framework" / "rules" / "detailed-design.md").read_text(encoding="utf-8")
         prompt = (
-            self.root / "framework" / "prompts" / "chatbot" / "initial-service-design.md"
+            self.root / "framework" / "prompts" / "chatbot" / "service-design.md"
         ).read_text(encoding="utf-8")
         self.check("CloudFormation provider schema" in rules, "detailed design rules do not apply provider schemas")
         self.check("CloudFormation provider schema" in prompt, "initial design prompt does not apply provider schemas")
@@ -488,8 +486,8 @@ class Validator:
     def check_framework_cfn_lint_validation(self) -> None:
         paths = (
             self.root / "framework" / "rules" / "cloudformation.md",
-            self.root / "framework" / "prompts" / "codex" / "04_implement.md",
-            self.root / "framework" / "prompts" / "codex" / "05_deploy.md",
+            self.root / "framework" / "prompts" / "codex" / "03_implement.md",
+            self.root / "framework" / "prompts" / "codex" / "04_deploy.md",
             self.root / "framework" / "scripts" / "check-deploy-context.py",
         )
         for path in paths:
