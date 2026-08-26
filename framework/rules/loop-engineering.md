@@ -37,23 +37,23 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - required directory/file structureが存在する
 - `project.json`とenvironment/AWS account pathが一致する
 - `framework/rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
-- service ownership、Markdown/LLM service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
+- service ownership、Markdown/model service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
 - resource tableの`Source / Comment`が日本語で記載されている
 - resource tableがproperties選択リスト外の設定項目を含まず、literal値がprovider schemaの型、enum、pattern、長さ、範囲に適合する
-- JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、LLM mirrorのartifact pathと一致する
+- JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
-- cross-service relative linkとexplicit anchorが解決でき、generated mirrorへ同じreferenceが反映されている
-- generated ARNが`llm/actuals/`に存在しない
+- cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
+- generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効
 - formatting/static checkが成功する
 
 task type固有checkはactive taskから省略できず、少なくとも次を確認する。
 
 - `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
-- `design`: 対象Markdownとgenerated LLM mirrorが同じ変更に含まれ、内容が決定的生成結果と一致
-- `infrastructure`: 選択済みIaC implementationが変更され、LLM intended designとscenarioは未変更
+- `design`: 対象Markdownとgenerated service modelが同じ変更に含まれ、内容が決定的生成結果と一致
+- `infrastructure`: 選択済みIaC implementationが変更され、intended designとscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
@@ -64,17 +64,17 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 ## Design task completion
 
 1. active promptで指定された`docs/designs/**`を更新する。
-2. `framework/scripts/sync-design-mirror.py --write`で対応する`llm/designs/**`を同じcoherent changeに生成する。
+2. `framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
 3. local loopを実行する。
-4. IaC、actuals、scenario、resultを変更せずtaskを終了する。
+4. IaC、observed value、scenario、resultを変更せずtaskを終了する。
 
 ## Infrastructure task completion
 
-1. 承認済みdesignとLLM designをinputとして読む。
+1. 承認済みdesignとservice modelをinputとして読む。
 2. active promptで指定されたIaCだけを作成または変更する。
 3. CloudFormationはtarget region指定の`cfn-lint`と`aws cloudformation validate-template`、Terraformはsyntax/static validationを実行し、CloudFormation change setまたはTerraform planを確認する。
 4. active promptが明示許可した場合だけdeploy/applyする。
-5. 成功したAWS mutationがある場合だけ必要なactualsとgenerated current valueを更新する。
+5. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
 6. local loopを実行し、scenario testへ進まずtaskを終了する。
 
 ## Scenario-test task completion

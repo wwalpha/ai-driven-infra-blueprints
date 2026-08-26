@@ -18,16 +18,15 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 REQUIRED_RULES = {
     "cloudformation.md",
     "detailed-design.md",
-    "llm-design-information.md",
+    "model-information.md",
     "loop-engineering.md",
-    "post-deploy-actuals.md",
+    "observed-values.md",
     "scenario-testing.md",
     "terraform.md",
 }
 REQUIRED_DIRECTORIES = (
     "docs/designs",
-    "llm/designs",
-    "llm/actuals",
+    "model",
     "infra",
     "tasks",
     "tests/scenarios",
@@ -42,9 +41,9 @@ MARKDOWN_SERVICE_ID_PATTERN = re.compile(r"^- Design service ID: `([^`]+)`$")
 MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
     r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$"
 )
-LLM_SERVICE_ID_PATTERN = re.compile(r"^designService\.(.+)\.serviceId=(.*)$")
-LLM_OWNED_TYPES_PATTERN = re.compile(
-    r"^designService\.(.+)\.ownedCatalogResourceTypes=(.*)$"
+MODEL_SERVICE_ID_PATTERN = re.compile(r"^desired\.service\.(.+)\.serviceId=(.*)$")
+MODEL_OWNED_TYPES_PATTERN = re.compile(
+    r"^desired\.service\.(.+)\.ownedCatalogResourceTypes=(.*)$"
 )
 RESOURCE_HEADING_PATTERN = re.compile(
     r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_-]*)$"
@@ -129,7 +128,7 @@ class Validator:
         self.check_initialized_paths()
         self.check_catalog()
         self.check_designs()
-        self.check_actuals()
+        self.check_observed_values()
         self.check_iac_selection()
         self.check_scenarios()
         self.check_results()
@@ -147,7 +146,7 @@ class Validator:
         print(f"- task requirements: {', '.join(self.requirement_ids)}")
         print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
-        print("- task scope, catalog integrity, design mirrors, IaC selection, and scenario/result structure: valid")
+        print("- task scope, catalog integrity, service models, IaC selection, and scenario/result structure: valid")
         return 0
 
     def check_structure(self) -> None:
@@ -165,7 +164,7 @@ class Validator:
             "framework/scripts/blueprint-loop.py",
             "framework/scripts/check-deploy-context.py",
             "framework/scripts/cloudformation_schema.py",
-            "framework/scripts/sync-design-mirror.py",
+            "framework/scripts/sync-model.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:
@@ -295,10 +294,10 @@ class Validator:
         prompt_path = self.relative(prompt)
         for changed in sorted(self.changed_paths):
             if self.task_type == "design":
-                forbidden = self.under(changed, "infra") or self.under(changed, "llm/actuals") or self.under(changed, "tests")
+                forbidden = self.under(changed, "infra") or self.under(changed, "tests")
                 self.check(not forbidden, f"design task boundary violation: {changed}")
             elif self.task_type == "infrastructure":
-                forbidden = self.under(changed, "llm/designs") or self.under(changed, "tests")
+                forbidden = self.under(changed, "tests")
                 self.check(not forbidden, f"infrastructure task boundary violation: {changed}")
             elif self.task_type == "scenario-test":
                 permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
@@ -314,24 +313,24 @@ class Validator:
         elif self.task_type == "design":
             markdown = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".md")}
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
-            mirrors = {path for path in changed if path.startswith("llm/designs/") and path.endswith(".properties")}
+            models = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             self.check(bool(markdown or artifacts), "design task must change detailed-design Markdown or JSON artifacts")
-            self.check(bool(mirrors), "design task must change generated LLM design mirrors")
+            self.check(bool(models), "design task must change generated service models")
             for path in markdown:
-                expected = "llm/designs/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
-                self.check(expected in changed, f"changed design Markdown lacks changed LLM mirror: {path}")
-            for path in mirrors:
-                expected = "docs/designs/" + path.removeprefix("llm/designs/").removesuffix(".properties") + ".md"
+                expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
+                self.check(expected in changed, f"changed design Markdown lacks changed service model: {path}")
+            for path in models:
+                expected = "docs/designs/" + path.removeprefix("model/").removesuffix(".properties") + ".md"
                 service = expected.removesuffix(".md") + "/"
                 self.check(
                     expected in changed or any(artifact.startswith(service) for artifact in artifacts),
-                    f"changed LLM mirror lacks changed design source: {path}",
+                    f"changed service model lacks changed design source: {path}",
                 )
             for path in artifacts:
                 parts = Path(path).parts
                 if len(parts) >= 6:
-                    expected = f"llm/designs/{parts[2]}/{parts[3]}/{parts[4]}.properties"
-                    self.check(expected in changed, f"changed design JSON lacks changed LLM mirror: {path}")
+                    expected = f"model/{parts[2]}/{parts[3]}/{parts[4]}.properties"
+                    self.check(expected in changed, f"changed design JSON lacks changed service model: {path}")
         elif self.task_type == "infrastructure":
             self.check(any(self.under(path, "infra") for path in changed), "infrastructure task must change selected IaC")
         elif self.task_type == "scenario-test":
@@ -352,7 +351,7 @@ class Validator:
             "framework.task-completion-contract": self.check_framework_task_completion_contract,
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
-            "framework.generated-design-mirror": self.check_generated_design_mirrors,
+            "framework.generated-service-model": self.check_generated_service_models,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
             "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
@@ -389,7 +388,7 @@ class Validator:
         if prompt.is_file():
             text = prompt.read_text(encoding="utf-8")
             self.check("Task typeは`design`" in text, "design application prompt lacks design task contract")
-            self.check("sync-design-mirror.py" in text, "design application prompt does not generate the LLM mirror")
+            self.check("sync-model.py" in text, "design application prompt does not generate the service model")
         self.check("framework/prompts/codex/apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
 
     def check_framework_task_completion_contract(self) -> None:
@@ -407,11 +406,11 @@ class Validator:
         self.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
         self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
-    def check_generated_design_mirrors(self) -> None:
+    def check_generated_service_models(self) -> None:
         result = subprocess.run(
             [
                 sys.executable,
-                str(self.root / "framework" / "scripts" / "sync-design-mirror.py"),
+                str(self.root / "framework" / "scripts" / "sync-model.py"),
                 "--repository-root",
                 str(self.root),
             ],
@@ -420,7 +419,7 @@ class Validator:
             capture_output=True,
             text=True,
         )
-        self.check(result.returncode == 0, result.stdout.strip() or result.stderr.strip() or "generated design mirror check failed")
+        self.check(result.returncode == 0, result.stdout.strip() or result.stderr.strip() or "generated service model check failed")
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
         errors = snapshot_errors(self.root)
@@ -518,8 +517,7 @@ class Validator:
         for (environment, account), values in self.accounts.items():
             paths = [
                 self.root / "docs" / "designs" / environment / account,
-                self.root / "llm" / "designs" / environment / account,
-                self.root / "llm" / "actuals" / environment / account,
+                self.root / "model" / environment / account,
             ]
             if values["engine"] == "cloudformation":
                 paths.append(self.root / "infra" / "cloudformation" / "parameters" / environment / account)
@@ -566,22 +564,22 @@ class Validator:
         return target
 
     def check_designs(self) -> None:
-        self.check_generated_design_mirrors()
+        self.check_generated_service_models()
         markdown_paths = self.design_files()
-        properties_paths = sorted((self.root / "llm" / "designs").rglob("*.properties"))
+        properties_paths = sorted((self.root / "model").rglob("*.properties"))
         markdown = {
             path.relative_to(self.root / "docs" / "designs").with_suffix("").as_posix()
             for path in markdown_paths
         }
         properties = {
-            path.relative_to(self.root / "llm" / "designs").with_suffix("").as_posix()
+            path.relative_to(self.root / "model").with_suffix("").as_posix()
             for path in properties_paths
         }
-        self.check(markdown == properties, f"design/LLM group mismatch: markdown={sorted(markdown)}, llm={sorted(properties)}")
+        self.check(markdown == properties, f"design/model group mismatch: markdown={sorted(markdown)}, model={sorted(properties)}")
         for path in markdown_paths:
             self.check_target_file(path, self.root / "docs" / "designs")
         for path in properties_paths:
-            self.check_target_file(path, self.root / "llm" / "designs")
+            self.check_target_file(path, self.root / "model")
         service_metadata, catalog_types, catalog_property_owners = self.check_design_service_ownership(markdown_paths)
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners)
         self.check_design_links()
@@ -630,27 +628,27 @@ class Validator:
             self.check(resource_type in catalog_types, f"unknown owned catalog resource type: {self.relative(path)}: {resource_type}")
         return service_id, owned_types
 
-    def llm_service_metadata(
+    def model_service_metadata(
         self, path: Path, catalog_types: set[str]
     ) -> tuple[str, tuple[str, ...]] | None:
         lines = path.read_text(encoding="utf-8").splitlines()
-        service_matches = [match for line in lines if (match := LLM_SERVICE_ID_PATTERN.fullmatch(line))]
-        owned_matches = [match for line in lines if (match := LLM_OWNED_TYPES_PATTERN.fullmatch(line))]
-        self.check(len(service_matches) == 1, f"LLM service ID must appear exactly once: {self.relative(path)}")
-        self.check(len(owned_matches) == 1, f"LLM owned catalog resource types must appear exactly once: {self.relative(path)}")
+        service_matches = [match for line in lines if (match := MODEL_SERVICE_ID_PATTERN.fullmatch(line))]
+        owned_matches = [match for line in lines if (match := MODEL_OWNED_TYPES_PATTERN.fullmatch(line))]
+        self.check(len(service_matches) == 1, f"model service ID must appear exactly once: {self.relative(path)}")
+        self.check(len(owned_matches) == 1, f"model owned catalog resource types must appear exactly once: {self.relative(path)}")
         if len(service_matches) != 1 or len(owned_matches) != 1:
             return None
 
         service_key, service_id = service_matches[0].groups()
         owned_key, owned_value = owned_matches[0].groups()
         owned_types = tuple(owned_value.split(",")) if owned_value else ()
-        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid LLM service ID: {self.relative(path)}: {service_id}")
-        self.check(service_key == service_id == owned_key, f"inconsistent LLM service metadata key: {self.relative(path)}")
-        self.check(service_id == path.stem, f"LLM service ID does not match file stem: {self.relative(path)}")
-        self.check(bool(owned_types), f"LLM owned catalog resource types must not be empty: {self.relative(path)}")
-        self.check(len(owned_types) == len(set(owned_types)), f"duplicate LLM owned catalog resource type: {self.relative(path)}")
+        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid model service ID: {self.relative(path)}: {service_id}")
+        self.check(service_key == service_id == owned_key, f"inconsistent model service metadata key: {self.relative(path)}")
+        self.check(service_id == path.stem, f"model service ID does not match file stem: {self.relative(path)}")
+        self.check(bool(owned_types), f"model owned catalog resource types must not be empty: {self.relative(path)}")
+        self.check(len(owned_types) == len(set(owned_types)), f"duplicate model owned catalog resource type: {self.relative(path)}")
         for resource_type in owned_types:
-            self.check(resource_type in catalog_types, f"unknown LLM owned catalog resource type: {self.relative(path)}: {resource_type}")
+            self.check(resource_type in catalog_types, f"unknown model owned catalog resource type: {self.relative(path)}: {resource_type}")
         return service_id, owned_types
 
     def check_design_service_ownership(
@@ -660,16 +658,16 @@ class Validator:
         metadata: dict[Path, tuple[str, tuple[str, ...]]] = {}
         owners: dict[tuple[str, str, str], Path] = {}
         docs_base = self.root / "docs" / "designs"
-        llm_base = self.root / "llm" / "designs"
+        model_base = self.root / "model"
 
         for markdown_path in markdown_paths:
             relative = markdown_path.relative_to(docs_base)
-            llm_path = (llm_base / relative).with_suffix(".properties")
+            model_path = (model_base / relative).with_suffix(".properties")
             markdown_metadata = self.markdown_service_metadata(markdown_path, catalog_types)
-            llm_metadata = self.llm_service_metadata(llm_path, catalog_types) if llm_path.is_file() else None
-            if markdown_metadata is None or llm_metadata is None:
+            model_metadata = self.model_service_metadata(model_path, catalog_types) if model_path.is_file() else None
+            if markdown_metadata is None or model_metadata is None:
                 continue
-            self.check(markdown_metadata == llm_metadata, f"Markdown/LLM service metadata mismatch: {self.relative(markdown_path)}")
+            self.check(markdown_metadata == model_metadata, f"Markdown/model service metadata mismatch: {self.relative(markdown_path)}")
             metadata[markdown_path] = markdown_metadata
 
             target = relative.parts[:2]
@@ -978,12 +976,14 @@ class Validator:
             self.check(isinstance(content, dict), f"design JSON artifact root must be an object: {self.relative(artifact)}")
         self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
 
-    def check_actuals(self) -> None:
-        for path in (self.root / "llm" / "actuals").rglob("*"):
-            if path.is_file() and not path.name.startswith("."):
-                self.check_target_file(path, self.root / "llm" / "actuals")
-                text = path.read_text(encoding="utf-8")
-                self.check(re.search(r"\barn:aws[a-z-]*:", text, re.IGNORECASE) is None, f"generated ARN persisted in {self.relative(path)}")
+    def check_observed_values(self) -> None:
+        for path in (self.root / "model").rglob("*.properties"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("observed."):
+                    self.check(
+                        re.search(r"\barn:aws[a-z-]*:", line, re.IGNORECASE) is None,
+                        f"generated ARN persisted in observed model value: {self.relative(path)}",
+                    )
 
     def check_iac_selection(self) -> None:
         active_engines = {values["engine"] for values in self.accounts.values()}

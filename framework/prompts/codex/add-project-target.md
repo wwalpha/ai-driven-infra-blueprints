@@ -68,8 +68,8 @@ file変更前に次を確認する。
 - AWS mutation、AWS API、deploy、applyは禁止する
 - `Required changes`は一意なRequirement ID付きで、`project.json`更新、target path作成、選択IaC path作成を分けて記載する
 - `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`または`changed:`を対応付ける
-- Allowed pathsは`project.json`、追加対象の`docs/designs/**`、`llm/designs/**`、`llm/actuals/**`、選択済みIaCのtarget path、`tasks/active.md`に限定する
-- 既存target、design、actual、IaC implementation、scenario、scenario resultの変更を禁止する
+- Allowed pathsは`project.json`、追加対象の`docs/designs/**`、`model/**`、選択済みIaCのtarget path、`tasks/active.md`に限定する
+- 既存target、design、model、IaC implementation、scenario、scenario resultの変更を禁止する
 
 ## Add project target
 
@@ -90,8 +90,7 @@ file変更前に次を確認する。
 
 ```text
 docs/designs/<environment>/<aws-account-id>/.gitkeep
-llm/designs/<environment>/<aws-account-id>/.gitkeep
-llm/actuals/<environment>/<aws-account-id>/.gitkeep
+model/<environment>/<aws-account-id>/.gitkeep
 ```
 
 IaC engineが`cloudformation`の場合:
@@ -112,7 +111,7 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 
 - 既存targetの値またはpath
 - project name
-- design、actual、IaC implementation
+- design、model、IaC implementation
 - IaC engine rootの削除
 - scenario、scenario result
 - questionnaire、回答履歴、session state

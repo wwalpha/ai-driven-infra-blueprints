@@ -73,7 +73,7 @@ def check_task_contract() -> None:
 def check_task_type_dispatch() -> None:
     valid = {
         "initialization": {"project.json"},
-        "design": {"docs/designs/dev/123456789012/vpc.md", "llm/designs/dev/123456789012/vpc.properties"},
+        "design": {"docs/designs/dev/123456789012/vpc.md", "model/dev/123456789012/vpc.properties"},
         "infrastructure": {"infra/cloudformation/templates/vpc.yaml"},
         "scenario-test": {"tests/scenarios/vpc/scenario.md", "tests/results/vpc/dev/123456789012/result.md"},
         "governance": {"README.md"},
@@ -91,11 +91,28 @@ def check_task_type_dispatch() -> None:
     validator.task_type = "design"
     validator.changed_paths = {
         "docs/designs/dev/123456789012/iam/role01-policy.json",
-        "llm/designs/dev/123456789012/iam.properties",
+        "model/dev/123456789012/iam.properties",
         "tasks/active.md",
     }
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
+
+
+def check_model_task_boundaries() -> None:
+    prompt = SCRIPT.parents[2] / "tasks" / "active.md"
+    for task_type, changed in {
+        "design": {"docs/designs/dev/123456789012/vpc.md", "model/dev/123456789012/vpc.properties"},
+        "infrastructure": {
+            "infra/cloudformation/templates/vpc.yaml",
+            "docs/designs/dev/123456789012/vpc.md",
+            "model/dev/123456789012/vpc.properties",
+        },
+    }.items():
+        validator = MODULE.Validator(SCRIPT.parents[2])
+        validator.task_type = task_type
+        validator.changed_paths = changed | {"tasks/active.md"}
+        validator.check_task_boundary(prompt)
+        assert not validator.errors, (task_type, validator.errors)
 
 
 def check_schema_backed_design_rows() -> None:
@@ -160,8 +177,9 @@ def main() -> None:
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
     check_task_contract()
     check_task_type_dispatch()
+    check_model_task_boundaries()
     check_schema_backed_design_rows()
-    print("validate-blueprint: PASS (11 focused checks)")
+    print("validate-blueprint: PASS (12 focused checks)")
 
 
 if __name__ == "__main__":

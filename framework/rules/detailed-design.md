@@ -2,7 +2,7 @@
 
 ## Task boundary
 
-- `design` taskはintended designを更新し、対応するLLM design mirrorを`framework/scripts/sync-design-mirror.py`で生成してlocal validation後に終了する。IaC、actuals、scenarioへ自動的に進まない。
+- `design` taskはintended designを更新し、対応するservice modelを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。IaC、observed value、scenarioへ自動的に進まない。
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
@@ -11,14 +11,14 @@
 詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのdesign fileは一つのAWS serviceだけを所有する。
 
 - fileは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に置く。
-- Service IDはlower-kebab-caseとし、file stemおよび対応する`llm/designs/<environment>/<aws-account-id>/<service-id>.properties`と一致させる。
+- Service IDはlower-kebab-caseとし、file stemおよび対応する`model/<environment>/<aws-account-id>/<service-id>.properties`と一致させる。
 - 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
 - 運用上関連するだけの別AWS serviceを同じfileへ入れない。CloudFormation resource namespaceだけでgroupingを決めない。
 - child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
 - IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
 - VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
-- service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated mirrorへ同じreferenceを保持する。
+- service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
 
@@ -38,7 +38,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
-- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`llm/actuals/**`の該当する正本を参照する。
+- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
 - 対象外事項はactive taskまたはchatの完了報告だけに記載する。
@@ -71,7 +71,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - 設計値の出典、決定経緯、更新証跡、verification結果
 - `Value`を意味なく言い換えただけの説明
 
-例えば、VPCのCIDRには`VPCで使用するIPv4アドレス範囲`、inline policy nameには`IAM Roleへ埋め込む権限ポリシーの名前`、project tag keyには`リソースが属するプロジェクトを識別するタグのキー`と記載する。更新根拠やverification結果は詳細設計へ保存せず、現行actual情報または完了報告を扱う既存ルールに従う。
+例えば、VPCのCIDRには`VPCで使用するIPv4アドレス範囲`、inline policy nameには`IAM Roleへ埋め込む権限ポリシーの名前`、project tag keyには`リソースが属するプロジェクトを識別するタグのキー`と記載する。更新根拠やverification結果は詳細設計へ保存せず、observed valueまたは完了報告を扱う既存ルールに従う。
 
 ## JSON design artifacts
 
@@ -86,7 +86,7 @@ docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json
 - 一つのJSON fileは一つのpolicy documentを保持する。複数のinline policyは別fileへ分ける。
 - resource tableの`Value`は同じservice directoryのJSON fileへのrelative Markdown linkとする。
 - JSONは構文的に有効なobjectとし、AWS policy key、Action、Condition keyなどの識別子を日本語化しない。
-- 対応するgenerated LLM design mirrorはJSON本文を複製せず、Markdownのrelative artifact linkとJSON内容のSHA-256を保持する。
+- 対応するgenerated service modelはJSON本文を複製せず、Markdownのrelative artifact linkとJSON内容のSHA-256を保持する。
 
 ### IAM Role policy artifact names
 
@@ -125,6 +125,6 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
 - human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
 - local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。
-- generated ARNは詳細設計にも`llm/actuals/**`にも永続化しない。
+- generated ARNは詳細設計にも`model/**`にも永続化しない。
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
-- `llm/designs/**`はintended designから生成されたresource rowとstable relative referenceだけを保持し、必要なmachine-readable current IDは`llm/actuals/**`へ置く。
+- `model/**`はintended designを`desired.*`、generated current identifierを`observed.*`として同じservice propertiesへ保持する。

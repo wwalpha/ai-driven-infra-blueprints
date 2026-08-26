@@ -19,11 +19,11 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `framework/prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
 - `framework/prompts/codex/add-project-target.md`: 初期化後に確定したtargetを1件追加するmigration指示
-- `framework/prompts/codex/apply-design.md`: chatで確定した詳細設計を保存し、LLM mirrorを生成するdesign指示
+- `framework/prompts/codex/apply-design.md`: chatで確定した詳細設計を保存し、service modelを生成するdesign指示
 - `framework/prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、deterministic preflight、安全確認、許可されたdeploy/apply、deploy完了確認を実行する指示
 - `framework/prompts/codex/run-scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
-- `framework/scripts/sync-design-mirror.py`: human-readable詳細設計からLLM design mirrorを決定的に生成する
+- `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
 
@@ -44,7 +44,7 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 5. taskに関係する`framework/rules/*.md`
 6. taskに関係する`framework/materials/aws/*.properties`
 7. taskに関係する`framework/materials/cloudformation-schema/ap-northeast-1/*.json`
-8. `llm/designs/`と`llm/actuals/`
+8. `model/`
 9. userが明示的に許可した外部情報
 
 `docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
@@ -60,8 +60,8 @@ active promptの`## Task contract`には次を正確に1件記載します。
 許可するtask type:
 
 - `initialization`: 必要値をhumanへ確認し、project topologyとtarget pathを初期化する。
-- `design`: 詳細設計と対応するLLM design mirrorを更新し、local validation後に終了する。
-- `infrastructure`: 承認済みdesignをinputとしてIaCを変更し、安全確認、許可されたdeploy/apply、成功後のactuals更新までで終了する。
+- `design`: 詳細設計と対応するservice modelを更新し、local validation後に終了する。
+- `infrastructure`: 承認済みdesignをinputとしてIaCを変更し、安全確認、許可されたdeploy/apply、成功後のobserved value更新までで終了する。
 - `scenario-test`: scenario、test implementation、実行、scenario-scoped current resultを更新して終了する。
 - `governance`: repository ruleやworkflowを変更する。
 - `catalog-maintenance`: materials catalogを明示scopeで保守する。
@@ -97,8 +97,8 @@ active promptの`## Task contract`には次を正確に1件記載します。
 ### Codex
 
 - active prompt、task type、repository ruleの範囲だけを実行する
-- design taskでは詳細設計とLLM design mirrorまでで終了する
-- infrastructure taskではIaC safety check、許可されたexecution、actuals更新までで終了する
+- design taskでは詳細設計とservice modelのdesired namespaceまでで終了する
+- infrastructure taskではIaC safety check、許可されたexecution、observed namespace更新までで終了する
 - scenario-test taskではscenarioとcurrent resultだけを変更する
 - task完了後に次工程へ自動的に進まない
 
@@ -110,26 +110,26 @@ active promptの`## Task contract`には次を正確に1件記載します。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
 4. 必須判断が揃ったら、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
-5. `framework/prompts/codex/apply-design.md`のdesign taskで`docs/designs/**`を保存し、`llm/designs/**`を生成してlocal validation後に終了する。
+5. `framework/prompts/codex/apply-design.md`のdesign taskで`docs/designs/**`を保存し、`model/**`を生成してlocal validation後に終了する。
 
-chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。LLM mirrorはMarkdownから生成し、design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
+chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。service modelはMarkdownから生成し、design taskはCloudFormation/Terraform、observed value、scenario、scenario resultを変更しません。
 
 ## Post-design SDD
 
 - humanは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`を現在設計として変更する。
-- design taskは変更された詳細設計と対応するLLM design mirrorだけを同期して終了する。
+- design taskは変更された詳細設計と対応するservice modelだけを同期して終了する。
 - IaC反映が必要な場合は、別の`infrastructure` taskを明示的に開始する。
 - scenario確認が必要な場合は、infrastructure task完了後に別の`scenario-test` taskを明示的に開始する。
 
-IaC実装には`framework/prompts/codex/implement-infrastructure.md`を使用する。対象environment、AWS account、implementation scope、deploy/apply許可を確認し、`framework/scripts/check-deploy-context.py`がcredentialとdeploy contextを検証してから、選択済みのCloudFormationまたはTerraformだけを実装する。deploy完了確認とactual更新までで`infrastructure` taskを終了し、application behaviorは別taskで`framework/prompts/codex/run-scenario-test.md`を使用して検証する。
+IaC実装には`framework/prompts/codex/implement-infrastructure.md`を使用する。対象environment、AWS account、implementation scope、deploy/apply許可を確認し、`framework/scripts/check-deploy-context.py`がcredentialとdeploy contextを検証してから、選択済みのCloudFormationまたはTerraformだけを実装する。deploy完了確認とobserved value更新までで`infrastructure` taskを終了し、application behaviorは別taskで`framework/prompts/codex/run-scenario-test.md`を使用して検証する。
 
 ## Operating model
 
 1. humanが独立したtaskのtypeと対象scopeを決める。
 2. Codexはactive prompt、`AGENTS.md`、関連rulesを読み、同じtask type内だけで作業する。
-3. `design` taskはintended designとLLM mirrorを更新して終了する。
+3. `design` taskはintended designとservice modelを更新して終了する。
 4. `infrastructure` taskはIaC syntax/static validation、CloudFormation change setまたはTerraform planを確認する。これらはscenario testではない。
-5. active promptが許可した場合だけdeploy/applyし、成功後のcurrent actuals更新まででinfrastructure taskを終了する。
+5. active promptが許可した場合だけdeploy/applyし、成功後のobserved value更新まででinfrastructure taskを終了する。
 6. `scenario-test` taskは別途開始し、指定scenarioのtestとcurrent resultだけを更新する。
 7. scenario testが失敗しても、同じtaskでdesign変更、IaC修正、redeploy、remediation task作成へ進まない。
 
@@ -143,7 +143,7 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-このcommandは`<target-repository>/framework/**`だけを追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`llm/`、`tasks/`、`tests/`はコピーまたは変更しません。`AGENTS.md`と`README.md`は各repositoryのentrypointとしてrootに残します。
+このcommandは`<target-repository>/framework/**`だけを追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`AGENTS.md`と`README.md`は各repositoryのentrypointとしてrootに残します。
 
 ## Repository structure
 
@@ -172,7 +172,7 @@ framework/
   scripts/
     blueprint-loop.py
     check-deploy-context.py
-    sync-design-mirror.py
+    sync-model.py
     sync-existing-files.py
     update-catalog-lock.py
     validate-blueprint.py
@@ -180,9 +180,8 @@ tasks/active.md
 docs/
   system-overview.md
   designs/<environment>/<aws-account-id>/
-llm/
-  designs/<environment>/<aws-account-id>/
-  actuals/<environment>/<aws-account-id>/
+model/
+  <environment>/<aws-account-id>/<service-id>.properties
 infra/
   cloudformation/  # CloudFormationを選択したtargetがある場合だけ
     templates/
@@ -197,15 +196,15 @@ tests/
 ## Design information
 
 - `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
-- `llm/designs/<environment>/<aws-account-id>/`は同じintended designから生成されるmachine-readable mirror。手動編集しない。
+- `model/<environment>/<aws-account-id>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
 - 一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
-- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated mirrorへ同じreferenceを保持する。
-- policy JSONは`docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated mirrorへそのまま反映する。
+- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
+- policy JSONは`docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated modelへそのまま反映する。
 - topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`framework/rules/detailed-design.md`を正本とする。
-- `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のcurrent actual情報。
+- `desired.*`は確定済みのintended design、`observed.*`は対象AWS accountから取得した必要最小限のgenerated current valueを保持する。
 - 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
-- `llm/designs/**`はintended designとstable referenceだけを保持し、machine-readable current IDは`llm/actuals/**`へ置く。
-- generated ARNはcurrent actualとして保存しない。
+- Markdownとservice modelはservice ID、相対path、file stemを一致させ、一対一で生成する。
+- generated ARNはobserved valueとして保存しない。
 
 ## Scenario evidence
 
@@ -215,7 +214,7 @@ tests/
 - 実行別またはtimestamp別のresult directory/fileを作らない。
 - scenario変更時は既存resultを再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
 - scenario evidenceの過去版はGit履歴で追跡する。
-- scenario resultはcurrent actualの正本ではない。
+- scenario resultはcurrent observed valueの正本ではない。
 
 ## Materials catalog
 
@@ -249,17 +248,17 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 ## Required changes
 
 - [R1] 確定済み詳細設計を保存する。
-- [R2] LLM design mirrorを生成する。
+- [R2] service modelを生成する。
 
 ## Acceptance checks
 
 - [R1] `changed:docs/designs/<environment>/<aws-account-id>/**`
-- [R2] `changed:llm/designs/<environment>/<aws-account-id>/**`
+- [R2] `changed:model/<environment>/<aws-account-id>/**`
 
 ## Allowed paths
 
 - `docs/designs/**`
-- `llm/designs/**`
+- `model/**`
 - `tasks/active.md`
 ```
 
@@ -271,4 +270,4 @@ python framework/scripts/blueprint-loop.py --mode local
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
-local loopはtask type、task scope、project topology、catalog/schema integrity、schema-backed design value、design/LLM mirror、actual ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。
+local loopはtask type、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。IaC validation/planはinfrastructure task、scenario executionはscenario-test taskで別々に実行します。

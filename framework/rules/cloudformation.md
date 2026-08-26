@@ -1,7 +1,7 @@
 # CloudFormation Rules
 
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
-- infrastructure taskは承認済みの詳細設計とLLM design informationをinputとして読み取る。
+- infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/AWS accountがCloudFormationを選択した場合だけ使用する。
 - nested stackは使用しない。

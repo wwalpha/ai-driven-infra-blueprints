@@ -24,7 +24,7 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 
 AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
 
-`project.json`、対象の承認済み詳細設計、または対応するLLM designが存在しない場合は、値を推測せず停止する。
+`project.json`、対象の承認済み詳細設計、または対応するservice modelが存在しない場合は、値を推測せず停止する。
 
 ## Read before changing files
 
@@ -33,16 +33,16 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 3. `tasks/active.md`
 4. `project.json`
 5. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`
-6. 対応する`llm/designs/<environment>/<aws-account-id>/*.properties`
+6. 対応する`model/<environment>/<aws-account-id>/*.properties`
 7. `framework/rules/detailed-design.md`
-8. `framework/rules/llm-design-information.md`
+8. `framework/rules/model-information.md`
 9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
-10. `framework/rules/post-deploy-actuals.md`
+10. `framework/rules/observed-values.md`
 11. `framework/rules/loop-engineering.md`
 12. 対象resourceに関係する`framework/materials/aws/*.properties`
 13. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
-詳細設計とLLM designが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、どちらかを推測して採用せず、別の`design` taskが必要であることを報告して停止する。
+詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、どちらかを推測して採用せず、別の`design` taskが必要であることを報告して停止する。
 
 ## Create active task contract
 
@@ -50,13 +50,13 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 
 - Task typeは`infrastructure`とする。
 - goalにtarget environment、AWS account、implementation scope、選択済みIaC engineを記載する。
-- `Required changes`は一意なRequirement ID付きで、IaC implementation、許可されたexecution、成功後に必要なactual/generated value更新を分けて記載する。
+- `Required changes`は一意なRequirement ID付きで、IaC implementation、許可されたexecution、成功後に必要なobserved value更新を分けて記載する。
 - `Acceptance checks`は各Requirement IDへ対象IaC fileの`changed:`、必要なoutputの`exists:`または登録済みcheckを対応付ける。deploy/applyの未許可または未実行をrepository fileで偽装しない。
-- AWS API executionは対象account/regionのpreflight、validation、plan、許可されたdeploy/apply、deploy完了確認、actual収集だけに許可する。
+- AWS API executionは対象account/regionのpreflight、validation、plan、許可されたdeploy/apply、deploy完了確認、observed value収集だけに許可する。
 - Deploy/applyは確認済みUser inputの値をそのまま記載する。
 - Authorized delete/replacementは確認済みUser inputの値をそのまま記載する。
-- Allowed pathsは対象のIaC file、`llm/actuals/<environment>/<aws-account-id>/**`、deploy後にgenerated current valueを更新する対象詳細設計file、`tasks/active.md`だけに限定する。
-- `llm/designs/**`、`tests/scenarios/**`、`tests/results/**`は変更禁止とする。
+- Allowed pathsは対象のIaC file、`model/<environment>/<aws-account-id>/**`、deploy後にgenerated current valueを更新する対象詳細設計file、`tasks/active.md`だけに限定する。
+- 別targetの`model/**`、`tests/scenarios/**`、`tests/results/**`は変更禁止とする。
 
 ## Preflight
 
@@ -86,7 +86,7 @@ preflightはtarget environment／AWS accountにつき一回だけ実行する。
 
 ## Implement and validate
 
-承認済みdesignと対応するLLM designだけをinputとして、選択済みengineの最小構成を実装する。未使用resource、将来用module、compatibility layerは作成しない。
+承認済みdesignと対応するservice modelだけをinputとして、選択済みengineの最小構成を実装する。未使用resource、将来用module、compatibility layerは作成しない。
 
 CloudFormationの場合:
 
@@ -97,7 +97,7 @@ CloudFormationの場合:
 5. validation完了後、dependency順にdeployment unitを一つずつ処理する。
 6. 各unitで最新parameterを解決し、change setを作成してadd、change、delete、replacementがimplementation scopeと許可範囲内であることを確認する。
 7. Deploy/applyが`allowed`の場合だけchange setを実行し、stackがterminal successになるまで待つ。
-8. stack成功後に必要なactualとgenerated current valueを更新してから、次のunitへ進む。
+8. stack成功後に必要なobserved valueとgenerated current valueを更新してから、次のunitへ進む。
 9. Deploy/applyが`forbidden`の場合はchange set結果までを報告し、実行しない。
 
 Terraformの場合:
@@ -120,17 +120,17 @@ CloudFormationのdeployment unitが失敗した場合はstack eventsとrollback�
 
 必須情報、human decision、credential、permission、account、region、design変更、未許可のdelete/replacement、rollback failureが原因の場合は簡潔に報告して停止する。
 
-retry上限超過または停止条件に該当した場合は後続deployment unitを実行しない。既に成功したstackを自動rollback、delete、redeployせず、そのactualをcurrent stateとして保持する。成功済み、失敗、未実行のdeployment unitを完了報告で区別する。
+retry上限超過または停止条件に該当した場合は後続deployment unitを実行しない。既に成功したstackを自動rollback、delete、redeployせず、そのobserved valueをcurrent stateとして保持する。成功済み、失敗、未実行のdeployment unitを完了報告で区別する。
 
 Terraform apply failureはpartial applyの可能性があるため、stateとAWS実体をread-onlyで確認し、apply、destroy、修正を自動実行せず簡潔に報告して停止する。
 
 deploy/applyが成功した場合:
 
 1. CloudFormation stack operationまたはTerraform applyがterminal successになるまで確認する。
-2. 成功したAWS mutation後だけ、必要な非ARN actualを`llm/actuals/`へ反映する。
-3. 詳細設計の`PENDING_DEPLOY`などgenerated current valueだけを実値へ更新し、intended designは変更しない。
+2. 成功したAWS mutation後だけ、詳細設計の`PENDING_DEPLOY`などgenerated current valueを実値へ更新し、intended designは変更しない。
+3. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、同じservice propertiesの`observed.*`へ反映する。
 
-deploy完了status、resource存在、actual収集をapplication behaviorの検証またはscenario PASSとして扱わない。
+deploy完了status、resource存在、observed value収集をapplication behaviorの検証またはscenario PASSとして扱わない。
 
 ## Verify and finish
 
@@ -138,6 +138,6 @@ deploy完了status、resource存在、actual収集をapplication behaviorの検�
 2. `python framework/scripts/blueprint-loop.py --mode local`
 3. `git diff --check`
 
-target、account、region、engine、preflight結果、変更file、deployment unitとdependency順、plan/change set summary、deploy完了status、actual更新、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
+target、account、region、engine、preflight結果、変更file、deployment unitとdependency順、plan/change set summary、deploy完了status、observed value更新、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
 scenario、scenario result、別environment、別AWS account、次taskを作成または実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/run-scenario-test.md`を使用する。

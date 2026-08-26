@@ -4,9 +4,9 @@
 
 - scenario testは独立した`scenario-test` taskでのみ作成、変更、実装、実行する。
 - infrastructure task完了後やbehavior変更後にscenario-test taskを自動作成または自動実行しない。
-- scenario-test taskは`docs/**`、`llm/**`、`infra/**`を変更しない。
+- scenario-test taskは`docs/**`、`model/**`、`infra/**`を変更しない。
 - test failure後にdesign変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
-- scenario resultはcurrent actualの正本にしない。
+- scenario resultはcurrent observed valueの正本にしない。
 
 ## Scenario definition
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused self-checks for generated design mirrors."""
+"""Focused self-checks for generated service models."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).with_name("sync-design-mirror.py")
-SPEC = importlib.util.spec_from_file_location("sync_design_mirror", SCRIPT)
+SCRIPT = Path(__file__).with_name("sync-model.py")
+SPEC = importlib.util.spec_from_file_location("sync_model", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -42,17 +42,17 @@ def main() -> None:
 """,
             encoding="utf-8",
         )
-        mirror = MODULE.mirror_for(design)
-        assert "designResource.001.logicalId=VPC01" in mirror
-        assert "designRow.001-001.value=10.1.0.0/16" in mirror
-        assert "VPC ID" not in mirror
-        assert "designRow.001-002.artifactSha256=" in mirror
-        assert mirror == MODULE.mirror_for(design)
+        model = MODULE.model_for(design)
+        assert "desired.resource.001.logicalId=VPC01" in model
+        assert "desired.row.001-001.value=10.1.0.0/16" in model
+        assert "observed.row.001-002.value=PENDING_DEPLOY" in model
+        assert "desired.row.001-003.artifactSha256=" in model
+        assert model == MODULE.model_for(design)
         with redirect_stdout(io.StringIO()):
             assert MODULE.sync(root, True) == 0
             artifact.write_text('{"Version":"changed"}\n', encoding="utf-8")
             assert MODULE.sync(root, False) == 1
-    print("sync-design-mirror: PASS (7 focused checks)")
+    print("sync-model: PASS (7 focused checks)")
 
 
 if __name__ == "__main__":

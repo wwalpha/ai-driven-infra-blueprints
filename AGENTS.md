@@ -8,7 +8,7 @@
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
-- 人間向けの現行設計は`docs/designs/<environment>/<aws-account-id>/`、機械可読な設計情報は`llm/designs/<environment>/<aws-account-id>/`、現行actual情報は`llm/actuals/<environment>/<aws-account-id>/`に置く。
+- 人間向けの現行設計は`docs/designs/<environment>/<aws-account-id>/`、同じserviceのdesired/observedを保持する機械可読modelは`model/<environment>/<aws-account-id>/`に置く。
 - `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
 - initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project.json`とする。
 - `framework/materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
@@ -17,7 +17,7 @@
 - 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。
 - validate/plan後にrepository独自のhuman review停止は設けない。
 - deploy/applyは`infrastructure` taskのactive promptが明示的に許可した場合だけ実行する。
-- 生成ARNをpost-deploy actualとして永続化しない。
+- 生成ARNをobserved valueとして永続化しない。
 - task typeに対応するlocal loopを完了前に実行する。
 
 ## Task transition
@@ -32,8 +32,8 @@
 
 ## Task boundary
 
-- `design`: `docs/designs/**`と対応する`llm/designs/**`を更新し、local validation後に終了する。IaC、actuals、scenarioへ進まない。
-- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のactualsとgenerated current value更新までを行って終了する。intended designやscenarioを変更しない。
+- `design`: `docs/designs/**`と対応する`model/**`のdesired namespaceを更新し、local validation後に終了する。IaC、observed value、scenarioへ進まない。
+- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。intended designやscenarioを変更しない。
 - `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<aws-account-id>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
 - `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
@@ -45,10 +45,10 @@
 ## 詳細ルール
 
 - `framework/rules/detailed-design.md`
-- `framework/rules/llm-design-information.md`
+- `framework/rules/model-information.md`
 - `framework/rules/cloudformation.md`
 - `framework/rules/terraform.md`
-- `framework/rules/post-deploy-actuals.md`
+- `framework/rules/observed-values.md`
 - `framework/rules/scenario-testing.md`
 - `framework/rules/loop-engineering.md`
 
@@ -62,9 +62,10 @@
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
 - `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
 
-## Generated design mirror
+## Generated service model
 
 - `docs/designs/**`をintended designのsource of truthとする。
-- `llm/designs/**`は`framework/scripts/sync-design-mirror.py`で生成し、手動編集しない。
-- design taskはMarkdownと必要なJSON artifactを保存した後、同じtaskでLLM mirrorを生成する。
-- local loopはgenerated mirrorがMarkdownと一致しない場合に失敗する。
+- `model/**`は`framework/scripts/sync-model.py`で生成し、手動編集しない。
+- 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
+- design taskと成功したinfrastructure taskはMarkdown更新後に同じservice modelを再生成する。
+- local loopはgenerated modelがMarkdownと一致しない場合に失敗する。

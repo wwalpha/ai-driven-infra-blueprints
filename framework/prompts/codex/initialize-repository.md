@@ -75,7 +75,7 @@ file変更前に次を確認する。
 - AWS mutation、AWS API、deploy、applyは禁止する
 - `Required changes`は一意なRequirement ID付きで、`project.json`作成、target path作成、IaC engine選択を分けて記載する
 - `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`、未選択IaC rootの`absent:`を対応付ける
-- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
+- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`model/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない
 
@@ -105,8 +105,7 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
 
 ```text
 docs/designs/<environment>/<aws-account-id>/.gitkeep
-llm/designs/<environment>/<aws-account-id>/.gitkeep
-llm/actuals/<environment>/<aws-account-id>/.gitkeep
+model/<environment>/<aws-account-id>/.gitkeep
 ```
 
 IaC engineが`cloudformation`の場合:
@@ -131,7 +130,7 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 ## Do not create
 
 - 空の詳細設計Markdown
-- 空のLLM design properties
+- 空のservice model properties
 - CloudFormation template
 - Terraform module、resource、provider、state設定
 - 全targetで未選択のIaC engine directory
@@ -141,7 +140,7 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 
 ## Existing repository handling
 
-- 既存のdesign、actual、IaC implementationを上書きしない。
+- 既存のdesign、model、IaC implementationを上書きしない。
 - target pathが既に存在する場合は再利用し、`.gitkeep`のためだけに内容を変更しない。
 - 確認済みtopologyと既存target pathまたはIaC engineが矛盾する場合は停止する。
 

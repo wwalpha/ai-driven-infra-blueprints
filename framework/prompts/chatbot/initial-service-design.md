@@ -46,7 +46,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
 6. `framework/rules/detailed-design.md`
-7. `framework/rules/llm-design-information.md`
+7. `framework/rules/model-information.md`
 8. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
 9. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
@@ -165,7 +165,7 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 `完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
 
-`設計ファイル`には`framework/rules/detailed-design.md`に準拠した保存対象の完成形Markdownと必要なJSON artifactをfile単位で出力してください。`llm/designs/**`はCodexがMarkdownから生成するため、LLM propertiesを出力してはいけません。
+`設計ファイル`には`framework/rules/detailed-design.md`に準拠した保存対象の完成形Markdownと必要なJSON artifactをfile単位で出力してください。`model/**`はCodexがMarkdownから生成するため、propertiesを出力してはいけません。
 
 - stable logical IDとexplicit anchorを使用する
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する

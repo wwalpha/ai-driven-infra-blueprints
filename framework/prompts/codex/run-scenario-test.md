@@ -26,7 +26,7 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 5. `framework/rules/loop-engineering.md`
 6. 対象の`tests/scenarios/<scenario-id>/`
 7. 対象の`tests/results/<scenario-id>/<environment>/<aws-account-id>/`
-8. 必要な`docs/designs/**`と`llm/actuals/**`をread-only inputとして読む
+8. 必要な`docs/designs/**`と`model/**`をread-only inputとして読む
 
 ## Create active task contract
 
@@ -38,7 +38,7 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 - `Acceptance checks`は各Requirement IDへ対象scenario fileとresult fileの`changed:`を対応付ける。
 - AWS mutationとdestructive operationは確認済みUser inputの値をそのまま記載する。
 - Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<aws-account-id>/**`、`tasks/active.md`だけに限定する。
-- `docs/**`、`llm/**`、`infra/**`は変更禁止とする。
+- `docs/**`、`model/**`、`infra/**`は変更禁止とする。
 
 ## Define and execute
 
