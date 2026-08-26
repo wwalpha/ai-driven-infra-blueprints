@@ -36,7 +36,6 @@ TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 VALUE_LINK_PATTERN = re.compile(r"^\[[^\]]+\]\(([^)#]+)\)$")
-PROPERTY_PATTERN = re.compile(r"^([^.]+)\.([^.]+)\.([^=]+)=(.*)$")
 MARKDOWN_SERVICE_ID_PATTERN = re.compile(r"^- Design service ID: `([^`]+)`$")
 MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
     r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$"
@@ -100,14 +99,15 @@ class Validator:
         self.checks = 0
         self.changed_paths: set[str] = set()
         self.task_type = ""
+        self.requirement_ids: list[str] = []
+        self.acceptance_checks: list[tuple[str, str, str]] = []
+        self.acceptance_results: list[str] = []
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
         self.result_files: dict[str, list[Path]] = {}
         self.markdown_design_artifacts: set[Path] = set()
-        self.llm_design_artifacts: set[Path] = set()
         self.markdown_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
-        self.llm_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -122,6 +122,7 @@ class Validator:
         self.check_task_scope()
         self.check_tasks()
         self.check_project_topology()
+        self.check_task_type_requirements()
         self.check_initialized_paths()
         self.check_catalog()
         self.check_designs()
@@ -130,15 +131,18 @@ class Validator:
         self.check_scenarios()
         self.check_results()
         self.check_scenario_changes()
+        self.check_acceptance_checks()
 
         if self.errors:
-            print(f"Blueprint local loop: FAIL ({len(self.errors)} errors)")
+            print(f"Blueprint repository validation: FAIL ({len(self.errors)} errors)")
             for error in self.errors:
                 print(f"- {error}")
             return 1
 
-        print(f"Blueprint local loop: PASS ({self.checks} checks)")
+        print(f"Blueprint repository validation: PASS ({self.checks} checks)")
         print(f"- task type: {self.task_type}")
+        print(f"- task requirements: {', '.join(self.requirement_ids)}")
+        print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
         print("- task scope, catalog integrity, design mirrors, IaC selection, and scenario/result structure: valid")
         return 0
@@ -150,11 +154,14 @@ class Validator:
             "copilot/personal-custom-instructions.md",
             "docs/system-overview.md",
             "prompts/chatbot/initial-service-design.md",
+            "prompts/codex/add-project-target.md",
+            "prompts/codex/apply-design.md",
             "prompts/codex/initialize-repository.md",
             "prompts/codex/implement-infrastructure.md",
             "prompts/codex/run-scenario-test.md",
             "scripts/blueprint-loop.py",
             "scripts/check-deploy-context.py",
+            "scripts/sync-design-mirror.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:
@@ -196,6 +203,39 @@ class Validator:
             self.task_type = task_types[0]
             self.check(self.task_type in TASK_TYPES, f"unknown Task type: {self.task_type}")
 
+        requirement_ids: list[str] = []
+        for line in self.section(lines, "## Required changes"):
+            if not line.startswith("- "):
+                continue
+            match = re.fullmatch(r"- \[([A-Z][A-Z0-9-]*)\] .+", line)
+            self.check(match is not None, f"invalid Required changes entry: {self.relative(prompt)}: {line}")
+            if match:
+                requirement_ids.append(match.group(1))
+        self.check(bool(requirement_ids), f"Required changes section missing or empty: {self.relative(prompt)}")
+        self.check(len(requirement_ids) == len(set(requirement_ids)), f"duplicate requirement ID: {self.relative(prompt)}")
+        self.requirement_ids = requirement_ids
+
+        acceptance_ids: set[str] = set()
+        for line in self.section(lines, "## Acceptance checks"):
+            if not line.startswith("- "):
+                continue
+            match = re.fullmatch(
+                r"- \[([A-Z][A-Z0-9-]*)\] `(changed|exists|absent|check):([^`]+)`",
+                line,
+            )
+            self.check(match is not None, f"invalid Acceptance checks entry: {self.relative(prompt)}: {line}")
+            if not match:
+                continue
+            requirement_id, kind, value = match.groups()
+            acceptance_ids.add(requirement_id)
+            self.acceptance_checks.append((requirement_id, kind, value))
+            self.check(requirement_id in requirement_ids, f"Acceptance check uses unknown requirement ID: {requirement_id}")
+            if kind != "check":
+                candidate = Path(value)
+                self.check(not candidate.is_absolute() and ".." not in candidate.parts, f"unsafe Acceptance check path: {value}")
+        for requirement_id in requirement_ids:
+            self.check(requirement_id in acceptance_ids, f"requirement has no Acceptance check: {requirement_id}")
+
         allowed: list[str] = []
         in_section = False
         for line in lines:
@@ -215,14 +255,29 @@ class Validator:
             | self.git_paths(["ls-files", "--others", "--exclude-standard"])
         )
         for changed in sorted(self.changed_paths):
-            permitted = any(
-                changed == pattern
-                or (pattern.endswith("/**") and changed.startswith(pattern[:-3] + "/"))
-                or fnmatch.fnmatchcase(changed, pattern)
-                for pattern in allowed
-            )
+            permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
         self.check_task_boundary(prompt)
+
+    @staticmethod
+    def section(lines: list[str], heading: str) -> list[str]:
+        content: list[str] = []
+        in_section = False
+        for line in lines:
+            if line == heading:
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if in_section:
+                content.append(line)
+        return content
+
+    @staticmethod
+    def matches(path: str, pattern: str) -> bool:
+        return path == pattern or (
+            pattern.endswith("/**") and path.startswith(pattern[:-3] + "/")
+        ) or fnmatch.fnmatchcase(path, pattern)
 
     @staticmethod
     def under(path: str, prefix: str) -> bool:
@@ -242,9 +297,119 @@ class Validator:
             elif self.task_type == "scenario-test":
                 permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
                 self.check(permitted, f"scenario-test task boundary violation: {changed}")
-            elif self.task_type in {"initialization", "governance", "catalog-maintenance"}:
+            elif self.task_type in {"initialization", "governance", "catalog-maintenance", "migration"}:
                 forbidden = self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
                 self.check(not forbidden, f"{self.task_type} task boundary violation: {changed}")
+
+    def check_task_type_requirements(self) -> None:
+        changed = self.changed_paths - {"tasks/active.md"}
+        if self.task_type == "initialization":
+            self.check("project.json" in changed, "initialization task must change project.json")
+        elif self.task_type == "design":
+            markdown = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".md")}
+            artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
+            mirrors = {path for path in changed if path.startswith("llm/designs/") and path.endswith(".properties")}
+            self.check(bool(markdown or artifacts), "design task must change detailed-design Markdown or JSON artifacts")
+            self.check(bool(mirrors), "design task must change generated LLM design mirrors")
+            for path in markdown:
+                expected = "llm/designs/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
+                self.check(expected in changed, f"changed design Markdown lacks changed LLM mirror: {path}")
+            for path in mirrors:
+                expected = "docs/designs/" + path.removeprefix("llm/designs/").removesuffix(".properties") + ".md"
+                service = expected.removesuffix(".md") + "/"
+                self.check(
+                    expected in changed or any(artifact.startswith(service) for artifact in artifacts),
+                    f"changed LLM mirror lacks changed design source: {path}",
+                )
+            for path in artifacts:
+                parts = Path(path).parts
+                if len(parts) >= 6:
+                    expected = f"llm/designs/{parts[2]}/{parts[3]}/{parts[4]}.properties"
+                    self.check(expected in changed, f"changed design JSON lacks changed LLM mirror: {path}")
+        elif self.task_type == "infrastructure":
+            self.check(any(self.under(path, "infra") for path in changed), "infrastructure task must change selected IaC")
+        elif self.task_type == "scenario-test":
+            self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
+            self.check(any(self.under(path, "tests/results") for path in changed), "scenario-test task must change its current result")
+        elif self.task_type == "governance":
+            self.check(bool(changed), "governance task must change framework files")
+        elif self.task_type == "catalog-maintenance":
+            self.check(any(self.under(path, "materials/aws") for path in changed), "catalog-maintenance task must change catalog files")
+            self.check("materials/catalog.sha256" in changed, "catalog-maintenance task must update materials/catalog.sha256")
+        elif self.task_type == "migration":
+            self.check(bool(changed), "migration task must change its required outputs")
+
+    def check_acceptance_checks(self) -> None:
+        registered = {
+            "framework.active-task-transition": self.check_framework_active_task_transition,
+            "framework.design-handoff": self.check_framework_design_handoff,
+            "framework.task-completion-contract": self.check_framework_task_completion_contract,
+            "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
+            "framework.focused-check-runner": self.check_framework_focused_check_runner,
+            "framework.generated-design-mirror": self.check_generated_design_mirrors,
+        }
+        for requirement_id, kind, value in self.acceptance_checks:
+            before = len(self.errors)
+            if kind == "changed":
+                self.check(any(self.matches(path, value) for path in self.changed_paths), f"required changed path missing: {requirement_id}: {value}")
+            elif kind == "exists":
+                self.check(any(self.root.glob(value)), f"required path missing: {requirement_id}: {value}")
+            elif kind == "absent":
+                self.check(not any(self.root.glob(value)), f"forbidden path exists: {requirement_id}: {value}")
+            else:
+                handler = registered.get(value)
+                self.check(handler is not None, f"unknown registered Acceptance check: {requirement_id}: {value}")
+                if handler:
+                    handler()
+            if len(self.errors) == before:
+                self.acceptance_results.append(f"{requirement_id}:{kind}:{value}")
+
+    def check_framework_active_task_transition(self) -> None:
+        agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
+        readme = (self.root / "README.md").read_text(encoding="utf-8")
+        self.check("## Task transition" in agents, "AGENTS.md lacks Task transition rules")
+        self.check("## Task transition" in readme, "README.md lacks Task transition workflow")
+        self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
+
+    def check_framework_design_handoff(self) -> None:
+        prompt = self.root / "prompts" / "codex" / "apply-design.md"
+        chatbot = (self.root / "prompts" / "chatbot" / "initial-service-design.md").read_text(encoding="utf-8")
+        self.check(prompt.is_file(), "design application prompt is missing")
+        if prompt.is_file():
+            text = prompt.read_text(encoding="utf-8")
+            self.check("Task typeは`design`" in text, "design application prompt lacks design task contract")
+            self.check("sync-design-mirror.py" in text, "design application prompt does not generate the LLM mirror")
+        self.check("prompts/codex/apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
+
+    def check_framework_task_completion_contract(self) -> None:
+        agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
+        rules = (self.root / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
+        self.check("Requirement ID" in agents and "Acceptance checks" in agents, "AGENTS.md lacks completion contract")
+        self.check("Requirement ID" in rules and "Acceptance checks" in rules, "loop rules lack completion contract")
+
+    def check_framework_task_type_dispatch(self) -> None:
+        self.check(self.task_type in TASK_TYPES, "task type completion check was not dispatched")
+        self.check(len(TASK_TYPES) == 7, "not every task type has a completion-check branch")
+
+    def check_framework_focused_check_runner(self) -> None:
+        loop = (self.root / "scripts" / "blueprint-loop.py").read_text(encoding="utf-8")
+        self.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
+        self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
+
+    def check_generated_design_mirrors(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.root / "scripts" / "sync-design-mirror.py"),
+                "--repository-root",
+                str(self.root),
+            ],
+            cwd=self.root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.check(result.returncode == 0, result.stdout.strip() or result.stderr.strip() or "generated design mirror check failed")
 
     def check_tasks(self) -> None:
         tasks = self.root / "tasks"
@@ -362,6 +527,7 @@ class Validator:
         return target
 
     def check_designs(self) -> None:
+        self.check_generated_design_mirrors()
         markdown_paths = self.design_files()
         properties_paths = sorted((self.root / "llm" / "designs").rglob("*.properties"))
         markdown = {
@@ -380,7 +546,6 @@ class Validator:
         service_metadata, catalog_types, catalog_property_owners = self.check_design_service_ownership(markdown_paths)
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners)
         self.check_design_links()
-        self.check_llm_references()
         self.check_design_artifacts()
 
     def catalog_design_properties(self) -> tuple[set[str], dict[str, set[str]]]:
@@ -704,77 +869,6 @@ class Validator:
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
 
-    def check_llm_references(self) -> None:
-        definitions: dict[tuple[str, str], set[str]] = {}
-        references: list[tuple[Path, tuple[str, str], str]] = []
-        base = self.root / "llm" / "designs"
-        for path in sorted(base.rglob("*.properties")):
-            target = self.check_target_file(path, base)
-            if target is None:
-                continue
-            target_definitions = definitions.setdefault(target, set())
-            iam_roles: dict[str, dict[str, str]] = {}
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line or line.startswith("#"):
-                    continue
-                match = PROPERTY_PATTERN.fullmatch(line)
-                self.check(match is not None, f"invalid LLM property: {self.relative(path)}: {line}")
-                if not match:
-                    continue
-                group, logical_id, property_name, value = match.groups()
-                if group != "designService":
-                    target_definitions.add(f"{group}.{logical_id}")
-                if group == "iamRole":
-                    properties = iam_roles.setdefault(logical_id, {})
-                    self.check(property_name not in properties, f"duplicate LLM IAM Role property: {self.relative(path)}: {logical_id}: {property_name}")
-                    properties.setdefault(property_name, value)
-                if property_name.lower().endswith(("ref", "refs")):
-                    references.extend((path, target, item) for item in value.split(",") if item)
-                is_policy_path = re.search(r"policy(?:document)?path$", property_name, re.IGNORECASE) is not None
-                is_json_path = value.endswith(".json")
-                if is_policy_path:
-                    self.check(is_json_path, f"LLM policy artifact path must reference JSON: {self.relative(path)}: {value}")
-                if is_json_path:
-                    artifact_path = Path(value)
-                    self.check(property_name.lower().endswith("path"), f"LLM design JSON artifact property must end with Path: {self.relative(path)}: {property_name}")
-                    self.check(not artifact_path.is_absolute(), f"LLM design JSON artifact path must be relative: {self.relative(path)}: {value}")
-                    self.check(len(artifact_path.parts) == 2 and artifact_path.parts[0] == path.stem, f"LLM design JSON artifact must be stored under owning service: {self.relative(path)}: {value}")
-                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / artifact_path).resolve()
-                    self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid LLM design JSON artifact path: {self.relative(path)}: {value}")
-                    self.llm_design_artifacts.add(artifact)
-            for logical_id, properties in iam_roles.items():
-                trust_path = properties.get("assumeRolePolicyDocumentPath")
-                if trust_path is not None:
-                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / trust_path).resolve()
-                    expected = iam_role_policy_artifact_filename(logical_id)
-                    self.check(artifact.name == expected, f"invalid LLM IAM trust policy artifact name: {self.relative(path)}: expected {expected}")
-                    self.llm_iam_policy_artifacts[(*target, logical_id, "trust")] = artifact
-
-                names = {
-                    name.removesuffix("PolicyName"): value
-                    for name, value in properties.items()
-                    if name.endswith("PolicyName")
-                }
-                documents = {
-                    name.removesuffix("PolicyDocumentPath"): value
-                    for name, value in properties.items()
-                    if name.endswith("PolicyDocumentPath") and name != "assumeRolePolicyDocumentPath"
-                }
-                self.check(names.keys() == documents.keys(), f"LLM IAM inline PolicyName/PolicyDocumentPath pair mismatch: {self.relative(path)}: {logical_id}")
-                for prefix in names.keys() & documents.keys():
-                    policy_name = names[prefix]
-                    self.check(policy_name not in {"", "UNSET", "PENDING_DEPLOY"}, f"LLM IAM inline PolicyName is required: {self.relative(path)}: {logical_id}")
-                    if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
-                        continue
-                    artifact = (self.root / "docs" / "designs" / target[0] / target[1] / documents[prefix]).resolve()
-                    expected = iam_role_policy_artifact_filename(logical_id, policy_name)
-                    self.check(artifact.name == expected, f"invalid LLM IAM inline policy artifact name: {self.relative(path)}: expected {expected}")
-                    key = (*target, logical_id, f"inline:{policy_name}")
-                    self.check(key not in self.llm_iam_policy_artifacts, f"duplicate LLM IAM inline PolicyName: {self.relative(path)}: {logical_id}: {policy_name}")
-                    self.llm_iam_policy_artifacts.setdefault(key, artifact)
-        for path, target, reference in references:
-            self.check(reference in definitions.get(target, set()), f"unresolved LLM reference: {self.relative(path)}: {reference}")
-
     def check_design_artifacts(self) -> None:
         base = self.root / "docs" / "designs"
         artifacts = {path.resolve() for path in base.rglob("*.json")}
@@ -795,8 +889,6 @@ class Validator:
                 continue
             self.check(isinstance(content, dict), f"design JSON artifact root must be an object: {self.relative(artifact)}")
         self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
-        self.check(artifacts == self.llm_design_artifacts, "design JSON artifacts must match LLM artifact paths")
-        self.check(self.markdown_iam_policy_artifacts == self.llm_iam_policy_artifacts, "IAM policy artifacts and PolicyName values must match between Markdown and LLM")
 
     def check_actuals(self) -> None:
         for path in (self.root / "llm" / "actuals").rglob("*"):

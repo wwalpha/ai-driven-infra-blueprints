@@ -4,6 +4,8 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Task boundary
 
+- repository変更前に最新依頼のtask type、target、Goalをactive taskと比較し、異なる場合は最初のrepository changeで`tasks/active.md`を上書きする。
+- read-only調査とchat-only設計相談はactive taskの切替を要求せず、残っている前taskをblockerにしない。
 - loopはactive taskのtask typeとAllowed paths内だけで完結する。
 - loop成功後に別taskを作成または実行しない。
 - retry中にtask typeまたは作業段階を変更しない。
@@ -13,6 +15,17 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 ## Local loop
 
 OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
+
+local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。一層でも未実行または失敗の場合はFAILとする。
+
+active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
+
+```md
+- [R1] 実施内容
+- [R1] `changed:path/to/file`
+```
+
+Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`check:`だけを許可する。任意command、未登録check、対応先Requirement IDがないcheck、checkがないRequirement IDは拒否する。
 
 各coherent logical change後に次を決定的に確認する。
 
@@ -29,15 +42,27 @@ OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command�
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、LLM mirrorのartifact pathと一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
-- cross-service relative linkとLLM stable logical referenceが解決できる
+- cross-service relative linkとexplicit anchorが解決でき、generated mirrorへ同じreferenceが反映されている
 - generated ARNが`llm/actuals/`に存在しない
 - scenario/result structureとmetadataが有効
 - formatting/static checkが成功する
 
+task type固有checkはactive taskから省略できず、少なくとも次を確認する。
+
+- `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
+- `design`: 対象Markdownとgenerated LLM mirrorが同じ変更に含まれ、内容が決定的生成結果と一致
+- `infrastructure`: 選択済みIaC implementationが変更され、LLM intended designとscenarioは未変更
+- `scenario-test`: scenarioと同じtargetのcurrent resultが変更
+- `governance`: active task以外のframework fileが変更
+- `catalog-maintenance`: catalog fileと`materials/catalog.sha256`が変更
+- `migration`: active task以外のrequired outputが変更
+
+`scripts/blueprint-loop.py`はrepository validator成功後、`scripts/*.checks.py`を名前順に全件実行する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
+
 ## Design task completion
 
 1. active promptで指定された`docs/designs/**`を更新する。
-2. 対応する`llm/designs/**`を同じcoherent changeで更新する。
+2. `scripts/sync-design-mirror.py --write`で対応する`llm/designs/**`を同じcoherent changeに生成する。
 3. local loopを実行する。
 4. IaC、actuals、scenario、resultを変更せずtaskを終了する。
 
@@ -75,3 +100,5 @@ OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command�
 - passのためにfailing checkを抑制しない。
 
 validate/plan後にhuman reviewを要求しないrepository ruleと、Codex sandbox/OS permission controlは別の仕組みである。permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
+
+local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、focused check script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。

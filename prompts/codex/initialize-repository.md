@@ -24,7 +24,7 @@ Project nameを入力してください。
 
 ## Stop before reinitialization
 
-`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、topology変更には別のmigration taskが必要であることを報告して停止する。
+`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、target追加には`prompts/codex/add-project-target.md`のmigration taskが必要であることを報告して停止する。
 
 ## Collect required values
 
@@ -38,6 +38,8 @@ Project nameを入力してください。
 
 Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
+- 現時点でEnvironment ID、AWS account ID、AWS region、IaC engineがすべて確定しているtargetだけを収集する。
+- 未作成または必要値が未確定のtargetは今回の初期化対象から除外し、placeholderや`UNSET`を記録しない。確定後に`prompts/codex/add-project-target.md`で追加できることを説明する。
 - 回答を受けるたびに形式と既存回答との矛盾を確認してから次へ進む。
 - 不正または不明な回答は理由を短く説明し、同じ項目だけを再質問する。
 - humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。
@@ -71,6 +73,8 @@ file変更前に次を確認する。
 
 - goalは確認済みproject topologyとtarget pathの初期化だけとする
 - AWS mutation、AWS API、deploy、applyは禁止する
+- `Required changes`は一意なRequirement ID付きで、`project.json`作成、target path作成、IaC engine選択を分けて記載する
+- `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`、未選択IaC rootの`absent:`を対応付ける
 - allowed pathsは`project.json`、作成対象の`docs/designs/**`、`llm/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない

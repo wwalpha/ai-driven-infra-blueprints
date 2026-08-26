@@ -34,6 +34,8 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 
 - Task typeは`scenario-test`とする。
 - goalにscenario ID、environment、AWS account、expected behaviorを記載する。
+- `Required changes`は一意なRequirement ID付きで、scenario定義／implementationと同じtargetのcurrent result更新を分けて記載する。
+- `Acceptance checks`は各Requirement IDへ対象scenario fileとresult fileの`changed:`を対応付ける。
 - AWS mutationとdestructive operationは確認済みUser inputの値をそのまま記載する。
 - Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<aws-account-id>/**`、`tasks/active.md`だけに限定する。
 - `docs/**`、`llm/**`、`infra/**`は変更禁止とする。

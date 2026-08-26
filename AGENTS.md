@@ -20,6 +20,16 @@
 - 生成ARNをpost-deploy actualとして永続化しない。
 - task typeに対応するlocal loopを完了前に実行する。
 
+## Task transition
+
+- repository変更前に、最新のuser依頼のtask type、target、Goalを`tasks/active.md`と比較する。
+- task type、target、Goalのいずれかが異なるrepository変更は新しいtaskとし、最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。
+- read-only調査とchat-only設計相談はrepository taskを開始しない。完了済みの前taskが`tasks/active.md`に残っていてもchat-only作業のblockerにしない。
+- chat-only設計をrepositoryへ保存する依頼は新しい`design` taskとし、保存前にactive taskを切り替える。
+- `## Required changes`の各項目には一意なRequirement IDを付け、`## Acceptance checks`で同じIDへ一つ以上の機械検証を対応付ける。
+- Acceptance checkは`changed:<path-or-glob>`、`exists:<path-or-glob>`、`absent:<path-or-glob>`、またはvalidatorへ登録済みの`check:<check-id>`だけを使用する。任意commandをactive taskから実行しない。
+- Requirement IDに対応するAcceptance checkまたはtask type固有checkが未実装、未実行、失敗の場合はtaskを完了扱いにしない。
+
 ## Task boundary
 
 - `design`: `docs/designs/**`と対応する`llm/designs/**`を更新し、local validation後に終了する。IaC、actuals、scenarioへ進まない。
@@ -46,7 +56,15 @@
 
 - 未初期化の配布状態では`project.json`を置かない。
 - `docs/system-overview.md`の作成・記入状態に関係なく、`prompts/codex/initialize-repository.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
+- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`prompts/codex/add-project-target.md`のmigrationで追加する。
 - environment数、environment名、AWS account数を固定しない。
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとする。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
 - `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
+
+## Generated design mirror
+
+- `docs/designs/**`をintended designのsource of truthとする。
+- `llm/designs/**`は`scripts/sync-design-mirror.py`で生成し、手動編集しない。
+- design taskはMarkdownと必要なJSON artifactを保存した後、同じtaskでLLM mirrorを生成する。
+- local loopはgenerated mirrorがMarkdownと一致しない場合に失敗する。

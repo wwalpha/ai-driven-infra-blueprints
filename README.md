@@ -5,8 +5,10 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 ## Initial setup
 
 1. `prompts/codex/initialize-repository.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを一問一答で順番に確認する。
-2. Codexが回答から`project.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
-3. 初期化taskの完了後は終了し、design taskを自動作成または自動実行しない。
+2. 現時点で必要値が確定しているtargetだけを回答する。未作成または必要値が未確定のenvironment/AWS accountは初期化対象に含めない。
+3. Codexが回答から`project.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
+4. 未確定だったtargetは、必要値の確定後に`prompts/codex/add-project-target.md`をCodexへ渡して追加する。
+5. initializationまたはmigration taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
@@ -15,11 +17,22 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `README.md`: repository全体の役割、情報優先順位、workflow
 - `prompts/chatbot/*.md`: 初期設計などで都度使用するAsk指示
 - `prompts/codex/initialize-repository.md`: 必要値をhumanへ確認し、topologyとrepositoryを初期化する指示
+- `prompts/codex/add-project-target.md`: 初期化後に確定したtargetを1件追加するmigration指示
+- `prompts/codex/apply-design.md`: chatで確定した詳細設計を保存し、LLM mirrorを生成するdesign指示
 - `prompts/codex/implement-infrastructure.md`: 承認済み詳細設計を選択済みIaCへ変換し、deterministic preflight、安全確認、許可されたdeploy/apply、deploy完了確認を実行する指示
 - `prompts/codex/run-scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
+- `scripts/sync-design-mirror.py`: human-readable詳細設計からLLM design mirrorを決定的に生成する
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
+
+## Task transition
+
+repositoryを変更する新しい依頼を受けた場合、Codexは最新依頼のtask type、target、Goalを現在の`tasks/active.md`と比較します。いずれかが異なる場合は新しいtaskとして扱い、最初のrepository changeで`tasks/active.md`を上書きします。
+
+read-only調査と`prompts/chatbot/initial-service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で`prompts/codex/apply-design.md`を使用し、新しい`design` taskへ切り替えます。
+
+active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、focused check scriptを実行し、未対応または未実行のrequirementがある場合はFAILします。
 
 ## Context priority
 
@@ -54,6 +67,21 @@ active promptの`## Task contract`には次を正確に1件記載します。
 
 各taskは独立してhumanが明示的に開始します。task完了後に次taskを自動作成または自動実行しません。
 
+各active taskは次のmachine-readable completion contractを持ちます。
+
+```md
+## Required changes
+
+- [R1] 実施内容
+
+## Acceptance checks
+
+- [R1] `changed:path/to/file`
+- [R1] `check:registered-check-id`
+```
+
+許可するAcceptance checkは`changed:`、`exists:`、`absent:`、validatorへ登録済みの`check:`だけです。全Requirement IDに一つ以上のcheckが必要です。
+
 ## Roles
 
 ### Human
@@ -79,10 +107,10 @@ active promptの`## Task contract`には次を正確に1件記載します。
 1. system overview、既存設計、関連materialsを確認する。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
-4. 必須判断が揃ったら、完成形の詳細設計Markdownをfile単位で出力する。
-5. design taskで`docs/designs/**`と対応する`llm/designs/**`を更新し、local validation後に終了する。
+4. 必須判断が揃ったら、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
+5. `prompts/codex/apply-design.md`のdesign taskで`docs/designs/**`を保存し、`llm/designs/**`を生成してlocal validation後に終了する。
 
-chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownとLLM mirrorから参照します。design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
+chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。LLM mirrorはMarkdownから生成し、design taskはCloudFormation/Terraform、actuals、scenario、scenario resultを変更しません。
 
 ## Post-design SDD
 
@@ -114,6 +142,7 @@ prompts/
   chatbot/
     initial-service-design.md
   codex/
+    apply-design.md
     initialize-repository.md
     implement-infrastructure.md
     run-scenario-test.md
@@ -138,6 +167,7 @@ infra/
 scripts/
   blueprint-loop.py
   check-deploy-context.py
+  sync-design-mirror.py
   update-catalog-lock.py
   validate-blueprint.py
 tests/
@@ -148,10 +178,10 @@ tests/
 ## Design information
 
 - `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
-- `llm/designs/<environment>/<aws-account-id>/`は同じintended designのmachine-readable mirror。
+- `llm/designs/<environment>/<aws-account-id>/`は同じintended designから生成されるmachine-readable mirror。手動編集しない。
 - 一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
-- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとLLM stable logical referenceで表す。
-- policy JSONは`docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json`へ保存し、MarkdownとLLM mirrorから同じartifactを参照する。
+- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated mirrorへ同じreferenceを保持する。
+- policy JSONは`docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated mirrorへそのまま反映する。
 - topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`rules/detailed-design.md`を正本とする。
 - `llm/actuals/<environment>/<aws-account-id>/`は対象AWS accountから取得した必要最小限のcurrent actual情報。
 - 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
@@ -187,6 +217,16 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 ## Task contract
 
 - Task type: `design`
+
+## Required changes
+
+- [R1] 確定済み詳細設計を保存する。
+- [R2] LLM design mirrorを生成する。
+
+## Acceptance checks
+
+- [R1] `changed:docs/designs/<environment>/<aws-account-id>/**`
+- [R2] `changed:llm/designs/<environment>/<aws-account-id>/**`
 
 ## Allowed paths
 

@@ -49,6 +49,8 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 
 - Task typeは`infrastructure`とする。
 - goalにtarget environment、AWS account、implementation scope、選択済みIaC engineを記載する。
+- `Required changes`は一意なRequirement ID付きで、IaC implementation、許可されたexecution、成功後に必要なactual/generated value更新を分けて記載する。
+- `Acceptance checks`は各Requirement IDへ対象IaC fileの`changed:`、必要なoutputの`exists:`または登録済みcheckを対応付ける。deploy/applyの未許可または未実行をrepository fileで偽装しない。
 - AWS API executionは対象account/regionのpreflight、validation、plan、許可されたdeploy/apply、deploy完了確認、actual収集だけに許可する。
 - Deploy/applyは確認済みUser inputの値をそのまま記載する。
 - Authorized delete/replacementは確認済みUser inputの値をそのまま記載する。
