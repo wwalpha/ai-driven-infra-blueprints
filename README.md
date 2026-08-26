@@ -152,7 +152,7 @@ AGENTS.md
 README.md
 project.json  # initialization後にCodexが生成
 framework/
-  copilot/
+  chatbot/
   prompts/
     chatbot/
       initial-service-design.md

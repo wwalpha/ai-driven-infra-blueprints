@@ -153,7 +153,7 @@ class Validator:
         for filename in (
             "AGENTS.md",
             "README.md",
-            "framework/copilot/personal-custom-instructions.md",
+            "framework/chatbot/personal-custom-instructions.md",
             "docs/system-overview.md",
             "framework/prompts/chatbot/initial-service-design.md",
             "framework/prompts/codex/add-project-target.md",

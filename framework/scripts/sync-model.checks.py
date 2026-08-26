@@ -28,7 +28,7 @@ def main() -> None:
             """# Amazon VPC 詳細設計
 
 - Design service ID: `vpc`
-- Owned catalog resource types: `EC2.VPC`
+- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
 
 <a id="vpc-vpc01"></a>
 
@@ -43,6 +43,7 @@ def main() -> None:
             encoding="utf-8",
         )
         model = MODULE.model_for(design)
+        assert "desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet" in model
         assert "desired.resource.001.logicalId=VPC01" in model
         assert "desired.row.001-001.value=10.1.0.0/16" in model
         assert "observed.row.001-002.value=PENDING_DEPLOY" in model
@@ -52,7 +53,7 @@ def main() -> None:
             assert MODULE.sync(root, True) == 0
             artifact.write_text('{"Version":"changed"}\n', encoding="utf-8")
             assert MODULE.sync(root, False) == 1
-    print("sync-model: PASS (7 focused checks)")
+    print("sync-model: PASS (8 focused checks)")
 
 
 if __name__ == "__main__":
