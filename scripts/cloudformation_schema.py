@@ -101,9 +101,20 @@ class CloudFormationSchemaCatalog:
                 raise KeyError(f"{resource_type}.{property_path}")
             node = self._resolve(document, matches[0])
             if is_array:
-                if not isinstance(node, dict) or node.get("type") != "array":
+                array_candidates = [node] if isinstance(node, dict) else []
+                if isinstance(node, dict):
+                    for keyword in ("allOf", "anyOf", "oneOf"):
+                        array_candidates.extend(
+                            self._resolve(document, item) for item in node.get(keyword, [])
+                        )
+                arrays = [
+                    candidate
+                    for candidate in array_candidates
+                    if isinstance(candidate, dict) and candidate.get("type") == "array"
+                ]
+                if not arrays:
                     raise KeyError(f"{resource_type}.{property_path}: [] used for non-array")
-                node = self._resolve(document, node.get("items", {}))
+                node = self._resolve(document, arrays[0].get("items", {}))
         if not isinstance(node, dict):
             raise KeyError(f"{resource_type}.{property_path}")
         return node

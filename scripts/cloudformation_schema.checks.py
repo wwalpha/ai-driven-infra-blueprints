@@ -33,6 +33,7 @@ def main() -> None:
     assert catalog.required_properties("Athena.WorkGroup") == {"Name"}
     assert catalog.literal_errors("Athena.WorkGroup", "State", "ENABLED") == []
     assert catalog.literal_errors("Athena.WorkGroup", "State", "unexpected")
+    assert catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"] == "string"
     print("cloudformation-schema: PASS")
 
 

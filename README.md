@@ -213,7 +213,7 @@ tests/
 
 通常のproject taskでは`materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
 
-`materials/cloudformation-schema/ap-northeast-1/`は、propertiesで選択した82 resource typeについて公式CloudFormation provider schemaのfull propertyと型・制約を保持します。設計値とCloudFormation templateのproperty名、`type`、`enum`、`pattern`、長さ、範囲、`required`の検証元です。
+`materials/cloudformation-schema/ap-northeast-1/`は、propertiesで選択したresource typeについて公式CloudFormation provider schemaのfull propertyと型・制約を保持します。対象件数は`materials/cloudformation-schema.properties`を正本とします。設計値とCloudFormation templateのproperty名、`type`、`enum`、`pattern`、長さ、範囲、`required`の検証元です。
 
 - provenance: `materials/cloudformation-schema.properties`
 - file integrity: `materials/cloudformation-schema.sha256`

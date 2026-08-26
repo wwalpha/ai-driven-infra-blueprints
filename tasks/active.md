@@ -1,9 +1,9 @@
-# Codex Task: Apply CloudFormation provider schemas
+# Codex Task: Expand the generic AWS catalog
 
 ## Task contract
 
-- Task type: `governance`
-- Goal: 公式CloudFormation provider schemaをfull制約の正本として、既存properties選択リストと設計・template validationへ適用する
+- Task type: `catalog-maintenance`
+- Goal: 汎用blueprintの設計catalogとprovider schemaへRDS、ELBv2、CloudFront、WAFv2、ECR/ECS、Auto Scaling、DynamoDB/SQS、API Gatewayを追加する
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,40 +11,47 @@
 
 ## Required changes
 
-- [R1] 東京regionの公式provider schema snapshot、provenance、lockをrepositoryへ追加し、既存propertiesの全pathをschemaへ対応付ける。
-- [R2] propertiesを詳細設計対象の選択リストとして維持し、schemaにない項目とschema制約に違反するliteral値をlocal loopで拒否する。
-- [R3] CloudFormation template validationでcfn-lintを必須化し、AWS validate-templateの構文検証と役割を分ける。
-- [R4] Logs/Athenaの代表的な型、enum、pattern、required制約をfocused checkで固定する。
+- [R1] RDSのDBInstance、DBCluster、DBSubnetGroup、parameter/option group、DBProxy関連を追加する。
+- [R2] ALB/NLB共通のElasticLoadBalancingV2 resourceを追加する。
+- [R3] CloudFrontとWAFv2の指定resourceを追加する。
+- [R4] ECR/ECS、Auto Scaling、EC2 LaunchTemplateを追加する。
+- [R5] DynamoDB、SQS、API Gateway REST/HTTP APIの主要resourceを追加する。
+- [R6] properties catalog lockと対応する東京region provider schema snapshotを更新する。
 
 ## Acceptance checks
 
-- [R1] `check:framework.cloudformation-schema-catalog`
-- [R2] `check:framework.schema-backed-design-validation`
-- [R3] `check:framework.cfn-lint-validation`
-- [R4] `changed:scripts/cloudformation_schema.checks.py`
+- [R1] `changed:materials/aws/RDS_*.properties`
+- [R2] `changed:materials/aws/ElasticLoadBalancingV2_*.properties`
+- [R3] `changed:materials/aws/CloudFront_*.properties`
+- [R3] `changed:materials/aws/WAFv2_*.properties`
+- [R4] `changed:materials/aws/ECR_*.properties`
+- [R4] `changed:materials/aws/ECS_*.properties`
+- [R4] `changed:materials/aws/AutoScaling_*.properties`
+- [R4] `changed:materials/aws/EC2_LaunchTemplate.properties`
+- [R5] `changed:materials/aws/DynamoDB_*.properties`
+- [R5] `changed:materials/aws/SQS_*.properties`
+- [R5] `changed:materials/aws/ApiGateway_*.properties`
+- [R5] `changed:materials/aws/ApiGatewayV2_*.properties`
+- [R6] `changed:materials/catalog.sha256`
+- [R6] `changed:scripts/cloudformation_schema.py`
+- [R6] `check:framework.cloudformation-schema-catalog`
 
 ## Allowed paths
 
 - `README.md`
+- `materials/aws/**`
+- `materials/catalog.properties`
+- `materials/catalog.sha256`
 - `materials/cloudformation-schema/**`
 - `materials/cloudformation-schema.properties`
 - `materials/cloudformation-schema.sha256`
-- `prompts/chatbot/initial-service-design.md`
-- `prompts/codex/implement-infrastructure.md`
-- `rules/cloudformation.md`
-- `rules/detailed-design.md`
-- `rules/loop-engineering.md`
-- `scripts/check-deploy-context.py`
-- `scripts/check-deploy-context.checks.py`
 - `scripts/cloudformation_schema.py`
 - `scripts/cloudformation_schema.checks.py`
-- `scripts/validate-blueprint.py`
-- `scripts/validate-blueprint.checks.py`
 - `tasks/active.md`
 
 ## Out of scope
 
-- `materials/aws/**`と既存catalog lockの変更
 - project固有design、actual、IaC、scenario、scenario resultのmigration
 - AWS API、deploy、apply
 - 東京region以外のschema snapshot
+- 指定されていないAWS serviceの追加
