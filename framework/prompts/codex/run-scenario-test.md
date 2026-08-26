@@ -22,8 +22,8 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 1. `AGENTS.md`
 2. `README.md`
 3. `project.json`
-4. `rules/scenario-testing.md`
-5. `rules/loop-engineering.md`
+4. `framework/rules/scenario-testing.md`
+5. `framework/rules/loop-engineering.md`
 6. 対象の`tests/scenarios/<scenario-id>/`
 7. 対象の`tests/results/<scenario-id>/<environment>/<aws-account-id>/`
 8. 必要な`docs/designs/**`と`llm/actuals/**`をread-only inputとして読む
@@ -42,7 +42,7 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 
 ## Define and execute
 
-1. `rules/scenario-testing.md`に従い、scenario definitionと必要最小限のtest implementationを作成または更新する。
+1. `framework/rules/scenario-testing.md`に従い、scenario definitionと必要最小限のtest implementationを作成または更新する。
 2. expected behaviorを実際に観測できる手順を使用し、deploy完了statusや静的設定だけをPASS根拠にしない。
 3. prerequisites不足またはcredential/permission不足は`BLOCKED`、実行して合格条件を満たさない場合は`FAIL`とする。
 4. 許可されたcleanupだけを実行し、結果を記録する。
@@ -52,7 +52,7 @@ failure時もdesign変更、IaC修正、redeploy、別task作成を行わない�
 
 ## Verify and finish
 
-1. `python scripts/blueprint-loop.py --mode local`
+1. `python framework/scripts/blueprint-loop.py --mode local`
 2. `git diff --check`
 
 scenario ID、target、実行手順、status、expected/actual behavior、evidence、cleanup、blockerを完了報告に記載する。

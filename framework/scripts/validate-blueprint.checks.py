@@ -17,7 +17,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def errors_for(rows: list[list[str]]) -> list[str]:
-    root = SCRIPT.parents[1]
+    root = SCRIPT.parents[2]
     validator = MODULE.Validator(root)
     validator.check_markdown_iam_policy_artifacts(
         root / "docs" / "designs" / "staging" / "123456789012" / "iam.md",
@@ -77,17 +77,17 @@ def check_task_type_dispatch() -> None:
         "infrastructure": {"infra/cloudformation/templates/vpc.yaml"},
         "scenario-test": {"tests/scenarios/vpc/scenario.md", "tests/results/vpc/dev/123456789012/result.md"},
         "governance": {"README.md"},
-        "catalog-maintenance": {"materials/aws/EC2_VPC.properties", "materials/catalog.sha256"},
+        "catalog-maintenance": {"framework/materials/aws/EC2_VPC.properties", "framework/materials/catalog.sha256"},
         "migration": {"project.json"},
     }
     for task_type, changed in valid.items():
-        validator = MODULE.Validator(SCRIPT.parents[1])
+        validator = MODULE.Validator(SCRIPT.parents[2])
         validator.task_type = task_type
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()
         assert not validator.errors, (task_type, validator.errors)
 
-    validator = MODULE.Validator(SCRIPT.parents[1])
+    validator = MODULE.Validator(SCRIPT.parents[2])
     validator.task_type = "design"
     validator.changed_paths = {
         "docs/designs/dev/123456789012/iam/role01-policy.json",
@@ -99,7 +99,7 @@ def check_task_type_dispatch() -> None:
 
 
 def check_schema_backed_design_rows() -> None:
-    repository = SCRIPT.parents[1]
+    repository = SCRIPT.parents[2]
     _, property_owners = MODULE.Validator(repository).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -126,7 +126,7 @@ def check_schema_backed_design_rows() -> None:
             {design: ("logs", ("Logs.LogGroup",))}, {"Logs.LogGroup"}, property_owners
         )
         assert any("provider schema violation" in error for error in validator.errors)
-        assert any("not selected by materials/aws" in error for error in validator.errors)
+        assert any("not selected by framework/materials/aws" in error for error in validator.errors)
 
         design.write_text(
             invalid.replace(

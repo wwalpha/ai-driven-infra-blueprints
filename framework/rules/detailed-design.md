@@ -2,7 +2,7 @@
 
 ## Task boundary
 
-- `design` taskはintended designを更新し、対応するLLM design mirrorを`scripts/sync-design-mirror.py`で生成してlocal validation後に終了する。IaC、actuals、scenarioへ自動的に進まない。
+- `design` taskはintended designを更新し、対応するLLM design mirrorを`framework/scripts/sync-design-mirror.py`で生成してlocal validation後に終了する。IaC、actuals、scenarioへ自動的に進まない。
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
@@ -29,7 +29,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`, `EC2.FlowLog`
 ```
 
-- Owned catalog resource typesには`materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
+- Owned catalog resource typesには`framework/materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
 - 同じenvironment/AWS account内で同じcatalog resource typeを複数service fileが所有してはいけない。
 
 ## Markdown structure
@@ -55,8 +55,8 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - 各 table の row は 1 から連番にする。
 - 1 file に複数 resource heading と table を置いてよい。
 - Listener、Route、association、UserData、Bucket Policy などの child component は独立 table にしてよい。
-- `materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。
-- 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。
+- `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。
+- 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。
 - catalogにないrowは、後述のgenerated current identifierだけを許可する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。

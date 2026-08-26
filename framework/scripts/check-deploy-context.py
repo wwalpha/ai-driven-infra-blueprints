@@ -99,7 +99,7 @@ def main() -> int:
     parser.add_argument("--aws-account-id", required=True)
     parser.add_argument("--profile")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
 
     try:
         target = check_deploy_context(root, args.environment, args.aws_account_id, args.profile)

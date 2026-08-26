@@ -16,17 +16,17 @@ chatで確定した詳細設計をrepositoryへ保存し、generated LLM design 
 3. `tasks/active.md`
 4. `project.json`
 5. 対象の既存`docs/designs/<environment>/<aws-account-id>/**`
-6. `rules/detailed-design.md`
-7. `rules/llm-design-information.md`
-8. `rules/loop-engineering.md`
-9. 対象resourceに関係する`materials/aws/*.properties`
+6. `framework/rules/detailed-design.md`
+7. `framework/rules/llm-design-information.md`
+8. `framework/rules/loop-engineering.md`
+9. 対象resourceに関係する`framework/materials/aws/*.properties`
 
 ## Validate input
 
 - environmentとAWS accountが`project.json`の同じtargetに存在する。
 - Confirmed design filesのpathが対象target配下にある。
 - 必須設計値が未確定、矛盾、placeholderではない。
-- MarkdownとJSON artifactが`rules/detailed-design.md`に従う。
+- MarkdownとJSON artifactが`framework/rules/detailed-design.md`に従う。
 - humanが確定していないresource、property、値を追加しない。
 
 不足または矛盾がある場合はrepositoryを変更せず、該当項目だけをblockerとして報告する。
@@ -54,14 +54,14 @@ Confirmed design filesのMarkdownとJSON artifactだけを`docs/designs/<environ
 対象targetだけを指定して実行する。
 
 ```console
-python scripts/sync-design-mirror.py --write --environment <environment> --aws-account-id <aws-account-id>
+python framework/scripts/sync-design-mirror.py --write --environment <environment> --aws-account-id <aws-account-id>
 ```
 
 generated mirrorを手修正しない。生成失敗、orphan mirror、Markdown validation failureは値の推測やcheck bypassで解消しない。
 
 ## Verify and finish
 
-1. `python scripts/blueprint-loop.py --mode local`
+1. `python framework/scripts/blueprint-loop.py --mode local`
 2. `git diff --check`
 
 target、保存したsource design、生成したmirror、Requirement ID別check結果、blockerを完了報告に記載する。IaC、actuals、scenario、次taskを作成または実行せず終了する。

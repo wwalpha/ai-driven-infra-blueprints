@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check or update the integrity lock for materials/aws."""
+"""Check or update the integrity lock for framework/materials/aws."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ import hashlib
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-CATALOG_DIR = ROOT / "materials" / "aws"
-METADATA = ROOT / "materials" / "catalog.properties"
-MANIFEST = ROOT / "materials" / "catalog.sha256"
+ROOT = Path(__file__).resolve().parents[2]
+CATALOG_DIR = ROOT / "framework" / "materials" / "aws"
+METADATA = ROOT / "framework" / "materials" / "catalog.properties"
+MANIFEST = ROOT / "framework" / "materials" / "catalog.sha256"
 
 
 def catalog_files() -> list[Path]:
@@ -74,7 +74,7 @@ def main() -> int:
         if metadata.get(key) != expected:
             errors.append(f"{key}: expected {expected}, got {metadata.get(key)}")
     if MANIFEST.read_text(encoding="utf-8") != expected_manifest:
-        errors.append("materials/catalog.sha256 does not match materials/aws")
+        errors.append("framework/materials/catalog.sha256 does not match framework/materials/aws")
     if errors:
         print("catalog lock: FAIL")
         for error in errors:

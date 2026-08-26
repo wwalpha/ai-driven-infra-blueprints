@@ -28,7 +28,7 @@ def design_type(material: Path) -> str:
 
 
 def material_files(root: Path) -> list[Path]:
-    return sorted((root / "materials" / "aws").glob("*.properties"))
+    return sorted((root / "framework" / "materials" / "aws").glob("*.properties"))
 
 
 def canonical_json(value: Any) -> str:
@@ -45,7 +45,7 @@ def manifest_text(root: Path, files: list[Path]) -> str:
 class CloudFormationSchemaCatalog:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.directory = root / "materials" / "cloudformation-schema" / REGION
+        self.directory = root / "framework" / "materials" / "cloudformation-schema" / REGION
         index = json.loads((self.directory / "index.json").read_text(encoding="utf-8"))
         self.resource_types: dict[str, str] = index["resourceTypes"]
         self.schemas: dict[str, dict[str, Any]] = {}
@@ -197,7 +197,7 @@ def refresh(root: Path) -> None:
     if missing:
         raise RuntimeError(f"provider schemas missing: {', '.join(missing)}")
 
-    directory = root / "materials" / "cloudformation-schema" / REGION
+    directory = root / "framework" / "materials" / "cloudformation-schema" / REGION
     directory.mkdir(parents=True, exist_ok=True)
     index = {
         "region": REGION,
@@ -215,24 +215,24 @@ def refresh(root: Path) -> None:
     schema_files = sorted(directory.glob("*.json"))
     metadata = {
         "schema.archiveSha256": hashlib.sha256(archive).hexdigest(),
-        "schema.manifest": "materials/cloudformation-schema.sha256",
+        "schema.manifest": "framework/materials/cloudformation-schema.sha256",
         "schema.region": REGION,
         "schema.resourceTypeCount": str(len(schemas)),
         "schema.source": "AWS CloudFormation resource provider schemas",
         "schema.sourceUrl": SOURCE_URL,
     }
-    (root / "materials" / "cloudformation-schema.properties").write_text(
+    (root / "framework" / "materials" / "cloudformation-schema.properties").write_text(
         "".join(f"{key}={value}\n" for key, value in sorted(metadata.items())), encoding="utf-8"
     )
-    (root / "materials" / "cloudformation-schema.sha256").write_text(
+    (root / "framework" / "materials" / "cloudformation-schema.sha256").write_text(
         manifest_text(root, schema_files), encoding="utf-8"
     )
 
 
 def snapshot_errors(root: Path) -> list[str]:
     errors: list[str] = []
-    metadata_path = root / "materials" / "cloudformation-schema.properties"
-    manifest_path = root / "materials" / "cloudformation-schema.sha256"
+    metadata_path = root / "framework" / "materials" / "cloudformation-schema.properties"
+    manifest_path = root / "framework" / "materials" / "cloudformation-schema.sha256"
     try:
         metadata = dict(
             line.split("=", 1)
@@ -245,11 +245,11 @@ def snapshot_errors(root: Path) -> list[str]:
 
     selected = {aws_type(path) for path in material_files(root)}
     if set(catalog.resource_types) != selected:
-        errors.append("schema index resource types do not match materials/aws")
+        errors.append("schema index resource types do not match framework/materials/aws")
     if metadata.get("schema.sourceUrl") != SOURCE_URL or metadata.get("schema.region") != REGION:
         errors.append("schema provenance does not match the configured regional source")
     if metadata.get("schema.resourceTypeCount") != str(len(selected)):
-        errors.append("schema.resourceTypeCount does not match materials/aws")
+        errors.append("schema.resourceTypeCount does not match framework/materials/aws")
     if re.fullmatch(r"[0-9a-f]{64}", metadata.get("schema.archiveSha256", "")) is None:
         errors.append("schema.archiveSha256 is invalid")
 
@@ -259,9 +259,9 @@ def snapshot_errors(root: Path) -> list[str]:
         errors.append("schema snapshot files do not match index.json")
     try:
         if manifest_path.read_text(encoding="utf-8") != manifest_text(root, schema_files):
-            errors.append("materials/cloudformation-schema.sha256 does not match the schema snapshot")
+            errors.append("framework/materials/cloudformation-schema.sha256 does not match the schema snapshot")
     except FileNotFoundError:
-        errors.append("materials/cloudformation-schema.sha256 is missing")
+        errors.append("framework/materials/cloudformation-schema.sha256 is missing")
 
     for material in material_files(root):
         resource_type = design_type(material)
@@ -285,7 +285,7 @@ def snapshot_errors(root: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     if args.write:

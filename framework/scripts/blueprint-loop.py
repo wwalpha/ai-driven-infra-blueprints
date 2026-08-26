@@ -15,15 +15,18 @@ def main() -> int:
     parser.add_argument("--mode", choices=("local",), required=True)
     parser.parse_args()
 
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     commands = [
         [
             sys.executable,
-            str(root / "scripts" / "validate-blueprint.py"),
+            str(root / "framework" / "scripts" / "validate-blueprint.py"),
             "--repository-root",
             str(root),
         ],
-        *([sys.executable, str(path)] for path in sorted((root / "scripts").glob("*.checks.py"))),
+        *(
+            [sys.executable, str(path)]
+            for path in sorted((root / "framework" / "scripts").glob("*.checks.py"))
+        ),
     ]
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     for command in commands:

@@ -9,7 +9,7 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
 

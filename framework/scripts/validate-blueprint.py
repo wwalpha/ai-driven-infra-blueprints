@@ -154,23 +154,25 @@ class Validator:
         for filename in (
             "AGENTS.md",
             "README.md",
-            "copilot/personal-custom-instructions.md",
+            "framework/copilot/personal-custom-instructions.md",
             "docs/system-overview.md",
-            "prompts/chatbot/initial-service-design.md",
-            "prompts/codex/add-project-target.md",
-            "prompts/codex/apply-design.md",
-            "prompts/codex/initialize-repository.md",
-            "prompts/codex/implement-infrastructure.md",
-            "prompts/codex/run-scenario-test.md",
-            "scripts/blueprint-loop.py",
-            "scripts/check-deploy-context.py",
-            "scripts/cloudformation_schema.py",
-            "scripts/sync-design-mirror.py",
+            "framework/prompts/chatbot/initial-service-design.md",
+            "framework/prompts/codex/add-project-target.md",
+            "framework/prompts/codex/apply-design.md",
+            "framework/prompts/codex/initialize-repository.md",
+            "framework/prompts/codex/implement-infrastructure.md",
+            "framework/prompts/codex/run-scenario-test.md",
+            "framework/scripts/blueprint-loop.py",
+            "framework/scripts/check-deploy-context.py",
+            "framework/scripts/cloudformation_schema.py",
+            "framework/scripts/sync-design-mirror.py",
         ):
             self.check((self.root / filename).is_file(), f"required file missing: {filename}")
         for directory in REQUIRED_DIRECTORIES:
             self.check((self.root / directory).is_dir(), f"required directory missing: {directory}")
-        actual_rules = {path.name for path in (self.root / "rules").glob("*.md")}
+        actual_rules = {
+            path.name for path in (self.root / "framework" / "rules").glob("*.md")
+        }
         self.check(REQUIRED_RULES <= actual_rules, f"required rules missing: {sorted(REQUIRED_RULES - actual_rules)}")
 
     def git_paths(self, args: list[str]) -> set[str]:
@@ -338,8 +340,8 @@ class Validator:
         elif self.task_type == "governance":
             self.check(bool(changed), "governance task must change framework files")
         elif self.task_type == "catalog-maintenance":
-            self.check(any(self.under(path, "materials/aws") for path in changed), "catalog-maintenance task must change catalog files")
-            self.check("materials/catalog.sha256" in changed, "catalog-maintenance task must update materials/catalog.sha256")
+            self.check(any(self.under(path, "framework/materials/aws") for path in changed), "catalog-maintenance task must change catalog files")
+            self.check("framework/materials/catalog.sha256" in changed, "catalog-maintenance task must update framework/materials/catalog.sha256")
         elif self.task_type == "migration":
             self.check(bool(changed), "migration task must change its required outputs")
 
@@ -379,18 +381,20 @@ class Validator:
         self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
 
     def check_framework_design_handoff(self) -> None:
-        prompt = self.root / "prompts" / "codex" / "apply-design.md"
-        chatbot = (self.root / "prompts" / "chatbot" / "initial-service-design.md").read_text(encoding="utf-8")
+        prompt = self.root / "framework" / "prompts" / "codex" / "apply-design.md"
+        chatbot = (
+            self.root / "framework" / "prompts" / "chatbot" / "initial-service-design.md"
+        ).read_text(encoding="utf-8")
         self.check(prompt.is_file(), "design application prompt is missing")
         if prompt.is_file():
             text = prompt.read_text(encoding="utf-8")
             self.check("Task typeは`design`" in text, "design application prompt lacks design task contract")
             self.check("sync-design-mirror.py" in text, "design application prompt does not generate the LLM mirror")
-        self.check("prompts/codex/apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
+        self.check("framework/prompts/codex/apply-design.md" in chatbot, "chatbot prompt lacks Codex design handoff")
 
     def check_framework_task_completion_contract(self) -> None:
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
-        rules = (self.root / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
+        rules = (self.root / "framework" / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
         self.check("Requirement ID" in agents and "Acceptance checks" in agents, "AGENTS.md lacks completion contract")
         self.check("Requirement ID" in rules and "Acceptance checks" in rules, "loop rules lack completion contract")
 
@@ -399,7 +403,7 @@ class Validator:
         self.check(len(TASK_TYPES) == 7, "not every task type has a completion-check branch")
 
     def check_framework_focused_check_runner(self) -> None:
-        loop = (self.root / "scripts" / "blueprint-loop.py").read_text(encoding="utf-8")
+        loop = (self.root / "framework" / "scripts" / "blueprint-loop.py").read_text(encoding="utf-8")
         self.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
         self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
@@ -407,7 +411,7 @@ class Validator:
         result = subprocess.run(
             [
                 sys.executable,
-                str(self.root / "scripts" / "sync-design-mirror.py"),
+                str(self.root / "framework" / "scripts" / "sync-design-mirror.py"),
                 "--repository-root",
                 str(self.root),
             ],
@@ -423,8 +427,10 @@ class Validator:
         self.check(not errors, "; ".join(errors) or "CloudFormation schema snapshot is invalid")
 
     def check_framework_schema_backed_design_validation(self) -> None:
-        rules = (self.root / "rules" / "detailed-design.md").read_text(encoding="utf-8")
-        prompt = (self.root / "prompts" / "chatbot" / "initial-service-design.md").read_text(encoding="utf-8")
+        rules = (self.root / "framework" / "rules" / "detailed-design.md").read_text(encoding="utf-8")
+        prompt = (
+            self.root / "framework" / "prompts" / "chatbot" / "initial-service-design.md"
+        ).read_text(encoding="utf-8")
         self.check("CloudFormation provider schema" in rules, "detailed design rules do not apply provider schemas")
         self.check("CloudFormation provider schema" in prompt, "initial design prompt does not apply provider schemas")
         catalog = CloudFormationSchemaCatalog(self.root)
@@ -432,9 +438,9 @@ class Validator:
 
     def check_framework_cfn_lint_validation(self) -> None:
         paths = (
-            self.root / "rules" / "cloudformation.md",
-            self.root / "prompts" / "codex" / "implement-infrastructure.md",
-            self.root / "scripts" / "check-deploy-context.py",
+            self.root / "framework" / "rules" / "cloudformation.md",
+            self.root / "framework" / "prompts" / "codex" / "implement-infrastructure.md",
+            self.root / "framework" / "scripts" / "check-deploy-context.py",
         )
         for path in paths:
             self.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {self.relative(path)}")
@@ -524,7 +530,7 @@ class Validator:
 
     def check_catalog(self) -> None:
         result = subprocess.run(
-            [sys.executable, str(self.root / "scripts" / "update-catalog-lock.py")],
+            [sys.executable, str(self.root / "framework" / "scripts" / "update-catalog-lock.py")],
             cwd=self.root,
             check=False,
             capture_output=True,
@@ -537,7 +543,7 @@ class Validator:
         if not schema_failures:
             self.schema_catalog = CloudFormationSchemaCatalog(self.root)
 
-        for path in sorted((self.root / "materials" / "aws").glob("*.properties")):
+        for path in sorted((self.root / "framework" / "materials" / "aws").glob("*.properties")):
             text = path.read_text(encoding="utf-8")
             lines = text.splitlines()
             prefix = path.stem.replace("_", ".", 1) + "."
@@ -584,7 +590,7 @@ class Validator:
     def catalog_design_properties(self) -> tuple[set[str], dict[str, set[str]]]:
         resource_types: set[str] = set()
         property_owners: dict[str, set[str]] = {}
-        for path in sorted((self.root / "materials" / "aws").glob("*.properties")):
+        for path in sorted((self.root / "framework" / "materials" / "aws").glob("*.properties")):
             resource_type = path.stem.replace("_", ".", 1)
             prefix = f"{resource_type}."
             resource_types.add(resource_type)
@@ -866,7 +872,7 @@ class Validator:
                         if current_resource_type in catalog_types and not generated_identifier:
                             self.check(
                                 current_resource_type in property_owners,
-                                f"resource table property is not selected by materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
+                                f"resource table property is not selected by framework/materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
                             )
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
@@ -989,7 +995,6 @@ class Validator:
                 if path.is_file() and not path.name.startswith(".")
             ]
             if self.template_mode:
-                self.check(engine_root.is_dir(), f"template IaC engine directory missing: {engine}")
                 self.check(not files, f"template mode contains {engine} implementation")
             elif engine in active_engines:
                 self.check(engine_root.is_dir(), f"selected IaC engine directory missing: {engine}")

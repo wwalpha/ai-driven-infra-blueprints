@@ -24,7 +24,7 @@ missing inputの確認中は、一回の応答につき一つだけ質問する�
 
 `project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
 
-Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
+Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
 
 userが一度に複数のinputを提示した場合は有効な値を採用し、次のmissing inputだけを質問する。必須inputがすべて確認できた後に、通常の設計質問へ進む。
 
@@ -45,10 +45,10 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 3. `docs/system-overview.md`
 4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
-6. `rules/detailed-design.md`
-7. `rules/llm-design-information.md`
-8. 対象 service と必須前提 service に関係する `materials/aws/*.properties`
-9. `materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
+6. `framework/rules/detailed-design.md`
+7. `framework/rules/llm-design-information.md`
+8. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
+9. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -69,7 +69,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 前提 service の設計済み／未設計
 - 一緒に確認した方が理解しやすい関連 service
 
-`materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
+`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
 
 回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
@@ -85,7 +85,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 
 対象 service が未設計の必須 service に依存する場合は、依存先を先に質問してください。前提が未確定のまま、依存 service の細部を質問してはいけません。
 
-密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`rules/detailed-design.md`に従いAWS service ownership boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
+密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`framework/rules/detailed-design.md`に従いAWS service ownership boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
 
 ## Question style
 
@@ -155,17 +155,17 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／JSON artifactを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkを使用してください。
 
-各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown linkを出力してください。
+各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`framework/rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown linkを出力してください。
 
-IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
+IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`framework/rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
 
-完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`などの決定状態、`人間が選択した`などの決定主体、分類だけの説明、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。generated current identifierのrowも同じ基準で確認してください。判定基準の正本は`rules/detailed-design.md`です。
+完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`などの決定状態、`人間が選択した`などの決定主体、分類だけの説明、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。generated current identifierのrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
 完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。
 
 `完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
 
-`設計ファイル`には`rules/detailed-design.md`に準拠した保存対象の完成形Markdownと必要なJSON artifactをfile単位で出力してください。`llm/designs/**`はCodexがMarkdownから生成するため、LLM propertiesを出力してはいけません。
+`設計ファイル`には`framework/rules/detailed-design.md`に準拠した保存対象の完成形Markdownと必要なJSON artifactをfile単位で出力してください。`llm/designs/**`はCodexがMarkdownから生成するため、LLM propertiesを出力してはいけません。
 
 - stable logical IDとexplicit anchorを使用する
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
@@ -184,4 +184,4 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
-`Codex反映依頼`には`prompts/codex/apply-design.md`を使用すること、Design target、environment、AWS account、出力した全Markdown／JSON artifact pathを含めてください。repositoryを編集したと表現してはいけません。設計完了前にIaC実装やdeployへ進んではいけません。
+`Codex反映依頼`には`framework/prompts/codex/apply-design.md`を使用すること、Design target、environment、AWS account、出力した全Markdown／JSON artifact pathを含めてください。repositoryを編集したと表現してはいけません。設計完了前にIaC実装やdeployへ進んではいけません。

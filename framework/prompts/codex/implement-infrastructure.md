@@ -34,13 +34,13 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 4. `project.json`
 5. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`
 6. 対応する`llm/designs/<environment>/<aws-account-id>/*.properties`
-7. `rules/detailed-design.md`
-8. `rules/llm-design-information.md`
-9. 選択済みengineに対応する`rules/cloudformation.md`または`rules/terraform.md`
-10. `rules/post-deploy-actuals.md`
-11. `rules/loop-engineering.md`
-12. 対象resourceに関係する`materials/aws/*.properties`
-13. `materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
+7. `framework/rules/detailed-design.md`
+8. `framework/rules/llm-design-information.md`
+9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
+10. `framework/rules/post-deploy-actuals.md`
+11. `framework/rules/loop-engineering.md`
+12. 対象resourceに関係する`framework/materials/aws/*.properties`
+13. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 詳細設計とLLM designが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、どちらかを推測して採用せず、別の`design` taskが必要であることを報告して停止する。
 
@@ -63,7 +63,7 @@ AWS profileがplaceholderまたは空の場合はdefault credential chainを使�
 credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定しない。repository rootから次を実行する。AWS profileが空の場合は`--profile`を省略する。
 
 ```text
-python scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
+python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
 scriptが終了code 0を返した場合だけ、出力されたregionとIaC engineを使用して続行する。失敗時は推測、credential切替、account変更、check bypassを行わず、scriptの理由を簡潔に報告して停止する。secretやcredential値を表示または保存しない。
@@ -75,7 +75,7 @@ preflight成功後、unrelatedなworktree変更を上書きまたは巻き戻さ
 CloudFormationの場合、implementation scopeから対象template、stack、parameter file、dependencyを特定する。
 
 - 既存templateとstack boundaryがある場合は再利用する。
-- 新規templateは`rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従って必要最小限に分割する。
+- 新規templateは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従って必要最小限に分割する。
 - AWS service単位で機械的にtemplateを分割しない。
 - 各deployment unitについてtemplate path、stack name、parameter path、依存stackを確定する。
 - cross-stack referenceからdependency順を決定する。
@@ -135,9 +135,9 @@ deploy完了status、resource存在、actual収集をapplication behaviorの検�
 ## Verify and finish
 
 1. 選択済みIaCのsyntax/static validationを再確認する。
-2. `python scripts/blueprint-loop.py --mode local`
+2. `python framework/scripts/blueprint-loop.py --mode local`
 3. `git diff --check`
 
 target、account、region、engine、preflight結果、変更file、deployment unitとdependency順、plan/change set summary、deploy完了status、actual更新、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
-scenario、scenario result、別environment、別AWS account、次taskを作成または実行しない。application behaviorの検証には、humanが別taskとして`prompts/codex/run-scenario-test.md`を使用する。
+scenario、scenario result、別environment、別AWS account、次taskを作成または実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/run-scenario-test.md`を使用する。

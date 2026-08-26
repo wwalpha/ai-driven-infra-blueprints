@@ -20,9 +20,9 @@ Step 1: Environment
 1. `AGENTS.md`
 2. `README.md`
 3. `project.json`
-4. `rules/loop-engineering.md`
+4. `framework/rules/loop-engineering.md`
 
-`project.json`が存在しない場合はfileを変更せず、`prompts/codex/initialize-repository.md`によるinitializationが必要であることを報告して停止する。
+`project.json`が存在しない場合はfileを変更せず、`framework/prompts/codex/initialize-repository.md`によるinitializationが必要であることを報告して停止する。
 
 ## Collect required values
 
@@ -119,8 +119,8 @@ infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
 
 ## Verify and finish
 
-1. `python scripts/blueprint-loop.py --mode local`
-2. `python -m py_compile scripts/blueprint-loop.py scripts/validate-blueprint.py`
+1. `python framework/scripts/blueprint-loop.py --mode local`
+2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 
 validation結果、追加したtargetとpath、再利用したpath、blockerはCodexの完了報告だけに記載する。repositoryへverification resultを保存しない。完了後にdesign、infrastructure、scenario-test taskを作成または実行しない。

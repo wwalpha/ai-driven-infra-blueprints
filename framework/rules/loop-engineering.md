@@ -14,7 +14,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Local loop
 
-OSに依存しないentrypointは`scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
+OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
 local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。一層でも未実行または失敗の場合はFAILとする。
 
@@ -32,11 +32,11 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - active task promptと有効なTask typeが存在する
 - changed pathsがTask type boundaryとAllowed paths内にある
 - `tasks/`には`active.md`だけがある
-- `materials/aws/`が`materials/catalog.sha256`と一致する
-- 東京regionのCloudFormation provider schema snapshotがlockと一致し、`materials/aws/`の全property pathを解決できる
+- `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
+- 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - required directory/file structureが存在する
 - `project.json`とenvironment/AWS account pathが一致する
-- `rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
+- `framework/rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
 - service ownership、Markdown/LLM service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
 - resource tableの`Source / Comment`が日本語で記載されている
@@ -56,15 +56,15 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `infrastructure`: 選択済みIaC implementationが変更され、LLM intended designとscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
-- `catalog-maintenance`: catalog fileと`materials/catalog.sha256`が変更
+- `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-`scripts/blueprint-loop.py`はrepository validator成功後、`scripts/*.checks.py`を名前順に全件実行する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
+`framework/scripts/blueprint-loop.py`はrepository validator成功後、`framework/scripts/*.checks.py`を名前順に全件実行する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
 
 ## Design task completion
 
 1. active promptで指定された`docs/designs/**`を更新する。
-2. `scripts/sync-design-mirror.py --write`で対応する`llm/designs/**`を同じcoherent changeに生成する。
+2. `framework/scripts/sync-design-mirror.py --write`で対応する`llm/designs/**`を同じcoherent changeに生成する。
 3. local loopを実行する。
 4. IaC、actuals、scenario、resultを変更せずtaskを終了する。
 
@@ -98,7 +98,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - missing human inputを値の発明で直さない。
 - out-of-scope file changeで停止する。
 - unauthorized delete/replacementで停止する。
-- `materials/aws/`がbaselineと異なる場合は停止する。
+- `framework/materials/aws/`がbaselineと異なる場合は停止する。
 - passのためにfailing checkを抑制しない。
 
 validate/plan後にhuman reviewを要求しないrepository ruleと、Codex sandbox/OS permission controlは別の仕組みである。permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。

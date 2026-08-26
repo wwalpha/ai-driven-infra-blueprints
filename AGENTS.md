@@ -11,8 +11,8 @@
 - 人間向けの現行設計は`docs/designs/<environment>/<aws-account-id>/`、機械可読な設計情報は`llm/designs/<environment>/<aws-account-id>/`、現行actual情報は`llm/actuals/<environment>/<aws-account-id>/`に置く。
 - `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
 - initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project.json`とする。
-- `materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
-- 変更前にactive promptとtask typeに関係する`rules/*.md`を読む。
+- `framework/materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
+- 変更前にactive promptとtask typeに関係する`framework/rules/*.md`を読む。
 - 人間が決めていないresource選択やparameter値を推測しない。不足値は明示して停止する。
 - 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。
 - validate/plan後にrepository独自のhuman review停止は設けない。
@@ -44,19 +44,19 @@
 
 ## 詳細ルール
 
-- `rules/detailed-design.md`
-- `rules/llm-design-information.md`
-- `rules/cloudformation.md`
-- `rules/terraform.md`
-- `rules/post-deploy-actuals.md`
-- `rules/scenario-testing.md`
-- `rules/loop-engineering.md`
+- `framework/rules/detailed-design.md`
+- `framework/rules/llm-design-information.md`
+- `framework/rules/cloudformation.md`
+- `framework/rules/terraform.md`
+- `framework/rules/post-deploy-actuals.md`
+- `framework/rules/scenario-testing.md`
+- `framework/rules/loop-engineering.md`
 
 ## Project configuration
 
 - 未初期化の配布状態では`project.json`を置かない。
-- `docs/system-overview.md`の作成・記入状態に関係なく、`prompts/codex/initialize-repository.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
-- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`prompts/codex/add-project-target.md`のmigrationで追加する。
+- `docs/system-overview.md`の作成・記入状態に関係なく、`framework/prompts/codex/initialize-repository.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
+- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`framework/prompts/codex/add-project-target.md`のmigrationで追加する。
 - environment数、environment名、AWS account数を固定しない。
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとする。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
@@ -65,6 +65,6 @@
 ## Generated design mirror
 
 - `docs/designs/**`をintended designのsource of truthとする。
-- `llm/designs/**`は`scripts/sync-design-mirror.py`で生成し、手動編集しない。
+- `llm/designs/**`は`framework/scripts/sync-design-mirror.py`で生成し、手動編集しない。
 - design taskはMarkdownと必要なJSON artifactを保存した後、同じtaskでLLM mirrorを生成する。
 - local loopはgenerated mirrorがMarkdownと一致しない場合に失敗する。
