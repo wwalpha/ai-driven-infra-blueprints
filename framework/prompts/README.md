@@ -65,6 +65,19 @@ Candidate AWS services: 未定
 Expected design files: 未定
 ```
 
+既存VPCの現在値を詳細設計へ反映する場合:
+
+```text
+framework/prompts/chatbot/service-design.mdを使ってください。
+
+Design target: 既存VPCの設定を詳細設計書へ反映
+Target environment: staging
+Target AWS account: 123456789012
+Candidate AWS services: vpc
+Expected design files: docs/designs/staging/123456789012/vpc.md
+Existing AWS values: EC2.VPCの現在値を使用
+```
+
 ### `codex/01_initialize.md`
 
 - Description: project、environment、AWS account、region、IaC engineを一問ずつ確認し、repository topologyを初期化する。
