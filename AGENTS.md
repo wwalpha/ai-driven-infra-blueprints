@@ -17,6 +17,7 @@
 - 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。
 - validate/plan後にrepository独自のhuman review停止は設けない。
 - deploy/applyは`infrastructure` taskのactive promptが明示的に許可した場合だけ実行する。
+- `design` taskのAWS APIはdefaultで禁止し、chatbotが指定した既存resourceの現在値取得をactive promptが明示する場合だけlist/get/describe相当のread-only operationを許可する。AWS mutationは許可しない。
 - 生成ARNをobserved valueとして永続化しない。
 - task typeに対応するlocal loopを完了前に実行する。
 
@@ -32,7 +33,7 @@
 
 ## Task boundary
 
-- `design`: `docs/designs/**`と対応する`model/**`のdesired namespaceを更新し、local validation後に終了する。IaC、observed value、scenarioへ進まない。
+- `design`: `docs/designs/**`と対応する`model/**`を更新し、local validation後に終了する。既存resource取得ではchatbotが選択したpropertyと必要な非ARN current identifierだけを反映できる。IaC、AWS mutation、scenarioへ進まない。
 - `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。`update` phaseではhumanがtask開始前に手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
 - `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<aws-account-id>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
 - `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
@@ -67,5 +68,5 @@
 - `docs/designs/**`をintended designのsource of truthとする。
 - `model/**`は`framework/scripts/sync-model.py`で生成し、手動編集しない。
 - 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
-- design task、infrastructure `update` phase、成功したAWS mutation後はMarkdown更新後に同じservice modelを再生成する。
+- design task、infrastructure `update` phase、成功したAWS mutation後はMarkdown更新後に同じservice modelを再生成する。design taskで既存resourceを取得した場合は確認済みcurrent identifierを`observed.*`へ生成してよい。
 - local loopはgenerated modelがMarkdownと一致しない場合に失敗する。

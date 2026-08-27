@@ -63,10 +63,11 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 ## Design task completion
 
-1. active promptで指定された`docs/designs/**`を更新する。
-2. `framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
-3. local loopを実行する。
-4. IaC、observed value、scenario、resultを変更せずtaskを終了する。
+1. active promptで指定された`docs/designs/**`を更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
+2. 既存resource取得では必要な非ARN current identifierだけをgenerated identifier rowへ反映する。secret、generated ARN、resource出自を保存しない。
+3. `framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
+4. local loopを実行する。
+5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 
 ## Infrastructure task completion
 

@@ -68,6 +68,21 @@ def main() -> None:
             MODULE.check_deploy_context(root, "production", "210987654321")
             assert commands == ["aws", "cfn-lint"]
 
+        commands = []
+        with mock.patch.object(
+            MODULE.shutil,
+            "which",
+            side_effect=lambda command: commands.append(command) or f"/mock/{command}",
+        ), mock.patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
+        ):
+            MODULE.check_deploy_context(
+                root, "production", "210987654321", read_only=True
+            )
+            assert commands == ["aws"]
+
         with mock.patch.object(MODULE.shutil, "which", return_value="/mock/aws"), mock.patch.object(
             MODULE.subprocess,
             "run",

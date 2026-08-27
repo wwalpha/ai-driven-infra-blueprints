@@ -23,10 +23,11 @@ Implementation scope: docs/designs/staging/123456789012/vpc.md
 | Situation | Use |
 | --- | --- |
 | chatbotとの設計で新しい詳細設計を作成する | `chatbot/service-design.md` → chatbotが出力したCodex prompt → `03_implement.md` → `04_deploy.md` |
+| chatbotが選んだ既存AWS resourceの現在値を詳細設計へ反映する | `chatbot/service-design.md` → chatbotが出力したread-only取得用Codex prompt |
 | humanが既存の詳細設計Markdownを直接修正し、未commitのままIaC反映とdeployまで行う | `05_update.md` |
 | deploy後にapplication behaviorを確認する | どちらのworkflowでも必要な場合だけ`06_scenario-test.md` |
 
-新規設計では、`service-design.md`が完成したMarkdown／JSONと、それらをrepositoryへ作成する自己完結型Codex promptを出力する。そのCodex promptを実行すれば詳細設計とmodelが完成するため、設計保存専用の固定promptは使用しない。
+新規設計では、`service-design.md`が完成したMarkdown／JSONと、それらをrepositoryへ作成する自己完結型Codex promptを出力する。既存AWS resourceの現在値を使用する場合は完成Markdownを出力せず、対象service、resource type、propertyを含むread-only取得用Codex promptを出力する。Codexはresource候補をhumanが選択した後、現在値を詳細設計へ直接差分反映する。どちらも設計保存専用の固定promptは使用しない。
 
 手動修正時はimplementとdeployへ分割しない。`05_update.md`がhumanの設計差分をimmutable inputとして受け取り、model同期、IaC反映、deploy/applyまでを一つのtaskで行う。
 
@@ -36,7 +37,7 @@ Implementation scope: docs/designs/staging/123456789012/vpc.md
 | ---: | --- | --- | --- |
 | 1 | [`codex/01_initialize.md`](codex/01_initialize.md) | `project.json`がないrepositoryを初期化するとき | project topologyとtarget pathを作成する |
 | 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | 初期化後にenvironment／AWS account targetを1件追加するとき | `project.json`と追加target pathを更新する |
-| Design | [`chatbot/service-design.md`](chatbot/service-design.md) | 新しいsystem、機能、serviceの詳細設計値をhumanと確定するとき | 完成したMarkdown／JSONと、それらを作成する自己完結型Codex promptを出力する |
+| Design | [`chatbot/service-design.md`](chatbot/service-design.md) | 新しいsystem、機能、serviceの詳細設計値をhumanと確定するとき | 完成したMarkdown／JSON、または既存resource取得用の自己完結型Codex promptを出力する |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | repositoryへ作成済みの詳細設計をCloudFormation／Terraformへ反映するとき | IaCを作成・変更し、local static validationまで行う |
 | 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | 作成・検証済みIaCをAWSへdeploy/applyするとき | IaCを変更せず実行し、必要なobserved valueを更新する |
 | 5 | [`codex/05_update.md`](codex/05_update.md) | humanが既存詳細設計を手動修正し、未commitのままIaC反映とdeployまで行うとき | model同期、IaC変更、deploy/apply、observed value更新を一つのtaskで行う |
@@ -48,9 +49,9 @@ Implementation scope: docs/designs/staging/123456789012/vpc.md
 
 ### `chatbot/service-design.md`
 
-- Description: AWS service ownership boundaryごとに、新規詳細設計に必要なhuman decisionをchatで確認する。
+- Description: AWS service ownership boundaryごとに、新規詳細設計に必要なhuman decision、または既存AWS resourceから取得するresource type／propertyをchatで確定する。
 - Timing: 新しいsystem、機能、serviceを設計し、まだ保存対象Markdown／JSON artifactが確定していないとき。
-- How to use: Design target、environment、AWS accountを渡し、質問batchへ回答する。完成後は、chatbotが出力した`Codex反映依頼`をそのままCodexで実行する。Codexが詳細設計fileを作成し、modelを生成してlocal validation後に終了する。
+- How to use: Design target、environment、AWS accountを渡し、質問batchへ回答する。既存resourceの現在値を使用する場合はその旨を回答する。完成後は、chatbotが出力した`Codex反映依頼`をそのままCodexで実行する。既存resource取得ではCodexがread-only AWS contextを検証して候補を提示し、humanがresourceを選択した後、選択済みpropertyだけを詳細設計へ直接差分反映する。
 
 使用例:
 

@@ -2,10 +2,23 @@
 
 ## Task boundary
 
-- `design` taskはintended designを更新し、対応するservice modelを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。IaC、observed value、scenarioへ自動的に進まない。
+- `design` taskはintended designを更新し、対応するservice modelを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。chatbotが指定した既存resource取得では必要な非ARN current identifierも反映できる。IaC、AWS mutation、scenarioへ自動的に進まない。
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
 - infrastructure `update` phaseは、humanがtask開始前に手動修正した未commitのintended designをimmutable inputとして受け取れる。Codexはそのintended designを変更せず、deploy/apply成功後のgenerated current valueだけを追加更新できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
+
+## Existing resource configuration
+
+chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Codexの`design` taskは次を実行できる。
+
+- 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
+- repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
+- AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
+- resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
+- humanがresourceを選択した後は、選択済みpropertyの現在値を再確認なしで詳細設計へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。対応するresource sectionがなければlogical IDをhumanへ一つ質問し、service metadata、anchor、heading、tableを既存ruleどおり作成する。
+- password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
+- resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
+- AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
 
 ## AWS service ownership boundary
 
@@ -121,8 +134,8 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 ## Generated values and deployment state
 
 - 必要なnon-ARN generated current identifierは独立sectionではなく、該当resource tableの個別行にhuman-readableなresource固有名で記載する。例は`VPC ID`、`Subnet ID`、`Flow Log ID`とする。
-- deploy前は値を`PENDING_DEPLOY`とし、`Source / Comment`には他のrowと同様に属性の意味を記載する。例えば`VPC ID`には`デプロイされたVPCを一意に識別するID`と記載する。
-- infrastructure taskのdeploy/apply成功後だけ`PENDING_DEPLOY`をcurrent valueへ更新する。`Source / Comment`は属性の意味を維持する。
+- 未作成resourceのdeploy前は値を`PENDING_DEPLOY`とし、`Source / Comment`には他のrowと同様に属性の意味を記載する。例えば`VPC ID`には`デプロイされたVPCを一意に識別するID`と記載する。
+- current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。`Source / Comment`は属性の意味を維持する。
 - destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
 - human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
 - local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。

@@ -9,6 +9,7 @@
 - Target AWS account: `{{project.jsonの12桁AWS account ID。複数可}}`
 - Candidate AWS services: `{{未定の場合は「未定」}}`
 - Expected design files: `{{未定の場合は「未定」}}`
+- Existing AWS values: `{{使用するresource type、使用しない、または未定}}`
 
 ## Resolve missing initial input
 
@@ -25,6 +26,8 @@ missing inputの確認中は、一回の応答につき一つだけ質問する�
 `project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
 
 Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
+
+Existing AWS valuesがmissingまたは未定の場合は、設計対象resourceごとにhumanが値を決めるのか、既存AWS resourceの現在値を使用するのかを一つずつ確認する。この選択はCodex取得flowの分岐にだけ使用し、resourceの作成者、管理者、外部作成済みという出自を保存対象Markdownまたはmodelへ出力しない。
 
 userが一度に複数のinputを提示した場合は有効な値を採用し、次のmissing inputだけを質問する。必須inputがすべて確認できた後に、通常の設計質問へ進む。
 
@@ -68,10 +71,24 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 前提となる service
 - 前提 service の設計済み／未設計
 - 一緒に確認した方が理解しやすい関連 service
+- humanが決めるproperty／既存AWS resourceから取得するproperty
 
 `framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
 
 回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
+
+## Existing AWS configuration branch
+
+既存AWS resourceの現在値を使用するresourceでは、AWS property値をchatbotで質問または推測しない。次だけをchatで確定する。
+
+- target AWS service
+- `framework/materials/aws/`に存在するcatalog resource type
+- 今回の詳細設計で使用するmaterials property
+- 出力先service Markdownと、必要な場合だけJSON artifactのpath
+
+全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
+
+既存AWS configuration branchは値が未確定でも、resource typeとpropertyの取得scopeが確定すればCodexへ引き渡せる。対応する完成Markdownにplaceholder、`UNSET`、仮値、空tableを出力しない。
 
 ## Dependency priority
 
@@ -138,6 +155,7 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - 使用しない materials property
 - IaC の書き方だけに関する事項
 - system overview または既存設計で決定済みの事項
+- 既存AWS configuration branchでCodexが取得する選択済みpropertyの値
 
 具体的な CIDR、retention、instance size、backup期間、account、regionなどを勝手に決めてはいけません。安全な推奨案を提示できない高影響事項は blocker としてください。
 
@@ -153,6 +171,8 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - 未決定値が後続実装の blocker にならない
 - generated value と human-selected value が区別されている
 
+既存AWS configuration branchのresourceは、target service、catalog resource type、materials property、出力pathが確定すれば完了とする。AWS current valueはchatbotの完了条件に含めず、Codex取得前に完成Markdownを出力しない。
+
 完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／JSON artifactを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkを使用してください。
 
 各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`framework/rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown linkを出力してください。
@@ -161,7 +181,7 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`などの決定状態、`人間が選択した`などの決定主体、分類だけの説明、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。generated current identifierのrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
-完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。
+完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。既存AWS configuration branchだけの場合、`設計ファイル`には「Codex取得後に作成」と記載し、未完成Markdownを出力しない。
 
 `完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
 
@@ -186,11 +206,22 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 
 `Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、AWS account、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
 
-1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsを読む。
+1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
-3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS API・IaC・deploy/apply・scenarioは禁止とし、Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
+3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
 4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
 5. `python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
 6. `python3 framework/scripts/blueprint-loop.py --mode local`と`git diff --check`を実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
 
-chatbot自身がrepositoryを編集したと表現してはいけません。設計完了前にCodex反映依頼を出力したり、IaC実装やdeployへ進んだりしてはいけません。
+既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
+
+1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。別service、未選択resource type、未選択propertyへscopeを広げない。
+2. `python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
+3. catalog resource typeを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
+4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
+5. 選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
+6. chatbotが選択したpropertyだけを詳細設計へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければlogical IDを一回の応答につき一つ質問し、human回答後に必要なservice metadata、anchor、heading、tableを作成する。
+7. 必要な非ARN generated current identifierは実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
+8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。
+
+chatbot自身がrepositoryまたはAWSを変更したと表現してはいけません。通常設計は設計完了前にCodex反映依頼を出力してはいけない。既存AWS configuration branchは取得scope確定後にCodexへ引き渡し、IaC実装やdeployへ進んではいけない。

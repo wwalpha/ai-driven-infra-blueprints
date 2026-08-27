@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministically verify the AWS deployment context for one topology target."""
+"""Deterministically verify the AWS context for one topology target."""
 
 from __future__ import annotations
 
@@ -53,10 +53,18 @@ def load_target(root: Path, environment: str, account_id: str) -> dict[str, str]
 
 
 def check_deploy_context(
-    root: Path, environment: str, account_id: str, profile: str | None = None
+    root: Path,
+    environment: str,
+    account_id: str,
+    profile: str | None = None,
+    read_only: bool = False,
 ) -> dict[str, str]:
     target = load_target(root, environment, account_id)
-    required_commands = ["aws", "cfn-lint"] if target["iacEngine"] == "cloudformation" else ["aws", "terraform"]
+    required_commands = ["aws"]
+    if not read_only:
+        required_commands.append(
+            "cfn-lint" if target["iacEngine"] == "cloudformation" else "terraform"
+        )
     command_paths = {command: shutil.which(command) for command in required_commands}
     missing = [command for command, path in command_paths.items() if path is None]
     if missing:
@@ -98,16 +106,27 @@ def main() -> int:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--aws-account-id", required=True)
     parser.add_argument("--profile")
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="verify AWS credentials and target without requiring an IaC command",
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
 
     try:
-        target = check_deploy_context(root, args.environment, args.aws_account_id, args.profile)
+        target = check_deploy_context(
+            root,
+            args.environment,
+            args.aws_account_id,
+            args.profile,
+            read_only=args.read_only,
+        )
     except DeployContextError as error:
         print(f"Deploy context: FAIL: {error}", file=sys.stderr)
         return 1
 
-    print("Deploy context: PASS")
+    print("Read-only AWS context: PASS" if args.read_only else "Deploy context: PASS")
     print(f"- environment: {args.environment}")
     print(f"- AWS account: {args.aws_account_id}")
     print(f"- AWS region: {target['awsRegion']}")

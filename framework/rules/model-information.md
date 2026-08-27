@@ -5,7 +5,7 @@
 - Markdown designをdesired valueとobserved valueのsource of truthとする。
 - `model/`は`framework/scripts/sync-model.py`が生成し、手動編集しない。
 - Markdownとgenerated modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
-- design taskはMarkdownとJSON artifactを保存した後、同じcoherent logical changeでmodelを生成する。
+- design taskはMarkdownとJSON artifactを保存した後、同じcoherent logical changeでmodelを生成する。選択済み既存resourceをread-only取得した場合は必要な非ARN current identifierも`observed.*`へ生成する。
 - infrastructure taskは成功したAWS mutation後にMarkdownのgenerated identifier rowを更新し、同じmodelを再生成する。
 - infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
@@ -33,7 +33,7 @@ desired.note.001.text=実装注記: 必要最小限の注記
 
 resourceとrowの番号はMarkdown内の出現順から生成する。通常のresource propertyは`desired.row.*`、generated identifier rowは`observed.row.*`へlosslessに反映する。policy JSON本文は複製せず、Markdownのrelative linkとJSON内容のSHA-256を`desired.row.*`へ保持する。
 
-deploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。generated ARNは`observed.*`へ保存しない。
+未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 
 生成command:
 

@@ -106,7 +106,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 ### Codex
 
 - active prompt、task type、repository ruleの範囲だけを実行する
-- design taskでは詳細設計とservice modelのdesired namespaceまでで終了する
+- design taskでは詳細設計とservice modelまでで終了する。chatbotが既存resource取得を指定した場合だけread-only AWS APIで選択済みpropertyと必要な非ARN current identifierを反映できる
 - infrastructure taskでは`implement`、`deploy`、`update`のいずれか一つだけを実行する
 - scenario-test taskではscenarioとcurrent resultだけを変更する
 - task完了後に次工程へ自動的に進まない
@@ -118,10 +118,11 @@ active promptの`## Task contract`には次を正確に1件記載します。
 1. system overview、既存設計、関連materialsを確認する。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
-4. 必須判断が揃ったら、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
-5. chatbotが出力した自己完結型Codex promptのdesign taskで`docs/designs/**`を作成し、`model/**`を生成してlocal validation後に終了する。
+4. humanが決める設計値だけで完成できる場合は、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
+5. 既存AWS resourceの現在値を使用する場合は、chatbotが対象service、resource type、propertyを確定し、完成Markdownの代わりにread-only取得を含む自己完結型Codex promptを出力する。
+6. Codexのdesign taskはtarget contextを検証し、resource候補をhumanが選択した後、選択済みpropertyを詳細設計へ直接差分反映して`model/**`を生成する。
 
-chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。service modelはMarkdownから生成し、design taskはCloudFormation/Terraform、observed value、scenario、scenario resultを変更しません。
+chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。service modelはMarkdownから生成し、design taskはCloudFormation/Terraform、AWS mutation、scenario、scenario resultを変更しません。既存resource取得では必要な非ARN current identifierだけをobserved valueへ反映できます。
 
 ## Post-design SDD
 
@@ -135,7 +136,7 @@ chatの完了報告と保存対象Markdownは分離します。chatとMarkdown�
 
 1. humanが独立したtaskのtypeと対象scopeを決める。
 2. Codexはactive prompt、`AGENTS.md`、関連rulesを読み、同じtask type内だけで作業する。
-3. `design` taskはintended designとservice modelを更新して終了する。
+3. `design` taskはintended designとservice modelを更新して終了する。既存resource取得が明示された場合だけ、read-only AWS APIによる現在値の直接差分反映を含める。
 4. `infrastructure` taskの`implement` phaseはIaC作成とlocal static validationまでで終了する。
 5. 別の`infrastructure` taskの`deploy` phaseは既存IaCを変更せず、CloudFormation change setまたはTerraform planを確認してdeploy/applyし、成功後のobserved value更新までで終了する。
 6. `infrastructure` taskの`update` phaseはhumanの未commit詳細設計を変更せず、model同期、IaC反映、deploy/apply、observed value更新までを一つのtaskで行う。

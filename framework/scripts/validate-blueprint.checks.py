@@ -230,6 +230,12 @@ def check_design_handoff_prompt() -> None:
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_design_handoff()
     assert not validator.errors, validator.errors
+    prompt = (
+        SCRIPT.parents[2] / "framework" / "prompts" / "chatbot" / "service-design.md"
+    ).read_text(encoding="utf-8")
+    assert "AWS::<Service>::<Resource>" in prompt
+    assert "VPC固有" not in prompt
+    assert "Management owner" not in prompt
 
 
 def main() -> None:

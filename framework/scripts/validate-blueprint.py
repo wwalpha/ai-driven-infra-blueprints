@@ -438,6 +438,21 @@ class Validator:
         self.check("sync-model.py" in prompt, "service design prompt does not generate the service model")
         self.check("blueprint-loop.py --mode local" in prompt, "service design prompt lacks local validation")
         self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
+        required_existing_resource_contract = {
+            "--read-only": "service design prompt lacks read-only AWS context preflight",
+            "aws cloudcontrol list-resources": "service design prompt lacks generic existing-resource discovery",
+            "aws cloudcontrol get-resource": "service design prompt lacks generic existing-resource read",
+            "対象service固有のread-only APIへfallback": "service design prompt lacks service API fallback",
+            "一件だけでもhumanが選択": "service design prompt may auto-select an existing resource",
+            "logical IDを一回の応答につき一つ質問": "service design prompt may invent a logical ID for an existing resource",
+            "直接差分反映": "service design prompt lacks direct existing-value synchronization",
+            "存在しないoptional property rowは削除": "service design prompt lacks absent optional-property removal",
+            "password、secret、token、credentialは表示または保存せず": "service design prompt lacks sensitive-value exclusion",
+            "generated ARNはMarkdown、JSON artifact、modelへ保存しない": "service design prompt may persist generated ARNs",
+            "resourceの作成者、管理者、外部作成済みという出自": "service design prompt persists or omits the no-provenance contract",
+        }
+        for literal, error in required_existing_resource_contract.items():
+            self.check(literal in prompt, error)
 
     def check_framework_task_completion_contract(self) -> None:
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
