@@ -179,7 +179,7 @@ def check_model_task_boundaries() -> None:
 
 def check_schema_backed_design_rows() -> None:
     repository = SCRIPT.parents[2]
-    _, property_owners = MODULE.Validator(repository).catalog_design_properties()
+    catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         design = root / "docs" / "designs" / "staging" / "123456789012" / "logs.md"
@@ -196,13 +196,12 @@ def check_schema_backed_design_rows() -> None:
 | ---: | --- | --- | --- |
 | 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |
 | 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |
-| 3 | Log Group ID | `PENDING_DEPLOY` | デプロイ後生成値としてロググループを識別するID |
 """
         design.write_text(invalid, encoding="utf-8")
         validator = MODULE.Validator(root)
         validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
         validator.check_design_tables(
-            {design: ("logs", ("Logs.LogGroup",))}, {"Logs.LogGroup"}, property_owners
+            {design: ("logs", ("Logs.LogGroup",))}, catalog_types, property_owners, identifier_outputs
         )
         assert any("provider schema violation" in error for error in validator.errors)
         assert any("not selected by framework/materials/aws" in error for error in validator.errors)
@@ -210,20 +209,90 @@ def check_schema_backed_design_rows() -> None:
         design.write_text(
             invalid.replace(
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |\n"
-                "| 3 | Log Group ID",
+                "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
                 "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
-                "| 3 | Log Group ID",
+                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |",
             ),
             encoding="utf-8",
         )
         validator = MODULE.Validator(root)
         validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
         validator.check_design_tables(
-            {design: ("logs", ("Logs.LogGroup",))}, {"Logs.LogGroup"}, property_owners
+            {design: ("logs", ("Logs.LogGroup",))}, catalog_types, property_owners, identifier_outputs
         )
         assert not validator.errors, validator.errors
+
+
+def check_identifier_propagation() -> None:
+    repository = SCRIPT.parents[2]
+    catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
+        design.parent.mkdir(parents=True)
+        design.write_text(
+            """# Amazon VPC 詳細設計
+
+- Design service ID: `vpc`
+- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
+
+<a id="vpc-vpc01"></a>
+
+## EC2.VPC: VPC01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
+
+<a id="vpc-subnet01"></a>
+
+## EC2.Subnet: SUBNET01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
+| 2 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+""",
+            encoding="utf-8",
+        )
+        metadata = {design: ("vpc", ("EC2.VPC", "EC2.Subnet"))}
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
+        validator.check_design_links(identifier_outputs)
+        assert not validator.errors, validator.errors
+
+        design.write_text(
+            design.read_text(encoding="utf-8")
+            .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
+            .replace("[PENDING_DEPLOY](#vpc-vpc01)", "[vpc-0123456789abcdef0](#vpc-vpc01)")
+            .replace("EC2.Subnet.SubnetId | PENDING_DEPLOY", "EC2.Subnet.SubnetId | subnet-0123456789abcdef0"),
+            encoding="utf-8",
+        )
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
+        validator.check_design_links(identifier_outputs)
+        assert not validator.errors, validator.errors
+
+        deployed = design.read_text(encoding="utf-8")
+        design.write_text(
+            deployed.replace("vpc-0123456789abcdef0", "VPC01"), encoding="utf-8"
+        )
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
+        assert any("must use a physical value" in error for error in validator.errors)
+
+        design.write_text(
+            deployed.replace(
+                "[vpc-0123456789abcdef0](#vpc-vpc01)", "[vpc-wrong](#vpc-vpc01)"
+            ),
+            encoding="utf-8",
+        )
+        validator = MODULE.Validator(root)
+        validator.check_design_links(identifier_outputs)
+        assert any("identifier reference does not match observed target" in error for error in validator.errors)
 
 
 def check_design_handoff_prompt() -> None:
@@ -255,8 +324,9 @@ def main() -> None:
     check_task_type_dispatch()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
+    check_identifier_propagation()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (17 focused checks)")
+    print("validate-blueprint: PASS (24 focused checks)")
 
 
 if __name__ == "__main__":

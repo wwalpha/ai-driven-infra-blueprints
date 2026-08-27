@@ -8,6 +8,8 @@
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
 - cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
+- 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決して`!Ref`を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをtemplateへ直書きしない。
+- 後続resourceまたは別stackが必要とするcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
 - reusable templateは`infra/cloudformation/templates/`、AWS account固有parameterは`infra/cloudformation/parameters/<environment>/<aws-account-id>/`に置く。
 - 1 environment/AWS accountは1 IaC engineだけで管理する。
 - authorized operationはAWS CLIで行う。
@@ -45,4 +47,4 @@
 
 active promptが対象を限定している場合は、implement phaseでは一部のtemplate、deploy phaseでは一部のstack/resourceだけを処理して終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
 
-deploy/update後は必要な非ARN actualと詳細設計内のgenerated current valueだけを更新し、local loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。
+deploy/update後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをOutputs、必要な場合だけstack resourceから取得し、詳細設計の正式なidentifier output rowと全参照元を更新する。service model同期とlocal loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。

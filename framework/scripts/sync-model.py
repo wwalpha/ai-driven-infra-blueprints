@@ -17,19 +17,45 @@ ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 JSON_LINK = re.compile(r"^\[[^\]]+\]\(([^)#]+\.json)\)$")
+RESOURCE_LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 
 
-def normalized(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.lower())
+def identifier_outputs(root: Path) -> dict[str, set[str]]:
+    outputs: dict[str, set[str]] = {}
+    for path in sorted((root / "framework" / "materials" / "aws").glob("*.properties")):
+        resource_type = path.stem.replace("_", ".", 1)
+        outputs[resource_type] = {
+            line.partition("=")[0]
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.endswith("=IDENTIFIER_OUTPUT")
+        }
+    return outputs
 
 
-def resource_label(resource_type: str) -> str:
-    name = resource_type.split(".", 1)[1]
-    return " ".join(re.findall(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+", name))
+def linked_resource(path: Path, value: str) -> tuple[str, str] | None:
+    match = RESOURCE_LINK.fullmatch(value)
+    if not match:
+        return None
+    _, target_text, fragment = match.groups()
+    target = path if not target_text else path.parent / target_text
+    if not target.is_file():
+        return None
+    pending_anchor = ""
+    for line in target.read_text(encoding="utf-8").splitlines():
+        if anchor := ANCHOR.fullmatch(line):
+            pending_anchor = anchor.group(1)
+        elif resource := RESOURCE.fullmatch(line):
+            if pending_anchor == fragment:
+                return resource.groups()
+            pending_anchor = ""
+    return None
 
 
-def is_generated_identifier(resource_type: str, property_name: str) -> bool:
-    return normalized(property_name) == normalized(f"{resource_label(resource_type)} ID")
+def logical_link(value: str, logical_id: str) -> str:
+    match = RESOURCE_LINK.fullmatch(value)
+    if not match:
+        return value
+    return f"[{logical_id}]({match.group(2)}#{match.group(3)})"
 
 
 def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path) -> re.Match[str]:
@@ -39,7 +65,8 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
     return matches[0]
 
 
-def model_for(path: Path) -> str:
+def model_for(path: Path, root: Path | None = None) -> str:
+    catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
@@ -55,6 +82,8 @@ def model_for(path: Path) -> str:
     ]
     pending_anchor = ""
     current_type = ""
+    current_logical_id = ""
+    current_anchor = ""
     resource_number = 0
     note_number = 0
     index = 0
@@ -66,12 +95,13 @@ def model_for(path: Path) -> str:
             continue
         if match := RESOURCE.fullmatch(line):
             resource_number += 1
-            current_type, logical_id = match.groups()
+            current_type, current_logical_id = match.groups()
+            current_anchor = pending_anchor
             key = f"{resource_number:03d}"
             output.extend(
                 (
                     f"desired.resource.{key}.resourceType={current_type}",
-                    f"desired.resource.{key}.logicalId={logical_id}",
+                    f"desired.resource.{key}.logicalId={current_logical_id}",
                     f"desired.resource.{key}.anchor={pending_anchor}",
                 )
             )
@@ -91,20 +121,38 @@ def model_for(path: Path) -> str:
                     raise ValueError(f"resource table row must have four cells: {path}")
                 row_number += 1
                 key = f"{resource_number:03d}-{row_number:03d}"
-                namespace = "observed" if is_generated_identifier(current_type, cells[1]) else "desired"
+                linked = linked_resource(path, cells[2])
+                is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
+                is_identifier_reference = bool(
+                    linked and catalog_outputs.get(linked[0])
+                )
+                desired_value = cells[2]
+                if is_identifier_output:
+                    desired_value = f"[{current_logical_id}](#{current_anchor})"
+                elif is_identifier_reference and linked:
+                    desired_value = logical_link(cells[2], linked[1])
                 output.extend(
                     (
-                        f"{namespace}.row.{key}.property={cells[1]}",
-                        f"{namespace}.row.{key}.value={cells[2]}",
-                        f"{namespace}.row.{key}.comment={cells[3]}",
+                        f"desired.row.{key}.property={cells[1]}",
+                        f"desired.row.{key}.value={desired_value}",
+                        f"desired.row.{key}.comment={cells[3]}",
                     )
                 )
+                if is_identifier_output or is_identifier_reference:
+                    observed_value = RESOURCE_LINK.fullmatch(cells[2]).group(1) if is_identifier_reference else cells[2]
+                    output.extend(
+                        (
+                            f"observed.row.{key}.property={cells[1]}",
+                            f"observed.row.{key}.value={observed_value}",
+                            f"observed.row.{key}.comment={cells[3]}",
+                        )
+                    )
                 if match := JSON_LINK.fullmatch(cells[2]):
                     artifact = path.parent / match.group(1)
                     if not artifact.is_file():
                         raise ValueError(f"linked JSON artifact is missing: {artifact}")
                     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-                    output.append(f"{namespace}.row.{key}.artifactSha256={digest}")
+                    output.append(f"desired.row.{key}.artifactSha256={digest}")
                 index += 1
             continue
         if line and not (
@@ -133,7 +181,7 @@ def sync(root: Path, write: bool, environment: str | None = None, account: str |
     models = root / "model"
     markdown_paths = [path for path in sorted(docs.rglob("*.md")) if selected(path, docs, environment, account)]
     expected = {
-        (models / path.relative_to(docs)).with_suffix(".properties"): model_for(path)
+        (models / path.relative_to(docs)).with_suffix(".properties"): model_for(path, root)
         for path in markdown_paths
     }
     existing = {

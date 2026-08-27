@@ -7,6 +7,8 @@
 - 1 environment/AWS accountは1 IaC engineだけで管理する。
 - reusable moduleは`infra/terraform/modules/`、AWS account compositionは`infra/terraform/environments/<environment>/<aws-account-id>/`に置く。
 - 未使用infrastructureを先回りして生成しない。
+- 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決し、対応するTerraform resource attribute参照を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをconfigurationへ直書きしない。
+- 後続resourceまたはroot moduleが必要とするcatalog `IDENTIFIER_OUTPUT`はnon-sensitive `output`としてresource attributeから公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
 
 ## Validation and execution
 
@@ -23,4 +25,4 @@
 - secretを出力せず、generated ARNをobserved valueとして保存しない。
 - existing environmentのCloudFormation/Terraform切替はdedicated migration/import taskとし、normal updateで行わない。
 
-apply後は詳細設計内のgenerated current valueを更新してservice modelを再生成し、local loop後にinfrastructure taskを終了する。次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。
+apply後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをTerraform output、必要な場合だけstateから取得し、詳細設計の正式なidentifier output rowと全参照元を更新してservice modelを再生成する。local loop後にinfrastructure taskを終了し、次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。

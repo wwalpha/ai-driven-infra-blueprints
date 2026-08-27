@@ -82,21 +82,24 @@ CloudFormationの場合:
 2. 対象全templateへ`aws cloudformation validate-template`を実行する。
 3. dependency順に各unitのchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。
 4. 確認済みchange setだけを実行し、stackがterminal successになるまで待つ。
-5. 成功後に必要なgenerated current valueを更新してから次のunitへ進む。
+5. 成功後、必要なnon-ARN identifierをstack Outputsから取得し、対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新してから次のunitへ進む。
 
 Terraformの場合:
 
 1. `terraform fmt -check`、`terraform validate`、`terraform plan -out=<repository外の一時path>`を実行する。
 2. planのadd、change、destroy、replacementとsensitive outputを確認する。
 3. 確認済みplan binaryだけを`terraform apply`で実行する。
+4. 成功後、必要なnon-sensitive identifierをTerraform outputから取得し、対象outputがない場合だけstateのresource attributeをread-onlyで参照する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新する。
 
 scope超過、account/region不一致、未許可のdelete/replacement、validation/plan failure、credential/permission不足、またはdeployment failureでは停止する。IaCやintended designをこのtaskで修正せず、同じdeployを原因未確認で再実行しない。CloudFormationは成功済み、失敗、未実行のunitを区別し、成功済みstackを自動rollback、delete、redeployしない。Terraform apply failureはpartial applyの可能性があるため、stateとAWS実体をread-onlyで確認して停止する。
 
 deploy/applyが成功した場合:
 
 1. terminal successとresource存在を確認する。
-2. 必要な非ARN generated current valueだけを詳細設計へ反映し、intended designは変更しない。
+2. `framework/rules/observed-values.md`に従い、取得した値をcatalogの正式な`IDENTIFIER_OUTPUT` propertyへ一意に対応付ける。identifier output rowと、同じanchorを参照する全propertyのMarkdown link表示textだけを同じphysical IDへ更新し、link先path、anchor、`Source / Comment`、その他のintended designは変更しない。
 3. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行する。
+
+必要なoutputがIaCに存在しない、catalog propertyとの対応が一意でない、または参照元と参照先の値が一致しない場合は推測やIaC修正をせず停止する。replacement後は新しいIDへ更新し、destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻す。generated ARNは保存しない。
 
 deploy完了status、resource存在、observed value収集をapplication behaviorの検証またはscenario PASSとして扱わない。
 

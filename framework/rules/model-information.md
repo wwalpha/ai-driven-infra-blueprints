@@ -24,14 +24,17 @@ desired.resource.001.anchor=vpc-vpc01
 desired.row.001-001.property=EC2.VPC.CidrBlock
 desired.row.001-001.value=10.1.0.0/16
 desired.row.001-001.comment=VPCで使用するIPv4アドレス範囲
-observed.row.001-002.property=VPC ID
+desired.row.001-002.property=EC2.VPC.VpcId
+desired.row.001-002.value=[VPC01](#vpc-vpc01)
+desired.row.001-002.comment=VPCを一意に識別するID
+observed.row.001-002.property=EC2.VPC.VpcId
 observed.row.001-002.value=vpc-0123456789abcdef0
-observed.row.001-002.comment=デプロイされたVPCを一意に識別するID
+observed.row.001-002.comment=VPCを一意に識別するID
 desired.row.001-003.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。通常のresource propertyは`desired.row.*`、generated identifier rowは`observed.row.*`へlosslessに反映する。policy JSON本文は複製せず、Markdownのrelative linkとJSON内容のSHA-256を`desired.row.*`へ保持する。
+resourceとrowの番号はMarkdown内の出現順から生成する。通常のresource propertyは`desired.row.*`へlosslessに反映する。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。policy JSON本文は複製せず、Markdownのrelative linkとJSON内容のSHA-256を`desired.row.*`へ保持する。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 
@@ -46,7 +49,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - AWS service ownership boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
 - `desired.service.<service-id>.serviceId`のkeyとvalueはfile stemと一致させる。
 - `desired.service.<service-id>.ownedCatalogResourceTypes`はMarkdownと同じresource typeを同じ順序でcomma区切りにする。
-- 別serviceのresource referenceはMarkdownのrelative linkとexplicit anchorをそのままmodelへ保持する。
+- 別serviceのresource referenceはMarkdownのrelative pathとexplicit anchorを`desired.*`へ保持する。identifier output参照のphysical IDは同じrow keyの`observed.*`へ分離する。
 - 別serviceのvalueを参照元properties fileへ複製しない。
 - AWS managed-policy ARNのような既存またはhuman-provided design inputは必要な場合に`desired.*`へ残してよい。
 - referenceは同じenvironment/AWS account内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。

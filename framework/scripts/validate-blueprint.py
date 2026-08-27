@@ -37,6 +37,7 @@ TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 VALUE_LINK_PATTERN = re.compile(r"^\[[^\]]+\]\(([^)#]+)\)$")
+RESOURCE_LINK_PATTERN = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 MARKDOWN_SERVICE_ID_PATTERN = re.compile(r"^- Design service ID: `([^`]+)`$")
 MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
     r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$"
@@ -644,25 +645,31 @@ class Validator:
             self.check_target_file(path, self.root / "docs" / "designs")
         for path in properties_paths:
             self.check_target_file(path, self.root / "model")
-        service_metadata, catalog_types, catalog_property_owners = self.check_design_service_ownership(markdown_paths)
-        self.check_design_tables(service_metadata, catalog_types, catalog_property_owners)
-        self.check_design_links()
+        service_metadata, catalog_types, catalog_property_owners, identifier_outputs = self.check_design_service_ownership(markdown_paths)
+        self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
+        self.check_design_links(identifier_outputs)
         self.check_design_artifacts()
 
-    def catalog_design_properties(self) -> tuple[set[str], dict[str, set[str]]]:
+    def catalog_design_properties(
+        self,
+    ) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
         resource_types: set[str] = set()
         property_owners: dict[str, set[str]] = {}
+        identifier_outputs: dict[str, set[str]] = {}
         for path in sorted((self.root / "framework" / "materials" / "aws").glob("*.properties")):
             resource_type = path.stem.replace("_", ".", 1)
             prefix = f"{resource_type}."
             resource_types.add(resource_type)
             for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.startswith(prefix) or not line.endswith("="):
+                property_name, separator, marker = line.partition("=")
+                if not separator or not property_name.startswith(prefix):
                     continue
-                property_path = line[len(prefix) : -1]
+                property_path = property_name[len(prefix) :]
                 property_owners.setdefault(property_path, set()).add(resource_type)
-                property_owners.setdefault(f"{resource_type}.{property_path}", set()).add(resource_type)
-        return resource_types, property_owners
+                property_owners.setdefault(property_name, set()).add(resource_type)
+                if marker == "IDENTIFIER_OUTPUT":
+                    identifier_outputs.setdefault(resource_type, set()).add(property_name)
+        return resource_types, property_owners, identifier_outputs
 
     def markdown_service_metadata(
         self, path: Path, catalog_types: set[str]
@@ -717,8 +724,13 @@ class Validator:
 
     def check_design_service_ownership(
         self, markdown_paths: list[Path]
-    ) -> tuple[dict[Path, tuple[str, tuple[str, ...]]], set[str], dict[str, set[str]]]:
-        catalog_types, catalog_property_owners = self.catalog_design_properties()
+    ) -> tuple[
+        dict[Path, tuple[str, tuple[str, ...]]],
+        set[str],
+        dict[str, set[str]],
+        dict[str, set[str]],
+    ]:
+        catalog_types, catalog_property_owners, identifier_outputs = self.catalog_design_properties()
         metadata: dict[Path, tuple[str, tuple[str, ...]]] = {}
         owners: dict[tuple[str, str, str], Path] = {}
         docs_base = self.root / "docs" / "designs"
@@ -743,7 +755,7 @@ class Validator:
                 self.check(previous is None, f"duplicate catalog resource type ownership: {resource_type}: {self.relative(previous) if previous else self.relative(markdown_path)} and {self.relative(markdown_path)}")
                 owners.setdefault(owner_key, markdown_path)
 
-        return metadata, catalog_types, catalog_property_owners
+        return metadata, catalog_types, catalog_property_owners, identifier_outputs
 
     @staticmethod
     def normalized(value: str) -> str:
@@ -755,62 +767,37 @@ class Validator:
         return value[1:-1] if len(value) >= 2 and value[0] == value[-1] == "`" else value
 
     @staticmethod
-    def resource_label(resource_type: str) -> str:
-        name = resource_type.split(".", 1)[1]
-        words = re.findall(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+", name)
-        return " ".join(words)
-
-    def is_generated_identifier_property(self, resource_type: str, property_name: str) -> bool:
-        return self.normalized(property_name) == self.normalized(
-            f"{self.resource_label(resource_type)} ID"
-        )
-
-    @staticmethod
     def resource_property_path(resource_type: str, property_name: str) -> str:
         prefix = resource_type + "."
         return property_name[len(prefix) :] if property_name.startswith(prefix) else property_name
 
     def check_generated_identifier(
-        self, path: Path, resource_type: str, rows: list[list[str]]
+        self,
+        path: Path,
+        resource_type: str,
+        logical_id: str,
+        rows: list[list[str]],
+        identifier_outputs: dict[str, set[str]],
     ) -> None:
-        resource_name = resource_type.split(".", 1)[1]
-        identifier_properties = {
-            self.normalized(resource_name + "Name"),
-            self.normalized(resource_name + "Identifier"),
-        }
-        has_selected_identifier = any(
-            self.normalized(row[1].split(".")[-1]) in identifier_properties
-            and self.unquoted(row[2]) not in {"", "UNSET", "PENDING_DEPLOY"}
-            for row in rows
-        )
-        identifier_label = f"{self.resource_label(resource_type)} ID"
-        generated_rows = [
-            row for row in rows if self.normalized(row[1]) == self.normalized(identifier_label)
-        ]
-        if has_selected_identifier:
+        for property_name in sorted(identifier_outputs.get(resource_type, set())):
+            generated_rows = [row for row in rows if row[1] == property_name]
             self.check(
-                not generated_rows,
-                f"redundant generated identifier row: {self.relative(path)}: {identifier_label}",
+                len(generated_rows) == 1,
+                f"identifier output row must appear exactly once: {self.relative(path)}: {property_name}",
             )
-            return
-
-        self.check(
-            len(generated_rows) == 1,
-            f"generated identifier row must appear exactly once: {self.relative(path)}: {identifier_label}",
-        )
-        if len(generated_rows) != 1:
-            return
-        value = self.unquoted(generated_rows[0][2])
-        self.check(bool(value), f"generated identifier value is empty: {self.relative(path)}: {identifier_label}")
-        self.check(value != "NOT_DEPLOYED", f"generated identifier must use PENDING_DEPLOY after destroy: {self.relative(path)}: {identifier_label}")
-        self.check(
-            re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
-            f"generated ARN is forbidden in design: {self.relative(path)}: {identifier_label}",
-        )
-        self.check(
-            generated_rows[0][3].startswith("デプロイ後生成値"),
-            f"invalid generated identifier source: {self.relative(path)}: {identifier_label}",
-        )
+            if len(generated_rows) != 1:
+                continue
+            value = self.unquoted(generated_rows[0][2])
+            self.check(bool(value), f"identifier output value is empty: {self.relative(path)}: {property_name}")
+            self.check(value != "NOT_DEPLOYED", f"identifier output must use PENDING_DEPLOY after destroy: {self.relative(path)}: {property_name}")
+            self.check(
+                value == "PENDING_DEPLOY" or value != logical_id,
+                f"identifier output must use a physical value, not the logical ID: {self.relative(path)}: {property_name}",
+            )
+            self.check(
+                re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
+                f"generated ARN is forbidden in design: {self.relative(path)}: {property_name}",
+            )
 
     @staticmethod
     def is_policy_document_property(property_name: str) -> bool:
@@ -866,6 +853,7 @@ class Validator:
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
         catalog_types: set[str],
         catalog_property_owners: dict[str, set[str]],
+        identifier_outputs: dict[str, set[str]],
     ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -928,10 +916,7 @@ class Validator:
                             f"Source / Comment must be Japanese: {self.relative(path)}: {cells[3]}",
                         )
                         property_owners = catalog_property_owners.get(cells[1], set())
-                        generated_identifier = bool(current_resource_type) and self.is_generated_identifier_property(
-                            current_resource_type, cells[1]
-                        )
-                        if current_resource_type in catalog_types and not generated_identifier:
+                        if current_resource_type in catalog_types:
                             self.check(
                                 current_resource_type in property_owners,
                                 f"resource table property is not selected by framework/materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
@@ -948,9 +933,11 @@ class Validator:
                         ):
                             property_path = self.resource_property_path(current_resource_type, cells[1])
                             raw_value = self.unquoted(cells[2])
-                            for error in self.schema_catalog.literal_errors(
-                                current_resource_type, property_path, raw_value
-                            ):
+                            errors = [] if (
+                                cells[1] in identifier_outputs.get(current_resource_type, set())
+                                and raw_value == "PENDING_DEPLOY"
+                            ) else self.schema_catalog.literal_errors(current_resource_type, property_path, raw_value)
+                            for error in errors:
                                 self.check(
                                     False,
                                     f"provider schema violation: {self.relative(path)}: {current_resource_type}.{property_path}: {raw_value!r} {error}",
@@ -984,7 +971,9 @@ class Validator:
                                 False,
                                 f"required provider schema property missing: {self.relative(path)}: {current_resource_type}.{property_name}",
                             )
-                    self.check_generated_identifier(path, current_resource_type, rows)
+                    self.check_generated_identifier(
+                        path, current_resource_type, current_logical_id, rows, identifier_outputs
+                    )
                 if current_resource_type == "IAM.Role":
                     self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
@@ -1003,11 +992,26 @@ class Validator:
                 if line.strip():
                     previous = line.strip()
 
-    def check_design_links(self) -> None:
+    def check_design_links(self, identifier_outputs: dict[str, set[str]]) -> None:
         anchors = {
             path.resolve(): set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
             for path in self.design_files()
         }
+        resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
+        for path in self.design_files():
+            pending_anchor = ""
+            current: tuple[Path, str] | None = None
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if anchor := ANCHOR_PATTERN.fullmatch(line):
+                    pending_anchor = anchor.group(1)
+                elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    current = (path.resolve(), pending_anchor)
+                    resources[current] = (heading.group(1), {})
+                    pending_anchor = ""
+                elif current and line.startswith("|") and line not in {TABLE_HEADER, TABLE_ALIGNMENT}:
+                    cells = [cell.strip() for cell in line.strip("|").split("|")]
+                    if len(cells) == 4 and cells[1] in identifier_outputs.get(resources[current][0], set()):
+                        resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in self.design_files():
             for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
                 if raw.startswith(("http://", "https://", "mailto:")):
@@ -1018,6 +1022,27 @@ class Validator:
                 self.check(target.is_file(), f"broken design link: {self.relative(source)}: {raw}")
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
+            for line in source.read_text(encoding="utf-8").splitlines():
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
+                link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
+                if not link:
+                    continue
+                label, target_text, fragment = link.groups()
+                target = (source if not target_text else source.parent / target_text).resolve()
+                resource = resources.get((target, fragment))
+                if not resource or not resource[1]:
+                    continue
+                source_leaf = self.normalized(cells[1].split(".")[-1].replace("[]", ""))
+                exact = [
+                    value
+                    for property_name, value in resource[1].items()
+                    if self.normalized(property_name.split(".")[-1]) == source_leaf
+                ]
+                expected = exact or list(resource[1].values())
+                self.check(
+                    label in expected,
+                    f"identifier reference does not match observed target: {self.relative(source)}: {cells[1]}: {label}",
+                )
 
     def check_design_artifacts(self) -> None:
         base = self.root / "docs" / "designs"

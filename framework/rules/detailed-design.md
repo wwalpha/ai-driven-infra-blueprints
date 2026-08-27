@@ -71,7 +71,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - Listener、Route、association、UserData、Bucket Policy などの child component は独立 table にしてよい。
 - `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。
 - 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。
-- catalogにないrowは、後述のgenerated current identifierだけを許可する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
+- catalogにないrowは作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
 - optional propertyを使用しない場合はrow自体を省略する。`not-used`、`none`、`UNSET`などのsentinel値や、schemaに存在しない説明用propertyを作らない。
@@ -130,15 +130,34 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - 別fileの例: `[FLOWLOGROLE01](iam.md#iam-flowlogrole01)`。
 - 同じfileの例: `[FLOWLOG01](#vpc-flowlog01)`。
 - file と anchor の存在を local loop で検証する。
+- catalogのidentifier outputを参照するpropertyは、link先anchorをlogical referenceの正本とし、表示textへ参照先のcurrent physical IDを記載する。deploy前とdestroy後は`[PENDING_DEPLOY](#vpc-vpc01)`、deploy成功後は`[vpc-0123456789abcdef0](#vpc-vpc01)`とする。
+- IaC生成は表示textのphysical IDを使用せず、link先anchorに対応するresource headingのlogical IDを解決する。CloudFormationは`!Ref`、Terraformはresource attribute referenceを使用し、physical IDを直書きしない。
 
 ## Generated values and deployment state
 
-- 必要なnon-ARN generated current identifierは独立sectionではなく、該当resource tableの個別行にhuman-readableなresource固有名で記載する。例は`VPC ID`、`Subnet ID`、`Flow Log ID`とする。
-- 未作成resourceのdeploy前は値を`PENDING_DEPLOY`とし、`Source / Comment`には他のrowと同様に属性の意味を記載する。例えば`VPC ID`には`デプロイされたVPCを一意に識別するID`と記載する。
-- current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。`Source / Comment`は属性の意味を維持する。
-- destroy後はcurrent physical valueを削除し、generated identifier rowを`PENDING_DEPLOY`へ戻す。
-- human-selected nameなど既存propertyがそのままcurrent identifierになる場合は、重複するgenerated identifier rowを作らない。
-- local validatorはcatalog propertyのleaf名が`<resource-name>Name`または`<resource-name>Identifier`で確定値を持つ場合をhuman-selected current identifierとして扱う。例は`RoleName`と`LogGroupName`とする。
+- 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource tableの個別行に記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
+- 未作成resourceのdeploy前はidentifier output rowの値を`PENDING_DEPLOY`とする。例えば`EC2.VPC.VpcId`の`Source / Comment`はprefixや取得元ではなく属性の意味だけを表す`VPCを一意に識別するID`とする。
+- current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。同じidentifierを参照する全propertyのMarkdown link表示textも同じphysical IDへ更新し、`Source / Comment`は属性の意味を維持する。
+- replacement後はidentifier output rowと全参照元を新しいphysical IDへ同じ変更で更新する。destroy後はidentifier output rowを`PENDING_DEPLOY`へ戻し、全参照元のlink表示textも`PENDING_DEPLOY`へ戻す。
+- human-selected nameなど通常のcatalog propertyがcurrent identifierになるresourceは、そのpropertyを使用し、`IDENTIFIER_OUTPUT`でない重複rowを作らない。
 - generated ARNは詳細設計にも`model/**`にも永続化しない。
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
-- `model/**`はintended designを`desired.*`、generated current identifierを`observed.*`として同じservice propertiesへ保持する。
+- `model/**`はidentifier output rowとidentifier参照rowの同じrow keyに、anchorから解決したlogical referenceを`desired.*`、Markdownの表示textまたはidentifier output valueを`observed.*`として保持する。
+
+deploy前の参照例:
+
+```md
+| 4 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
+```
+
+deploy後の参照例:
+
+```md
+| 4 | EC2.Subnet.VpcId | [vpc-0123456789abcdef0](#vpc-vpc01) | Subnetが所属するVPC |
+```
+
+resource自身のidentifier output例:
+
+```md
+| 7 | EC2.VPC.VpcId | vpc-0123456789abcdef0 | VPCを一意に識別するID |
+```

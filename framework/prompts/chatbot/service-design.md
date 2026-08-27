@@ -179,7 +179,7 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`framework/rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
 
-完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`などの決定状態、`人間が選択した`などの決定主体、分類だけの説明、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。generated current identifierのrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
+完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
 完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。既存AWS configuration branchだけの場合、`設計ファイル`には「Codex取得後に作成」と記載し、未完成Markdownを出力しない。
 
@@ -192,9 +192,9 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
-- 関連resourceは相対linkで参照する
+- 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
-- 必要なnon-ARN generated current identifierは該当resource tableの個別行に置き、deploy前は`PENDING_DEPLOY`とする
+- 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない
 - environment、AWS account、AWS region、purpose、deployment stateのfile metadataを出力しない
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを出力しない
 - 値を推測しない
@@ -221,7 +221,7 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. 選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
 6. chatbotが選択したpropertyだけを詳細設計へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければlogical IDを一回の応答につき一つ質問し、human回答後に必要なservice metadata、anchor、heading、tableを作成する。
-7. 必要な非ARN generated current identifierは実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
+7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` rowへ実値を反映し、同じanchorを参照する全propertyのMarkdown link表示textも同じ実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。
 
 chatbot自身がrepositoryまたはAWSを変更したと表現してはいけません。通常設計は設計完了前にCodex反映依頼を出力してはいけない。既存AWS configuration branchは取得scope確定後にCodexへ引き渡し、IaC実装やdeployへ進んではいけない。
