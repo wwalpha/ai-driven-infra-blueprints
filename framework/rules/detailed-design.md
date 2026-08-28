@@ -20,6 +20,14 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
 
+## AWS resource naming
+
+- human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用する。
+- naming conventionはoptional propertyや`Name` tagを必須化しない。catalogとprovider schemaに存在し、今回の設計項目として選択済みの場合だけresource-detail tableへ記載する。
+- naming componentがすべて確定済みならpatternから一意に導出し、未確定componentがあれば値を推測せずhumanへ確認する。
+- 既存resourceから取得した名称と既存詳細設計の確定済み名称は、conventionと異なっても自動変更しない。
+- final nameはprovider schemaとservice固有制約へ適合することを確認し、自動truncate、hash付与、略語化で補正しない。
+
 ## AWS service ownership boundary
 
 詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのdesign fileは一つのAWS serviceだけを所有する。

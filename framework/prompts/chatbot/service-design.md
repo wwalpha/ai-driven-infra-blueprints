@@ -51,9 +51,10 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 4. 対象に対応する既存の `docs/designs/<environment>/<target-directory>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
 6. `framework/rules/detailed-design.md`
-7. `framework/rules/model-information.md`
-8. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
-9. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
+7. `framework/rules/aws-resource-naming.md`
+8. `framework/rules/model-information.md`
+9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
+10. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -78,6 +79,8 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 `framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
 
 回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
+
+human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。naming conventionだけを理由にoptional propertyや`Name` tagを追加してはいけません。patternのcomponentが確定済みなら候補を一意に導出し、未確定componentだけを質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 
 ## Existing AWS configuration branch
 
@@ -203,12 +206,13 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 - 複数service fileが必要な場合は出力先pathを分け、service間のrelative linkを作成する
 - JSONが必要なpolicy propertyは所有service配下の独立`.json` fileへ出力し、Markdownから参照する
 - IAM inline policyは同じpolicyを表す`PolicyName`と`PolicyDocument`をMarkdownへ明示する
+- 新規決定したAWS resource name、identifier、`Name` tagは`framework/rules/aws-resource-naming.md`へ適合させる
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
 `Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
 
-1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
+1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
 3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
 4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
