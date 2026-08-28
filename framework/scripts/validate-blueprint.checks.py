@@ -314,7 +314,9 @@ def check_schema_backed_design_rows() -> None:
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
                 "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |",
+                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 3 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
+                "| 4 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
             ),
             encoding="utf-8",
         )
@@ -346,6 +348,8 @@ def check_identifier_propagation() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
+| 2 | EC2.VPC.Tags[].Key | Name | VPCを識別するNameタグのキー |
+| 3 | EC2.VPC.Tags[].Value | vpc-app-dev | VPCを識別するNameタグの値 |
 
 <a id="vpc-subnet01"></a>
 
@@ -353,8 +357,10 @@ def check_identifier_propagation() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
-| 2 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 1 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
+| 3 | EC2.Subnet.Tags[].Key | Name | Subnetを識別するNameタグのキー |
+| 4 | EC2.Subnet.Tags[].Value | subnet-app-dev-private-01 | Subnetを識別するNameタグの値 |
 """,
             encoding="utf-8",
         )
@@ -398,6 +404,79 @@ def check_identifier_propagation() -> None:
         assert any("identifier reference does not match observed target" in error for error in validator.errors)
 
 
+def check_name_tag_and_identifier_order_contract() -> None:
+    repository = SCRIPT.parents[2]
+    catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
+    name_tags = MODULE.Validator.name_tag_properties(catalog_types, property_owners)
+    assert len(name_tags) == 84
+    assert name_tags["EC2.VPC"] == ("EC2.VPC.Tags[].Key", "EC2.VPC.Tags[].Value")
+    assert name_tags["ApiGatewayV2.Api"] == ("ApiGatewayV2.Api.Tags", "")
+    assert name_tags["Route53.HostedZone"] == (
+        "Route53.HostedZone.HostedZoneTags[].Key",
+        "Route53.HostedZone.HostedZoneTags[].Value",
+    )
+
+    path = repository / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.VPC",
+        [
+            ["1", "EC2.VPC.Tags[].Key", "Name", "Nameタグのキー"],
+            ["2", "EC2.VPC.Tags[].Value", "vpc-app-dev", "Nameタグの値"],
+        ],
+        name_tags,
+    )
+    assert not validator.errors, validator.errors
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.VPC",
+        [
+            ["1", "EC2.VPC.Tags[].Key", "name", "Nameタグのキー"],
+            ["2", "EC2.VPC.Tags[].Value", "", "Nameタグの値"],
+        ],
+        name_tags,
+    )
+    assert any("required Name tag" in error for error in validator.errors)
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "ApiGatewayV2.Api",
+        [["1", "ApiGatewayV2.Api.Tags", '{"Name":"api-app-dev"}', "APIのタグ"]],
+        name_tags,
+    )
+    assert not validator.errors, validator.errors
+
+    validator = MODULE.Validator(repository)
+    validator.check_generated_identifier(
+        path,
+        "EC2.EIP",
+        "EIP01",
+        [
+            ["1", "EC2.EIP.AllocationId", "eipalloc-0123456789abcdef0", "Allocation ID"],
+            ["2", "EC2.EIP.PublicIp", "192.0.2.1", "Public IP"],
+        ],
+        identifier_outputs,
+    )
+    assert not validator.errors, validator.errors
+
+    validator = MODULE.Validator(repository)
+    validator.check_generated_identifier(
+        path,
+        "EC2.EIP",
+        "EIP01",
+        [
+            ["1", "EC2.EIP.PublicIp", "192.0.2.1", "Public IP"],
+            ["2", "EC2.EIP.AllocationId", "eipalloc-0123456789abcdef0", "Allocation ID"],
+        ],
+        identifier_outputs,
+    )
+    assert any("must be first in catalog order" in error for error in validator.errors)
+
+
 def check_design_handoff_prompt() -> None:
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_design_handoff()
@@ -430,8 +509,9 @@ def main() -> None:
     check_model_task_boundaries()
     check_schema_backed_design_rows()
     check_identifier_propagation()
+    check_name_tag_and_identifier_order_contract()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (30 focused checks)")
+    print("validate-blueprint: PASS (32 focused checks)")
 
 
 if __name__ == "__main__":

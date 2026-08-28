@@ -2,11 +2,14 @@
 
 ## Scope
 
-このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを新規決定するときのdefault naming conventionとする。
+このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを決定するときのdefault naming conventionとする。
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
-- `Name` tagやoptionalなname propertyを新たに必須化しない。設計対象として選択された場合だけ適用する。
+- `framework/materials/aws/*.properties`とprovider schemaにroot-levelの`Tags`または`HostedZoneTags`があるresource typeは、`Name` tagを必須とする。nested resourceやchild componentのtag collectionには自動適用しない。
+- array形式のtagは`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnameを記載する。object形式の`Tags`は`Name` keyを持つJSON objectを記載する。
+- `Name` tagのkeyはcase-sensitiveな`Name`を正確に使用し、valueを空にしない。
 - 既存resourceと既存詳細設計の確定済み名称を自動変更しない。renameまたはreplacementは別の明示依頼がある場合だけ扱う。
+- 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
 - CloudFormation logical ID、詳細設計のlogical ID、JSON artifact filenameには、それぞれの既存ruleを適用する。
 
 ## General rules
@@ -21,7 +24,8 @@
 - 組織固有tokenの`ISZPF`、`ISZ`、`PF`、`isuzu`、`isuzucojp`はgeneric patternまたはexampleに使用しない。
 - final nameは対象propertyのprovider schemaにあるtype、pattern、lengthとAWSのuniqueness scopeを満たすことを確認する。超過時に自動truncate、hash付与、略語化をせず、短い値をhumanへ確認する。
 - explicit nameの変更がreplacementを伴う場合は、design taskでrenameを確定するだけとし、IaC変更やreplacement実行へ進まない。
-- `Naming target`が`Name tag`のrowは、`Tags`が設計対象として選択済みの場合だけ`Key: Name`の値へpatternを適用する。
+- `Naming target`が`Name tag`のrowは、必須の`Name` tag valueへpatternを適用する。
+- 対象resourceの`Name tag` patternがこのtableにない場合は、nameを推測せずhumanへ一つ質問する。
 
 ## Naming patterns
 

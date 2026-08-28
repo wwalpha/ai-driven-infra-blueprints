@@ -29,12 +29,13 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
 6. 対応する`model/<environment>/<target-directory>/*.properties`
 7. `framework/rules/detailed-design.md`
-8. `framework/rules/model-information.md`
-9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
-10. `framework/rules/observed-values.md`
-11. `framework/rules/loop-engineering.md`
-12. 対象resourceに関係する`framework/materials/aws/*.properties`
-13. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
+8. `framework/rules/aws-resource-naming.md`
+9. `framework/rules/model-information.md`
+10. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
+11. `framework/rules/observed-values.md`
+12. `framework/rules/loop-engineering.md`
+13. 対象resourceに関係する`framework/materials/aws/*.properties`
+14. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
 
 詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、別の`design` taskが必要であることを報告して停止する。
 
@@ -61,6 +62,8 @@ CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy
 ## Implement and validate
 
 承認済みdesignと対応するservice modelだけをinputとして、選択済みengineの最小構成を実装する。
+
+root-level tag containerを持つresourceは、詳細設計のcase-sensitiveな`Name` tagとvalueをCloudFormation／Terraformへそのまま反映する。詳細設計に必須の`Name` tagがない場合は値を推測せず、別の`design` taskが必要であることを報告して停止する。
 
 identifierを参照するMarkdown linkはanchorから参照先resourceのlogical IDを解決する。link表示textの`PENDING_DEPLOY`またはphysical IDをIaCへ直書きしない。後続resourceが必要とするcatalog `IDENTIFIER_OUTPUT`だけをCloudFormation OutputsまたはTerraform outputへ追加し、logical resource参照／resource attribute参照を維持する。generated ARNはobserved value用outputにしない。
 

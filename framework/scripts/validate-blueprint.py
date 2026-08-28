@@ -16,6 +16,7 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 
 
 REQUIRED_RULES = {
+    "aws-resource-naming.md",
     "cloudformation.md",
     "detailed-design.md",
     "model-information.md",
@@ -820,7 +821,8 @@ class Validator:
         rows: list[list[str]],
         identifier_outputs: dict[str, set[str]],
     ) -> None:
-        for property_name in sorted(identifier_outputs.get(resource_type, set())):
+        expected_properties = sorted(identifier_outputs.get(resource_type, set()))
+        for property_name in expected_properties:
             generated_rows = [row for row in rows if row[1] == property_name]
             self.check(
                 len(generated_rows) == 1,
@@ -839,6 +841,84 @@ class Validator:
                 re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                 f"generated ARN is forbidden in design: {self.relative(path)}: {property_name}",
             )
+        if expected_properties:
+            self.check(
+                [row[1] for row in rows[: len(expected_properties)]] == expected_properties,
+                f"identifier output rows must be first in catalog order: {self.relative(path)}: {resource_type}",
+            )
+
+    @staticmethod
+    def name_tag_properties(
+        catalog_types: set[str], catalog_property_owners: dict[str, set[str]]
+    ) -> dict[str, tuple[str, str]]:
+        properties: dict[str, tuple[str, str]] = {}
+        for resource_type in catalog_types:
+            for key_suffix, value_suffix in (
+                ("Tags[].Key", "Tags[].Value"),
+                ("HostedZoneTags[].Key", "HostedZoneTags[].Value"),
+            ):
+                key = f"{resource_type}.{key_suffix}"
+                value = f"{resource_type}.{value_suffix}"
+                if resource_type in catalog_property_owners.get(key, set()) and resource_type in catalog_property_owners.get(value, set()):
+                    properties[resource_type] = (key, value)
+                    break
+            else:
+                tags = f"{resource_type}.Tags"
+                if resource_type in catalog_property_owners.get(tags, set()):
+                    properties[resource_type] = (tags, "")
+        return properties
+
+    def check_required_name_tag(
+        self,
+        path: Path,
+        resource_type: str,
+        rows: list[list[str]],
+        name_tag_properties: dict[str, tuple[str, str]],
+    ) -> None:
+        tag_properties = name_tag_properties.get(resource_type)
+        if tag_properties is None:
+            return
+        key_property, value_property = tag_properties
+        if value_property:
+            matches = [
+                index
+                for index, row in enumerate(rows)
+                if row[1] == key_property and self.unquoted(row[2]) == "Name"
+            ]
+            self.check(
+                len(matches) == 1,
+                f"required Name tag must appear exactly once: {self.relative(path)}: {resource_type}",
+            )
+            if len(matches) != 1:
+                return
+            index = matches[0]
+            paired = index + 1 < len(rows) and rows[index + 1][1] == value_property
+            self.check(
+                paired,
+                f"required Name tag value must immediately follow its key: {self.relative(path)}: {resource_type}",
+            )
+            if paired:
+                self.check(
+                    bool(self.unquoted(rows[index + 1][2]).strip()),
+                    f"required Name tag value must not be empty: {self.relative(path)}: {resource_type}",
+                )
+            return
+
+        tag_rows = [row for row in rows if row[1] == key_property]
+        self.check(
+            len(tag_rows) == 1,
+            f"required Name tag container must appear exactly once: {self.relative(path)}: {resource_type}",
+        )
+        if len(tag_rows) != 1:
+            return
+        try:
+            tags = json.loads(self.unquoted(tag_rows[0][2]))
+        except json.JSONDecodeError:
+            return
+        self.check(
+            isinstance(tags, dict) and isinstance(tags.get("Name"), str) and bool(tags["Name"].strip()),
+            f"required Name tag value must not be empty: {self.relative(path)}: {resource_type}",
+        )
 
     @staticmethod
     def is_policy_document_property(property_name: str) -> bool:
@@ -896,6 +976,7 @@ class Validator:
         catalog_property_owners: dict[str, set[str]],
         identifier_outputs: dict[str, set[str]],
     ) -> None:
+        name_tag_properties = self.name_tag_properties(catalog_types, catalog_property_owners)
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             self.check(
@@ -1014,6 +1095,9 @@ class Validator:
                             )
                     self.check_generated_identifier(
                         path, current_resource_type, current_logical_id, rows, identifier_outputs
+                    )
+                    self.check_required_name_tag(
+                        path, current_resource_type, rows, name_tag_properties
                     )
                 if current_resource_type == "IAM.Role":
                     self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)

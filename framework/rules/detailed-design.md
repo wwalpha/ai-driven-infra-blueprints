@@ -11,11 +11,11 @@
 
 chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Codexの`design` taskは次を実行できる。
 
-- 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
+- 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。root-level tag containerを持つresourceではmandatory `Name` tag propertyを含め、それ以外の別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
 - repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
-- humanがresourceを選択した後は、選択済みpropertyの現在値を再確認なしで詳細設計へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。対応するresource sectionがなければlogical IDをhumanへ一つ質問し、service metadata、anchor、heading、tableを既存ruleどおり作成する。
+- humanがresourceを選択した後は、選択済みpropertyとmandatory `Name` tagの現在値を再確認なしで詳細設計へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければlogical IDをhumanへ一つ質問し、service metadata、anchor、heading、tableを既存ruleどおり作成する。
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
@@ -23,9 +23,11 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 ## AWS resource naming
 
 - human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用する。
-- naming conventionはoptional propertyや`Name` tagを必須化しない。catalogとprovider schemaに存在し、今回の設計項目として選択済みの場合だけresource-detail tableへ記載する。
+- catalogとprovider schemaにroot-levelの`Tags`または`HostedZoneTags`があるresource typeは、schema上optionalでも`Name` tagを必須とする。nested resourceやchild componentのtag collectionには自動適用しない。
+- array形式のtagは`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnon-empty nameを記載する。object形式の`Tags`は`Name` keyとnon-empty valueを持つJSON objectを記載する。
 - naming componentがすべて確定済みならpatternから一意に導出し、未確定componentがあれば値を推測せずhumanへ確認する。
 - 既存resourceから取得した名称と既存詳細設計の確定済み名称は、conventionと異なっても自動変更しない。
+- 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、blockerとして停止する。
 - final nameはprovider schemaとservice固有制約へ適合することを確認し、自動truncate、hash付与、略語化で補正しない。
 
 ## AWS service ownership boundary
@@ -76,6 +78,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 ```
 
 - 各 table の row は 1 から連番にする。
+- catalogで`IDENTIFIER_OUTPUT`と指定された全rowを、Propertyのcatalog順でtable先頭の連続rowとして配置する。通常propertyとidentifier参照rowはその後へ置く。
 - 1 file に複数 resource heading と table を置いてよい。
 - Listener、Route、association、UserData、Bucket Policy などの child component は独立 table にしてよい。
 - `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。
@@ -83,7 +86,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - catalogにないrowは作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
-- optional propertyを使用しない場合はrow自体を省略する。`not-used`、`none`、`UNSET`などのsentinel値や、schemaに存在しない説明用propertyを作らない。
+- optional propertyを使用しない場合はrow自体を省略する。ただしroot-level tag containerを持つresourceの`Name` tagは省略しない。`not-used`、`none`、`UNSET`などのsentinel値や、schemaに存在しない説明用propertyを作らない。
 - schemaの`required`に指定され、かつproperties選択リストにあるroot propertyは省略しない。
 
 `Source / Comment`は、そのrowの`Property`が何を設定、識別、制御する属性なのかを日本語で説明する。次の内容は記載しない。
@@ -144,7 +147,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 
 ## Generated values and deployment state
 
-- 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource tableの個別行に記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
+- 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource table先頭の連続rowにcatalog順で記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
 - 未作成resourceのdeploy前はidentifier output rowの値を`PENDING_DEPLOY`とする。例えば`EC2.VPC.VpcId`の`Source / Comment`はprefixや取得元ではなく属性の意味だけを表す`VPCを一意に識別するID`とする。
 - current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。同じidentifierを参照する全propertyのMarkdown link表示textも同じphysical IDへ更新し、`Source / Comment`は属性の意味を維持する。
 - replacement後はidentifier output rowと全参照元を新しいphysical IDへ同じ変更で更新する。destroy後はidentifier output rowを`PENDING_DEPLOY`へ戻し、全参照元のlink表示textも`PENDING_DEPLOY`へ戻す。
@@ -168,5 +171,5 @@ deploy後の参照例:
 resource自身のidentifier output例:
 
 ```md
-| 7 | EC2.VPC.VpcId | vpc-0123456789abcdef0 | VPCを一意に識別するID |
+| 1 | EC2.VPC.VpcId | vpc-0123456789abcdef0 | VPCを一意に識別するID |
 ```

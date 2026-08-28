@@ -76,11 +76,11 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 一緒に確認した方が理解しやすい関連 service
 - humanが決めるproperty／既存AWS resourceから取得するproperty
 
-`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。
+`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。root-level tag containerを持つresourceの`Name` tagだけはmandatory policyとしてこの省略対象から除外してください。
 
-回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
+回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。schemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。ただしroot-level tag containerを持つresourceの`Name` tagは省略してはいけません。`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
-human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。naming conventionだけを理由にoptional propertyや`Name` tagを追加してはいけません。patternのcomponentが確定済みなら候補を一意に導出し、未確定componentだけを質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
+human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。root-level tag containerを持つresourceにはcase-sensitiveな`Name` tagとnon-empty valueを必ず設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 
 ## Existing AWS configuration branch
 
@@ -88,10 +88,10 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 
 - target AWS service
 - `framework/materials/aws/`に存在するcatalog resource type
-- 今回の詳細設計で使用するmaterials property
+- 今回の詳細設計で使用するmaterials property。root-level tag containerを持つresourceでは`Name` tag propertyを必ず含める
 - 出力先service Markdownと、必要な場合だけJSON artifactのpath
 
-全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
+全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。mandatory `Name` tagだけを例外とし、既存resourceに存在しない場合は値を発明せずblockerとする。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
 
 既存AWS configuration branchは値が未確定でも、resource typeとpropertyの取得scopeが確定すればCodexへ引き渡せる。対応する完成Markdownにplaceholder、`UNSET`、仮値、空tableを出力しない。
 
@@ -175,6 +175,7 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - environment 差分が明確
 - 未決定値が後続実装の blocker にならない
 - generated value と human-selected value が区別されている
+- root-level tag containerを持つ全resourceにcase-sensitiveな`Name` tagとnon-empty valueがある
 
 既存AWS configuration branchのresourceは、target service、catalog resource type、materials property、出力pathが確定すれば完了とする。AWS current valueはchatbotの完了条件に含めず、Codex取得前に完成Markdownを出力しない。
 
@@ -197,9 +198,11 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
+- catalogの全`IDENTIFIER_OUTPUT` rowを各resource table先頭の連続rowにcatalog順で置く
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない
+- root-level tag containerを持つresourceは、array形式なら`Key`が`Name`のrowと直後のnon-empty `Value` row、object形式ならnon-empty `Name` keyを持つJSON objectを記載する
 - environment、AWS account、AWS region、purpose、deployment stateのfile metadataを出力しない
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを出力しない
 - 値を推測しない
@@ -221,12 +224,12 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
 
-1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。別service、未選択resource type、未選択propertyへscopeを広げない。
+1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。root-level tag containerを持つresourceではmandatory `Name` tag propertyを含め、それ以外の別service、未選択resource type、未選択propertyへscopeを広げない。
 2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
 3. catalog resource typeを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. 選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
-6. chatbotが選択したpropertyだけを詳細設計へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければlogical IDを一回の応答につき一つ質問し、human回答後に必要なservice metadata、anchor、heading、tableを作成する。
+6. chatbotが選択したpropertyとmandatory `Name` tagだけを詳細設計へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければlogical IDを一回の応答につき一つ質問し、human回答後に必要なservice metadata、anchor、heading、tableを作成する。
 7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` rowへ実値を反映し、同じanchorを参照する全propertyのMarkdown link表示textも同じ実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。
 

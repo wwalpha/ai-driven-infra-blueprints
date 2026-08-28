@@ -43,7 +43,8 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - resource tableがproperties選択リスト外の設定項目を含まず、literal値がprovider schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
-- 必要なgenerated current identifierが独立sectionではなく該当resource tableの行に存在する
+- 必要なgenerated current identifierが独立sectionではなく該当resource table先頭の連続rowにcatalog順で存在する
+- root-level tag containerを持つresourceにcase-sensitiveな`Name` tagとnon-empty valueが存在する
 - cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
 - generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効
