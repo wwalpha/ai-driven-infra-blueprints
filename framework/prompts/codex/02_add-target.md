@@ -1,6 +1,6 @@
 # Add Project Target Prompt
 
-このpromptは、初期化済みrepositoryの`project.json`へ、必要値が確定したenvironment/AWS account targetを1件追加するmigrationに使用する。
+このpromptは、初期化済みrepositoryの`project.json`へ、必要値が確定したenvironment／logical targetを1件追加するmigrationに使用する。
 
 humanへJSONの作成・編集を依頼してはいけない。値を推測せず、質問、確認、file変更はこのmigration task内で完結させる。
 
@@ -29,15 +29,18 @@ Step 1: Environment
 次の順序で、一回の応答につき一つだけ質問する。
 
 1. Environment ID
-2. AWS account ID
-3. AWS region
-4. IaC engine
+2. 既存environmentがalias targetを持つ場合だけ、新しいalias
+3. AWS account ID
+4. AWS region
+5. IaC engine
 
-Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
+Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
 - 不明または未確定の値は推測せず、fileを変更しない。同じpromptを必要値の確定後に再実行できることを説明して停止する。
 - humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。
 - 回答を受けるたびに形式、既存targetとの重複、既存pathまたはIaC engineとの矛盾を確認する。
+- 新しいenvironmentへ一件だけ追加する場合はaliasを省略する。既存environmentの全targetにaliasがある場合だけ新しい一意なaliasを追加できる。
+- aliasなしの既存environmentへ二件目を追加すると既存targetの変更が必要になるため、このpromptでは変更せず停止する。
 - 質問票、回答履歴、session state fileを作成せず、進行中の回答はconversation contextだけで保持する。
 
 すべての値が揃ったら、追加するtargetを提示し、追加してよいか一つだけ確認する。humanが明示的に承認するまでfileを変更しない。
@@ -51,7 +54,9 @@ file変更前に次を確認する。
 - AWS account IDが12桁
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
-- 同じenvironment/AWS accountが`project.json`に存在しない
+- target directoryとなるaliasまたはAWS account IDが同じenvironmentに存在しない
+- aliasは同じenvironment内で一意なlower-kebab-caseで、12桁の数字だけではない
+- 同じenvironment/AWS account IDの既存targetがある場合はIaC engineが一致する
 - 対象pathに`.gitkeep`以外の既存fileがない
 
 不足、不正、重複、矛盾がある場合は変更せず停止する。
@@ -73,36 +78,39 @@ file変更前に次を確認する。
 
 ## Add project target
 
-確認済みtargetを`project.json`の`targets`へ追加し、environment、AWS account IDの順に並べる。既存targetと`projectName`は変更しない。UTF-8、2-space indentation、final newlineを維持する。
+確認済みtargetを`project.json`の`targets`へ追加し、environment、target directoryの順に並べる。target directoryはaliasがあればalias、なければAWS account IDとする。既存targetと`projectName`は変更しない。UTF-8、2-space indentation、final newlineを維持する。
 
 ```json
 {
   "environment": "<confirmed-environment-id>",
+  "alias": "<confirmed-optional-alias>",
   "awsAccountId": "<confirmed-12-digit-account-id>",
   "awsRegion": "<confirmed-region>",
   "iacEngine": "<cloudformation-or-terraform>"
 }
 ```
 
+aliasなしのtargetでは`alias` key自体を省略する。
+
 ## Create target paths
 
 存在しない対象pathだけを作成し、空directoryには`.gitkeep`を置く。
 
 ```text
-docs/designs/<environment>/<aws-account-id>/.gitkeep
-model/<environment>/<aws-account-id>/.gitkeep
+docs/designs/<environment>/<target-directory>/.gitkeep
+model/<environment>/<target-directory>/.gitkeep
 ```
 
 IaC engineが`cloudformation`の場合:
 
 ```text
-infra/cloudformation/parameters/<environment>/<aws-account-id>/.gitkeep
+infra/cloudformation/parameters/<environment>/<target-directory>/.gitkeep
 ```
 
 IaC engineが`terraform`の場合:
 
 ```text
-infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
+infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 ```
 
 既存directoryを削除しない。target pathが既に存在しても`.gitkeep`だけなら再利用し、内容を変更しない。

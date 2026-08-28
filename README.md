@@ -4,13 +4,15 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 ## Initial setup
 
-1. `framework/prompts/codex/01_initialize.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、AWS account、region、IaC engineを一問一答で順番に確認する。
-2. 現時点で必要値が確定しているtargetだけを回答する。未作成または必要値が未確定のenvironment/AWS accountは初期化対象に含めない。
+1. `framework/prompts/codex/01_initialize.md`をCodexへ渡す。Codexが初期化に必要なproject、environment、必要な場合だけalias、AWS account、region、IaC engineを一問一答で順番に確認する。
+2. 現時点で必要値が確定しているtargetだけを回答する。未作成または必要値が未確定のenvironment／logical targetは初期化対象に含めない。
 3. Codexが回答から`project.json`と定義済みtarget pathを作成し、全targetで未選択のIaC engine directoryを削除する。
 4. 未確定だったtargetは、必要値の確定後に`framework/prompts/codex/02_add-target.md`をCodexへ渡して追加する。
 5. initializationまたはmigration taskの完了後は終了し、design taskを自動作成または自動実行しない。
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
+
+一つのenvironmentにtargetが一件だけならaliasを使用しません。複数の論理配置先がある場合は全targetへhuman-confirmed aliasを設定し、異なるaliasへ同じAWS account IDを設定できます。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値は禁止します。target directoryはaliasがあればalias、なければAWS account IDです。
 
 ## Repository instructions
 
@@ -50,7 +52,7 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 8. `model/`
 9. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/AWS account別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/target directory別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -192,27 +194,30 @@ framework/
 tasks/active.md
 docs/
   system-overview.md
-  designs/<environment>/<aws-account-id>/
+  designs/<environment>/<target-directory>/
 model/
-  <environment>/<aws-account-id>/<service-id>.properties
+  <environment>/<target-directory>/<service-id>.properties
 infra/
   cloudformation/  # CloudFormationを選択したtargetがある場合だけ
-    templates/
-    parameters/<environment>/<aws-account-id>/
+    templates/  # aliasなしの共通template
+    templates/<alias>/  # alias別template
+    parameters/<environment>/<target-directory>/
   terraform/  # Terraformを選択したtargetがある場合だけ
-    environments/<environment>/<aws-account-id>/
+    modules/  # aliasなしの共通module
+    modules/<alias>/  # alias別module
+    environments/<environment>/<target-directory>/
 tests/
   scenarios/<scenario-id>/
-  results/<scenario-id>/<environment>/<aws-account-id>/
+  results/<scenario-id>/<environment>/<target-directory>/
 ```
 
 ## Design information
 
-- `docs/designs/<environment>/<aws-account-id>/`はhuman-readable current designの正本。
-- `model/<environment>/<aws-account-id>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
+- `docs/designs/<environment>/<target-directory>/`はhuman-readable current designの正本。
+- `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
 - 一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
 - service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
-- policy JSONは`docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated modelへそのまま反映する。
+- policy JSONは`docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated modelへそのまま反映する。
 - topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`framework/rules/detailed-design.md`を正本とする。
 - `desired.*`は確定済みのintended design、`observed.*`は対象AWS accountから取得した必要最小限のgenerated current valueを保持する。
 - 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
@@ -222,8 +227,8 @@ tests/
 ## Scenario evidence
 
 - scenarioは`tests/scenarios/<scenario-id>/`に置き、stableなlower-kebab-case IDを使う。
-- current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/`に置く。
-- 同じscenario/environment/AWS accountの再実行では同じ`result.md`とstable evidence fileを更新する。
+- current resultは`tests/results/<scenario-id>/<environment>/<target-directory>/`に置く。
+- 同じscenario/environment/target directoryの再実行では同じ`result.md`とstable evidence fileを更新する。
 - 実行別またはtimestamp別のresult directory/fileを作らない。
 - scenario変更時は既存resultを再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
 - scenario evidenceの過去版はGit履歴で追跡する。
@@ -265,8 +270,8 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 
 ## Acceptance checks
 
-- [R1] `changed:docs/designs/<environment>/<aws-account-id>/**`
-- [R2] `changed:model/<environment>/<aws-account-id>/**`
+- [R1] `changed:docs/designs/<environment>/<target-directory>/**`
+- [R2] `changed:model/<environment>/<target-directory>/**`
 
 ## Allowed paths
 

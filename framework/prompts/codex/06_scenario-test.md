@@ -6,6 +6,7 @@
 
 - Scenario ID: `{{lower-kebab-case ID}}`
 - Target environment: `{{project.jsonのenvironment}}`
+- Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Expected behavior: `{{検証するapplication behavior}}`
 - AWS mutation: `forbidden`
@@ -13,7 +14,7 @@
 
 ## Resolve missing input
 
-placeholder、空、不明な必須inputは、Scenario ID、Target environment、Target AWS account、Expected behaviorの順で一回の応答につき一つだけ質問する。environmentとaccountは`project.json`に存在する候補だけを提示し、自動選択しない。
+placeholder、空、不明な必須inputは、Scenario ID、Target environment、Target alias（選択済みenvironmentに複数targetがある場合だけ）、Target AWS account、Expected behaviorの順で一回の応答につき一つだけ質問する。environment、alias、accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。
 
 AWS mutationまたはdestructive operationが必要なscenarioは、対象operation、resource、cleanup、許可範囲がUser inputに明記されるまで実行しない。
 
@@ -25,19 +26,21 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 4. `framework/rules/scenario-testing.md`
 5. `framework/rules/loop-engineering.md`
 6. 対象の`tests/scenarios/<scenario-id>/`
-7. 対象の`tests/results/<scenario-id>/<environment>/<aws-account-id>/`
+7. 対象の`tests/results/<scenario-id>/<environment>/<target-directory>/`
 8. 必要な`docs/designs/**`と`model/**`をread-only inputとして読む
+
+`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。result metadataのAWS accountにはdirectory名ではなく`project.json`の実際のAWS account IDを記録する。
 
 ## Create active task contract
 
 最初のrepository changeとして`tasks/active.md`を次の条件で上書きする。
 
 - Task typeは`scenario-test`とする。
-- goalにscenario ID、environment、AWS account、expected behaviorを記載する。
+- goalにscenario ID、environment、aliasがある場合はalias、AWS account、expected behaviorを記載する。
 - `Required changes`は一意なRequirement ID付きで、scenario定義／implementationと同じtargetのcurrent result更新を分けて記載する。
 - `Acceptance checks`は各Requirement IDへ対象scenario fileとresult fileの`changed:`を対応付ける。
 - AWS mutationとdestructive operationは確認済みUser inputの値をそのまま記載する。
-- Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<aws-account-id>/**`、`tasks/active.md`だけに限定する。
+- Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<target-directory>/**`、`tasks/active.md`だけに限定する。
 - `docs/**`、`model/**`、`infra/**`は変更禁止とする。
 
 ## Define and execute

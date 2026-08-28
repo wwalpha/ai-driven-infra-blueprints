@@ -20,11 +20,12 @@
 ## Current result
 
 - result scopeはscenario ID、environment、AWS account IDの組み合わせとする。
-- current resultは`tests/results/<scenario-id>/<environment>/<aws-account-id>/result.md`に置く。
+- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
+- current resultは`tests/results/<scenario-id>/<environment>/<target-directory>/result.md`に置く。result metadataのAWS account IDはdirectory名ではなく、対応する`project.json` targetの実値と一致させる。
 - AWS regionはdirectoryに追加せず、`project.json`と一致する値をresult metadataに記録する。
-- 同じscopeの再実行では同じ`result.md`とaccount directory直下のstable evidence fileを更新する。
+- 同じscopeの再実行では同じ`result.md`とtarget directory直下のstable evidence fileを更新する。
 - execution date別、timestamp別のdirectoryまたはfileを追加しない。
-- account directory配下に追加directoryを作らない。
+- target directory配下に追加directoryを作らない。
 - scenarioが存在しresultがまだない状態は許可する。対応scenarioがないorphan resultは禁止する。
 - 過去resultはGit履歴で追跡し、active treeにcopyやarchiveを残さない。
 

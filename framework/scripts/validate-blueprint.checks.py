@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -158,6 +159,108 @@ def check_task_type_dispatch() -> None:
     }
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
+
+
+def check_optional_alias_targets() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        topology = {
+            "projectName": "test",
+            "targets": [
+                {
+                    "environment": "dev",
+                    "alias": "cde",
+                    "awsAccountId": "123456789012",
+                    "awsRegion": "ap-northeast-1",
+                    "iacEngine": "cloudformation",
+                },
+                {
+                    "environment": "dev",
+                    "alias": "non-cde",
+                    "awsAccountId": "123456789012",
+                    "awsRegion": "ap-northeast-1",
+                    "iacEngine": "cloudformation",
+                },
+                {
+                    "environment": "sandbox",
+                    "awsAccountId": "210987654321",
+                    "awsRegion": "ap-northeast-1",
+                    "iacEngine": "terraform",
+                },
+            ],
+        }
+        (root / "project.json").write_text(
+            json.dumps(topology) + "\n", encoding="utf-8"
+        )
+        for path in (
+            "docs/designs/dev/cde",
+            "docs/designs/dev/non-cde",
+            "docs/designs/sandbox/210987654321",
+            "model/dev/cde",
+            "model/dev/non-cde",
+            "model/sandbox/210987654321",
+            "infra/cloudformation/parameters/dev/cde",
+            "infra/cloudformation/parameters/dev/non-cde",
+            "infra/terraform/environments/sandbox/210987654321",
+        ):
+            (root / path).mkdir(parents=True)
+
+        validator = MODULE.Validator(root)
+        validator.check_project_topology()
+        validator.check_initialized_paths()
+        assert not validator.errors, validator.errors
+        assert validator.accounts[("dev", "cde")]["account"] == "123456789012"
+        assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
+
+        invalid_targets = [
+            ([topology["targets"][0]], "single-target environment must omit alias"),
+            (
+                [
+                    topology["targets"][0],
+                    {**topology["targets"][2], "environment": "dev"},
+                ],
+                "multi-target environment requires alias",
+            ),
+            (
+                [
+                    topology["targets"][0],
+                    {**topology["targets"][1], "iacEngine": "terraform"},
+                ],
+                "must use one IaC engine",
+            ),
+            (
+                [{**topology["targets"][0], "alias": "123456789012"}],
+                "invalid target alias",
+            ),
+        ]
+        for targets, expected_error in invalid_targets:
+            (root / "project.json").write_text(
+                json.dumps({"projectName": "test", "targets": targets}) + "\n",
+                encoding="utf-8",
+            )
+            validator = MODULE.Validator(root)
+            validator.check_project_topology()
+            assert any(expected_error in error for error in validator.errors), (
+                expected_error,
+                validator.errors,
+            )
+
+
+def check_optional_alias_contract() -> None:
+    root = SCRIPT.parents[2]
+    required = {
+        "AGENTS.md": "target directory",
+        "framework/prompts/codex/01_initialize.md": "optional `alias`",
+        "framework/rules/cloudformation.md": "templates/<alias>/",
+        "framework/rules/terraform.md": "modules/<alias>/",
+        "framework/rules/detailed-design.md": "<target-directory>",
+        "framework/rules/scenario-testing.md": "<target-directory>",
+    }
+    for relative, literal in required.items():
+        assert literal in (root / relative).read_text(encoding="utf-8"), (
+            relative,
+            literal,
+        )
 
 
 def check_model_task_boundaries() -> None:
@@ -322,11 +425,13 @@ def main() -> None:
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
     check_task_contract()
     check_task_type_dispatch()
+    check_optional_alias_targets()
+    check_optional_alias_contract()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
     check_identifier_propagation()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (24 focused checks)")
+    print("validate-blueprint: PASS (30 focused checks)")
 
 
 if __name__ == "__main__":

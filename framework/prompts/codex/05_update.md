@@ -14,8 +14,8 @@
 fileを変更する前に、次の順序でtargetとscopeを特定する。
 
 1. `git status --short`と`git diff --name-only HEAD -- docs/designs/`を確認する。
-2. humanが変更した既存詳細設計Markdownのpathが`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に一致することを確認し、pathからenvironmentとAWS accountを取得する。
-3. 取得したenvironment／AWS accountの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認する。変更済み詳細設計がない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
+2. humanが変更した既存詳細設計Markdownのpathが`docs/designs/<environment>/<target-directory>/<service-id>.md`に一致することを確認し、pathからenvironmentとtarget directoryを取得する。
+3. 取得したenvironment／target directoryの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認し、aliasがある場合はalias、常に実際のAWS account IDを取得する。変更済み詳細設計がない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
 4. 同じtargetでhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
 5. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。
 6. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。
@@ -29,8 +29,8 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 3. `tasks/active.md`
 4. `project.json`
 5. `git status --short`と、repository差分から特定したDesign scopeのdiff
-6. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`と関連するJSON artifact
-7. 対応する`model/<environment>/<aws-account-id>/*.properties`
+6. 対象の`docs/designs/<environment>/<target-directory>/*.md`と関連するJSON artifact
+7. 対応する`model/<environment>/<target-directory>/*.properties`
 8. `framework/prompts/codex/03_implement.md`
 9. `framework/prompts/codex/04_deploy.md`
 10. `framework/rules/detailed-design.md`
@@ -41,9 +41,11 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 15. 対象resourceに関係する`framework/materials/aws/*.properties`
 16. CloudFormationの場合は対象resourceのprovider schema
 
+`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
 ## Validate human design diff
 
-- 特定したDesign scopeは、対象environment／AWS account配下でhumanが変更した既存詳細設計Markdownと関連JSON artifactだけとする。
+- 特定したDesign scopeは、対象environment／target directory配下でhumanが変更した既存詳細設計Markdownと関連JSON artifactだけとする。
 - Design scopeのMarkdownにhumanが作成したuncommitted diffが存在しなければ停止する。
 - 特定したDesign scope外のuncommitted changeがある場合は、今回のtaskへ取り込まず停止する。
 - 対応するmodelまたはIaCにtask開始前からuncommitted changeがある場合は停止する。
@@ -58,7 +60,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`update`とする。
-- goalにtarget environment、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
+- goalにtarget environment、aliasがある場合はalias、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
 - AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
 - Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。
 - `Required changes`は一意なRequirement ID付きで、human design diffの検証、service model同期、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
@@ -67,7 +69,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 ## Sync model and implement IaC
 
-1. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
+1. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
 2. model生成失敗またはMarkdown validation failureではdesignを修正せず停止する。
 3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、自動特定したDeployment scopeに必要なIaCだけを最小変更する。
 4. IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。human decisionまたはdesign変更が必要なら停止する。
@@ -75,6 +77,14 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 ## Preflight and deploy
 
 credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。AWS profileが指定されていない場合は`--profile`を省略する。
+
+aliasがあるtargetでは次を実行する。
+
+```text
+python framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>]
+```
+
+aliasがないtargetでは次を実行する。
 
 ```text
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
@@ -90,7 +100,7 @@ deploy/applyが成功した場合:
 
 1. terminal successとresource存在を確認する。
 2. 必要な非ARN generated current valueだけを詳細設計へ反映し、humanが変更したintended designは変更しない。
-3. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を再実行する。
+3. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を再実行する。
 
 deploy完了status、resource存在、observed value収集をapplication behaviorの検証またはscenario PASSとして扱わない。
 

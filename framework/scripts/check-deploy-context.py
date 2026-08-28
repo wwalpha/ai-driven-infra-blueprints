@@ -16,9 +16,21 @@ class DeployContextError(RuntimeError):
     pass
 
 
-def load_target(root: Path, environment: str, account_id: str) -> dict[str, str]:
-    if not re.fullmatch(r"\d{12}", account_id):
+def load_target(
+    root: Path,
+    environment: str,
+    account_id: str | None = None,
+    alias: str | None = None,
+) -> dict[str, str]:
+    if bool(account_id) == bool(alias):
+        raise DeployContextError("exactly one of AWS account ID or alias is required")
+    if account_id and not re.fullmatch(r"\d{12}", account_id):
         raise DeployContextError("AWS account ID must be 12 digits")
+    if alias and (
+        not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias)
+        or re.fullmatch(r"\d{12}", alias)
+    ):
+        raise DeployContextError("alias must be lower-kebab-case and not a 12-digit number")
 
     path = root / "project.json"
     try:
@@ -37,29 +49,45 @@ def load_target(root: Path, environment: str, account_id: str) -> dict[str, str]
         for target in targets
         if isinstance(target, dict)
         and target.get("environment") == environment
-        and target.get("awsAccountId") == account_id
+        and (
+            target.get("alias") == alias
+            if alias
+            else "alias" not in target and target.get("awsAccountId") == account_id
+        )
     ]
     if len(matches) != 1:
-        raise DeployContextError(f"topology target must exist exactly once: {environment}/{account_id}")
+        selector = alias or account_id
+        raise DeployContextError(f"topology target must exist exactly once: {environment}/{selector}")
 
     target = matches[0]
+    resolved_account_id = target.get("awsAccountId")
     region = target.get("awsRegion")
     engine = target.get("iacEngine")
+    if not isinstance(resolved_account_id, str) or not re.fullmatch(r"\d{12}", resolved_account_id):
+        raise DeployContextError("target AWS account ID is invalid")
     if not isinstance(region, str) or not region:
         raise DeployContextError("target AWS region is missing")
     if engine not in {"cloudformation", "terraform"}:
         raise DeployContextError(f"invalid target IaC engine: {engine}")
-    return {"awsRegion": region, "iacEngine": engine}
+    resolved = {
+        "awsAccountId": resolved_account_id,
+        "awsRegion": region,
+        "iacEngine": engine,
+    }
+    if alias:
+        resolved["alias"] = alias
+    return resolved
 
 
 def check_deploy_context(
     root: Path,
     environment: str,
-    account_id: str,
+    account_id: str | None = None,
+    alias: str | None = None,
     profile: str | None = None,
     read_only: bool = False,
 ) -> dict[str, str]:
-    target = load_target(root, environment, account_id)
+    target = load_target(root, environment, account_id, alias)
     required_commands = ["aws"]
     if not read_only:
         required_commands.append(
@@ -94,9 +122,9 @@ def check_deploy_context(
         caller_account = json.loads(result.stdout).get("Account")
     except (json.JSONDecodeError, AttributeError) as error:
         raise DeployContextError("AWS caller identity response is invalid") from error
-    if caller_account != account_id:
+    if caller_account != target["awsAccountId"]:
         raise DeployContextError(
-            f"AWS account mismatch: expected {account_id}, actual {caller_account or 'unknown'}"
+            f"AWS account mismatch: expected {target['awsAccountId']}, actual {caller_account or 'unknown'}"
         )
     return target
 
@@ -104,7 +132,9 @@ def check_deploy_context(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", required=True)
-    parser.add_argument("--aws-account-id", required=True)
+    selector = parser.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--aws-account-id")
+    selector.add_argument("--alias")
     parser.add_argument("--profile")
     parser.add_argument(
         "--read-only",
@@ -119,6 +149,7 @@ def main() -> int:
             root,
             args.environment,
             args.aws_account_id,
+            args.alias,
             args.profile,
             read_only=args.read_only,
         )
@@ -128,7 +159,9 @@ def main() -> int:
 
     print("Read-only AWS context: PASS" if args.read_only else "Deploy context: PASS")
     print(f"- environment: {args.environment}")
-    print(f"- AWS account: {args.aws_account_id}")
+    if args.alias:
+        print(f"- alias: {args.alias}")
+    print(f"- AWS account: {target['awsAccountId']}")
     print(f"- AWS region: {target['awsRegion']}")
     print(f"- IaC engine: {target['iacEngine']}")
     return 0

@@ -3,15 +3,16 @@
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
-- active projectと対象environment/AWS accountがCloudFormationを選択した場合だけ使用する。
+- active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
 - cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
 - 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決して`!Ref`を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをtemplateへ直書きしない。
 - 後続resourceまたは別stackが必要とするcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
-- reusable templateは`infra/cloudformation/templates/`、AWS account固有parameterは`infra/cloudformation/parameters/<environment>/<aws-account-id>/`に置く。
-- 1 environment/AWS accountは1 IaC engineだけで管理する。
+- aliasなしの共通templateは`infra/cloudformation/templates/`、alias別templateは`infra/cloudformation/templates/<alias>/`に置く。同じaliasのtemplateをenvironment間で共用し、異なるaliasのtemplateを共用しない。
+- target固有parameterは`infra/cloudformation/parameters/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
+- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
 - authorized operationはAWS CLIで行う。
 
 ## Validation and execution

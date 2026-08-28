@@ -5,6 +5,7 @@
 ## User input
 
 - Target environment: `{{project.jsonのenvironment}}`
+- Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Deployment scope: `{{対象のtemplate/stackまたはTerraform root/resource。複数可}}`
 - Authorized delete/replacement: `none`
@@ -15,10 +16,11 @@
 AWS APIを実行する前にUser inputを確認する。placeholder、空、不明な値はmissingとして扱い、次の順序で一回の応答につき一つだけ質問する。
 
 1. Target environment
-2. Target AWS account
-3. Deployment scope
+2. Target alias（選択済みenvironmentに複数targetがある場合だけ）
+3. Target AWS account
+4. Deployment scope
 
-environmentとAWS accountは`project.json`に存在する候補だけを提示し、自動選択しない。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
+environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。delete/replacementは、対象resourceと理由がUser inputに明記されていない限り許可しない。AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
 
 `project.json`、対象の承認済み詳細設計、対応するservice model、または対象IaCが存在しない場合は、値を推測せず停止する。
 
@@ -28,8 +30,8 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 2. `README.md`
 3. `tasks/active.md`
 4. `project.json`
-5. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`
-6. 対応する`model/<environment>/<aws-account-id>/*.properties`
+5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
+6. 対応する`model/<environment>/<target-directory>/*.properties`
 7. `framework/rules/detailed-design.md`
 8. `framework/rules/model-information.md`
 9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
@@ -39,24 +41,34 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 
 詳細設計、service model、IaCが矛盾する場合は、値やIaCを修正せず停止する。
 
+`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
 ## Create active task contract
 
 最初のrepository changeとして`tasks/active.md`を今回の対象だけを許可する内容へ上書きする。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`deploy`とする。
-- goalにtarget environment、AWS account、deployment scope、選択済みIaC engineを記載する。
+- goalにtarget environment、aliasがある場合はalias、AWS account、deployment scope、選択済みIaC engineを記載する。
 - AWS API executionとdeploy/applyは今回のdeployment scopeに限り`allowed`とする。
 - Authorized delete/replacementは確認済みUser inputの値をそのまま記載する。
 - `Required changes`は一意なRequirement ID付きでdeploymentと、必要な場合だけ成功後のobserved value更新を記載する。
 - `Acceptance checks`はdeployment unitの`exists:`と、observed value更新が必要な場合だけ対象詳細設計/modelの`changed:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsは、generated current value更新が必要な対象詳細設計、対応する`model/<environment>/<aws-account-id>/**`、`tasks/active.md`だけに限定する。`infra/**`と`tests/**`は変更禁止とする。
+- Allowed pathsは、generated current value更新が必要な対象詳細設計、対応する`model/<environment>/<target-directory>/**`、`tasks/active.md`だけに限定する。`infra/**`と`tests/**`は変更禁止とする。
 
 ## Preflight
 
 対象IaCにuncommitted changeがある場合はdeploy対象revisionが一意でないため停止する。unrelatedなworktree変更は上書きまたは巻き戻さない。
 
 credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定しない。repository rootから次を実行する。AWS profileが空の場合は`--profile`を省略する。
+
+aliasがあるtargetでは次を実行する。
+
+```text
+python framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>]
+```
+
+aliasがないtargetでは次を実行する。
 
 ```text
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
@@ -72,7 +84,7 @@ CloudFormationでは対象template、stack、parameter file、dependencyを既�
 
 Terraformでは対象root、workspace、backend、variable inputを既存IaCから特定する。不足または不一致があれば停止する。
 
-preflightはtarget environment／AWS accountにつき一回だけ実行する。
+preflightはtargetにつき一回だけ実行する。
 
 ## Validate and deploy
 
@@ -97,7 +109,7 @@ deploy/applyが成功した場合:
 
 1. terminal successとresource存在を確認する。
 2. `framework/rules/observed-values.md`に従い、取得した値をcatalogの正式な`IDENTIFIER_OUTPUT` propertyへ一意に対応付ける。identifier output rowと、同じanchorを参照する全propertyのMarkdown link表示textだけを同じphysical IDへ更新し、link先path、anchor、`Source / Comment`、その他のintended designは変更しない。
-3. `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行する。
+3. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行する。
 
 必要なoutputがIaCに存在しない、catalog propertyとの対応が一意でない、または参照元と参照先の値が一致しない場合は推測やIaC修正をせず停止する。replacement後は新しいIDへ更新し、destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻す。generated ARNは保存しない。
 

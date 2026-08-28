@@ -547,15 +547,21 @@ class Validator:
             return
 
         order: list[tuple[str, str]] = []
+        environment_targets: dict[str, list[dict[str, str]]] = {}
+        account_engines: dict[tuple[str, str], str] = {}
         required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
+        allowed = required | {"alias"}
         for index, target_values in enumerate(targets, 1):
             self.check(isinstance(target_values, dict), f"target {index} must be an object")
             if not isinstance(target_values, dict):
                 continue
-            self.check(set(target_values) == required, f"target {index} must contain only {sorted(required)}")
+            self.check(
+                required <= set(target_values) <= allowed,
+                f"target {index} must contain {sorted(required)} and optional alias only",
+            )
             if not required <= set(target_values):
                 continue
-            values = [target_values[key] for key in required]
+            values = list(target_values.values())
             self.check(all(isinstance(value, str) for value in values), f"target {index} values must be strings")
             if not all(isinstance(value, str) for value in values):
                 continue
@@ -563,31 +569,66 @@ class Validator:
             account = target_values["awsAccountId"]
             region = target_values["awsRegion"]
             engine = target_values["iacEngine"]
-            target = f"{environment}/{account}"
+            alias = target_values.get("alias", "")
+            target_directory = alias or account
+            target = f"{environment}/{target_directory}"
             self.check("UNSET" not in values and all(values), f"target contains unset value: {target}")
             self.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")
             self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account: {target}")
+            if alias:
+                self.check(
+                    LOWER_KEBAB_PATTERN.fullmatch(alias) is not None
+                    and re.fullmatch(r"\d{12}", alias) is None,
+                    f"invalid target alias: {target}",
+                )
             self.check(region not in {"", "UNSET"}, f"AWS region is required: {target}")
             self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine: {target}")
-            key = (environment, account)
+            key = (environment, target_directory)
             order.append(key)
-            self.check(key not in self.accounts, f"duplicate AWS account in environment: {target}")
+            self.check(key not in self.accounts, f"duplicate target directory in environment: {target}")
             if key not in self.accounts:
-                self.accounts[key] = {"region": region, "engine": engine}
-        self.check(order == sorted(order), "targets must be sorted by environment and AWS account ID")
+                self.accounts[key] = {
+                    "account": account,
+                    "alias": alias,
+                    "region": region,
+                    "engine": engine,
+                }
+            environment_targets.setdefault(environment, []).append(target_values)
+            account_key = (environment, account)
+            previous_engine = account_engines.get(account_key)
+            self.check(
+                previous_engine in {None, engine},
+                f"aliases for the same environment/AWS account must use one IaC engine: {environment}/{account}",
+            )
+            account_engines.setdefault(account_key, engine)
+
+        for environment, environment_values in environment_targets.items():
+            aliases = [value.get("alias", "") for value in environment_values]
+            if len(environment_values) == 1:
+                self.check(not aliases[0], f"single-target environment must omit alias: {environment}")
+            else:
+                self.check(
+                    all(aliases),
+                    f"multi-target environment requires alias on every target: {environment}",
+                )
+                self.check(
+                    len(aliases) == len(set(aliases)),
+                    f"target aliases must be unique within environment: {environment}",
+                )
+        self.check(order == sorted(order), "targets must be sorted by environment and target directory")
 
     def check_initialized_paths(self) -> None:
         if self.template_mode:
             return
-        for (environment, account), values in self.accounts.items():
+        for (environment, target_directory), values in self.accounts.items():
             paths = [
-                self.root / "docs" / "designs" / environment / account,
-                self.root / "model" / environment / account,
+                self.root / "docs" / "designs" / environment / target_directory,
+                self.root / "model" / environment / target_directory,
             ]
             if values["engine"] == "cloudformation":
-                paths.append(self.root / "infra" / "cloudformation" / "parameters" / environment / account)
+                paths.append(self.root / "infra" / "cloudformation" / "parameters" / environment / target_directory)
             else:
-                paths.append(self.root / "infra" / "terraform" / "environments" / environment / account)
+                paths.append(self.root / "infra" / "terraform" / "environments" / environment / target_directory)
             for path in paths:
                 self.check(path.is_dir(), f"initialized target path missing: {self.relative(path)}")
 
@@ -621,7 +662,7 @@ class Validator:
 
     def check_target_file(self, path: Path, base: Path) -> tuple[str, str] | None:
         parts = path.relative_to(base).parts
-        self.check(len(parts) == 3, f"target file must be <environment>/<aws-account-id>/<file>: {self.relative(path)}")
+        self.check(len(parts) == 3, f"target file must be <environment>/<target-directory>/<file>: {self.relative(path)}")
         if len(parts) != 3:
             return None
         target = (parts[0], parts[1])
@@ -1049,7 +1090,7 @@ class Validator:
         artifacts = {path.resolve() for path in base.rglob("*.json")}
         for artifact in sorted(artifacts):
             relative = artifact.relative_to(base)
-            self.check(len(relative.parts) == 4, f"design JSON artifact must be <environment>/<aws-account-id>/<service-id>/<file>: {self.relative(artifact)}")
+            self.check(len(relative.parts) == 4, f"design JSON artifact must be <environment>/<target-directory>/<service-id>/<file>: {self.relative(artifact)}")
             if len(relative.parts) != 4:
                 continue
             target = (relative.parts[0], relative.parts[1])
@@ -1095,7 +1136,7 @@ class Validator:
             if not path.is_file() or path.name.startswith("."):
                 continue
             parts = path.relative_to(cloudformation_base).parts
-            self.check(len(parts) >= 3, f"CloudFormation parameter must be scoped by environment/AWS account: {self.relative(path)}")
+            self.check(len(parts) >= 3, f"CloudFormation parameter must be scoped by environment/target directory: {self.relative(path)}")
             if len(parts) >= 3:
                 target = (parts[0], parts[1])
                 self.check(target in self.accounts, f"CloudFormation target is not defined: {self.relative(path)}")
@@ -1108,7 +1149,7 @@ class Validator:
                 if not path.is_file() or path.name.startswith("."):
                     continue
                 parts = path.relative_to(terraform_base).parts
-                self.check(len(parts) >= 3, f"Terraform composition must be scoped by environment/AWS account: {self.relative(path)}")
+                self.check(len(parts) >= 3, f"Terraform composition must be scoped by environment/target directory: {self.relative(path)}")
                 if len(parts) >= 3:
                     target = (parts[0], parts[1])
                     self.check(target in self.accounts, f"Terraform target is not defined: {self.relative(path)}")
@@ -1161,7 +1202,13 @@ class Validator:
                     self.check(values[0] == scenario_id, f"Scenario ID does not match directory: {self.relative(scenario_file)}")
             self.scenario_ids.add(scenario_id)
 
-    def check_result_metadata(self, path: Path, scenario_id: str, environment: str, account: str) -> None:
+    def check_result_metadata(
+        self,
+        path: Path,
+        scenario_id: str,
+        environment: str,
+        target_directory: str,
+    ) -> None:
         metadata: dict[str, str] = {}
         for label in RESULT_METADATA:
             values = self.metadata_values(path, label)
@@ -1171,16 +1218,16 @@ class Validator:
                 if values[0]:
                     metadata[label] = values[0]
 
+        target = (environment, target_directory)
         expected = {
             "Scenario ID": scenario_id,
             "Environment": environment,
-            "AWS account ID": account,
+            "AWS account ID": self.accounts.get(target, {}).get("account", ""),
         }
         for label, value in expected.items():
             if label in metadata:
                 self.check(metadata[label] == value, f"{label} does not match result path: {self.relative(path)}")
 
-        target = (environment, account)
         if "AWS region" in metadata and target in self.accounts:
             self.check(metadata["AWS region"] == self.accounts[target]["region"], f"AWS region does not match project.json: {self.relative(path)}")
         if "Status" in metadata:
@@ -1212,24 +1259,28 @@ class Validator:
                 if not environment_entry.is_dir():
                     continue
                 environment = environment_entry.name
-                for account_entry in sorted(environment_entry.iterdir()):
-                    self.check(account_entry.is_dir(), f"result environment directory may contain only AWS account directories: {self.relative(account_entry)}")
-                    if not account_entry.is_dir():
+                for target_entry in sorted(environment_entry.iterdir()):
+                    self.check(target_entry.is_dir(), f"result environment directory may contain only target directories: {self.relative(target_entry)}")
+                    if not target_entry.is_dir():
                         continue
-                    account = account_entry.name
-                    self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid result AWS account ID: {self.relative(account_entry)}")
-                    target = (environment, account)
-                    self.check(target in self.accounts, f"result target is not defined in project.json: {self.relative(account_entry)}")
-                    self.check(not self.template_mode, f"template mode cannot contain scenario results: {self.relative(account_entry)}")
-                    for child in sorted(account_entry.iterdir()):
-                        self.check(child.is_file(), f"result account directory cannot contain subdirectories: {self.relative(child)}")
+                    target_directory = target_entry.name
+                    target = (environment, target_directory)
+                    self.check(target in self.accounts, f"result target is not defined in project.json: {self.relative(target_entry)}")
+                    self.check(not self.template_mode, f"template mode cannot contain scenario results: {self.relative(target_entry)}")
+                    for child in sorted(target_entry.iterdir()):
+                        self.check(child.is_file(), f"result target directory cannot contain subdirectories: {self.relative(child)}")
                         if child.is_file() and child.suffix.lower() == ".md":
                             self.check(child.name == "result.md", f"result history copy is forbidden: {self.relative(child)}")
-                    result_file = account_entry / "result.md"
-                    self.check(result_file.is_file(), f"result.md missing: {self.relative(account_entry)}")
+                    result_file = target_entry / "result.md"
+                    self.check(result_file.is_file(), f"result.md missing: {self.relative(target_entry)}")
                     if result_file.is_file():
                         self.result_files.setdefault(scenario_id, []).append(result_file)
-                        self.check_result_metadata(result_file, scenario_id, environment, account)
+                        self.check_result_metadata(
+                            result_file,
+                            scenario_id,
+                            environment,
+                            target_directory,
+                        )
 
     def check_scenario_changes(self) -> None:
         changed_scenarios: set[str] = set()

@@ -5,6 +5,7 @@
 ## User input
 
 - Target environment: `{{project.jsonのenvironment}}`
+- Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Implementation scope: `{{対象の詳細設計fileまたはresource group。複数可。「対象accountの承認済み設計すべて」も可}}`
 
@@ -13,10 +14,11 @@
 fileを変更する前にUser inputを確認する。placeholder、空、不明な値はmissingとして扱い、次の順序で一回の応答につき一つだけ質問する。
 
 1. Target environment
-2. Target AWS account
-3. Implementation scope
+2. Target alias（選択済みenvironmentに複数targetがある場合だけ）
+3. Target AWS account
+4. Implementation scope
 
-environmentとAWS accountは`project.json`に存在する候補だけを提示し、自動選択しない。`project.json`、対象の承認済み詳細設計、または対応するservice modelが存在しない場合は、値を推測せず停止する。
+environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。`project.json`、対象の承認済み詳細設計、または対応するservice modelが存在しない場合は、値を推測せず停止する。
 
 ## Read before changing files
 
@@ -24,8 +26,8 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 2. `README.md`
 3. `tasks/active.md`
 4. `project.json`
-5. 対象の`docs/designs/<environment>/<aws-account-id>/*.md`
-6. 対応する`model/<environment>/<aws-account-id>/*.properties`
+5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
+6. 対応する`model/<environment>/<target-directory>/*.properties`
 7. `framework/rules/detailed-design.md`
 8. `framework/rules/model-information.md`
 9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
@@ -36,13 +38,15 @@ environmentとAWS accountは`project.json`に存在する候補だけを提示�
 
 詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、別の`design` taskが必要であることを報告して停止する。
 
+`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
 ## Create active task contract
 
 最初のrepository changeとして`tasks/active.md`を今回の対象だけを許可する内容へ上書きする。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`implement`とする。
-- goalにtarget environment、AWS account、implementation scope、選択済みIaC engineを記載する。
+- goalにtarget environment、aliasがある場合はalias、AWS account、implementation scope、選択済みIaC engineを記載する。
 - AWS mutation、AWS API execution、deploy/applyを`forbidden`とする。
 - `Required changes`は一意なRequirement ID付きでIaC implementationとstatic validationを記載する。
 - `Acceptance checks`は各Requirement IDへ対象IaC fileの`changed:`または必要なpathの`exists:`を対応付ける。
@@ -62,13 +66,13 @@ identifierを参照するMarkdown linkはanchorから参照先resourceのlogical
 
 CloudFormationの場合:
 
-1. `infra/cloudformation/templates/`と対象の`infra/cloudformation/parameters/<environment>/<aws-account-id>/`だけを変更する。
+1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用し、対象の`infra/cloudformation/parameters/<environment>/<target-directory>/`だけを変更する。
 2. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 3. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
 
 Terraformの場合:
 
-1. 必要な`infra/terraform/modules/`と対象の`infra/terraform/environments/<environment>/<aws-account-id>/`だけを変更する。
+1. aliasがあるtargetでは`infra/terraform/modules/<alias>/`、aliasがないtargetでは共通の`infra/terraform/modules/`を使用し、対象の`infra/terraform/environments/<environment>/<target-directory>/`だけを変更する。
 2. `terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行する。
 3. `terraform plan`、`terraform apply`、AWS APIは実行しない。state fileとplan binaryを作成または保存しない。
 

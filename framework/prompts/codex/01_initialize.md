@@ -32,11 +32,12 @@ Project nameを入力してください。
 
 1. Project name
 2. Environment IDを一つ確認し、別のenvironmentを追加するか確認する。追加がなくなるまで繰り返す
-3. 各environmentについてAWS account IDを一つ確認し、同じenvironmentへ別のaccountを追加するか確認する。追加がなくなるまで繰り返す
-4. 各environment/AWS accountについてAWS regionを一つずつ確認する
-5. 各environment/AWS accountについてIaC engineを一つずつ確認する
+3. 各environmentについて論理配置先が一件か複数かを確認する。複数の場合だけaliasを一つずつ確認し、追加がなくなるまで繰り返す
+4. 各targetについてAWS account IDを一つずつ確認する。同じAWS account IDを異なるaliasへ設定してよい
+5. 各targetについてAWS regionを一つずつ確認する
+6. 各targetについてIaC engineを一つずつ確認する
 
-Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
+Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。aliasはhumanが入力した値だけを使用し、`cde`、`non-cde`などの固定候補を持たない。
 
 - 現時点でEnvironment ID、AWS account ID、AWS region、IaC engineがすべて確定しているtargetだけを収集する。
 - 未作成または必要値が未確定のtargetは今回の初期化対象から除外し、placeholderや`UNSET`を記録しない。確定後に`framework/prompts/codex/02_add-target.md`で追加できることを説明する。
@@ -44,6 +45,9 @@ Environment IDはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloud
 - 不正または不明な回答は理由を短く説明し、同じ項目だけを再質問する。
 - humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。
 - humanが修正を求めた場合は該当値を更新し、依存する未解決項目へ戻る。
+- 一つのenvironmentにtargetが一件だけならoptional `alias`を省略する。複数targetがある場合は全targetでaliasを必須とし、aliasあり／なしを混在させない。
+- aliasは同じenvironment内で一意とし、12桁の数字だけの値を禁止する。
+- 同じenvironment/AWS account IDを持つ複数aliasではIaC engineを統一する。
 - 質問票、回答履歴、session state fileを作成せず、進行中の回答はconversation contextだけで保持する。
 - 値を推測しない。
 
@@ -59,7 +63,9 @@ file変更前に次を確認する。
 - AWS account IDが12桁
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
-- 同じenvironment/AWS accountが重複していない
+- 一件だけのenvironmentではaliasがなく、複数targetのenvironmentでは全targetに一意で有効なaliasがある
+- target directoryとなる`alias`または`awsAccountId`が同じenvironment内で重複していない
+- 同じenvironment/AWS account IDのtargetは同じIaC engineを使用する
 
 不足または不正な値が残る場合は変更せず停止する。
 
@@ -81,7 +87,7 @@ file変更前に次を確認する。
 
 ## Create project topology
 
-humanが確認した値からrepository rootに`project.json`を作成する。UTF-8、2-space indentation、final newlineを使用し、targetはenvironment、AWS account IDの順に並べる。
+humanが確認した値からrepository rootに`project.json`を作成する。UTF-8、2-space indentation、final newlineを使用し、targetはenvironment、target directoryの順に並べる。target directoryはaliasがあればalias、なければAWS account IDとする。
 
 ```json
 {
@@ -89,6 +95,7 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
   "targets": [
     {
       "environment": "<confirmed-environment-id>",
+      "alias": "<confirmed-optional-alias>",
       "awsAccountId": "<confirmed-12-digit-account-id>",
       "awsRegion": "<confirmed-region>",
       "iacEngine": "<cloudformation-or-terraform>"
@@ -97,27 +104,27 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
 }
 ```
 
-確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
+aliasなしのtargetでは`alias` key自体を省略する。確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
 
 ## Create target paths
 
 各targetについて、存在しないpathだけを作成し、空directoryには`.gitkeep`を置く。
 
 ```text
-docs/designs/<environment>/<aws-account-id>/.gitkeep
-model/<environment>/<aws-account-id>/.gitkeep
+docs/designs/<environment>/<target-directory>/.gitkeep
+model/<environment>/<target-directory>/.gitkeep
 ```
 
 IaC engineが`cloudformation`の場合:
 
 ```text
-infra/cloudformation/parameters/<environment>/<aws-account-id>/.gitkeep
+infra/cloudformation/parameters/<environment>/<target-directory>/.gitkeep
 ```
 
 IaC engineが`terraform`の場合:
 
 ```text
-infra/terraform/environments/<environment>/<aws-account-id>/.gitkeep
+infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 ```
 
 全targetの`iacEngine`を確認し、1件も選択されていないIaC engineのrootを削除する。

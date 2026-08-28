@@ -8,13 +8,14 @@
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
-- 人間向けの現行設計は`docs/designs/<environment>/<aws-account-id>/`、同じserviceのdesired/observedを保持する機械可読modelは`model/<environment>/<aws-account-id>/`に置く。
+- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
+- 人間向けの現行設計は`docs/designs/<environment>/<target-directory>/`、同じserviceのdesired/observedを保持する機械可読modelは`model/<environment>/<target-directory>/`に置く。
 - `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
 - initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project.json`とする。
 - `framework/materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
 - 変更前にactive promptとtask typeに関係する`framework/rules/*.md`を読む。
 - 人間が決めていないresource選択やparameter値を推測しない。不足値は明示して停止する。
-- 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。
+- 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。同じenvironment/AWS accountに複数aliasがある場合もIaC engineを統一する。
 - validate/plan後にrepository独自のhuman review停止は設けない。
 - deploy/applyは`infrastructure` taskのactive promptが明示的に許可した場合だけ実行する。
 - `design` taskのAWS APIはdefaultで禁止し、chatbotが指定した既存resourceの現在値取得をactive promptが明示する場合だけlist/get/describe相当のread-only operationを許可する。AWS mutationは許可しない。
@@ -35,7 +36,7 @@
 
 - `design`: `docs/designs/**`と対応する`model/**`を更新し、local validation後に終了する。既存resource取得ではchatbotが選択したpropertyと必要な非ARN current identifierだけを反映できる。IaC、AWS mutation、scenarioへ進まない。
 - `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。`update` phaseではhumanがtask開始前に手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
-- `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<aws-account-id>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
+- `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<target-directory>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
 - `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
 - scenario-test taskだけが`tests/scenarios/**`と`tests/results/**`を変更できる。
@@ -59,7 +60,8 @@
 - `docs/system-overview.md`の作成・記入状態に関係なく、`framework/prompts/codex/01_initialize.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
 - initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`framework/prompts/codex/02_add-target.md`のmigrationで追加する。
 - environment数、environment名、AWS account数を固定しない。
-- 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとする。
+- 一つのenvironmentにtargetが一件だけならaliasを持たせない。複数targetがある場合は全targetにhuman-confirmed aliasを必須とし、同じAWS account IDを複数aliasへ設定してよい。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値を禁止する。
+- 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとし、同じAWS account IDを持つalias間で統一する。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
 - `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
 

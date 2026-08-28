@@ -167,25 +167,41 @@ def model_for(path: Path, root: Path | None = None) -> str:
     return "\n".join(output) + "\n"
 
 
-def selected(path: Path, base: Path, environment: str | None, account: str | None) -> bool:
+def selected(
+    path: Path,
+    base: Path,
+    environment: str | None,
+    target_directory: str | None,
+) -> bool:
     relative = path.relative_to(base)
     return (
         len(relative.parts) == 3
         and (environment is None or relative.parts[0] == environment)
-        and (account is None or relative.parts[1] == account)
+        and (target_directory is None or relative.parts[1] == target_directory)
     )
 
 
-def sync(root: Path, write: bool, environment: str | None = None, account: str | None = None) -> int:
+def sync(
+    root: Path,
+    write: bool,
+    environment: str | None = None,
+    target_directory: str | None = None,
+) -> int:
     docs = root / "docs" / "designs"
     models = root / "model"
-    markdown_paths = [path for path in sorted(docs.rglob("*.md")) if selected(path, docs, environment, account)]
+    markdown_paths = [
+        path
+        for path in sorted(docs.rglob("*.md"))
+        if selected(path, docs, environment, target_directory)
+    ]
     expected = {
         (models / path.relative_to(docs)).with_suffix(".properties"): model_for(path, root)
         for path in markdown_paths
     }
     existing = {
-        path for path in models.rglob("*.properties") if selected(path, models, environment, account)
+        path
+        for path in models.rglob("*.properties")
+        if selected(path, models, environment, target_directory)
     }
     failures: list[str] = []
     for path, content in expected.items():
@@ -211,11 +227,20 @@ def main() -> int:
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--environment")
     parser.add_argument("--aws-account-id")
+    parser.add_argument("--alias")
     args = parser.parse_args()
-    if bool(args.environment) != bool(args.aws_account_id):
-        parser.error("--environment and --aws-account-id must be used together")
+    selectors = bool(args.aws_account_id) + bool(args.alias)
+    if (args.environment and selectors != 1) or (not args.environment and selectors):
+        parser.error(
+            "--environment must be used with exactly one of --aws-account-id or --alias"
+        )
     try:
-        return sync(args.repository_root.resolve(), args.write, args.environment, args.aws_account_id)
+        return sync(
+            args.repository_root.resolve(),
+            args.write,
+            args.environment,
+            args.alias or args.aws_account_id,
+        )
     except ValueError as error:
         print(f"Service model sync: FAIL\n- {error}", file=sys.stderr)
         return 1

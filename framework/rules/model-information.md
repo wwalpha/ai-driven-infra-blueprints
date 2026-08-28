@@ -1,7 +1,8 @@
 # Machine-readable Service Model Rules
 
-- human-readable current designは`docs/designs/<environment>/<aws-account-id>/`に置く。
-- machine-readable service modelは`model/<environment>/<aws-account-id>/`に置く。
+- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
+- human-readable current designは`docs/designs/<environment>/<target-directory>/`に置く。
+- machine-readable service modelは`model/<environment>/<target-directory>/`に置く。
 - Markdown designをdesired valueとobserved valueのsource of truthとする。
 - `model/`は`framework/scripts/sync-model.py`が生成し、手動編集しない。
 - Markdownとgenerated modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
@@ -41,6 +42,8 @@ resourceとrowの番号はMarkdown内の出現順から生成する。通常のr
 生成command:
 
 ```console
+python framework/scripts/sync-model.py --write --environment <environment> --alias <alias>
+# aliasなしの場合:
 python framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>
 ```
 
@@ -52,4 +55,4 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - 別serviceのresource referenceはMarkdownのrelative pathとexplicit anchorを`desired.*`へ保持する。identifier output参照のphysical IDは同じrow keyの`observed.*`へ分離する。
 - 別serviceのvalueを参照元properties fileへ複製しない。
 - AWS managed-policy ARNのような既存またはhuman-provided design inputは必要な場合に`desired.*`へ残してよい。
-- referenceは同じenvironment/AWS account内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。
+- referenceは同じenvironment/target directory内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。

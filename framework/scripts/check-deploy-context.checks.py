@@ -33,6 +33,14 @@ def main() -> None:
                             "iacEngine": "cloudformation",
                         },
                         {
+                            "alias": "cde",
+                            "environment": "staging",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "terraform",
+                        },
+                        {
+                            "alias": "non-cde",
                             "environment": "staging",
                             "awsAccountId": "123456789012",
                             "awsRegion": "ap-northeast-1",
@@ -50,8 +58,15 @@ def main() -> None:
             "run",
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', ""),
         ) as run:
-            target = MODULE.check_deploy_context(root, "staging", "123456789012", "deploy")
-            assert target == {"awsRegion": "ap-northeast-1", "iacEngine": "terraform"}
+            target = MODULE.check_deploy_context(
+                root, "staging", alias="cde", profile="deploy"
+            )
+            assert target == {
+                "alias": "cde",
+                "awsAccountId": "123456789012",
+                "awsRegion": "ap-northeast-1",
+                "iacEngine": "terraform",
+            }
             assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", "deploy"]
             assert run.call_args.args[0][3:5] == ["--region", "ap-northeast-1"]
 
@@ -65,7 +80,7 @@ def main() -> None:
             "run",
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
         ):
-            MODULE.check_deploy_context(root, "production", "210987654321")
+            MODULE.check_deploy_context(root, "production", account_id="210987654321")
             assert commands == ["aws", "cfn-lint"]
 
         commands = []
@@ -79,7 +94,7 @@ def main() -> None:
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
         ):
             MODULE.check_deploy_context(
-                root, "production", "210987654321", read_only=True
+                root, "production", account_id="210987654321", read_only=True
             )
             assert commands == ["aws"]
 
@@ -89,11 +104,18 @@ def main() -> None:
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"999999999999"}', ""),
         ):
             try:
-                MODULE.check_deploy_context(root, "staging", "123456789012")
+                MODULE.check_deploy_context(root, "staging", alias="non-cde")
             except MODULE.DeployContextError as error:
                 assert "AWS account mismatch" in str(error)
             else:
                 raise AssertionError("account mismatch was accepted")
+
+        try:
+            MODULE.load_target(root, "staging", account_id="123456789012")
+        except MODULE.DeployContextError as error:
+            assert "topology target must exist exactly once" in str(error)
+        else:
+            raise AssertionError("aliased target was selected without its alias")
     print("check-deploy-context: PASS")
 
 

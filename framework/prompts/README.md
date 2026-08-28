@@ -9,6 +9,8 @@
 3. 値が不足している場合は、promptに従って一問ずつ回答する。値を推測させない。
 4. 一つのpromptが完了したら結果を確認して終了する。次のpromptは必要な場合だけ別taskとして明示的に開始する。
 
+一つのenvironmentにtargetが1件だけならaliasは使用しない。複数targetがあるenvironmentでは各targetのhuman-defined aliasを指定し、設計・model・parameter／Terraform root・scenario resultのtarget directoryとして使用する。aliasがあるtargetを実行するpromptにはTarget aliasと、そのtargetに対応する実際のAWS account IDを渡す。
+
 Codexでは、次のように対象promptと値を指定する。
 
 ```text
@@ -16,6 +18,16 @@ framework/prompts/codex/03_implement.mdを使ってください。
 Target environment: staging
 Target AWS account: 123456789012
 Implementation scope: docs/designs/staging/123456789012/vpc.md
+```
+
+aliasがあるtargetの例:
+
+```text
+framework/prompts/codex/03_implement.mdを使ってください。
+Target environment: dev
+Target alias: cde
+Target AWS account: 123456789012
+Implementation scope: docs/designs/dev/cde/vpc.md
 ```
 
 ## Choose the workflow
@@ -36,7 +48,7 @@ Implementation scope: docs/designs/staging/123456789012/vpc.md
 | Order | Prompt | Use when | Result |
 | ---: | --- | --- | --- |
 | 1 | [`codex/01_initialize.md`](codex/01_initialize.md) | `project.json`がないrepositoryを初期化するとき | project topologyとtarget pathを作成する |
-| 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | 初期化後にenvironment／AWS account targetを1件追加するとき | `project.json`と追加target pathを更新する |
+| 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | 初期化後にenvironment／logical targetを1件追加するとき | `project.json`と追加target pathを更新する |
 | Design | [`chatbot/service-design.md`](chatbot/service-design.md) | 新しいsystem、機能、serviceの詳細設計値をhumanと確定するとき | 完成したMarkdown／JSON、または既存resource取得用の自己完結型Codex promptを出力する |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | repositoryへ作成済みの詳細設計をCloudFormation／Terraformへ反映するとき | IaCを作成・変更し、local static validationまで行う |
 | 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | 作成・検証済みIaCをAWSへdeploy/applyするとき | IaCを変更せず実行し、必要なobserved valueを更新する |
@@ -80,7 +92,7 @@ Existing AWS values: EC2.VPCの現在値を使用
 
 ### `codex/01_initialize.md`
 
-- Description: project、environment、AWS account、region、IaC engineを一問ずつ確認し、repository topologyを初期化する。
+- Description: project、environment、必要な場合はtarget alias、AWS account、region、IaC engineを一問ずつ確認し、repository topologyを初期化する。
 - Timing: `project.json`が存在しない最初の一回だけ。既に初期化済みの場合は使用しない。
 - How to use: promptをCodexへ渡し、Project nameから順に回答する。全値の最終確認へ明示的に同意するまでrepositoryは変更されない。
 
@@ -90,13 +102,13 @@ Existing AWS values: EC2.VPCの現在値を使用
 framework/prompts/codex/01_initialize.mdを使ってください。
 ```
 
-CodexからProject name、Environment ID、AWS account ID、AWS region、IaC engineを一つずつ質問されるため、順番に回答する。
+CodexからProject name、Environment ID、environment内のlogical target数、必要な場合はTarget alias、AWS account ID、AWS region、IaC engineを一つずつ質問されるため、順番に回答する。
 
 ### `codex/02_add-target.md`
 
-- Description: 初期化済みrepositoryへ、確定済みのenvironment／AWS account targetを1件追加する。
+- Description: 初期化済みrepositoryへ、確定済みのenvironment／alias（必要な場合）／AWS account targetを1件追加する。
 - Timing: `project.json`は存在するが、必要なtargetがまだ登録されていないとき。
-- How to use: promptをCodexへ渡し、Environment ID、AWS account ID、region、IaC engineを順に回答する。一回の実行で追加するtargetは1件だけとする。
+- How to use: promptをCodexへ渡し、Environment ID、既存environmentがalias方式の場合はTarget alias、AWS account ID、region、IaC engineを順に回答する。一回の実行で追加するtargetは1件だけとする。
 
 使用例:
 
@@ -113,7 +125,7 @@ IaC engine: cloudformation
 
 - Description: 承認済み詳細設計とservice modelから、選択済みCloudFormation／Terraformを作成・変更する。
 - Timing: chatbotが出力したCodex promptによる設計反映が完了し、IaCへ反映すべき設計差分があるとき。
-- How to use: environment、AWS account、implementation scopeを渡す。CloudFormationは`cfn-lint`、Terraformはbackendを使わないlocal validationまで行い、AWS APIやdeploy/applyは実行しない。
+- How to use: environment、aliasがある場合はalias、AWS account、implementation scopeを渡す。CloudFormationは`cfn-lint`、Terraformはbackendを使わないlocal validationまで行い、AWS APIやdeploy/applyは実行しない。
 
 使用例:
 
@@ -131,7 +143,7 @@ Implementation scope:
 
 - Description: 作成・検証済みIaCを変更せず、対象AWS accountへdeploy/applyする。
 - Timing: `03_implement.md`のIaCが確定し、対象IaCにuncommitted changeがないとき。
-- How to use: environment、AWS account、deployment scope、許可するdelete/replacement、必要ならAWS profileを渡す。preflight、change set／plan確認、実行、完了確認、必要なobserved value更新までを行う。
+- How to use: environment、aliasがある場合はalias、AWS account、deployment scope、許可するdelete/replacement、必要ならAWS profileを渡す。preflight、change set／plan確認、実行、完了確認、必要なobserved value更新までを行う。
 
 使用例:
 
@@ -164,7 +176,7 @@ framework/prompts/codex/05_update.mdを使ってください。
 
 - Description: deployとは別taskでapplication behaviorを検証し、current resultとevidenceを更新する。
 - Timing: deploy後にresource存在では確認できないbehaviorを検証するとき。
-- How to use: Scenario ID、environment、AWS account、expected behaviorを渡す。失敗しても同じtaskで設計変更、IaC修正、redeployへ進まない。
+- How to use: Scenario ID、environment、aliasがある場合はalias、AWS account、expected behaviorを渡す。失敗しても同じtaskで設計変更、IaC修正、redeployへ進まない。
 
 使用例:
 

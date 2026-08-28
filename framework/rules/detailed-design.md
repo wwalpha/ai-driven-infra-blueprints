@@ -24,8 +24,9 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 
 詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのdesign fileは一つのAWS serviceだけを所有する。
 
-- fileは`docs/designs/<environment>/<aws-account-id>/<service-id>.md`に置く。
-- Service IDはlower-kebab-caseとし、file stemおよび対応する`model/<environment>/<aws-account-id>/<service-id>.properties`と一致させる。
+- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
+- fileは`docs/designs/<environment>/<target-directory>/<service-id>.md`に置く。
+- Service IDはlower-kebab-caseとし、file stemおよび対応する`model/<environment>/<target-directory>/<service-id>.properties`と一致させる。
 - 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
 - 運用上関連するだけの別AWS serviceを同じfileへ入れない。CloudFormation resource namespaceだけでgroupingを決めない。
 - child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
@@ -44,7 +45,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 ```
 
 - Owned catalog resource typesには`framework/materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
-- 同じenvironment/AWS account内で同じcatalog resource typeを複数service fileが所有してはいけない。
+- 同じenvironment/target directory内で同じcatalog resource typeを複数service fileが所有してはいけない。
 
 ## Markdown structure
 
@@ -92,7 +93,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 選択済みpropertyをJSON documentとして表現する必要がある場合、JSONをMarkdown tableへ埋め込まず、次の独立artifactとして保存する。
 
 ```text
-docs/designs/<environment>/<aws-account-id>/<service-id>/<artifact-id>.json
+docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json
 ```
 
 - `<artifact-id>`は内容と所有resourceを表すstableなlower-kebab-caseとする。

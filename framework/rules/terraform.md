@@ -3,9 +3,10 @@
 - Terraformは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
-- active projectと対象environment/AWS accountがTerraformを選択した場合だけ使用する。
-- 1 environment/AWS accountは1 IaC engineだけで管理する。
-- reusable moduleは`infra/terraform/modules/`、AWS account compositionは`infra/terraform/environments/<environment>/<aws-account-id>/`に置く。
+- active projectと対象environment/target directoryがTerraformを選択した場合だけ使用する。
+- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
+- aliasなしの共通moduleは`infra/terraform/modules/`、alias別moduleは`infra/terraform/modules/<alias>/`に置く。同じaliasのmoduleをenvironment間で共用し、異なるaliasのmoduleを共用しない。
+- target固有root、backend、state設定は`infra/terraform/environments/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - 未使用infrastructureを先回りして生成しない。
 - 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決し、対応するTerraform resource attribute参照を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをconfigurationへ直書きしない。
 - 後続resourceまたはroot moduleが必要とするcatalog `IDENTIFIER_OUTPUT`はnon-sensitive `output`としてresource attributeから公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。

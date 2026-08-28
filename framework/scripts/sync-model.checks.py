@@ -84,7 +84,24 @@ def main() -> None:
             assert MODULE.sync(root, True) == 0
             artifact.write_text('{"Version":"changed"}\n', encoding="utf-8")
             assert MODULE.sync(root, False) == 1
-    print("sync-model: PASS (14 focused checks)")
+
+        alias_design = root / "docs" / "designs" / "dev" / "cde" / "vpc.md"
+        alias_design.parent.mkdir(parents=True)
+        alias_artifact = alias_design.parent / "vpc" / "vpc01-policy.json"
+        alias_artifact.parent.mkdir(parents=True)
+        alias_artifact.write_text('{"Version":"2012-10-17"}\n', encoding="utf-8")
+        alias_design.write_text(
+            design.read_text(encoding="utf-8").replace(
+                "vpc-0123456789abcdef0", "vpc-11111111111111111"
+            ),
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            assert MODULE.sync(root, True, "dev", "cde") == 0
+        assert (root / "model" / "dev" / "cde" / "vpc.properties").is_file()
+        assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
+        assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
+    print("sync-model: PASS (18 focused checks)")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - required directory/file structureが存在する
-- `project.json`とenvironment/AWS account pathが一致する
+- `project.json`とenvironment/target directory pathが一致する
 - `framework/rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
 - service ownership、Markdown/model service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
@@ -99,7 +99,7 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 ## Scenario-test task completion
 
 1. active promptで指定されたscenario definitionとtest implementationを作成または更新する。
-2. 指定されたenvironment/AWS accountに対してtestを実行する。
+2. 指定されたenvironment/target directoryに対応するAWS accountに対してtestを実行する。
 3. 同じscenario-scoped current resultとstable evidence fileを更新する。
 4. scenario変更後に再実行しないresultを`STALE`または`NOT_EXECUTED`へ更新する。
 5. local loopを実行し、failure remediationや別taskへ進まず終了する。

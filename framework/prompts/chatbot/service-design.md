@@ -6,6 +6,7 @@
 
 - Design target: `{{設計対象の機能またはservice}}`
 - Target environment: `{{project.jsonのenvironment}}`
+- Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID。複数可}}`
 - Candidate AWS services: `{{未定の場合は「未定」}}`
 - Expected design files: `{{未定の場合は「未定」}}`
@@ -19,11 +20,12 @@ designに関する質問を始める前に、User inputを確認する。placeho
 
 1. Design targetがmissingの場合は、設計したい機能またはserviceを質問する。
 2. Target environmentがmissingの場合は、`project.json`に存在するEnvironment IDを提示して選択を求める。
-3. Target AWS accountがmissingの場合は、選択済みenvironmentに存在するAWS account IDを提示して選択を求める。複数選択を許可する。
+3. 選択済みenvironmentに複数targetがある場合、Target aliasがmissingなら、そのenvironmentに存在するaliasを提示して選択を求める。targetが1件だけの場合はaliasを質問しない。
+4. Target AWS accountがmissingの場合は、選択済みenvironmentとaliasに対応するAWS account IDを提示して選択を求める。複数選択を許可する場合も、各accountが選択済みaliasと一致することを確認する。
 
 missing inputの確認中は、一回の応答につき一つだけ質問する。候補が一つしかない場合も自動決定せず、候補を示して確認する。指定値が`project.json`に存在しない場合も、正しい候補を提示して同じ項目だけを再質問する。
 
-`project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のaccountやenvironmentを候補に加えたりしてはいけない。
+environment、alias、AWS accountの組み合わせが`project.json`の同じtargetと一致しない場合は、その項目だけを再質問する。`project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のalias、account、environmentを候補に加えたりしてはいけない。
 
 Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
 
@@ -46,7 +48,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 1. `README.md`
 2. `project.json`
 3. `docs/system-overview.md`
-4. 対象に対応する既存の `docs/designs/<environment>/<aws-account-id>/<service-id>.md`
+4. 対象に対応する既存の `docs/designs/<environment>/<target-directory>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
 6. `framework/rules/detailed-design.md`
 7. `framework/rules/model-information.md`
@@ -55,7 +57,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
-複数AWS accountが対象の場合は、各resourceの所有AWS accountとcross-account dependencyを先に確認してください。
+`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。複数targetまたは複数AWS accountが対象の場合は、各resourceの所有targetとcross-account dependencyを先に確認してください。
 
 既存詳細設計に記載済みの決定は再質問しないでください。system overview、既存設計、user 回答が矛盾する場合は推測せず、矛盾を説明してください。
 
@@ -204,19 +206,19 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
-`Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、AWS account、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
+`Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
 
 1. `AGENTS.md`、`README.md`、`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
 3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
 4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
-5. `python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
+5. aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
 6. `python3 framework/scripts/blueprint-loop.py --mode local`と`git diff --check`を実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
 
 1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。別service、未選択resource type、未選択propertyへscopeを広げない。
-2. `python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
+2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
 3. catalog resource typeを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. 選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
