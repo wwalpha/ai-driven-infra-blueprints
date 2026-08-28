@@ -15,15 +15,6 @@ Codexでは、次のように対象promptと値を指定する。
 
 ```text
 framework/prompts/codex/03_implement.mdを使ってください。
-Target environment: staging
-Target AWS account: 123456789012
-Implementation scope: docs/designs/staging/123456789012/vpc.md
-```
-
-aliasがあるtargetの例:
-
-```text
-framework/prompts/codex/03_implement.mdを使ってください。
 Target environment: dev
 Target alias: cde
 Target AWS account: 123456789012
@@ -71,7 +62,8 @@ Implementation scope: docs/designs/dev/cde/vpc.md
 framework/prompts/chatbot/service-design.mdを使ってください。
 
 Design target: 社内向けWeb APIのnetwork構成
-Target environment: staging
+Target environment: dev
+Target alias: cde
 Target AWS account: 123456789012
 Candidate AWS services: 未定
 Expected design files: 未定
@@ -83,10 +75,11 @@ Expected design files: 未定
 framework/prompts/chatbot/service-design.mdを使ってください。
 
 Design target: 既存VPCの設定を詳細設計書へ反映
-Target environment: staging
+Target environment: dev
+Target alias: cde
 Target AWS account: 123456789012
 Candidate AWS services: vpc
-Expected design files: docs/designs/staging/123456789012/vpc.md
+Expected design files: docs/designs/dev/cde/vpc.md
 Existing AWS values: EC2.VPCの現在値を使用
 ```
 
@@ -115,7 +108,8 @@ CodexからProject name、Environment ID、environment内のlogical target数、
 ```text
 framework/prompts/codex/02_add-target.mdを使ってください。
 
-Environment ID: production
+Environment ID: dev
+Target alias: cde
 AWS account ID: 123456789012
 AWS region: ap-northeast-1
 IaC engine: cloudformation
@@ -132,11 +126,12 @@ IaC engine: cloudformation
 ```text
 framework/prompts/codex/03_implement.mdを使ってください。
 
-Target environment: staging
+Target environment: dev
+Target alias: cde
 Target AWS account: 123456789012
 Implementation scope:
-- docs/designs/staging/123456789012/vpc.md
-- docs/designs/staging/123456789012/cloudwatch-logs.md
+- docs/designs/dev/cde/vpc.md
+- docs/designs/dev/cde/cloudwatch-logs.md
 ```
 
 ### `codex/04_deploy.md`
@@ -150,12 +145,13 @@ Implementation scope:
 ```text
 framework/prompts/codex/04_deploy.mdを使ってください。
 
-Target environment: staging
+Target environment: dev
+Target alias: cde
 Target AWS account: 123456789012
 Deployment scope:
 - CloudFormation template: infra/cloudformation/templates/vpc.yaml
-- Parameter file: infra/cloudformation/parameters/staging/123456789012/vpc.json
-- Stack name: example-staging-vpc
+- Parameter file: infra/cloudformation/parameters/dev/cde/vpc.json
+- Stack name: example-dev-cde-vpc
 Authorized delete/replacement: none
 AWS profile:
 ```
@@ -184,7 +180,8 @@ framework/prompts/codex/05_update.mdを使ってください。
 framework/prompts/codex/06_scenario-test.mdを使ってください。
 
 Scenario ID: private-api-connectivity
-Target environment: staging
+Target environment: dev
+Target alias: cde
 Target AWS account: 123456789012
 Expected behavior: 社内networkからprivate APIへ接続し、HTTP 200が返ること
 AWS mutation: forbidden
