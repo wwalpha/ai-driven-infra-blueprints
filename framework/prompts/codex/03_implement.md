@@ -63,7 +63,7 @@ CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy
 
 承認済みdesignと対応するservice modelだけをinputとして、選択済みengineの最小構成を実装する。
 
-root-level tag containerを持つresourceは、詳細設計のcase-sensitiveな`Name` tagとvalueをCloudFormation／Terraformへそのまま反映する。詳細設計に必須の`Name` tagがない場合は値を推測せず、別の`design` taskが必要であることを報告して停止する。
+詳細設計に記載されたtagはCloudFormation／Terraformへそのまま反映する。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`はprovider propertyとして出力せず、case-sensitiveな`Name` keyと同じvalueを持つtagへ変換する。対象resourceに対応する`.Name`とnon-empty valueがない場合だけ、値を推測せず別の`design` taskが必要であることを報告して停止する。
 
 identifierを参照するMarkdown linkはanchorから参照先resourceのlogical IDを解決する。link表示textの`PENDING_DEPLOY`またはphysical IDをIaCへ直書きしない。後続resourceが必要とするcatalog `IDENTIFIER_OUTPUT`だけをCloudFormation OutputsまたはTerraform outputへ追加し、logical resource参照／resource attribute参照を維持する。generated ARNはobserved value用outputにしない。
 

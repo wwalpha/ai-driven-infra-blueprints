@@ -5,9 +5,13 @@
 このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを決定するときのdefault naming conventionとする。
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
-- `framework/materials/aws/*.properties`とprovider schemaにroot-levelの`Tags`または`HostedZoneTags`があるresource typeは、`Name` tagを必須とする。nested resourceやchild componentのtag collectionには自動適用しない。
-- array形式のtagは`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnameを記載する。object形式の`Tags`は`Name` keyを持つJSON objectを記載する。
+- root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
+- `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`だけとし、詳細設計ではそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`の1 rowで表す。
+- その他のresourceでは、humanが`Name` tagを明示した場合だけ設計する。taggableであることを理由に質問、追加、blocker判定をしない。
+- 上記3種類の`.Name`は詳細設計専用propertyとし、IaCではcase-sensitiveな`Name` keyを持つtagへ変換する。`Tags[].Key`と`Tags[].Value`の2 rowでは表さない。
+- その他のresourceでhuman-selectedな`Name` tagを使用する場合は、array形式では`Tags[].Key`と直後の`Tags[].Value`、object形式では`Tags` JSON objectで表す。
 - `Name` tagのkeyはcase-sensitiveな`Name`を正確に使用し、valueを空にしない。
+- 上記3種類のresource heading identifierは`.Name` valueと完全一致させ、anchorはService IDとそのvalueをlowercaseで結ぶ。
 - 既存resourceと既存詳細設計の確定済み名称を自動変更しない。renameまたはreplacementは別の明示依頼がある場合だけ扱う。
 - 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
 - CloudFormation logical ID、詳細設計のlogical ID、JSON artifact filenameには、それぞれの既存ruleを適用する。
@@ -24,16 +28,26 @@
 - 組織固有tokenの`ISZPF`、`ISZ`、`PF`、`isuzu`、`isuzucojp`はgeneric patternまたはexampleに使用しない。
 - final nameは対象propertyのprovider schemaにあるtype、pattern、lengthとAWSのuniqueness scopeを満たすことを確認する。超過時に自動truncate、hash付与、略語化をせず、短い値をhumanへ確認する。
 - explicit nameの変更がreplacementを伴う場合は、design taskでrenameを確定するだけとし、IaC変更やreplacement実行へ進まない。
-- `Naming target`が`Name tag`のrowは、必須の`Name` tag valueへpatternを適用する。
-- 対象resourceの`Name tag` patternがこのtableにない場合は、nameを推測せずhumanへ一つ質問する。
+- `Naming target`が`.Name`または`Name tag`のrowは、必須またはhuman-selectedな`Name` tag valueへpatternを適用する。
+- 必須またはhuman-selectedな`Name` tagのpatternがこのtableにない場合は、nameを推測せずhumanへ一つ質問する。
+
+## Name tag policy
+
+| Policy | AWS resource | Rule |
+| --- | --- | --- |
+| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
+| Conditional | 長期運用するEC2 Instance、VPC peering connection、VPC endpoint、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
+| Optional by default | Internet gateway、Elastic IP address、Security group、固有のname／identifier propertyを持つresource | 関連先または正式なname／identifierで識別できるため、自動追加しない |
+
+Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tagを必須化しない。Security groupは必須の`GroupName`を使用し、`Name` tagを重複要求しない。
 
 ## Naming patterns
 
 | AWS service | AWS resource | Naming target | Pattern |
 | --- | --- | --- | --- |
-| Amazon VPC | VPC | Name tag | `vpc-{{application}}-{{environment}}` |
-| Amazon VPC | Subnet | Name tag | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
-| Amazon VPC | Route table | Name tag | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
+| Amazon VPC | VPC | `EC2.VPC.Name` | `vpc-{{application}}-{{environment}}` |
+| Amazon VPC | Subnet | `EC2.Subnet.Name` | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
+| Amazon VPC | Route table | `EC2.RouteTable.Name` | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
 | Amazon VPC | VPC peering connection | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
 | Amazon VPC | Internet gateway | Name tag | `igw-{{application}}-{{environment}}` |
 | Amazon VPC | VPC endpoint | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |
@@ -54,7 +68,7 @@
 | Amazon RDS | DB cluster parameter group | `DBClusterParameterGroupName` | `rdbcpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon RDS | Option group | `OptionGroupName` | `rdbog-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon EC2 | Instance | Name tag | `{{environment}}-{{application}}-{{purpose}}-{{number}}` |
-| Amazon EC2 | Security group | `GroupName` or Name tag | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
+| Amazon EC2 | Security group | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
 | Amazon EC2 | Launch template | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Elastic Load Balancing | Load balancer | `Name` | `{{load_balancer_type}}-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Elastic Load Balancing | Target group | `Name` | `tgp-{{application}}-{{environment}}-{{purpose}}-{{number}}` |

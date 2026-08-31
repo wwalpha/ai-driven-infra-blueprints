@@ -38,42 +38,46 @@ def main() -> None:
 - Design service ID: `vpc`
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
 
-<a id="vpc-vpc01"></a>
+<a id="vpc-vpc-app-dev"></a>
 
-## EC2.VPC: VPC01
+## EC2.VPC: vpc-app-dev
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
 | 2 | EC2.VPC.CidrBlock | 10.1.0.0/16 | VPCで使用するIPv4アドレス範囲 |
-| 3 | PolicyDocument | [policy](vpc/vpc01-policy.json) | VPCに適用するpolicy文書 |
+| 3 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 4 | PolicyDocument | [policy](vpc/vpc01-policy.json) | VPCに適用するpolicy文書 |
 
-<a id="vpc-subnet01"></a>
+<a id="vpc-sbnt-app-dev-private-01"></a>
 
-## EC2.Subnet: SUBNET01
+## EC2.Subnet: sbnt-app-dev-private-01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
+| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 3 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
 """,
             encoding="utf-8",
         )
         model = MODULE.model_for(design, root)
         assert "desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet" in model
-        assert "desired.resource.001.logicalId=VPC01" in model
-        assert "desired.row.001-001.value=[VPC01](#vpc-vpc01)" in model
+        assert "desired.resource.001.logicalId=vpc-app-dev" in model
+        assert "desired.row.001-001.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
         assert "observed.row.001-001.value=PENDING_DEPLOY" in model
         assert "desired.row.001-002.value=10.1.0.0/16" in model
-        assert "desired.row.001-003.artifactSha256=" in model
-        assert "desired.row.002-001.value=[SUBNET01](#vpc-subnet01)" in model
+        assert "desired.row.001-003.property=EC2.VPC.Name" in model
+        assert "desired.row.001-004.artifactSha256=" in model
+        assert "desired.row.002-001.value=[sbnt-app-dev-private-01](#vpc-sbnt-app-dev-private-01)" in model
         assert "observed.row.002-001.value=PENDING_DEPLOY" in model
-        assert "desired.row.002-002.value=[VPC01](#vpc-vpc01)" in model
+        assert "desired.row.002-002.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
+        assert "desired.row.002-003.property=EC2.Subnet.Name" in model
         assert model == MODULE.model_for(design, root)
         design.write_text(
             design.read_text(encoding="utf-8")
             .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
-            .replace("[PENDING_DEPLOY](#vpc-vpc01)", "[vpc-0123456789abcdef0](#vpc-vpc01)")
+            .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
             .replace("EC2.Subnet.SubnetId | PENDING_DEPLOY", "EC2.Subnet.SubnetId | subnet-0123456789abcdef0"),
             encoding="utf-8",
         )

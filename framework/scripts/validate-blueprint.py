@@ -72,6 +72,11 @@ TASK_TYPES = {
     "catalog-maintenance",
     "migration",
 }
+REQUIRED_NAME_PROPERTIES = {
+    "EC2.RouteTable": "EC2.RouteTable.Name",
+    "EC2.Subnet": "EC2.Subnet.Name",
+    "EC2.VPC": "EC2.VPC.Name",
+}
 RESULT_STATUSES = {"PASS", "FAIL", "BLOCKED", "STALE", "NOT_EXECUTED"}
 CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 RESULT_METADATA = (
@@ -711,6 +716,9 @@ class Validator:
                 property_owners.setdefault(property_name, set()).add(resource_type)
                 if marker == "IDENTIFIER_OUTPUT":
                     identifier_outputs.setdefault(resource_type, set()).add(property_name)
+        for resource_type, property_name in REQUIRED_NAME_PROPERTIES.items():
+            if resource_type in resource_types:
+                property_owners.setdefault(property_name, set()).add(resource_type)
         return resource_types, property_owners, identifier_outputs
 
     def markdown_service_metadata(
@@ -847,77 +855,43 @@ class Validator:
                 f"identifier output rows must be first in catalog order: {self.relative(path)}: {resource_type}",
             )
 
-    @staticmethod
-    def name_tag_properties(
-        catalog_types: set[str], catalog_property_owners: dict[str, set[str]]
-    ) -> dict[str, tuple[str, str]]:
-        properties: dict[str, tuple[str, str]] = {}
-        for resource_type in catalog_types:
-            for key_suffix, value_suffix in (
-                ("Tags[].Key", "Tags[].Value"),
-                ("HostedZoneTags[].Key", "HostedZoneTags[].Value"),
-            ):
-                key = f"{resource_type}.{key_suffix}"
-                value = f"{resource_type}.{value_suffix}"
-                if resource_type in catalog_property_owners.get(key, set()) and resource_type in catalog_property_owners.get(value, set()):
-                    properties[resource_type] = (key, value)
-                    break
-            else:
-                tags = f"{resource_type}.Tags"
-                if resource_type in catalog_property_owners.get(tags, set()):
-                    properties[resource_type] = (tags, "")
-        return properties
-
     def check_required_name_tag(
         self,
         path: Path,
         resource_type: str,
+        logical_id: str,
         rows: list[list[str]],
-        name_tag_properties: dict[str, tuple[str, str]],
     ) -> None:
-        tag_properties = name_tag_properties.get(resource_type)
-        if tag_properties is None:
+        property_name = REQUIRED_NAME_PROPERTIES.get(resource_type)
+        if property_name is None:
             return
-        key_property, value_property = tag_properties
-        if value_property:
-            matches = [
-                index
-                for index, row in enumerate(rows)
-                if row[1] == key_property and self.unquoted(row[2]) == "Name"
-            ]
-            self.check(
-                len(matches) == 1,
-                f"required Name tag must appear exactly once: {self.relative(path)}: {resource_type}",
-            )
-            if len(matches) != 1:
-                return
-            index = matches[0]
-            paired = index + 1 < len(rows) and rows[index + 1][1] == value_property
-            self.check(
-                paired,
-                f"required Name tag value must immediately follow its key: {self.relative(path)}: {resource_type}",
-            )
-            if paired:
-                self.check(
-                    bool(self.unquoted(rows[index + 1][2]).strip()),
-                    f"required Name tag value must not be empty: {self.relative(path)}: {resource_type}",
-                )
-            return
-
-        tag_rows = [row for row in rows if row[1] == key_property]
+        name_rows = [row for row in rows if row[1] == property_name]
         self.check(
-            len(tag_rows) == 1,
-            f"required Name tag container must appear exactly once: {self.relative(path)}: {resource_type}",
+            len(name_rows) == 1,
+            f"required Name property must appear exactly once: {self.relative(path)}: {property_name}",
         )
-        if len(tag_rows) != 1:
-            return
-        try:
-            tags = json.loads(self.unquoted(tag_rows[0][2]))
-        except json.JSONDecodeError:
-            return
+        legacy_name_rows = [
+            row
+            for row in rows
+            if self.resource_property_path(resource_type, row[1])
+            in {"Tags[].Key", "HostedZoneTags[].Key"}
+            and self.unquoted(row[2]) == "Name"
+        ]
         self.check(
-            isinstance(tags, dict) and isinstance(tags.get("Name"), str) and bool(tags["Name"].strip()),
-            f"required Name tag value must not be empty: {self.relative(path)}: {resource_type}",
+            not legacy_name_rows,
+            f"Name tag must use one-row property {property_name}: {self.relative(path)}: {resource_type}",
+        )
+        if len(name_rows) != 1:
+            return
+        value = self.unquoted(name_rows[0][2]).strip()
+        self.check(bool(value), f"required Name value must not be empty: {self.relative(path)}: {property_name}")
+        self.check(
+            LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
+            f"required Name value must be lower-kebab-case: {self.relative(path)}: {property_name}: {value}",
+        )
+        self.check(
+            logical_id == value,
+            f"resource heading identifier must match Name value: {self.relative(path)}: {resource_type}: {logical_id} != {value}",
         )
 
     @staticmethod
@@ -976,7 +950,6 @@ class Validator:
         catalog_property_owners: dict[str, set[str]],
         identifier_outputs: dict[str, set[str]],
     ) -> None:
-        name_tag_properties = self.name_tag_properties(catalog_types, catalog_property_owners)
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             self.check(
@@ -1051,6 +1024,7 @@ class Validator:
                         if (
                             self.schema_catalog is not None
                             and current_resource_type in property_owners
+                            and cells[1] != REQUIRED_NAME_PROPERTIES.get(current_resource_type)
                             and LINK_PATTERN.fullmatch(cells[2]) is None
                         ):
                             property_path = self.resource_property_path(current_resource_type, cells[1])
@@ -1097,7 +1071,7 @@ class Validator:
                         path, current_resource_type, current_logical_id, rows, identifier_outputs
                     )
                     self.check_required_name_tag(
-                        path, current_resource_type, rows, name_tag_properties
+                        path, current_resource_type, current_logical_id, rows
                     )
                 if current_resource_type == "IAM.Role":
                     self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)

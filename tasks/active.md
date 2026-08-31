@@ -1,9 +1,9 @@
-# Codex Task: Require Name tags and identifier-first design rows
+# Codex Task: Use one-row Name properties in detailed designs
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: root-level tag containerを持つresourceのName tagを必須化し、generated identifierを詳細設計tableの先頭へ配置するframework契約を定義する
+- Goal: 詳細設計の`Name` tagを`<catalog-resource-type>.Name`の1 rowで表し、必須対象のresource headingとanchorをその値へ一致させる
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,16 +11,16 @@
 
 ## Required changes
 
-- [R1] root-level tag containerを持つ全catalog resource typeでName tagを必須化し、詳細設計からIaCへ反映する。
-- [R2] catalogの`IDENTIFIER_OUTPUT` rowを各resource-detail tableの先頭へ決定的に配置する。
-- [R3] Name tagとidentifier-first契約をgeneric validatorとfocused checksで検証する。
+- [R1] `Name` tagを1 rowのdesign-only `Name` propertyで表し、必須3種類ではheading identifierとanchorを同じ値から生成するruleを定義する。
+- [R2] chatbot、model example、IaC implementation promptを1 row表現とAWS tag変換へ統一する。
+- [R3] generic validatorとfocused checksで1 row、non-empty value、heading一致を検証し、従来の2 row表現を必須対象として受理しない。
 
 ## Acceptance checks
 
-- [R1] `exists:framework/rules/aws-resource-naming.md`
+- [R1] `changed:framework/rules/aws-resource-naming.md`
 - [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `changed:framework/prompts/chatbot/service-design.md`
-- [R1] `changed:framework/prompts/codex/03_implement.md`
+- [R2] `changed:framework/prompts/chatbot/service-design.md`
+- [R2] `changed:framework/prompts/codex/03_implement.md`
 - [R2] `changed:framework/rules/model-information.md`
 - [R2] `changed:framework/scripts/sync-model.checks.py`
 - [R3] `changed:framework/rules/loop-engineering.md`
@@ -31,8 +31,8 @@
 
 - `framework/rules/aws-resource-naming.md`
 - `framework/rules/detailed-design.md`
-- `framework/rules/model-information.md`
 - `framework/rules/loop-engineering.md`
+- `framework/rules/model-information.md`
 - `framework/prompts/chatbot/service-design.md`
 - `framework/prompts/codex/03_implement.md`
 - `framework/scripts/sync-model.checks.py`
@@ -44,5 +44,5 @@
 
 - 既存projectの詳細設計、model、IaC、AWS resourceのmigration
 - `framework/materials/**`とcatalog lockの変更
-- CloudFormation／Terraform rule、deploy prompt、scenarioの変更
+- identifier-first契約の変更
 - AWS API、deploy、applyの実行

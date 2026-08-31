@@ -20,10 +20,10 @@ UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとo
 desired.service.vpc.serviceId=vpc
 desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet
 desired.resource.001.resourceType=EC2.VPC
-desired.resource.001.logicalId=VPC01
-desired.resource.001.anchor=vpc-vpc01
+desired.resource.001.logicalId=vpc-app-dev
+desired.resource.001.anchor=vpc-vpc-app-dev
 desired.row.001-001.property=EC2.VPC.VpcId
-desired.row.001-001.value=[VPC01](#vpc-vpc01)
+desired.row.001-001.value=[vpc-app-dev](#vpc-vpc-app-dev)
 desired.row.001-001.comment=VPCを一意に識別するID
 observed.row.001-001.property=EC2.VPC.VpcId
 observed.row.001-001.value=vpc-0123456789abcdef0
@@ -31,17 +31,14 @@ observed.row.001-001.comment=VPCを一意に識別するID
 desired.row.001-002.property=EC2.VPC.CidrBlock
 desired.row.001-002.value=10.1.0.0/16
 desired.row.001-002.comment=VPCで使用するIPv4アドレス範囲
-desired.row.001-003.property=EC2.VPC.Tags[].Key
-desired.row.001-003.value=Name
-desired.row.001-003.comment=VPCを識別するNameタグのキー
-desired.row.001-004.property=EC2.VPC.Tags[].Value
-desired.row.001-004.value=vpc-app-dev
-desired.row.001-004.comment=VPCを識別するNameタグの値
-desired.row.001-005.artifactSha256=<linked-json-sha256>
+desired.row.001-003.property=EC2.VPC.Name
+desired.row.001-003.value=vpc-app-dev
+desired.row.001-003.comment=VPCを識別するNameタグの値
+desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyは`desired.row.*`へlosslessに反映する。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。policy JSON本文は複製せず、Markdownのrelative linkとJSON内容のSHA-256を`desired.row.*`へ保持する。
+resourceとrowの番号はMarkdown内の出現順から生成する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`は`desired.row.*`へlosslessに反映する。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。policy JSON本文は複製せず、Markdownのrelative linkとJSON内容のSHA-256を`desired.row.*`へ保持する。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 

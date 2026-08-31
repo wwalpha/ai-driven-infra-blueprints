@@ -341,26 +341,24 @@ def check_identifier_propagation() -> None:
 - Design service ID: `vpc`
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
 
-<a id="vpc-vpc01"></a>
+<a id="vpc-vpc-app-dev"></a>
 
-## EC2.VPC: VPC01
+## EC2.VPC: vpc-app-dev
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
-| 2 | EC2.VPC.Tags[].Key | Name | VPCを識別するNameタグのキー |
-| 3 | EC2.VPC.Tags[].Value | vpc-app-dev | VPCを識別するNameタグの値 |
+| 2 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
 
-<a id="vpc-subnet01"></a>
+<a id="vpc-sbnt-app-dev-private-01"></a>
 
-## EC2.Subnet: SUBNET01
+## EC2.Subnet: sbnt-app-dev-private-01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc01) | Subnetが所属するVPC |
-| 3 | EC2.Subnet.Tags[].Key | Name | Subnetを識別するNameタグのキー |
-| 4 | EC2.Subnet.Tags[].Value | subnet-app-dev-private-01 | Subnetを識別するNameタグの値 |
+| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 3 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
 """,
             encoding="utf-8",
         )
@@ -374,7 +372,7 @@ def check_identifier_propagation() -> None:
         design.write_text(
             design.read_text(encoding="utf-8")
             .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
-            .replace("[PENDING_DEPLOY](#vpc-vpc01)", "[vpc-0123456789abcdef0](#vpc-vpc01)")
+            .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
             .replace("EC2.Subnet.SubnetId | PENDING_DEPLOY", "EC2.Subnet.SubnetId | subnet-0123456789abcdef0"),
             encoding="utf-8",
         )
@@ -386,7 +384,7 @@ def check_identifier_propagation() -> None:
 
         deployed = design.read_text(encoding="utf-8")
         design.write_text(
-            deployed.replace("vpc-0123456789abcdef0", "VPC01"), encoding="utf-8"
+            deployed.replace("vpc-0123456789abcdef0", "vpc-app-dev"), encoding="utf-8"
         )
         validator = MODULE.Validator(root)
         validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
@@ -395,7 +393,7 @@ def check_identifier_propagation() -> None:
 
         design.write_text(
             deployed.replace(
-                "[vpc-0123456789abcdef0](#vpc-vpc01)", "[vpc-wrong](#vpc-vpc01)"
+                "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)", "[vpc-wrong](#vpc-vpc-app-dev)"
             ),
             encoding="utf-8",
         )
@@ -407,25 +405,21 @@ def check_identifier_propagation() -> None:
 def check_name_tag_and_identifier_order_contract() -> None:
     repository = SCRIPT.parents[2]
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
-    name_tags = MODULE.Validator.name_tag_properties(catalog_types, property_owners)
-    assert len(name_tags) == 84
-    assert name_tags["EC2.VPC"] == ("EC2.VPC.Tags[].Key", "EC2.VPC.Tags[].Value")
-    assert name_tags["ApiGatewayV2.Api"] == ("ApiGatewayV2.Api.Tags", "")
-    assert name_tags["Route53.HostedZone"] == (
-        "Route53.HostedZone.HostedZoneTags[].Key",
-        "Route53.HostedZone.HostedZoneTags[].Value",
-    )
+    assert MODULE.REQUIRED_NAME_PROPERTIES == {
+        "EC2.RouteTable": "EC2.RouteTable.Name",
+        "EC2.Subnet": "EC2.Subnet.Name",
+        "EC2.VPC": "EC2.VPC.Name",
+    }
+    for resource_type, property_name in MODULE.REQUIRED_NAME_PROPERTIES.items():
+        assert resource_type in property_owners[property_name]
 
     path = repository / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
     validator = MODULE.Validator(repository)
     validator.check_required_name_tag(
         path,
         "EC2.VPC",
-        [
-            ["1", "EC2.VPC.Tags[].Key", "Name", "Nameタグのキー"],
-            ["2", "EC2.VPC.Tags[].Value", "vpc-app-dev", "Nameタグの値"],
-        ],
-        name_tags,
+        "vpc-app-dev",
+        [["1", "EC2.VPC.Name", "vpc-app-dev", "Nameタグの値"]],
     )
     assert not validator.errors, validator.errors
 
@@ -433,20 +427,38 @@ def check_name_tag_and_identifier_order_contract() -> None:
     validator.check_required_name_tag(
         path,
         "EC2.VPC",
+        "vpc-app-dev",
         [
-            ["1", "EC2.VPC.Tags[].Key", "name", "Nameタグのキー"],
-            ["2", "EC2.VPC.Tags[].Value", "", "Nameタグの値"],
+            ["1", "EC2.VPC.Tags[].Key", "Name", "Nameタグのキー"],
+            ["2", "EC2.VPC.Tags[].Value", "vpc-app-dev", "Nameタグの値"],
         ],
-        name_tags,
     )
-    assert any("required Name tag" in error for error in validator.errors)
+    assert any("one-row property" in error for error in validator.errors)
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.Subnet",
+        "SUBNET01",
+        [["1", "EC2.Subnet.Name", "sbnt-app-dev-private-01", "Nameタグの値"]],
+    )
+    assert any("heading identifier must match" in error for error in validator.errors)
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.Subnet",
+        "PRIVATE_SUBNET_01",
+        [["1", "EC2.Subnet.Name", "PRIVATE_SUBNET_01", "Nameタグの値"]],
+    )
+    assert any("lower-kebab-case" in error for error in validator.errors)
 
     validator = MODULE.Validator(repository)
     validator.check_required_name_tag(
         path,
         "ApiGatewayV2.Api",
-        [["1", "ApiGatewayV2.Api.Tags", '{"Name":"api-app-dev"}', "APIのタグ"]],
-        name_tags,
+        "API01",
+        [],
     )
     assert not validator.errors, validator.errors
 
