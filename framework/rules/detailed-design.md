@@ -60,15 +60,38 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Markdown structure
 
-保存対象Markdownは、原則としてH1 title、service metadata、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
+- `S3.Bucket`だけは`## S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の`<logical-id>`は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
 - 対象外事項はactive taskまたはchatの完了報告だけに記載する。
+
+## Resource overview
+
+各詳細設計fileはservice metadataの直後、最初のresource anchorより前に`## リソース一覧`を正確に1件置く。
+
+- 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
+- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
+- columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
+- column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
+- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。
+
+S3の例:
+
+```md
+## リソース一覧
+
+### S3.Bucket
+
+| BucketName | Region | KMSAlias | Versioning |
+| --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |
+```
 
 ## Resource-detail table
 
@@ -81,7 +104,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - 各 table の row は 1 から連番にする。
 - catalogで`IDENTIFIER_OUTPUT`と指定された全rowを、Propertyのcatalog順でtable先頭の連続rowとして配置する。通常propertyとidentifier参照rowはその後へ置く。
-- `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <logical-id>` heading、tableを使用する。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.Bucket`と`S3.BucketPolicy.PolicyDocument`を同じtableの`S3.Bucket` rowの後へ置き、`Bucket`のValueはそのtable自身のanchorへのsame-file linkとする。`S3.BucketPolicy`の独立anchor、heading、tableは作らない。
+- `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
 - Listener、Route、association、UserDataなどの child component は独立 table にしてよい。Bucket Policyは上記の`S3.Bucket`専用ruleに従う。
@@ -144,6 +167,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - link は relative path を使う。
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
 - anchorはlower-case Service IDとlower-case logical IDを`-`で結ぶ。
+- `S3.Bucket`ではlogical IDの代わりにlower-case BucketNameを使用する。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`では`.Name` valueがlogical IDになるため、anchorにも同じvalueをlowercaseで使用する。
 - 別fileの例: `[FLOWLOGROLE01](iam.md#iam-flowlogrole01)`。
 - 同じfileの例: `[FLOWLOG01](#vpc-flowlog01)`。

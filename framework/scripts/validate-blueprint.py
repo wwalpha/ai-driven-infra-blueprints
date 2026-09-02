@@ -48,8 +48,13 @@ MODEL_OWNED_TYPES_PATTERN = re.compile(
     r"^desired\.service\.(.+)\.ownedCatalogResourceTypes=(.*)$"
 )
 RESOURCE_HEADING_PATTERN = re.compile(
-    r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_-]*)$"
+    r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$"
 )
+OVERVIEW_HEADING = "## リソース一覧"
+OVERVIEW_TYPE_HEADING_PATTERN = re.compile(
+    r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+)$"
+)
+OVERVIEW_COLUMN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 FORBIDDEN_DESIGN_METADATA_PATTERN = re.compile(
     r"^\s*-\s*(Environment|AWS account ID|AWS region|Purpose|Deployment state)\s*:",
     re.IGNORECASE,
@@ -79,6 +84,7 @@ REQUIRED_NAME_PROPERTIES = {
 }
 GROUPED_RESOURCE_TYPES = {"S3.Bucket": {"S3.BucketPolicy"}}
 GROUPED_CHILD_RESOURCE_TYPES = set().union(*GROUPED_RESOURCE_TYPES.values())
+IMPLICIT_GROUPED_PROPERTIES = {"S3.BucketPolicy": {"Bucket"}}
 DESIGN_ONLY_PROPERTIES = {"S3.Bucket.Region": "S3.Bucket"}
 S3_KMS_MASTER_KEY_ID = (
     "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
@@ -700,6 +706,7 @@ class Validator:
         for path in properties_paths:
             self.check_target_file(path, self.root / "model")
         service_metadata, catalog_types, catalog_property_owners, identifier_outputs = self.check_design_service_ownership(markdown_paths)
+        self.check_design_overviews()
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
         self.check_design_links(identifier_outputs)
         self.check_design_artifacts()
@@ -1003,6 +1010,10 @@ class Validator:
                 if not lines[index].startswith("|"):
                     index += 1
                     continue
+                if not current_resource_type:
+                    while index < len(lines) and lines[index].startswith("|"):
+                        index += 1
+                    continue
                 table_count += 1
                 table = []
                 while index < len(lines) and lines[index].startswith("|"):
@@ -1088,6 +1099,11 @@ class Validator:
                             len(bucket_name_rows) == 1 and rows[0][1] == "S3.Bucket.BucketName",
                             f"S3.Bucket.BucketName must be the first row: {self.relative(path)}: {current_logical_id}",
                         )
+                        if len(bucket_name_rows) == 1:
+                            self.check(
+                                current_logical_id == self.unquoted(bucket_name_rows[0][2]),
+                                f"S3.Bucket heading identifier must match BucketName: {self.relative(path)}: {current_logical_id}",
+                            )
                         region_rows = [
                             row for row in rows if row[1] == "S3.Bucket.Region"
                         ]
@@ -1120,22 +1136,12 @@ class Validator:
                                 ),
                                 f"S3.BucketPolicy rows must follow S3.Bucket rows: {self.relative(path)}: {current_logical_id}",
                             )
-                            bucket_links = [
-                                RESOURCE_LINK_PATTERN.fullmatch(row[2])
-                                for row in policy_rows
-                                if row[1] == "S3.BucketPolicy.Bucket"
-                            ]
-                            expected_anchor = (
-                                f"{service_metadata[path][0]}-{current_logical_id.lower()}"
-                                if path in service_metadata
-                                else ""
-                            )
                             self.check(
-                                len(bucket_links) == 1
-                                and bucket_links[0] is not None
-                                and bucket_links[0].group(2) == ""
-                                and bucket_links[0].group(3) == expected_anchor,
-                                f"S3.BucketPolicy.Bucket must link to its enclosing S3.Bucket anchor: {self.relative(path)}: {current_logical_id}",
+                                not any(
+                                    row[1] == "S3.BucketPolicy.Bucket"
+                                    for row in policy_rows
+                                ),
+                                f"S3.BucketPolicy.Bucket must be omitted from its enclosing S3.Bucket table: {self.relative(path)}: {current_logical_id}",
                             )
                     if self.schema_catalog is not None:
                         schema_types = {current_resource_type} | {
@@ -1164,7 +1170,12 @@ class Validator:
                                 if resource_type
                                 in catalog_property_owners.get(property_name, set())
                             }
-                            for property_name in sorted(selected_required - present):
+                            missing = (
+                                selected_required
+                                - present
+                                - IMPLICIT_GROUPED_PROPERTIES.get(resource_type, set())
+                            )
+                            for property_name in sorted(missing):
                                 self.check(
                                     False,
                                     f"required provider schema property missing: {self.relative(path)}: {resource_type}.{property_name}",
@@ -1192,6 +1203,111 @@ class Validator:
                             self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
                     previous = line.strip()
+
+    def check_design_overviews(self) -> None:
+        for path in self.design_files():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            overview_indices = [
+                index for index, line in enumerate(lines) if line == OVERVIEW_HEADING
+            ]
+            self.check(
+                len(overview_indices) == 1,
+                f"resource overview must appear exactly once: {self.relative(path)}",
+            )
+            resources: dict[str, tuple[str, str]] = {}
+            resource_indices: list[int] = []
+            previous = ""
+            for index, line in enumerate(lines):
+                if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    anchor = ANCHOR_PATTERN.fullmatch(previous)
+                    if anchor:
+                        resources[anchor.group(1)] = heading.groups()
+                    resource_indices.append(index)
+                if line.strip():
+                    previous = line.strip()
+            if len(overview_indices) != 1 or not resource_indices:
+                continue
+
+            overview_index = overview_indices[0]
+            first_resource_index = min(resource_indices)
+            self.check(
+                overview_index < first_resource_index,
+                f"resource overview must precede resource details: {self.relative(path)}",
+            )
+            if overview_index >= first_resource_index:
+                continue
+
+            listed: list[str] = []
+            overview_types: list[str] = []
+            current_type = ""
+            index = overview_index + 1
+            while index < first_resource_index:
+                line = lines[index]
+                if heading := OVERVIEW_TYPE_HEADING_PATTERN.fullmatch(line):
+                    current_type = heading.group(1)
+                    overview_types.append(current_type)
+                    index += 1
+                    continue
+                if not line.startswith("|"):
+                    index += 1
+                    continue
+                table: list[str] = []
+                while index < first_resource_index and lines[index].startswith("|"):
+                    table.append(lines[index])
+                    index += 1
+                self.check(bool(current_type), f"resource overview table lacks a resource type heading: {self.relative(path)}")
+                self.check(len(table) >= 3, f"resource overview table is incomplete: {self.relative(path)}: {current_type}")
+                if not current_type or len(table) < 3:
+                    continue
+                headers = [cell.strip() for cell in table[0].strip("|").split("|")]
+                alignment = [cell.strip() for cell in table[1].strip("|").split("|")]
+                self.check(
+                    2 <= len(headers) <= 6,
+                    f"resource overview must use 2 to 6 columns: {self.relative(path)}: {current_type}",
+                )
+                self.check(
+                    len(headers) == len(set(headers))
+                    and all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in headers),
+                    f"resource overview column names must be short and unique: {self.relative(path)}: {current_type}",
+                )
+                self.check(
+                    len(alignment) == len(headers)
+                    and all(re.fullmatch(r":?---+:?", cell) for cell in alignment),
+                    f"invalid resource overview table alignment: {self.relative(path)}: {current_type}",
+                )
+                for row in table[2:]:
+                    cells = [cell.strip() for cell in row.strip("|").split("|")]
+                    self.check(
+                        len(cells) == len(headers),
+                        f"resource overview row width mismatch: {self.relative(path)}: {current_type}",
+                    )
+                    if len(cells) != len(headers):
+                        continue
+                    link = RESOURCE_LINK_PATTERN.fullmatch(cells[0])
+                    self.check(
+                        bool(link and not link.group(2)),
+                        f"resource overview first column must link to a same-file detail block: {self.relative(path)}: {current_type}",
+                    )
+                    if not link or link.group(2):
+                        continue
+                    label, _, anchor = link.groups()
+                    resource = resources.get(anchor)
+                    self.check(
+                        bool(resource and resource == (current_type, label)),
+                        f"resource overview link must match its detail block: {self.relative(path)}: {current_type}: {label}",
+                    )
+                    listed.append(anchor)
+
+            detail_types = [resource_type for resource_type, _ in resources.values()]
+            self.check(
+                len(overview_types) == len(set(overview_types))
+                and set(overview_types) == set(detail_types),
+                f"resource overview types must match detail resource types: {self.relative(path)}",
+            )
+            self.check(
+                len(listed) == len(set(listed)) and set(listed) == set(resources),
+                f"resource overview must list every detail resource exactly once: {self.relative(path)}",
+            )
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]]) -> None:
         anchors = {

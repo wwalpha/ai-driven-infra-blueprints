@@ -197,11 +197,12 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 - stable logical IDとexplicit anchorを使用する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`のlogical IDは`.Name` valueと完全一致させる
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
+- 各fileのservice metadata直後に`## リソース一覧`を置き、detail blockを持つresource typeごとに1 resourceを1 rowで一覧表示する。columnは2〜6個の重要parameterへ絞り、`BucketName`、`Region`、`KMSAlias`のような短い名前を使う。最初のcolumnは対応するdetail blockへのsame-file linkとし、一覧値はdetail tableと一致させる
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
 - catalogの全`IDENTIFIER_OUTPUT` rowを各resource table先頭の連続rowにcatalog順で置く
-- `S3.Bucket`は`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は同じtableの`S3.Bucket` rowの後へ置き、`S3.BucketPolicy.Bucket`でそのtable自身のanchorをsame-file linkし、独立anchor、heading、tableを出力しない
+- `S3.Bucket`のheading identifierとanchorのidentifier部分はBucketNameと一致させる。`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableを出力しない
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない

@@ -523,9 +523,9 @@ def check_s3_bucket_policy_grouping() -> None:
 - Design service ID: `s3`
 - Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
 
-<a id="s3-appdatabucket"></a>
+<a id="s3-app-dev-data-123456789012"></a>
 
-## S3.Bucket: AppDataBucket
+## S3.Bucket: app-dev-data-123456789012
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -533,8 +533,7 @@ def check_s3_bucket_policy_grouping() -> None:
 | 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |
 | 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
 | 4 | S3.Bucket.VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
-| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |
-| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """
         metadata = {
             design: ("s3", ("S3.Bucket", "S3.BucketPolicy")),
@@ -569,19 +568,69 @@ def check_s3_bucket_policy_grouping() -> None:
         assert any("must link to a KMS.Alias" in error for error in errors(literal_alias))
         wrong_alias = valid.replace("[alias/app-data]", "[alias/other]")
         assert any("must display the referenced KMS alias" in error for error in errors(wrong_alias))
-        wrong_link = valid.replace("(#s3-appdatabucket)", "(#s3-otherbucket)")
-        assert any("must link to its enclosing" in error for error in errors(wrong_link))
+        wrong_heading = valid.replace(
+            "## S3.Bucket: app-dev-data-123456789012",
+            "## S3.Bucket: AppDataBucket",
+        )
+        assert any("heading identifier must match BucketName" in error for error in errors(wrong_heading))
+        explicit_bucket = valid.replace(
+            "| 5 | S3.BucketPolicy.PolicyDocument",
+            "| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | bucket policyを適用するbucket |\n"
+            "| 6 | S3.BucketPolicy.PolicyDocument",
+        )
+        assert any("S3.BucketPolicy.Bucket must be omitted" in error for error in errors(explicit_bucket))
         separate_heading = valid.replace(
-            "| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |\n"
-            "| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
+            "| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
             "\n<a id=\"s3-appdatabucketpolicy\"></a>\n\n"
             "## S3.BucketPolicy: AppDataBucketPolicy\n\n"
             "| No. | Property | Value | Source / Comment |\n"
             "| ---: | --- | --- | --- |\n"
-            "| 1 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |\n"
-            "| 2 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
+            "| 1 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
         )
         assert any("must not have an independent heading" in error for error in errors(separate_heading))
+
+
+def check_resource_overview() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs" / "designs" / "dev" / "123456789012" / "s3.md"
+        design.parent.mkdir(parents=True)
+        valid = """# Amazon S3 詳細設計
+
+- Design service ID: `s3`
+- Owned catalog resource types: `S3.Bucket`
+
+## リソース一覧
+
+### S3.Bucket
+
+| BucketName | Region | KMSAlias | Versioning |
+| --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |
+
+<a id="s3-app-dev-data-123456789012"></a>
+
+## S3.Bucket: app-dev-data-123456789012
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
+"""
+
+        def errors(markdown: str) -> list[str]:
+            design.write_text(markdown, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_design_overviews()
+            return validator.errors
+
+        assert not errors(valid)
+        long_header = valid.replace("| BucketName | Region |", "| S3.Bucket.BucketName | Region |")
+        assert any("column names must be short and unique" in error for error in errors(long_header))
+        missing_row = valid.replace(
+            "| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |\n",
+            "",
+        )
+        assert any("must list every detail resource exactly once" in error for error in errors(missing_row))
 
 
 def check_design_handoff_prompt() -> None:
@@ -618,8 +667,9 @@ def main() -> None:
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
     check_s3_bucket_policy_grouping()
+    check_resource_overview()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (40 focused checks)")
+    print("validate-blueprint: PASS (44 focused checks)")
 
 
 if __name__ == "__main__":

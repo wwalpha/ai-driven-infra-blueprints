@@ -13,7 +13,7 @@ from pathlib import Path
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
 OWNED_TYPES = re.compile(r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$")
-RESOURCE = re.compile(r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_-]*)$")
+RESOURCE = re.compile(r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
@@ -162,6 +162,10 @@ def model_for(path: Path, root: Path | None = None) -> str:
                         raise ValueError(f"linked JSON artifact is missing: {artifact}")
                     digest = json_sha256(artifact)
                     output.append(f"desired.row.{key}.artifactSha256={digest}")
+                index += 1
+            continue
+        if line.startswith("|"):
+            while index < len(lines) and lines[index].startswith("|"):
                 index += 1
             continue
         if line and not (

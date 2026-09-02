@@ -122,9 +122,17 @@ def main() -> None:
 - Design service ID: `s3`
 - Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
 
-<a id="s3-appdatabucket"></a>
+## リソース一覧
 
-## S3.Bucket: AppDataBucket
+### S3.Bucket
+
+| BucketName | Region | KMSAlias | Versioning |
+| --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled |
+
+<a id="s3-app-dev-data-123456789012"></a>
+
+## S3.Bucket: app-dev-data-123456789012
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -132,22 +140,24 @@ def main() -> None:
 | 2 | S3.Bucket.Region | us-east-1 | bucketを配置するAWS region |
 | 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
 | 4 | S3.Bucket.VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
-| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |
-| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """,
             encoding="utf-8",
         )
         s3_model = MODULE.model_for(s3_design, root)
         assert "desired.resource.001.resourceType=S3.Bucket" in s3_model
+        assert "desired.resource.001.logicalId=app-dev-data-123456789012" in s3_model
         assert "desired.resource.002." not in s3_model
         assert "desired.row.001-001.property=S3.Bucket.BucketName" in s3_model
         assert "desired.row.001-002.property=S3.Bucket.Region" in s3_model
         assert "desired.row.001-002.value=us-east-1" in s3_model
         assert "desired.row.001-003.value=[alias/app-data](kms.md#kms-appdatakeyalias)" in s3_model
         assert "observed.row.001-003" not in s3_model
-        assert "desired.row.001-005.property=S3.BucketPolicy.Bucket" in s3_model
-        assert "desired.row.001-006.property=S3.BucketPolicy.PolicyDocument" in s3_model
-        assert "desired.row.001-006.artifactSha256=" in s3_model
+        assert "S3.BucketPolicy.Bucket" not in s3_model
+        assert "desired.row.001-005.property=S3.BucketPolicy.PolicyDocument" in s3_model
+        assert "desired.row.001-005.artifactSha256=" in s3_model
+        assert "リソース一覧" not in s3_model
+        assert "BucketName | Region" not in s3_model
         original_digest = MODULE.json_sha256(artifact)
         artifact.write_text(
             '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
@@ -200,7 +210,7 @@ def main() -> None:
         assert (root / "model" / "dev" / "cde" / "vpc.properties").is_file()
         assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
         assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
-    print("sync-model: PASS (31 focused checks)")
+    print("sync-model: PASS (35 focused checks)")
 
 
 if __name__ == "__main__":
