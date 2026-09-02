@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -18,6 +19,14 @@ TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 JSON_LINK = re.compile(r"^\[[^\]]+\]\(([^)#]+\.json)\)$")
 RESOURCE_LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
+
+
+def json_sha256(path: Path) -> str:
+    content = json.loads(path.read_text(encoding="utf-8"))
+    canonical = json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def identifier_outputs(root: Path) -> dict[str, set[str]]:
@@ -151,7 +160,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
                     artifact = path.parent / match.group(1)
                     if not artifact.is_file():
                         raise ValueError(f"linked JSON artifact is missing: {artifact}")
-                    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    digest = json_sha256(artifact)
                     output.append(f"desired.row.{key}.artifactSha256={digest}")
                 index += 1
             continue

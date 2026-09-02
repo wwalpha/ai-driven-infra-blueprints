@@ -1,9 +1,9 @@
-# Destructive change confirmation and resume flow
+# JSON artifactの意味ベースhash化
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: CloudFormation change setまたはTerraform planで未承認のdelete/replacementを検出した場合に、人間へ影響を説明して確認待ちとし、承認後に同じdeployment taskと同じchange setまたはplanを継続実行できるframework contractへ更新する
+- Goal: JSON policy artifactの表示形式だけの変更ではgenerated service modelをstaleにせず、意味の変更だけを`artifactSha256`へ反映するframework contractへ更新する
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,35 +11,33 @@
 
 ## Required changes
 
-- [R1] repository全体のruleを、全deploymentへの一律human reviewは設けず、未承認のdelete/replacementだけを説明付き確認待ちにするcontractへ統一する。
-- [R2] `04_deploy.md`へ、破壊的変更の説明項目、確認質問、追加read-only調査、承認後の同一change set／保存済みplan再確認と継続実行を追加する。
-- [R3] `05_update.md`が`04_deploy.md`と同じ確認待ち・継続実行flowを使用することを明示する。
-- [R4] governance taskのlocal validationとtask completion contractを実行する。
+- [R1] `sync-model.py`がlinked JSON artifactを決定的に正規化してからSHA-256を生成する。
+- [R2] 意味が同じで整形だけ異なるJSONは同じhash、内容が異なるJSONは異なhashになるfocused checkを追加する。
+- [R3] JSON artifactの最低限の保存形式をUTF-8、LF、末尾改行ありに統一し、配列の表示形式は強制しない。
+- [R4] 現在の詳細設計からgenerated service modelを再生成し、governance taskのlocal validationを実行する。
 
 ## Acceptance checks
 
-- [R1] `changed:AGENTS.md`
-- [R1] `changed:framework/rules/cloudformation.md`
-- [R1] `changed:framework/rules/terraform.md`
-- [R1] `changed:framework/rules/loop-engineering.md`
-- [R2] `changed:framework/prompts/codex/04_deploy.md`
-- [R3] `changed:framework/prompts/codex/05_update.md`
-- [R4] `check:framework.task-completion-contract`
+- [R1] `changed:framework/scripts/sync-model.py`
+- [R1] `check:framework.generated-service-model`
+- [R2] `changed:framework/scripts/sync-model.checks.py`
+- [R3] `changed:framework/rules/detailed-design.md`
+- [R3] `changed:framework/rules/model-information.md`
+- [R4] `check:framework.generated-service-model`
 
 ## Allowed paths
 
-- `AGENTS.md`
-- `framework/prompts/codex/04_deploy.md`
-- `framework/prompts/codex/05_update.md`
-- `framework/rules/cloudformation.md`
-- `framework/rules/terraform.md`
-- `framework/rules/loop-engineering.md`
+- `framework/rules/detailed-design.md`
+- `framework/rules/model-information.md`
+- `framework/scripts/sync-model.py`
+- `framework/scripts/sync-model.checks.py`
+- `model/**`
 - `tasks/active.md`
 
 ## Out of scope
 
-- `docs/designs/**`、`model/**`、`infra/**`、`tests/**`の変更
-- resource type固有の削除判定またはrisk catalog
-- deploy runner、approval database、別のruntime helperの追加
-- consumer repositoryの変更
-- AWS API、change set作成・実行、Terraform plan・apply
+- `docs/designs/**`、IaC、scenario、resultの変更
+- AWS API、AWS mutation、deploy/apply
+- JSON配列の1行・複数行表示の強制
+- format-on-saveの無効化またはformatter固有の整形規則
+- consumer repositoryへのframework sync

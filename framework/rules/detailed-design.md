@@ -114,6 +114,7 @@ docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json
 - 一つのJSON fileは一つのpolicy documentを保持する。複数のinline policyは別fileへ分ける。
 - resource tableの`Value`は同じservice directoryのJSON fileへのrelative Markdown linkとする。
 - JSONは構文的に有効なobjectとし、AWS policy key、Action、Condition keyなどの識別子を日本語化しない。
+- JSONはUTF-8、LF、file末尾改行ありで保存する。配列の1行・複数行表示はformatterに任せ、repository ruleで強制しない。
 - 対応するgenerated service modelはJSON本文を複製せず、Markdownのrelative artifact linkとJSON内容のSHA-256を保持する。
 
 ### IAM Role policy artifact names

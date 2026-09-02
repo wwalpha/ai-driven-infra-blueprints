@@ -31,7 +31,10 @@ def main() -> None:
         design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
         artifact = design.parent / "vpc" / "vpc01-policy.json"
         artifact.parent.mkdir(parents=True)
-        artifact.write_text('{"Version":"2012-10-17"}\n', encoding="utf-8")
+        artifact.write_text(
+            '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
+            encoding="utf-8",
+        )
         design.write_text(
             """# Amazon VPC 詳細設計
 
@@ -74,6 +77,23 @@ def main() -> None:
         assert "desired.row.002-002.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
         assert "desired.row.002-003.property=EC2.Subnet.Name" in model
         assert model == MODULE.model_for(design, root)
+        original_digest = MODULE.json_sha256(artifact)
+        artifact.write_text(
+            '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
+            '  "Version": "2012-10-17"\r\n}',
+            encoding="utf-8",
+            newline="",
+        )
+        assert MODULE.json_sha256(artifact) == original_digest
+        artifact.write_text(
+            '{"Version":"2012-10-17","Action":["s3:PutObject"]}\n',
+            encoding="utf-8",
+        )
+        assert MODULE.json_sha256(artifact) != original_digest
+        artifact.write_text(
+            '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
+            encoding="utf-8",
+        )
         design.write_text(
             design.read_text(encoding="utf-8")
             .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
@@ -94,7 +114,10 @@ def main() -> None:
         alias_design.parent.mkdir(parents=True)
         alias_artifact = alias_design.parent / "vpc" / "vpc01-policy.json"
         alias_artifact.parent.mkdir(parents=True)
-        alias_artifact.write_text('{"Version":"2012-10-17"}\n', encoding="utf-8")
+        alias_artifact.write_text(
+            '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
+            encoding="utf-8",
+        )
         alias_design.write_text(
             design.read_text(encoding="utf-8").replace(
                 "vpc-0123456789abcdef0", "vpc-11111111111111111"
@@ -106,7 +129,7 @@ def main() -> None:
         assert (root / "model" / "dev" / "cde" / "vpc.properties").is_file()
         assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
         assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
-    print("sync-model: PASS (18 focused checks)")
+    print("sync-model: PASS (20 focused checks)")
 
 
 if __name__ == "__main__":
