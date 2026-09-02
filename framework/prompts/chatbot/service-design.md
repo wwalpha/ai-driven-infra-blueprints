@@ -76,9 +76,11 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 一緒に確認した方が理解しやすい関連 service
 - humanが決めるproperty／既存AWS resourceから取得するproperty
 
-`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`だけはmandatory policyとしてこの省略対象から除外してください。
+`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`だけはmandatory policyとしてこの省略対象から除外してください。
 
-回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。上記3種類のdesign-only `.Name`以外にschemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。3種類の`.Name`は省略せず、`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
+S3 Bucketのregionが既存設計、system overview、またはuser回答で確定していない場合は、bucketごに配置するAWS regionを質問してください。`project.json`のtarget `awsRegion`を自動転記せず、`us-east-1`などtargetと異なるregionの回答もそのまま採用してください。
+
+回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。上記3種類のdesign-only `.Name`と`S3.Bucket.Region`以外にschemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。これらのdesign-only propertyは省略せず、`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
 human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`には対応する`.Name`とnon-empty valueを1 rowで必ず設計し、resource heading identifierをそのvalueと完全一致させてください。`Tags[].Key=Name`と`Tags[].Value`の2 rowは作りません。その他のresourceではtaggableであることを理由に`Name` tagを質問または追加せず、humanが明示した場合だけ設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 
@@ -199,6 +201,7 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 - `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
 - catalogの全`IDENTIFIER_OUTPUT` rowを各resource table先頭の連続rowにcatalog順で置く
+- `S3.Bucket`は`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は同じtableの`S3.Bucket` rowの後へ置き、`S3.BucketPolicy.Bucket`でそのtable自身のanchorをsame-file linkし、独立anchor、heading、tableを出力しない
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない

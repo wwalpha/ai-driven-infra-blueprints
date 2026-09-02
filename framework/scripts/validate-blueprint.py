@@ -77,6 +77,13 @@ REQUIRED_NAME_PROPERTIES = {
     "EC2.Subnet": "EC2.Subnet.Name",
     "EC2.VPC": "EC2.VPC.Name",
 }
+GROUPED_RESOURCE_TYPES = {"S3.Bucket": {"S3.BucketPolicy"}}
+GROUPED_CHILD_RESOURCE_TYPES = set().union(*GROUPED_RESOURCE_TYPES.values())
+DESIGN_ONLY_PROPERTIES = {"S3.Bucket.Region": "S3.Bucket"}
+S3_KMS_MASTER_KEY_ID = (
+    "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
+    ".ServerSideEncryptionByDefault.KMSMasterKeyID"
+)
 RESULT_STATUSES = {"PASS", "FAIL", "BLOCKED", "STALE", "NOT_EXECUTED"}
 CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 RESULT_METADATA = (
@@ -719,6 +726,9 @@ class Validator:
         for resource_type, property_name in REQUIRED_NAME_PROPERTIES.items():
             if resource_type in resource_types:
                 property_owners.setdefault(property_name, set()).add(resource_type)
+        for property_name, resource_type in DESIGN_ONLY_PROPERTIES.items():
+            if resource_type in resource_types:
+                property_owners.setdefault(property_name, set()).add(resource_type)
         return resource_types, property_owners, identifier_outputs
 
     def markdown_service_metadata(
@@ -983,6 +993,10 @@ class Validator:
                             current_resource_type in service_metadata[path][1],
                             f"catalog resource type is outside declared service ownership: {self.relative(path)}: {current_resource_type}",
                         )
+                    self.check(
+                        current_resource_type not in GROUPED_CHILD_RESOURCE_TYPES,
+                        f"grouped resource type must not have an independent heading: {self.relative(path)}: {current_resource_type}",
+                    )
                 elif lines[index].startswith("#"):
                     current_resource_type = ""
                     current_logical_id = ""
@@ -1011,38 +1025,54 @@ class Validator:
                             f"Source / Comment must be Japanese: {self.relative(path)}: {cells[3]}",
                         )
                         property_owners = catalog_property_owners.get(cells[1], set())
+                        allowed_types = {
+                            current_resource_type,
+                            *GROUPED_RESOURCE_TYPES.get(current_resource_type, set()),
+                        }
+                        row_types = property_owners & allowed_types
                         if current_resource_type in catalog_types:
                             self.check(
-                                current_resource_type in property_owners,
+                                bool(row_types),
                                 f"resource table property is not selected by framework/materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
                             )
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
                             self.check(bool(property_owners & owned_types), f"catalog property is outside declared service ownership: {self.relative(path)}: {cells[1]}")
                             if current_resource_type:
-                                self.check(current_resource_type in property_owners, f"catalog property does not belong to resource table: {self.relative(path)}: {current_resource_type}: {cells[1]}")
+                                self.check(bool(row_types), f"catalog property does not belong to resource table: {self.relative(path)}: {current_resource_type}: {cells[1]}")
+                        schema_type = (
+                            current_resource_type
+                            if current_resource_type in row_types
+                            else min(row_types, default="")
+                        )
                         if (
                             self.schema_catalog is not None
-                            and current_resource_type in property_owners
-                            and cells[1] != REQUIRED_NAME_PROPERTIES.get(current_resource_type)
+                            and schema_type
+                            and cells[1] != REQUIRED_NAME_PROPERTIES.get(schema_type)
+                            and cells[1] not in DESIGN_ONLY_PROPERTIES
                             and LINK_PATTERN.fullmatch(cells[2]) is None
                         ):
-                            property_path = self.resource_property_path(current_resource_type, cells[1])
+                            property_path = self.resource_property_path(schema_type, cells[1])
                             raw_value = self.unquoted(cells[2])
                             errors = [] if (
-                                cells[1] in identifier_outputs.get(current_resource_type, set())
+                                cells[1] in identifier_outputs.get(schema_type, set())
                                 and raw_value == "PENDING_DEPLOY"
-                            ) else self.schema_catalog.literal_errors(current_resource_type, property_path, raw_value)
+                            ) else self.schema_catalog.literal_errors(schema_type, property_path, raw_value)
                             for error in errors:
                                 self.check(
                                     False,
-                                    f"provider schema violation: {self.relative(path)}: {current_resource_type}.{property_path}: {raw_value!r} {error}",
+                                    f"provider schema violation: {self.relative(path)}: {schema_type}.{property_path}: {raw_value!r} {error}",
                                 )
                         link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
                         artifact_link = link_match.group(1) if link_match else ""
                         is_json_link = artifact_link.endswith(".json")
                         if self.is_policy_document_property(cells[1]):
                             self.check(is_json_link, f"policy property must link to a JSON artifact: {self.relative(path)}: {cells[1]}")
+                        if cells[1] == S3_KMS_MASTER_KEY_ID:
+                            self.check(
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                f"S3 KMSMasterKeyID must link to a KMS.Alias: {self.relative(path)}: {current_logical_id}",
+                            )
                         if is_json_link:
                             artifact = (path.parent / artifact_link).resolve()
                             expected_directory = path.with_suffix("").resolve()
@@ -1050,23 +1080,95 @@ class Validator:
                             self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact path: {self.relative(path)}: {artifact_link}")
                             self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
-                    if self.schema_catalog is not None:
-                        present = {
-                            self.resource_property_path(current_resource_type, row[1])
-                            for row in rows
-                            if current_resource_type in catalog_property_owners.get(row[1], set())
-                        }
-                        selected_required = {
-                            property_name
-                            for property_name in self.schema_catalog.required_properties(current_resource_type)
-                            if current_resource_type
-                            in catalog_property_owners.get(property_name, set())
-                        }
-                        for property_name in sorted(selected_required - present):
+                    if current_resource_type == "S3.Bucket":
+                        bucket_name_rows = [
+                            row for row in rows if row[1] == "S3.Bucket.BucketName"
+                        ]
+                        self.check(
+                            len(bucket_name_rows) == 1 and rows[0][1] == "S3.Bucket.BucketName",
+                            f"S3.Bucket.BucketName must be the first row: {self.relative(path)}: {current_logical_id}",
+                        )
+                        region_rows = [
+                            row for row in rows if row[1] == "S3.Bucket.Region"
+                        ]
+                        self.check(
+                            len(region_rows) == 1
+                            and len(rows) > 1
+                            and rows[1][1] == "S3.Bucket.Region",
+                            f"S3.Bucket.Region must be the second row: {self.relative(path)}: {current_logical_id}",
+                        )
+                        if len(region_rows) == 1:
+                            region = self.unquoted(region_rows[0][2])
                             self.check(
-                                False,
-                                f"required provider schema property missing: {self.relative(path)}: {current_resource_type}.{property_name}",
+                                LOWER_KEBAB_PATTERN.fullmatch(region) is not None
+                                and region != "UNSET",
+                                f"S3.Bucket.Region must be a confirmed AWS region ID: {self.relative(path)}: {current_logical_id}",
                             )
+                        policy_rows = [
+                            row
+                            for row in rows
+                            if "S3.BucketPolicy"
+                            in catalog_property_owners.get(row[1], set())
+                        ]
+                        if policy_rows:
+                            first_policy = rows.index(policy_rows[0])
+                            self.check(
+                                all(
+                                    "S3.BucketPolicy"
+                                    in catalog_property_owners.get(row[1], set())
+                                    for row in rows[first_policy:]
+                                ),
+                                f"S3.BucketPolicy rows must follow S3.Bucket rows: {self.relative(path)}: {current_logical_id}",
+                            )
+                            bucket_links = [
+                                RESOURCE_LINK_PATTERN.fullmatch(row[2])
+                                for row in policy_rows
+                                if row[1] == "S3.BucketPolicy.Bucket"
+                            ]
+                            expected_anchor = (
+                                f"{service_metadata[path][0]}-{current_logical_id.lower()}"
+                                if path in service_metadata
+                                else ""
+                            )
+                            self.check(
+                                len(bucket_links) == 1
+                                and bucket_links[0] is not None
+                                and bucket_links[0].group(2) == ""
+                                and bucket_links[0].group(3) == expected_anchor,
+                                f"S3.BucketPolicy.Bucket must link to its enclosing S3.Bucket anchor: {self.relative(path)}: {current_logical_id}",
+                            )
+                    if self.schema_catalog is not None:
+                        schema_types = {current_resource_type} | {
+                            resource_type
+                            for resource_type in GROUPED_RESOURCE_TYPES.get(
+                                current_resource_type, set()
+                            )
+                            if any(
+                                resource_type
+                                in catalog_property_owners.get(row[1], set())
+                                for row in rows
+                            )
+                        }
+                        for resource_type in schema_types:
+                            present = {
+                                self.resource_property_path(resource_type, row[1])
+                                for row in rows
+                                if resource_type
+                                in catalog_property_owners.get(row[1], set())
+                            }
+                            selected_required = {
+                                property_name
+                                for property_name in self.schema_catalog.required_properties(
+                                    resource_type
+                                )
+                                if resource_type
+                                in catalog_property_owners.get(property_name, set())
+                            }
+                            for property_name in sorted(selected_required - present):
+                                self.check(
+                                    False,
+                                    f"required provider schema property missing: {self.relative(path)}: {resource_type}.{property_name}",
+                                )
                     self.check_generated_identifier(
                         path, current_resource_type, current_logical_id, rows, identifier_outputs
                     )
@@ -1109,7 +1211,11 @@ class Validator:
                     pending_anchor = ""
                 elif current and line.startswith("|") and line not in {TABLE_HEADER, TABLE_ALIGNMENT}:
                     cells = [cell.strip() for cell in line.strip("|").split("|")]
-                    if len(cells) == 4 and cells[1] in identifier_outputs.get(resources[current][0], set()):
+                    if len(cells) == 4 and (
+                        cells[1]
+                        in identifier_outputs.get(resources[current][0], set())
+                        or cells[1] == "KMS.Alias.AliasName"
+                    ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in self.design_files():
             for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
@@ -1129,6 +1235,20 @@ class Validator:
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
                 resource = resources.get((target, fragment))
+                if cells[1] == S3_KMS_MASTER_KEY_ID:
+                    alias_name = (
+                        resource[1].get("KMS.Alias.AliasName") if resource else None
+                    )
+                    self.check(
+                        bool(
+                            resource
+                            and resource[0] == "KMS.Alias"
+                            and alias_name == label
+                            and label.startswith("alias/")
+                        ),
+                        f"S3 KMSMasterKeyID must display the referenced KMS alias name: {self.relative(source)}: {label}",
+                    )
+                    continue
                 if not resource or not resource[1]:
                     continue
                 source_leaf = self.normalized(cells[1].split(".")[-1].replace("[]", ""))

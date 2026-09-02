@@ -38,7 +38,7 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`は`desired.row.*`へlosslessに反映する。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
+resourceとrowの番号はMarkdown内の出現順から生成する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`、design-only `S3.Bucket.Region`は`desired.row.*`へlosslessに反映する。`S3.Bucket`のtableにgroup化した`S3.BucketPolicy` rowは、独立した`desired.resource.*`を作らず、同じ`S3.Bucket` resource番号の`desired.row.*`へProperty名を保ってlosslessに反映する。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 

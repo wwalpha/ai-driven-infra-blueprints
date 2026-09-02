@@ -28,6 +28,20 @@ def main() -> None:
         (materials / "EC2_Subnet.properties").write_text(
             "EC2.Subnet.SubnetId=IDENTIFIER_OUTPUT\nEC2.Subnet.VpcId=\n", encoding="utf-8"
         )
+        (materials / "S3_Bucket.properties").write_text(
+            "S3.Bucket.BucketName=\n"
+            "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
+            ".ServerSideEncryptionByDefault.KMSMasterKeyID=\n"
+            "S3.Bucket.VersioningConfiguration.Status=\n",
+            encoding="utf-8",
+        )
+        (materials / "S3_BucketPolicy.properties").write_text(
+            "S3.BucketPolicy.Bucket=\nS3.BucketPolicy.PolicyDocument=\n",
+            encoding="utf-8",
+        )
+        (materials / "KMS_Alias.properties").write_text(
+            "KMS.Alias.AliasName=\nKMS.Alias.TargetKeyId=\n", encoding="utf-8"
+        )
         design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
         artifact = design.parent / "vpc" / "vpc01-policy.json"
         artifact.parent.mkdir(parents=True)
@@ -77,6 +91,63 @@ def main() -> None:
         assert "desired.row.002-002.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
         assert "desired.row.002-003.property=EC2.Subnet.Name" in model
         assert model == MODULE.model_for(design, root)
+
+        s3_design = design.with_name("s3.md")
+        s3_artifact = s3_design.parent / "s3" / "app-data-bucket-policy.json"
+        s3_artifact.parent.mkdir(parents=True)
+        s3_artifact.write_text(
+            '{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8"
+        )
+        kms_design = design.with_name("kms.md")
+        kms_design.write_text(
+            """# AWS KMS 詳細設計
+
+- Design service ID: `kms`
+- Owned catalog resource types: `KMS.Alias`
+
+<a id="kms-appdatakeyalias"></a>
+
+## KMS.Alias: AppDataKeyAlias
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | KMS.Alias.AliasName | alias/app-data | application data用keyを識別するalias |
+| 2 | KMS.Alias.TargetKeyId | 1234abcd-12ab-34cd-56ef-1234567890ab | aliasを関連付けるKMS key |
+""",
+            encoding="utf-8",
+        )
+        s3_design.write_text(
+            """# Amazon S3 詳細設計
+
+- Design service ID: `s3`
+- Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
+
+<a id="s3-appdatabucket"></a>
+
+## S3.Bucket: AppDataBucket
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | S3.Bucket.BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
+| 2 | S3.Bucket.Region | us-east-1 | bucketを配置するAWS region |
+| 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | S3.Bucket.VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
+| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |
+| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+""",
+            encoding="utf-8",
+        )
+        s3_model = MODULE.model_for(s3_design, root)
+        assert "desired.resource.001.resourceType=S3.Bucket" in s3_model
+        assert "desired.resource.002." not in s3_model
+        assert "desired.row.001-001.property=S3.Bucket.BucketName" in s3_model
+        assert "desired.row.001-002.property=S3.Bucket.Region" in s3_model
+        assert "desired.row.001-002.value=us-east-1" in s3_model
+        assert "desired.row.001-003.value=[alias/app-data](kms.md#kms-appdatakeyalias)" in s3_model
+        assert "observed.row.001-003" not in s3_model
+        assert "desired.row.001-005.property=S3.BucketPolicy.Bucket" in s3_model
+        assert "desired.row.001-006.property=S3.BucketPolicy.PolicyDocument" in s3_model
+        assert "desired.row.001-006.artifactSha256=" in s3_model
         original_digest = MODULE.json_sha256(artifact)
         artifact.write_text(
             '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
@@ -129,7 +200,7 @@ def main() -> None:
         assert (root / "model" / "dev" / "cde" / "vpc.properties").is_file()
         assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
         assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
-    print("sync-model: PASS (20 focused checks)")
+    print("sync-model: PASS (31 focused checks)")
 
 
 if __name__ == "__main__":

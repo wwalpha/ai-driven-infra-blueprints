@@ -65,7 +65,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の`<logical-id>`は同じtableの`.Name` valueと完全一致させる。
-- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。
+- `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
 - 対象外事項はactive taskまたはchatの完了報告だけに記載する。
@@ -81,14 +81,16 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - 各 table の row は 1 から連番にする。
 - catalogで`IDENTIFIER_OUTPUT`と指定された全rowを、Propertyのcatalog順でtable先頭の連続rowとして配置する。通常propertyとidentifier参照rowはその後へ置く。
+- `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <logical-id>` heading、tableを使用する。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.Bucket`と`S3.BucketPolicy.PolicyDocument`を同じtableの`S3.Bucket` rowの後へ置き、`Bucket`のValueはそのtable自身のanchorへのsame-file linkとする。`S3.BucketPolicy`の独立anchor、heading、tableは作らない。
+- general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
-- Listener、Route、association、UserData、Bucket Policy などの child component は独立 table にしてよい。
-- `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`だけをdesign-only exceptionとする。
-- 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用する。
-- 上記3種類のdesign-only `.Name`以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
+- Listener、Route、association、UserDataなどの child component は独立 table にしてよい。Bucket Policyは上記の`S3.Bucket`専用ruleに従う。
+- `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
+- 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
+- 上記4種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
-- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
+- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`とS3 Bucketの`S3.Bucket.Region`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
 - schemaの`required`に指定され、かつproperties選択リストにあるroot propertyは省略しない。
 
 `Source / Comment`は、そのrowの`Property`が何を設定、識別、制御する属性なのかを日本語で説明する。次の内容は記載しない。

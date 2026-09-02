@@ -1,9 +1,9 @@
-# JSON artifactの意味ベースhash化
+# S3詳細設計のBucket表示contract更新
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: JSON policy artifactの表示形式だけの変更ではgenerated service modelをstaleにせず、意味の変更だけを`artifactSha256`へ反映するframework contractへ更新する
+- Goal: S3 Bucketのblock構成、KMS alias参照、bucket単位のregion表示をわかりやすく一貫して生成するframework contractへ更新する
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,33 +11,41 @@
 
 ## Required changes
 
-- [R1] `sync-model.py`がlinked JSON artifactを決定的に正規化してからSHA-256を生成する。
-- [R2] 意味が同じで整形だけ異なるJSONは同じhash、内容が異なるJSONは異なhashになるfocused checkを追加する。
-- [R3] JSON artifactの最低限の保存形式をUTF-8、LF、末尾改行ありに統一し、配列の表示形式は強制しない。
-- [R4] 現在の詳細設計からgenerated service modelを再生成し、governance taskのlocal validationを実行する。
+- [R1] S3.BucketPolicyを対応するS3.Bucketのtableへ含め、独立headingを作らず、S3.Bucket.BucketNameをtable先頭へ置く詳細設計生成ruleとchatbot promptへ更新する。
+- [R2] validatorが上記S3専用grouping、BucketName順序、BucketPolicyの自己参照を検証し、group内の各resource typeをprovider schemaで検証する。
+- [R3] grouped S3 tableが一つのresource blockとして全rowとpolicy artifact hashをgenerated service modelへ保持するfocused checkとmodel contractを追加する。
+- [R4] S3.BucketのKMSMasterKeyIDはKMS.Keyのgenerated KeyIdではなく、対応するKMS.AliasのAliasNameを表示するresource linkとする。
+- [R5] 各S3.Bucket tableの2行目にhuman-confirmedのbucket配置regionをdesign-only `S3.Bucket.Region` rowとして必須化し、project.jsonのtarget region以外も許可する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R1] `check:framework.generated-service-model`
-- [R2] `changed:framework/scripts/sync-model.checks.py`
-- [R3] `changed:framework/rules/detailed-design.md`
+- [R1] `changed:framework/rules/detailed-design.md`
+- [R1] `changed:framework/prompts/chatbot/service-design.md`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R2] `check:framework.schema-backed-design-validation`
 - [R3] `changed:framework/rules/model-information.md`
-- [R4] `check:framework.generated-service-model`
+- [R3] `changed:framework/scripts/sync-model.checks.py`
+- [R3] `check:framework.generated-service-model`
+- [R4] `changed:framework/rules/detailed-design.md`
+- [R4] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R5] `changed:framework/prompts/chatbot/service-design.md`
+- [R5] `changed:framework/scripts/validate-blueprint.py`
+- [R5] `check:framework.schema-backed-design-validation`
 
 ## Allowed paths
 
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
-- `framework/scripts/sync-model.py`
+- `framework/prompts/chatbot/service-design.md`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
 - `framework/scripts/sync-model.checks.py`
-- `model/**`
 - `tasks/active.md`
 
 ## Out of scope
 
-- `docs/designs/**`、IaC、scenario、resultの変更
+- consumer repositoryの`docs/designs/**`と`model/**`の移行
+- `framework/materials/aws/**`、IaC、scenario、resultの変更
 - AWS API、AWS mutation、deploy/apply
-- JSON配列の1行・複数行表示の強制
-- format-on-saveの無効化またはformatter固有の整形規則
-- consumer repositoryへのframework sync
+- S3以外のresource grouping変更

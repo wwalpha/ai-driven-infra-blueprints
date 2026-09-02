@@ -489,6 +489,101 @@ def check_name_tag_and_identifier_order_contract() -> None:
     assert any("must be first in catalog order" in error for error in validator.errors)
 
 
+def check_s3_bucket_policy_grouping() -> None:
+    repository = SCRIPT.parents[2]
+    catalog_types, property_owners, identifier_outputs = MODULE.Validator(
+        repository
+    ).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs" / "designs" / "dev" / "123456789012" / "s3.md"
+        artifact = design.parent / "s3" / "app-data-bucket-policy.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text('{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8")
+        kms_design = design.with_name("kms.md")
+        kms_design.write_text(
+            """# AWS KMS 詳細設計
+
+- Design service ID: `kms`
+- Owned catalog resource types: `KMS.Alias`
+
+<a id="kms-appdatakeyalias"></a>
+
+## KMS.Alias: AppDataKeyAlias
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | KMS.Alias.AliasName | `alias/app-data` | application data用keyを識別するalias |
+| 2 | KMS.Alias.TargetKeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | aliasを関連付けるKMS key |
+""",
+            encoding="utf-8",
+        )
+        valid = """# Amazon S3 詳細設計
+
+- Design service ID: `s3`
+- Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
+
+<a id="s3-appdatabucket"></a>
+
+## S3.Bucket: AppDataBucket
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
+| 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |
+| 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | S3.Bucket.VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
+| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |
+| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+"""
+        metadata = {
+            design: ("s3", ("S3.Bucket", "S3.BucketPolicy")),
+            kms_design: ("kms", ("KMS.Alias",)),
+        }
+
+        def errors(markdown: str) -> list[str]:
+            design.write_text(markdown, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+            validator.check_design_tables(
+                metadata, catalog_types, property_owners, identifier_outputs
+            )
+            validator.check_design_links(identifier_outputs)
+            return validator.errors
+
+        assert not errors(valid)
+        wrong_order = valid.replace(
+            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n"
+            "| 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |",
+            "| 1 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |\n"
+            "| 2 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
+        )
+        assert any("BucketName must be the first row" in error for error in errors(wrong_order))
+        other_region = valid.replace("`ap-northeast-1`", "`us-east-1`")
+        assert not errors(other_region)
+        unset_region = valid.replace("`ap-northeast-1`", "`UNSET`")
+        assert any("must be a confirmed AWS region ID" in error for error in errors(unset_region))
+        literal_alias = valid.replace(
+            "[alias/app-data](kms.md#kms-appdatakeyalias)", "`alias/app-data`"
+        )
+        assert any("must link to a KMS.Alias" in error for error in errors(literal_alias))
+        wrong_alias = valid.replace("[alias/app-data]", "[alias/other]")
+        assert any("must display the referenced KMS alias" in error for error in errors(wrong_alias))
+        wrong_link = valid.replace("(#s3-appdatabucket)", "(#s3-otherbucket)")
+        assert any("must link to its enclosing" in error for error in errors(wrong_link))
+        separate_heading = valid.replace(
+            "| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |\n"
+            "| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
+            "\n<a id=\"s3-appdatabucketpolicy\"></a>\n\n"
+            "## S3.BucketPolicy: AppDataBucketPolicy\n\n"
+            "| No. | Property | Value | Source / Comment |\n"
+            "| ---: | --- | --- | --- |\n"
+            "| 1 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-appdatabucket) | bucket policyを適用するbucket |\n"
+            "| 2 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
+        )
+        assert any("must not have an independent heading" in error for error in errors(separate_heading))
+
+
 def check_design_handoff_prompt() -> None:
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_design_handoff()
@@ -522,8 +617,9 @@ def main() -> None:
     check_schema_backed_design_rows()
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
+    check_s3_bucket_policy_grouping()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (32 focused checks)")
+    print("validate-blueprint: PASS (40 focused checks)")
 
 
 if __name__ == "__main__":
