@@ -85,7 +85,7 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 
 1. 作成・検証済みIaCを変更せず、deterministic preflightを実行する。
 2. CloudFormationは`cfn-lint`、`aws cloudformation validate-template`、change set、Terraformはvalidationと保存済みplanでscopeを確認する。
-3. active promptが許可した対象だけをdeploy/applyする。
+3. 未承認のdelete/replacementがなければactive promptが許可した対象だけをdeploy/applyする。未承認のdelete/replacementがあれば、対象、理由、影響、現在の実行状態を説明してhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで再開する。
 4. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
 5. local loopを実行し、scenario testへ進まず終了する。
 
@@ -93,7 +93,7 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 
 1. humanがtask開始前に手動修正した未commitの詳細設計だけをimmutable intended-design inputとして確定する。
 2. service modelを同期し、対象IaCを作成・変更してlocal static validationする。
-3. deterministic preflight、change setまたはplanのscope確認、許可されたdeploy/applyを同じtaskで実行する。
+3. deterministic preflight、change setまたはplanのscope確認を行う。未承認のdelete/replacementは説明付きhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで許可されたdeploy/applyを再開する。
 4. 成功したAWS mutation後だけgenerated current valueを更新し、service modelを再生成する。
 5. humanのintended-design diffをCodexが変更していないことを確認し、local loop後にscenario testへ進まず終了する。
 
@@ -117,10 +117,10 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 - material progressなしで同じerrorが2回続いた場合は停止する。
 - missing human inputを値の発明で直さない。
 - out-of-scope file changeで停止する。
-- unauthorized delete/replacementで停止する。
+- 未承認のdelete/replacementはfailureまたはautomatic retryとして扱わず、説明付きhuman確認待ちにする。承認されない場合はdeploy/applyを実行せず停止する。
 - `framework/materials/aws/`がbaselineと異なる場合は停止する。
 - passのためにfailing checkを抑制しない。
 
-validate/plan後にhuman reviewを要求しないrepository ruleと、Codex sandbox/OS permission controlは別の仕組みである。permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
+validate/plan後に全deploymentを一律停止するhuman reviewは要求しない。未承認のdelete/replacementに対するplan固有のhuman確認と、Codex sandbox/OS permission controlは別の仕組みであり、permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
 
 local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、focused check script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。

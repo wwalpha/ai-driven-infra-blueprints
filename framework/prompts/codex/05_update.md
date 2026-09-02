@@ -7,7 +7,7 @@
 - Authorized delete/replacement: 省略時は`none`
 - AWS profile: 省略時はdefault credential chain
 
-通常はどちらも入力不要とする。delete/replacementは対象resourceと理由が明記されている場合だけ許可する。
+通常はどちらも入力不要とする。delete/replacementは対象resourceと理由が明記されている場合だけ事前承認済みとして扱う。事前承認がなくてもchange setまたはplanは作成し、未承認のdelete/replacementを検出した場合だけ`04_deploy.md`のhuman確認待ちへ進む。
 
 ## Resolve target and scope from repository state
 
@@ -62,7 +62,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 - Infrastructure phaseは`update`とする。
 - goalにtarget environment、aliasがある場合はalias、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
 - AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
-- Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。
+- Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
 - `Required changes`は一意なRequirement ID付きで、human design diffの検証、service model同期、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
 - `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
 - Allowed pathsはDesign scope、対応するJSON artifactとmodel、対象IaC、`tasks/active.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
@@ -94,7 +94,7 @@ scriptが終了code 0を返した場合だけ続行する。失敗時はcredenti
 
 このtaskでDesign scopeから生成した対象IaCのuncommitted diffだけはdeploy対象として許可する。task開始前から存在したIaC diffまたはDeployment scope外のdiffは許可しない。
 
-`04_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、未許可のdelete/replacement、credential/permission不足、またはdeployment failureでは後続unitを実行せず停止する。
+`04_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、未承認delete/replacementの説明付きhuman確認待ち、承認後の同じtaskと同じchange setまたは保存済みplanによる再開、実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、credential/permission不足、またはdeployment failureでは後続unitを実行せず停止する。未承認のdelete/replacementだけはfailureとして終了せずhuman確認待ちにする。
 
 deploy/applyが成功した場合:
 
@@ -111,6 +111,6 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 3. `python framework/scripts/blueprint-loop.py --mode local`
 4. `git diff --check`
 
-target、Design scope、model同期、IaC変更、deployment unitとdependency順、plan/change set summary、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
+target、Design scope、model同期、IaC変更、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
 scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証が必要な場合は、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。

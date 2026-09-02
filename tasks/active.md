@@ -1,9 +1,9 @@
-# Agent Skill wrappers for prompt workflows
+# Destructive change confirmation and resume flow
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: 既存のCodex promptを正文のまま維持し、CodexとGitHub Copilotから共通利用できるrepository-scoped Agent Skillsを追加する
+- Goal: CloudFormation change setまたはTerraform planで未承認のdelete/replacementを検出した場合に、人間へ影響を説明して確認待ちとし、承認後に同じdeployment taskと同じchange setまたはplanを継続実行できるframework contractへ更新する
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,28 +11,35 @@
 
 ## Required changes
 
-- [R1] 6件のCodex prompt workflowへ対応する共通Agent Skill entrypointを`.agents/skills/`へ追加する。
-- [R2] 各Skillは対応する既存promptだけを正文として参照し、prompt本文を複製しない。
+- [R1] repository全体のruleを、全deploymentへの一律human reviewは設けず、未承認のdelete/replacementだけを説明付き確認待ちにするcontractへ統一する。
+- [R2] `04_deploy.md`へ、破壊的変更の説明項目、確認質問、追加read-only調査、承認後の同一change set／保存済みplan再確認と継続実行を追加する。
+- [R3] `05_update.md`が`04_deploy.md`と同じ確認待ち・継続実行flowを使用することを明示する。
+- [R4] governance taskのlocal validationとtask completion contractを実行する。
 
 ## Acceptance checks
 
-- [R1] `changed:.agents/skills/**/SKILL.md`
-- [R2] `exists:.agents/skills/initialize/SKILL.md`
-- [R2] `exists:.agents/skills/add-target/SKILL.md`
-- [R2] `exists:.agents/skills/implement/SKILL.md`
-- [R2] `exists:.agents/skills/deploy/SKILL.md`
-- [R2] `exists:.agents/skills/update/SKILL.md`
-- [R2] `exists:.agents/skills/scenario-test/SKILL.md`
+- [R1] `changed:AGENTS.md`
+- [R1] `changed:framework/rules/cloudformation.md`
+- [R1] `changed:framework/rules/terraform.md`
+- [R1] `changed:framework/rules/loop-engineering.md`
+- [R2] `changed:framework/prompts/codex/04_deploy.md`
+- [R3] `changed:framework/prompts/codex/05_update.md`
+- [R4] `check:framework.task-completion-contract`
 
 ## Allowed paths
 
-- `.agents/skills/**`
+- `AGENTS.md`
+- `framework/prompts/codex/04_deploy.md`
+- `framework/prompts/codex/05_update.md`
+- `framework/rules/cloudformation.md`
+- `framework/rules/terraform.md`
+- `framework/rules/loop-engineering.md`
 - `tasks/active.md`
 
 ## Out of scope
 
-- `framework/prompts/**`の変更
-- prompt本文のSkillへの複製
-- framework rules、scripts、materialsの変更
-- initialization、migration、infrastructure、scenario-test workflowの実行
-- AWS API、deploy、applyの実行
+- `docs/designs/**`、`model/**`、`infra/**`、`tests/**`の変更
+- resource type固有の削除判定またはrisk catalog
+- deploy runner、approval database、別のruntime helperの追加
+- consumer repositoryの変更
+- AWS API、change set作成・実行、Terraform plan・apply

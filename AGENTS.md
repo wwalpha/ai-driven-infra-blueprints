@@ -16,7 +16,7 @@
 - 変更前にactive promptとtask typeに関係する`framework/rules/*.md`を読む。
 - 人間が決めていないresource選択やparameter値を推測しない。不足値は明示して停止する。
 - 1 environment/AWS accountにつきCloudFormationまたはTerraformのどちらか一方だけを変更する。同じenvironment/AWS accountに複数aliasがある場合もIaC engineを統一する。
-- validate/plan後にrepository独自のhuman review停止は設けない。
+- validate/plan後に全deploymentを一律停止するrepository独自のhuman reviewは設けない。未承認のdelete/replacementを検出した場合だけ、対象、理由、影響、現在の実行状態を説明してhuman確認待ちとし、承認後は同じtaskと同じchange setまたは保存済みplanで継続する。
 - deploy/applyは`infrastructure` taskのactive promptが明示的に許可した場合だけ実行する。
 - `design` taskのAWS APIはdefaultで禁止し、chatbotが指定した既存resourceの現在値取得をactive promptが明示する場合だけlist/get/describe相当のread-only operationを許可する。AWS mutationは許可しない。
 - 生成ARNをobserved valueとして永続化しない。
