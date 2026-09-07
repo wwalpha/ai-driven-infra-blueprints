@@ -11,6 +11,12 @@
 - infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
 
+## IAM policy derived views
+
+- IAM Role設定表とそこから参照するpolicy JSONがmodelの入力であり、JSONリンクとcanonical hashの既存形式を維持する。
+- IAMのRoleName一覧と`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内のpolicy表示はmodelへ重複保持しない。policy anchor、見出し、Version/Id、Statement表を`desired.note.*`や追加resourceとして保存しない。
+- policy JSON変更時は`framework/scripts/iam_policy_tables.py <対象service Markdown> --write`で派生表示を更新してからmodelを生成する。model生成はMarkdownやJSONを修正しない。local loopはJSONと表示の不一致も拒否する。
+
 ## Format
 
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。

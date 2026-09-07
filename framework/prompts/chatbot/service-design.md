@@ -196,6 +196,8 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`framework/rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
 
+IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/rules/detailed-design.md`のIAM Role policy tablesに従ってRoleName・信頼ポリシー・インラインポリシーの3列の一覧と、各Roleの設定表直後のpolicy Statement表も出力してください。表は1 Statementを1行とし、複数Actionはcell内改行、Conditionは演算子・完全なkey・値を同じcellへ保持します。JSONに存在するVersion/Id、Sid、Principal種別、NotAction、NotResource等を省略・補完せず、各Roleの表示範囲を`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲んでください。信頼ポリシーの表示名はJSONリンクのtext、inline policy名はPolicyNameを使用し、別Roleの同名policyには別anchorを使用します。policy表はJSONの派生表示とし、保存時に決定的生成と照合します。
+
 完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
 完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。既存AWS configuration branchだけの場合、`設計ファイル`には「Codex取得後に作成」と記載し、未完成Markdownを出力しない。
@@ -235,7 +237,7 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
 3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
 4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
-5. aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
+5. IAM Roleを含む作成・変更対象のservice Markdownそれぞれに`python3 framework/scripts/iam_policy_tables.py <対象service Markdown> --write`を実行し、設計値を変えずJSONから一覧とpolicy表を生成する。その後、aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
 6. `python3 framework/scripts/blueprint-loop.py --mode local`と`git diff --check`を実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。

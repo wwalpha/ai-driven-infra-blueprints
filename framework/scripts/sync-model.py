@@ -12,6 +12,7 @@ from pathlib import Path
 
 from design_catalog import design_material_files
 from design_layout import expanded_design
+from iam_policy_tables import without_policy_tables
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -81,7 +82,7 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
 def model_for(path: Path, root: Path | None = None) -> str:
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
-    lines, children = expanded_design(lines)
+    lines, children = expanded_design(without_policy_tables(lines))
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
         re.findall(

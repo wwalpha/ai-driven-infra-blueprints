@@ -61,7 +61,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Markdown structure
 
-保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。IAM Roleは後述のJSONから生成するpolicy Statement表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - 独立表示するcatalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。親へ統合するresourceは後述の共通表示contractに従う。
@@ -80,6 +80,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
+- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。
 - 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。
 
 S3の例:
@@ -206,6 +207,48 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 5. 連続する`-`を一つにし、先頭末尾の`-`を除去する。
 
 例は`VPCFLOWLOGROLE01`から`vpcflowlogrole01`、`VPCFlowLogsToCloudWatchLogs`から`vpc-flow-logs-to-cloud-watch-logs`とする。AWS service名辞書や個別例外は使わない。IAM Role以外のpolicy artifactは既存のstable lower-kebab-case規約を維持する。
+
+## IAM Role policy tables
+
+IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はMarkdownのproperty row、policy本文はそこから参照するJSON artifactを正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
+
+- `## リソース一覧`内の`### IAM.Role`は`RoleName | 信頼ポリシー | インラインポリシー`の3列にする。RoleNameは対応するresource anchorへのsame-file link、policy名はそのRoleのpolicy anchorへのsame-file linkとする。複数inline policyは同じcellで`<br>`区切りにする。設定表にRoleNameがない場合は表示だけを`（RoleName未指定）`、inline policyがない場合は表示だけを`—`とし、propertyや名前を生成・推測しない。
+- `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
+- 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
+- policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。
+- 見出しは`### 信頼ポリシー：<表示名>`または`### インラインポリシー：<PolicyName>`とする。JSONにある場合だけ`Version：`と`Id：`を表示し、値を補完しない。
+- 表は1 Statementを1行とし、先頭列は`Statement`の1始まりの連番とする。JSONのStatement配列順を維持し、Statementが単一objectの場合は1行にする。表の番号と任意の`Sid`は別物とし、`Sid`を発明・変更しない。
+- 列は`Statement`に続き、JSONに存在する`Sid`、`Effect`、`Principal`、`NotPrincipal`、`Action`、`NotAction`、`Resource`、`NotResource`、`Condition`をこの順序で掲載する。Principalがobjectなら`Principal.Service`、`Principal.AWS`、`Principal.Federated`、`Principal.CanonicalUser`のように種別ごとに展開する。NotPrincipalも同様とし、種別の列順は文字列順とする。Statement間で存在しない列のcellは表示だけを`—`にする。
+- 複数Action・Resource・Principal値はcell内で`<br>`区切りにする。Conditionは演算子、context key、値を省略せず、演算子とkeyの文字列順で同じcellへ表示する。複数の条件値はJSON配列として表示し、条件の演算子や配列構造を変えない。Conditionを理由にStatementを分割・統合しない。
+- JSON object key順やindentだけの変更では表を変えない。文字列内のMarkdown/HTML特殊文字をescapeし、表示上のescapeをJSON値へ書き戻さない。空配列も省略せず表示する。未知のpolicy/Statement要素、重複JSON key、解釈できない構造は黙って省略せず停止する。
+- Roleごとの生成範囲は`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲む。marker内にはそのRoleのpolicy anchor、見出し、Version/Id、Statement表だけを置く。設定表や手動のimplementation noteを入れない。markerの欠落・重複・不正な所属も検証対象とする。
+- 生成処理は明示したMarkdown一件だけのIAM一覧とmarker内を更新する。policy JSON、Role設定、他のresource一覧・表を変更しない。表の内容やJSONを自動的に正しい権限へ修正しない。
+
+IAMを含む設計を保存・変更した後、model生成前に実行する。`--write`を省略するとread-onlyの一致検証になる。
+
+```console
+python3 framework/scripts/iam_policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write
+```
+
+生成される信頼ポリシー表の形式例（値は対象設計のJSONに従う）:
+
+```md
+<!-- iam-policy-tables:start -->
+
+<a id="iam-vpcflowlogsrole-trust"></a>
+
+### 信頼ポリシー：FlowLogsTrust
+
+Version：`2012-10-17`
+
+| Statement | Effect | Principal.Service | Action | Condition |
+| ---: | --- | --- | --- | --- |
+| 1 | Allow | `vpc-flow-logs.amazonaws.com` | `sts:AssumeRole` | `ArnLike`：`aws:SourceArn` = `arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*`<br>`StringEquals`：`aws:SourceAccount` = `123456789012` |
+
+<!-- iam-policy-tables:end -->
+```
+
+local loopは同じ生成処理で期待する一覧と表を計算し、保存済みMarkdownとの不一致をFAILにする。policy JSONの構造・表示整合性の検証であり、AWSの実効権限判定やActionごとのResource適合性を検証したという意味ではない。設計入力のResource ARN/ARNパターンは保持し、generated ARNの永続化禁止を緩和しない。
 
 ## Links and anchors
 

@@ -12,6 +12,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from iam_policy_tables import (
+    OVERVIEW_HEADERS as IAM_OVERVIEW_HEADERS,
+    artifact_id,
+    iam_role_policy_artifact_filename,
+    rendered_design as rendered_iam_design,
+    roles_in as iam_roles_in,
+    without_policy_tables,
+)
+
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
 from design_layout import (
@@ -106,18 +115,6 @@ RESULT_METADATA = (
     "Status",
     "Executed at",
 )
-
-
-def artifact_id(value: str) -> str:
-    value = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", value)
-    value = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", value)
-    value = re.sub(r"[^A-Za-z0-9]+", "-", value).lower()
-    return re.sub(r"-+", "-", value).strip("-")
-
-
-def iam_role_policy_artifact_filename(role_logical_id: str, policy_name: str | None = None) -> str:
-    suffix = "trust-policy" if policy_name is None else artifact_id(policy_name)
-    return f"{artifact_id(role_logical_id)}-{suffix}.json"
 
 
 class Validator:
@@ -429,6 +426,7 @@ class Validator:
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-service-model": self.check_generated_service_models,
             "framework.resource-layout": self.check_resource_layout,
+            "framework.iam-policy-tables": self.check_iam_policy_tables,
             "framework.api-design-catalog": self.check_api_design_catalog,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
@@ -721,6 +719,7 @@ class Validator:
         for path in properties_paths:
             self.check_target_file(path, self.root / "model")
         service_metadata, catalog_types, catalog_property_owners, identifier_outputs = self.check_design_service_ownership(markdown_paths)
+        self.check_iam_policy_tables()
         self.check_design_overviews()
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
         self.check_design_links(identifier_outputs)
@@ -1258,9 +1257,27 @@ class Validator:
             for error in catalog.job_errors(values):
                 self.check(False, f"API design constraint: {self.relative(path)}: {error}")
 
+    def check_iam_policy_tables(self) -> None:
+        for path in self.design_files():
+            try:
+                self.check(
+                    rendered_iam_design(path) == path.read_text(encoding="utf-8"),
+                    f"IAM policy tables or overview differ from design JSON/properties: {self.relative(path)}",
+                )
+            except (OSError, ValueError) as error:
+                self.check(False, f"invalid IAM policy tables: {self.relative(path)}: {error}")
+
     def check_design_overviews(self) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
+            try:
+                iam_names = {
+                    role.anchor: role.name
+                    for role in iam_roles_in(without_policy_tables(lines))
+                }
+            except ValueError as error:
+                self.check(False, f"invalid IAM overview source: {self.relative(path)}: {error}")
+                iam_names = {}
             overview_indices = [
                 index for index, line in enumerate(lines) if line == OVERVIEW_HEADING
             ]
@@ -1321,7 +1338,10 @@ class Validator:
                 )
                 self.check(
                     len(headers) == len(set(headers))
-                    and all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in headers),
+                    and (
+                        headers == IAM_OVERVIEW_HEADERS if current_type == "IAM.Role"
+                        else all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in headers)
+                    ),
                     f"resource overview column names must be short and unique: {self.relative(path)}: {current_type}",
                 )
                 self.check(
@@ -1347,7 +1367,10 @@ class Validator:
                     label, _, anchor = link.groups()
                     resource = resources.get(anchor)
                     self.check(
-                        bool(resource and resource == (current_type, label)),
+                        bool(
+                            resource and resource[0] == current_type
+                            and label == (iam_names.get(anchor) if current_type == "IAM.Role" else resource[1])
+                        ),
                         f"resource overview link must match its detail block: {self.relative(path)}: {current_type}: {label}",
                     )
                     listed.append(anchor)
