@@ -16,6 +16,13 @@
 - 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
 - authorized operationはAWS CLIで行う。
 
+## Design coverage and CloudFormation support
+
+- 詳細設計とmodelにはCFn非対応resourceも含まれる。実装対象の各resource typeについて`python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`で正式CFn型を解決する。未知の型または`cloudFormationType: null`は失敗とし、resource typeの文字列置換だけで`AWS::`型を発明しない。
+- `Macie.Session`は既存CFn schemaを使用する。`Macie.ClassificationJob`はCFn非対応として扱い、JobをCFn template、Outputs、`!Ref`の対象にしない。
+- active taskがCFn対応範囲だけを指定していれば、その範囲を実装して終了する。Jobが実装要求に含まれる場合は未実装対象として明示し、scopeを黙って縮小せず、その要求を完了扱いにしない。JobのためのCustom Resourceや別engineを自動追加しない。
+- CFn resourceからAPI resourceのidentifierが必要な場合も架空の`!Ref`を生成しない。承認済みの外部入力の受渡し設計がなければ、不足する依存関係を報告して停止する。link表示textのcurrent IDから実装方法を推測しない。
+
 ## Validation and execution
 
 `implement` phase:

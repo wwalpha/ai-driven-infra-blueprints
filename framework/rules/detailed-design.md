@@ -56,7 +56,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`, `EC2.FlowLog`
 ```
 
-- Owned catalog resource typesには`framework/materials/aws/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
+- Owned catalog resource typesには`framework/materials/aws/*.properties`または`framework/materials/api/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
 - 同じenvironment/target directory内で同じcatalog resource typeを複数service fileが所有してはいけない。
 
 ## Markdown structure
@@ -109,8 +109,8 @@ S3の例:
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
 - resourceの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。
-- `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
-- 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
+- `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
+- CFn由来の選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
 - 上記4種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
@@ -126,6 +126,20 @@ S3の例:
 - `Value`を意味なく言い換えただけの説明
 
 例えば、VPCのCIDRには`VPCで使用するIPv4アドレス範囲`、inline policy nameには`IAM Roleへ埋め込む権限ポリシーの名前`、project tag keyには`リソースが属するプロジェクトを識別するタグのキー`と記載する。更新根拠やverification結果は詳細設計へ保存せず、observed valueまたは完了報告を扱う既存ルールに従う。
+
+## API-backed design resources
+
+詳細設計の対象とIaCで作成できる対象を分離する。CFn非対応でも、登録済みのAPI catalog resourceは通常のservice metadata、リソース一覧、anchor、heading、4列の詳細表、generated modelへ含める。CFn非対応を理由に詳細設計を省略しない。
+
+- 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`## Macie.ClassificationJob: <logical-id>`を作る。表示関係は`resource-layout.json`に従う。
+- 選択リストは`framework/materials/api/Macie_ClassificationJob.properties`、型・制約は同名の`.json`を正本とする。公式Macie APIのrequest/responseに基づく固定した設計用schemaであり、CloudFormation provider schemaではない。参照元、API version、取得元hash、確認日、`cloudFormationType: null`はframework側に保持し、詳細設計のAWS propertyとして追加しない。
+- APIの正式な大小文字を維持し、`Macie.ClassificationJob.name`、`jobType`、`s3JobDefinition`などを使用する。catalogにないfield、架空のCFn型、実行時の`clientToken`、生成された`jobArn`を追加しない。
+- 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
+- `name`、`jobType`、`s3JobDefinition`を必須とし、未知のproperty、型、enum、長さ、範囲、nested object/arrayも検証する。未使用のoptional配列は空配列でなくrowを省略する。
+- `SCHEDULED`は実行周期を正確に一つ指定する。`ONE_TIME`は`scheduleFrequency`と`initialRun`を省略する。S3対象は`bucketDefinitions`または`bucketCriteria`のどちらか一つにする。managed data identifierの選択方式とID配列、custom data identifierの必須関係も検証する。
+- `Macie.ClassificationJob.jobId`は`IDENTIFIER_OUTPUT`としてtable先頭に置く。未作成は既存の`PENDING_DEPLOY`、取得済みは非ARNの実IDとする。この値はCFnでの作成予定を意味しない。
+- 既存Jobの取得がactive taskで許可されている場合、`ListClassificationJobs`で候補を提示し、humanの選択後に`DescribeClassificationJob`で選択済みroot propertyと必要な`jobId`だけを取得する。Cloud Control API用の型は生成しない。optional fieldが欠落またはnullならrowを省略し、response全体、統計、実行状態、生成ARNを保存しない。
+- API catalogを使用しても`design` taskのAWS mutation禁止とlocal validation後の終了を維持する。設計書の作成はJob作成の自動化、Custom Resource、Terraform導入を許可しない。
 
 ## Related resource display
 

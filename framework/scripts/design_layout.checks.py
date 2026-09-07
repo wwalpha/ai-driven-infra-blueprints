@@ -95,7 +95,7 @@ def main() -> None:
             kms.write_text(kms_text, encoding="utf-8")
             s3.write_text(s3_text, encoding="utf-8")
             validator = VALIDATOR.Validator(root)
-            validator.schema_catalog = VALIDATOR.CloudFormationSchemaCatalog(REPOSITORY)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
             validator.check_design_tables(metadata, *catalog)
             validator.check_design_overviews()
             validator.check_design_links(catalog[2])
@@ -156,6 +156,7 @@ def main() -> None:
 
         # A new catalog type cannot silently inherit an independent display decision.
         shutil.copytree(REPOSITORY / "framework/materials/aws", root / "framework/materials/aws")
+        shutil.copytree(REPOSITORY / "framework/materials/api", root / "framework/materials/api")
         layout_path = root / "framework/rules/resource-layout.json"
         layout_path.parent.mkdir(parents=True)
         layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")

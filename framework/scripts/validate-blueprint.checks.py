@@ -302,12 +302,12 @@ def check_schema_backed_design_rows() -> None:
 """
         design.write_text(invalid, encoding="utf-8")
         validator = MODULE.Validator(root)
-        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
         validator.check_design_tables(
             {design: ("logs", ("Logs.LogGroup",))}, catalog_types, property_owners, identifier_outputs
         )
         assert any("provider schema violation" in error for error in validator.errors)
-        assert any("not selected by framework/materials/aws" in error for error in validator.errors)
+        assert any("not selected by design catalog" in error for error in validator.errors)
 
         design.write_text(
             invalid.replace(
@@ -321,7 +321,7 @@ def check_schema_backed_design_rows() -> None:
             encoding="utf-8",
         )
         validator = MODULE.Validator(root)
-        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
         validator.check_design_tables(
             {design: ("logs", ("Logs.LogGroup",))}, catalog_types, property_owners, identifier_outputs
         )
@@ -364,7 +364,7 @@ def check_identifier_propagation() -> None:
         )
         metadata = {design: ("vpc", ("EC2.VPC", "EC2.Subnet"))}
         validator = MODULE.Validator(root)
-        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
         validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
         validator.check_design_links(identifier_outputs)
         assert not validator.errors, validator.errors
@@ -377,7 +377,7 @@ def check_identifier_propagation() -> None:
             encoding="utf-8",
         )
         validator = MODULE.Validator(root)
-        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
         validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
         validator.check_design_links(identifier_outputs)
         assert not validator.errors, validator.errors
@@ -387,7 +387,7 @@ def check_identifier_propagation() -> None:
             deployed.replace("vpc-0123456789abcdef0", "vpc-app-dev"), encoding="utf-8"
         )
         validator = MODULE.Validator(root)
-        validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
         validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
         assert any("must use a physical value" in error for error in validator.errors)
 
@@ -543,7 +543,7 @@ def check_s3_bucket_policy_grouping() -> None:
         def errors(markdown: str) -> list[str]:
             design.write_text(markdown, encoding="utf-8")
             validator = MODULE.Validator(root)
-            validator.schema_catalog = MODULE.CloudFormationSchemaCatalog(repository)
+            validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
             validator.check_design_tables(
                 metadata, catalog_types, property_owners, identifier_outputs
             )

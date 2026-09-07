@@ -34,7 +34,8 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `tasks/`には`active.md`だけがある
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
-- `framework/rules/resource-layout.json`が全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
+- API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須とgenerated modelを検証し、CFn型解決で拒否する
+- `framework/rules/resource-layout.json`がCFn/APIの全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
 - grouped childの識別、親への所属、schema、参照を検証し、KMSの複数AliasとS3からのAlias参照を失わない
 - required directory/file structureが存在する
 - `project.json`とenvironment/target directory pathが一致する
@@ -42,7 +43,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - service ownership、Markdown/model service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
 - 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
 - resource tableの`Source / Comment`が日本語で記載されている
-- resource tableがproperties選択リスト外の設定項目を含まず、literal値がprovider schemaの型、enum、pattern、長さ、範囲に適合する
+- resource tableがproperties選択リスト外の設定項目を含まず、literal値が対応するCFn provider schemaまたはAPI設計schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource table先頭の連続rowにcatalog順で存在する

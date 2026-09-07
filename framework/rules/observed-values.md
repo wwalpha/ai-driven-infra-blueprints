@@ -8,6 +8,7 @@
 - valid exampleは、実際に必要なVPC ID、Subnet ID、Route Table ID、Security Group ID、EC2 Instance ID、private/public IP、DNS name、endpoint address、hosted zone IDなど。
 - generated ARNは詳細設計と`observed.*`の両方へ保存しない。
 - AWS APIがARNを要求する場合はtransientに取得してよい。
+- `Macie.ClassificationJob.jobId`もAPI catalogの`IDENTIFIER_OUTPUT`として扱う。既存Jobを取得する許可済みdesign taskでは`DescribeClassificationJob`から必要なjobIdを取得する。CFn Outputsやstack resourceへ探索を広げず、responseのjobArn、統計、実行状態を永続化しない。
 - AWS managed-policy ARNなどのhuman-provided design ARNはobserved valueではなく、必要なdesign inputとして`desired.*`へ残してよい。
 - current valueがまだ存在しないgenerated fieldは`PENDING_DEPLOY`とし、そのidentifierを参照する全propertyのMarkdown link表示textも`PENDING_DEPLOY`とする。
 - 既存resource取得ではchatbotが選択したpropertyだけを詳細設計のdesired valueへ直接差分反映し、必要な非ARN generated identifierをobserved valueへ反映する。未選択propertyと未選択resourceは変更しない。

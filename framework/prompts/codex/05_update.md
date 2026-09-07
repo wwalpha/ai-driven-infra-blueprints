@@ -38,7 +38,7 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 12. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
 13. `framework/rules/observed-values.md`
 14. `framework/rules/loop-engineering.md`
-15. 対象resourceに関係する`framework/materials/aws/*.properties`
+15. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 16. CloudFormationの場合は対象resourceのprovider schema
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
@@ -51,6 +51,7 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 - 対応するmodelまたはIaCにtask開始前からuncommitted changeがある場合は停止する。
 - humanが変更したintended designをこのtaskで修正、補完、巻き戻ししない。
 - 詳細設計の不足、矛盾、placeholder、schema violation、未確定のhuman decisionがあれば停止する。
+- 変更対象にCFn非対応の`Macie.ClassificationJob`が含まれる場合は、`03_implement.md`の実装対応確認に従い、Jobの未反映を報告する。Jobを黙って除外してupdate完了とせず、CFnへの誤変換、API実行、Custom Resource追加、旧Jobのキャンセルを行わない。
 
 task開始時のDesign scope diffを保持し、deploy成功後のgenerated current value更新を除いて完了時まで同じであることを確認する。
 

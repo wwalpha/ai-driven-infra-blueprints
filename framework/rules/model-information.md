@@ -50,6 +50,13 @@ python framework/scripts/sync-model.py --write --environment <environment> --ali
 python framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>
 ```
 
+## API-backed resources
+
+- `framework/materials/api/*.properties`も同じcatalog読込に含める。`Macie.ClassificationJob`のresource type、logical ID、anchorと全設計rowを既存の`desired.*`へ生成する。
+- `jobId`は同catalogの`IDENTIFIER_OUTPUT`から判定し、desiredには自己anchorへのlogical reference、observedにはcurrent IDまたは`PENDING_DEPLOY`を保持する。Job IDを参照する通常のMarkdown linkも既存のidentifier reference処理を使う。
+- JSON object/arrayのinline値はそのまま保持し、JSON artifactは既存のpathとcanonical hashを保持する。`clientToken`、`jobArn`、CFn対応情報や作成者情報をmodelへ追加しない。
+- service modelにJobが存在することを、CFnで作成可能または実装済みという判定に使用しない。実装可否はresource typeから対応するcatalog/schemaへ解決する。
+
 ## Grouping
 
 - 表示関係の正本は`framework/rules/resource-layout.json`とする。S3 BucketPolicyのようにidentityを持たない子の既存row groupingは維持する。

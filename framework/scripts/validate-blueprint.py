@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
+from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
 from design_layout import (
     GROUPED,
     GROUPED_RESOURCE_TYPES,
@@ -136,7 +137,7 @@ class Validator:
         self.result_files: dict[str, list[Path]] = {}
         self.markdown_design_artifacts: set[Path] = set()
         self.markdown_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
-        self.schema_catalog: CloudFormationSchemaCatalog | None = None
+        self.schema_catalog: DesignSchemaCatalog | None = None
 
     def check(self, condition: bool, message: str) -> None:
         self.checks += 1
@@ -428,6 +429,7 @@ class Validator:
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-service-model": self.check_generated_service_models,
             "framework.resource-layout": self.check_resource_layout,
+            "framework.api-design-catalog": self.check_api_design_catalog,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
             "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
@@ -658,6 +660,10 @@ class Validator:
             for path in paths:
                 self.check(path.is_dir(), f"initialized target path missing: {self.relative(path)}")
 
+    def check_api_design_catalog(self) -> None:
+        errors = api_snapshot_errors(self.root)
+        self.check(not errors, "; ".join(errors) or "API design catalog is invalid")
+
     def check_catalog(self) -> None:
         result = subprocess.run(
             [sys.executable, str(self.root / "framework" / "scripts" / "update-catalog-lock.py")],
@@ -670,10 +676,12 @@ class Validator:
 
         schema_failures = snapshot_errors(self.root)
         self.check(not schema_failures, "; ".join(schema_failures) or "CloudFormation schema snapshot check failed")
-        if not schema_failures:
-            self.schema_catalog = CloudFormationSchemaCatalog(self.root)
+        api_failures = api_snapshot_errors(self.root)
+        self.check(not api_failures, "; ".join(api_failures) or "API design snapshot check failed")
+        if not schema_failures and not api_failures:
+            self.schema_catalog = DesignSchemaCatalog(self.root)
 
-        for path in sorted((self.root / "framework" / "materials" / "aws").glob("*.properties")):
+        for path in design_material_files(self.root):
             text = path.read_text(encoding="utf-8")
             lines = text.splitlines()
             prefix = path.stem.replace("_", ".", 1) + "."
@@ -724,7 +732,7 @@ class Validator:
         resource_types: set[str] = set()
         property_owners: dict[str, set[str]] = {}
         identifier_outputs: dict[str, set[str]] = {}
-        for path in sorted((self.root / "framework" / "materials" / "aws").glob("*.properties")):
+        for path in design_material_files(self.root):
             resource_type = path.stem.replace("_", ".", 1)
             prefix = f"{resource_type}."
             resource_types.add(resource_type)
@@ -1071,7 +1079,7 @@ class Validator:
                         if current_resource_type in catalog_types:
                             self.check(
                                 bool(row_types),
-                                f"resource table property is not selected by framework/materials/aws: {self.relative(path)}: {current_resource_type}: {cells[1]}",
+                                f"resource table property is not selected by design catalog: {self.relative(path)}: {current_resource_type}: {cells[1]}",
                             )
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
@@ -1091,6 +1099,7 @@ class Validator:
                         if (
                             self.schema_catalog is not None
                             and schema_type
+                            and schema_type not in self.schema_catalog.api_schemas
                             and cells[1] != REQUIRED_NAME_PROPERTIES.get(schema_type)
                             and cells[1] not in DESIGN_ONLY_PROPERTIES
                             and LINK_PATTERN.fullmatch(cells[2]) is None
@@ -1123,6 +1132,8 @@ class Validator:
                             self.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact path: {self.relative(path)}: {artifact_link}")
                             self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
+                    if self.schema_catalog is not None and current_resource_type in self.schema_catalog.api_schemas:
+                        self.check_api_design_rows(path, current_resource_type, rows)
                     if current_resource_type == "S3.Bucket":
                         bucket_name_rows = [
                             row for row in rows if row[1] == "S3.Bucket.BucketName"
@@ -1212,6 +1223,40 @@ class Validator:
                             self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
                     previous = line.strip()
+
+    def check_api_design_rows(self, path: Path, resource_type: str, rows: list[list[str]]) -> None:
+        catalog = self.schema_catalog
+        schema = catalog.schema(resource_type)
+        values = {}
+        before = len(self.errors)
+        for row in rows:
+            prop = self.resource_property_path(resource_type, row[1])
+            if prop not in schema["properties"]:
+                continue  # The common catalog check reports unselected properties.
+            self.check(prop not in values, f"duplicate API design property: {self.relative(path)}: {prop}")
+            raw = self.unquoted(row[2])
+            node = catalog.property_schema(resource_type, prop)
+            link = VALUE_LINK_PATTERN.fullmatch(raw)
+            try:
+                if link and link.group(1).endswith(".json") and node["type"] == "object":
+                    artifact = (path.parent / link.group(1)).resolve()
+                    if artifact.parent != path.with_suffix("").resolve():
+                        raise ValueError("API JSON artifact must belong to this service")
+                    value = json.loads(artifact.read_text(encoding="utf-8"))
+                else:
+                    if LINK_PATTERN.fullmatch(raw):
+                        raise ValueError("API root property requires a literal or an object JSON artifact")
+                    value = raw if node["type"] == "string" else json.loads(raw)
+                values[prop] = value
+                if prop == "jobId" and value == "PENDING_DEPLOY":
+                    continue
+                for error in catalog.api_value_errors(resource_type, node, value, prop):
+                    self.check(False, f"API schema violation: {self.relative(path)}: {error}")
+            except (OSError, ValueError) as error:
+                self.check(False, f"invalid API design value: {self.relative(path)}: {prop}: {error}")
+        if len(self.errors) == before:
+            for error in catalog.job_errors(values):
+                self.check(False, f"API design constraint: {self.relative(path)}: {error}")
 
     def check_design_overviews(self) -> None:
         for path in self.design_files():

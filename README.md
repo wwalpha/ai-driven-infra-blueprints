@@ -47,8 +47,8 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 3. `docs/system-overview.md`
 4. `docs/designs/**/*.md`
 5. taskに関係する`framework/rules/*.md`
-6. taskに関係する`framework/materials/aws/*.properties`
-7. taskに関係する`framework/materials/cloudformation-schema/ap-northeast-1/*.json`
+6. taskに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
+7. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/*.json`、API resourceは`framework/materials/api/`の同名JSON設計schema
 8. `model/`
 9. userが明示的に許可した外部情報
 
@@ -233,6 +233,19 @@ tests/
 - scenario変更時は既存resultを再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
 - scenario evidenceの過去版はGit履歴で追跡する。
 - scenario resultはcurrent observed valueの正本ではない。
+
+## CFn非対応resourceの詳細設計
+
+詳細設計に記載できる対象と、選択済みIaC engineで作成できる対象を分離します。`Macie.ClassificationJob`は公式API仕様に基づいて設計し、CFn対応の`Macie.Session`と同じ`macie.md`へ通常のリソース一覧・詳細表で記載できます。両方を同じservice modelへ生成します。
+
+- APIの選択リストと固定schema: `framework/materials/api/Macie_ClassificationJob.properties`と同名`.json`
+- schema内に公式仕様URL、API version、元SDK modelのhash、確認日、CFn非対応を保持します。clientTokenと生成jobArnは設計項目にしません。
+- root propertyを一つのrowにし、nested設定はJSONで保持します。長いobjectはservice配下JSON artifactへ分けられます。型、必須、未知のnested field、単発／定期などの条件をoffline検証します。
+- jobIdは`IDENTIFIER_OUTPUT`としてdesiredのlogical referenceとobservedのcurrent IDを分離します。未作成は既存の`PENDING_DEPLOY`を使用します。
+- CFn型解決: `python framework/scripts/design_catalog.py --cloudformation-type Macie.Session`は成功し、`Macie.ClassificationJob`は非対応として失敗します。Jobを含む実装要求を、CFn部分だけの実装で完了扱いにしません。
+- checksum確認: `python framework/scripts/design_catalog.py`。API catalog/schemaの保守は明示scopeの`governance` taskで行い、仕様・選択リスト・表示定義・focused checksを揃えた後、`python framework/scripts/design_catalog.py --write-lock`で`framework/materials/api-catalog.sha256`を更新します。通常taskでは変更せず、未知のresourceを自動登録しません。
+
+この対応は詳細設計・検証・model生成までです。Job作成の自動化、Custom Resource、Terraformへの切替、consumerへの同期は別の明示依頼で扱います。
 
 ## Materials catalog
 

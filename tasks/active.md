@@ -1,10 +1,10 @@
-# 関連resourceの共通表示contractとKMS統合
+# CFn非対応のMacie Jobを詳細設計へ追加
 
 ## Task contract
 
 - Task type: `governance`
 - Target: framework共通
-- Goal: resourceの表示関係を共通定義し、S3の既存統合を維持しながらKMS KeyとAliasを一つの詳細表へ統合する。子resourceの識別、親への関連付け、外部参照を保持し、新規catalog resourceの未判定を検出する。
+- Goal: CFn対応と詳細設計対象を分離し、Macie.ClassificationJobをAPI仕様に基づくcatalog、通常の詳細表、検証、generated modelで扱えるようにする。
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,50 +12,55 @@
 
 ## Required changes
 
-- [R1] 全catalog resourceの表示方針を共通定義し、S3 BucketPolicyとKMS Aliasの親、親property、個数と識別方法を登録する。未判定resourceと不整合をlocal loopで検出する。
-- [R2] KMS Key表内の複数Aliasを識別可能にし、Aliasの独立見出し、誤配置、重複、参照切れを検証する。S3の既存表示とpolicy統合を維持する。
-- [R3] grouped Aliasの識別子、親への関連付けとAlias参照をmodelへ保持し、S3の既存model contractを維持する。
-- [R4] 詳細設計、model、IaC参照、設計promptとcatalog保守手順へ共通contractを反映し、focused checksとlocal loopで検証する。
+- [R1] 既存CFn catalogを維持し、公式API仕様を参照するMacie Jobの固定catalog/schemaとCFn非対応定義を追加する。
+- [R2] Jobを通常のservice metadata、表示、詳細表、参照、desired/observed modelへ統合し、型・必須・条件付き設定を検証する。
+- [R3] 設計prompt、設計・model・IaCルールと保守手順を整え、CFn非対応を実装完了と誤認しない境界を明記する。
+- [R4] 正常なJob、誤設定、model同期、CFn型への誤変換拒否をfocused checksとlocal loopで確認する。
 
 ## Acceptance checks
 
-- [R1] `exists:framework/rules/resource-layout.json`
-- [R1] `exists:framework/scripts/design_layout.py`
-- [R1] `check:framework.resource-layout`
+- [R1] `exists:framework/materials/api/Macie_ClassificationJob.properties`
+- [R1] `exists:framework/materials/api/Macie_ClassificationJob.json`
+- [R1] `check:framework.api-design-catalog`
+- [R2] `check:framework.resource-layout`
+- [R2] `check:framework.generated-service-model`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R2] `check:framework.schema-backed-design-validation`
-- [R2] `exists:framework/scripts/design_layout.checks.py`
-- [R3] `changed:framework/scripts/sync-model.py`
-- [R3] `check:framework.generated-service-model`
-- [R4] `changed:framework/rules/detailed-design.md`
-- [R4] `changed:framework/rules/model-information.md`
-- [R4] `changed:framework/rules/cloudformation.md`
-- [R4] `changed:framework/rules/terraform.md`
-- [R4] `changed:framework/rules/loop-engineering.md`
-- [R4] `changed:framework/prompts/chatbot/service-design.md`
-- [R4] `changed:README.md`
+- [R2] `changed:framework/scripts/sync-model.py`
+- [R3] `changed:framework/prompts/chatbot/service-design.md`
+- [R3] `changed:framework/rules/detailed-design.md`
+- [R3] `changed:framework/rules/cloudformation.md`
+- [R3] `changed:README.md`
+- [R4] `exists:framework/scripts/design_catalog.checks.py`
+- [R4] `check:framework.schema-backed-design-validation`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `README.md`
+- `framework/materials/api/Macie_ClassificationJob.properties`
+- `framework/materials/api/Macie_ClassificationJob.json`
+- `framework/materials/api-catalog.sha256`
+- `framework/scripts/design_catalog.py`
+- `framework/scripts/design_catalog.checks.py`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/design_layout.checks.py`
+- `framework/scripts/sync-model.py`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
 - `framework/rules/resource-layout.json`
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
+- `framework/rules/observed-values.md`
 - `framework/rules/cloudformation.md`
 - `framework/rules/terraform.md`
 - `framework/rules/loop-engineering.md`
 - `framework/prompts/chatbot/service-design.md`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/design_layout.checks.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/validate-blueprint.checks.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/sync-model.checks.py`
+- `framework/prompts/codex/03_implement.md`
+- `framework/prompts/codex/05_update.md`
 
 ## Out of scope
 
-- consumer repositoryへのframework同期、既存の詳細設計とmodelの移行
-- AWS catalog/schemaの内容変更
-- S3とKMS以外のresourceの自動統合
-- IaC implementation、AWS操作、scenario、resultの変更
+- 既存CFn catalog/schemaの変更、他のAPI resourceの追加
+- consumer repositoryへの同期、個別targetの詳細設計やmodelの作成・移行
+- Job作成の自動化、Custom Resource、IaC実装、AWS操作
+- scenario、result、次taskの作成・実行

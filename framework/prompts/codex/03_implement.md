@@ -34,7 +34,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 10. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
 11. `framework/rules/observed-values.md`
 12. `framework/rules/loop-engineering.md`
-13. 対象resourceに関係する`framework/materials/aws/*.properties`
+13. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 14. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
 
 詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、別の`design` taskが必要であることを報告して停止する。
@@ -52,6 +52,12 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 - `Required changes`は一意なRequirement ID付きでIaC implementationとstatic validationを記載する。
 - `Acceptance checks`は各Requirement IDへ対象IaC fileの`changed:`または必要なpathの`exists:`を対応付ける。
 - Allowed pathsは対象のIaC fileと`tasks/active.md`だけに限定する。詳細設計、model、scenarioは変更禁止とする。
+
+## Check implementation support
+
+詳細設計に載るresourceと選択済みengineで実装可能なresourceを分けて確認する。CloudFormationでは実装scope内の各typeに`python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`を実行し、成功した正式型だけを使う。`Macie.ClassificationJob`はCFn非対応であり、Jobをtemplate、Outputs、`!Ref`へ変換しない。
+
+Jobが要求scopeに含まれる場合は未実装対象として明示し、対応resourceだけの実装を要求全体の完了としない。既にCFn対応範囲へ限定されたtaskはその範囲で終了できる。非対応を理由にCustom Resource、別engine、API mutationを追加しない。
 
 ## Resolve implementation units
 

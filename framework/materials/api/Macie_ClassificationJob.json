@@ -1,0 +1,435 @@
+{
+  "type": "object",
+  "properties": {
+    "allowListIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "customDataIdentifierIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "initialRun": {
+      "type": "boolean"
+    },
+    "jobType": {
+      "type": "string",
+      "enum": [
+        "ONE_TIME",
+        "SCHEDULED"
+      ]
+    },
+    "managedDataIdentifierIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "managedDataIdentifierSelector": {
+      "type": "string",
+      "enum": [
+        "ALL",
+        "EXCLUDE",
+        "INCLUDE",
+        "NONE",
+        "RECOMMENDED"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "s3JobDefinition": {
+      "$ref": "#/definitions/S3JobDefinition"
+    },
+    "samplingPercentage": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "scheduleFrequency": {
+      "$ref": "#/definitions/JobScheduleFrequency"
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "maxProperties": 50,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "s3JobDefinition",
+    "jobType",
+    "name"
+  ],
+  "resourceType": "Macie.ClassificationJob",
+  "cloudFormationType": null,
+  "identifierOutputs": [
+    "jobId"
+  ],
+  "source": {
+    "apiVersion": "2020-01-01",
+    "operation": "CreateClassificationJob",
+    "readOperations": [
+      "ListClassificationJobs",
+      "DescribeClassificationJob"
+    ],
+    "documentationUrl": "https://docs.aws.amazon.com/macie/latest/APIReference/jobs.html",
+    "readDocumentationUrl": "https://docs.aws.amazon.com/macie/latest/APIReference/jobs-jobid.html",
+    "cloudFormationDocumentationUrl": "https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/AWS_Macie.html",
+    "modelUrl": "https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/macie2/2020-01-01/service-2.json",
+    "modelSha256": "7ffb36e62ea8efd9823ff8ad084e0bcda953ca69b6cb0c4ae249eb3fd42399b4",
+    "reviewedOn": "2026-09-07"
+  },
+  "definitions": {
+    "S3JobDefinition": {
+      "type": "object",
+      "properties": {
+        "bucketCriteria": {
+          "$ref": "#/definitions/S3BucketCriteriaForJob"
+        },
+        "bucketDefinitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/S3BucketDefinitionForJob"
+          },
+          "minItems": 1
+        },
+        "scoping": {
+          "$ref": "#/definitions/Scoping"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "bucketDefinitions"
+          ]
+        },
+        {
+          "required": [
+            "bucketCriteria"
+          ]
+        }
+      ]
+    },
+    "S3BucketCriteriaForJob": {
+      "type": "object",
+      "properties": {
+        "excludes": {
+          "$ref": "#/definitions/CriteriaBlockForJob"
+        },
+        "includes": {
+          "$ref": "#/definitions/CriteriaBlockForJob"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CriteriaBlockForJob": {
+      "type": "object",
+      "properties": {
+        "and": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CriteriaForJob"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CriteriaForJob": {
+      "type": "object",
+      "properties": {
+        "simpleCriterion": {
+          "$ref": "#/definitions/SimpleCriterionForJob"
+        },
+        "tagCriterion": {
+          "$ref": "#/definitions/TagCriterionForJob"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1
+    },
+    "SimpleCriterionForJob": {
+      "type": "object",
+      "properties": {
+        "comparator": {
+          "type": "string",
+          "enum": [
+            "EQ",
+            "NE"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "enum": [
+            "ACCOUNT_ID",
+            "S3_BUCKET_NAME",
+            "S3_BUCKET_EFFECTIVE_PERMISSION",
+            "S3_BUCKET_SHARED_ACCESS"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TagCriterionForJob": {
+      "type": "object",
+      "properties": {
+        "comparator": {
+          "type": "string",
+          "enum": [
+            "EQ",
+            "NE"
+          ]
+        },
+        "tagValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TagCriterionPairForJob"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TagCriterionPairForJob": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "S3BucketDefinitionForJob": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "pattern": "^[0-9]{12}$"
+        },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "accountId",
+        "buckets"
+      ]
+    },
+    "Scoping": {
+      "type": "object",
+      "properties": {
+        "excludes": {
+          "$ref": "#/definitions/JobScopingBlock"
+        },
+        "includes": {
+          "$ref": "#/definitions/JobScopingBlock"
+        }
+      },
+      "additionalProperties": false
+    },
+    "JobScopingBlock": {
+      "type": "object",
+      "properties": {
+        "and": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/JobScopeTerm"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "JobScopeTerm": {
+      "type": "object",
+      "properties": {
+        "simpleScopeTerm": {
+          "$ref": "#/definitions/SimpleScopeTerm"
+        },
+        "tagScopeTerm": {
+          "$ref": "#/definitions/TagScopeTerm"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1
+    },
+    "SimpleScopeTerm": {
+      "type": "object",
+      "properties": {
+        "comparator": {
+          "type": "string",
+          "enum": [
+            "EQ",
+            "GT",
+            "GTE",
+            "LT",
+            "LTE",
+            "NE",
+            "CONTAINS",
+            "STARTS_WITH"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "enum": [
+            "OBJECT_EXTENSION",
+            "OBJECT_LAST_MODIFIED_DATE",
+            "OBJECT_SIZE",
+            "OBJECT_KEY"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TagScopeTerm": {
+      "type": "object",
+      "properties": {
+        "comparator": {
+          "type": "string",
+          "enum": [
+            "EQ",
+            "NE"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "enum": [
+            "TAG"
+          ]
+        },
+        "tagValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TagValuePair"
+          }
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "S3_OBJECT"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TagValuePair": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "JobScheduleFrequency": {
+      "type": "object",
+      "properties": {
+        "dailySchedule": {
+          "$ref": "#/definitions/DailySchedule"
+        },
+        "monthlySchedule": {
+          "$ref": "#/definitions/MonthlySchedule"
+        },
+        "weeklySchedule": {
+          "$ref": "#/definitions/WeeklySchedule"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1
+    },
+    "DailySchedule": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "MonthlySchedule": {
+      "type": "object",
+      "properties": {
+        "dayOfMonth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dayOfMonth"
+      ]
+    },
+    "WeeklySchedule": {
+      "type": "object",
+      "properties": {
+        "dayOfWeek": {
+          "type": "string",
+          "enum": [
+            "SUNDAY",
+            "MONDAY",
+            "TUESDAY",
+            "WEDNESDAY",
+            "THURSDAY",
+            "FRIDAY",
+            "SATURDAY"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dayOfWeek"
+      ]
+    }
+  }
+}

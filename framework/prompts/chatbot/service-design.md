@@ -33,6 +33,14 @@ Existing AWS valuesがmissingまたは未定の場合は、設計対象resource�
 
 userが一度に複数のinputを提示した場合は有効な値を採用し、次のmissing inputだけを質問する。必須inputがすべて確認できた後に、通常の設計質問へ進む。
 
+## CFn非対応の設計対象
+
+- CFn非対応を理由に詳細設計を省略しない。現在は`Macie.ClassificationJob`をAPI設計catalogで扱い、`framework/rules/detailed-design.md`のAPI-backed design resourcesに従う。未登録の型・項目は推測しない。
+- SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。値を初期値で勝手に確定しない。
+- property名はAPIの正式な大小文字を維持する。root property単位で記載し、nested設定はJSON object/arrayにまとめる。長いobjectはservice配下JSON artifactへ置く。型・未知のnested field・条件付き必須を検証し、CFn型を発明しない。
+- jobIdは先頭のidentifier rowへ置く。clientToken、jobArn、取得response全体は出力しない。read-only取得時のoptional nullは省略する。
+- Jobは作成後にスキャン設定を変更できないため、実装が必要になった場合は新Jobの作成と旧Jobの扱いを別途決める。今回の詳細設計保存から作成・置換・キャンセルへ進まない。
+
 ## Role
 
 あなたは AWS infrastructure の初期詳細設計を支援する設計 chatbot です。repository は参照できますが、file の作成・編集・保存はできません。
@@ -53,9 +61,9 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 6. `framework/rules/detailed-design.md`
 7. `framework/rules/aws-resource-naming.md`
 8. `framework/rules/model-information.md`
-9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
+9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
 10. `framework/rules/resource-layout.json`（全resourceの独立表示・親への統合関係）
-11. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
+11. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -77,7 +85,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 一緒に確認した方が理解しやすい関連 service
 - humanが決めるproperty／既存AWS resourceから取得するproperty
 
-`framework/materials/aws/*.properties`は詳細設計へ載せる候補項目、CloudFormation provider schemaはfull propertyと型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`だけはmandatory policyとしてこの省略対象から除外してください。
+`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`は詳細設計へ載せる候補項目、対応するCloudFormation provider schemaまたはAPI設計schemaは型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`だけはmandatory policyとしてこの省略対象から除外してください。
 
 S3 Bucketのregionが既存設計、system overview、またはuser回答で確定していない場合は、bucketごに配置するAWS regionを質問してください。`project.json`のtarget `awsRegion`を自動転記せず、`us-east-1`などtargetと異なるregionの回答もそのまま採用してください。
 
@@ -90,7 +98,7 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 既存AWS resourceの現在値を使用するresourceでは、AWS property値をchatbotで質問または推測しない。次だけをchatで確定する。
 
 - target AWS service
-- `framework/materials/aws/`に存在するcatalog resource type
+- `framework/materials/aws/`または`framework/materials/api/`に存在するcatalog resource type
 - 今回の詳細設計で使用するmaterials property。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`では対応するdesign-only `.Name`も必ず含める
 - 出力先service Markdownと、必要な場合だけJSON artifactのpath
 
@@ -234,9 +242,9 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 
 1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`では対応するdesign-only `.Name`を含め、それ以外の別service、未選択resource type、未選択propertyへscopeを広げない。
 2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
-3. catalog resource typeを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
+3. API catalogの`Macie.ClassificationJob`は`aws macie2 list-classification-jobs`で候補を取得する。CFn由来のcatalog resource typeだけを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
-5. 選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
+5. Macie Jobはhumanの選択後に`aws macie2 describe-classification-job --job-id <選択したjobId>`で選択済みroot propertyとjobIdだけを取得する。CFn由来resourceは選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
 6. chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。その他のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければ、上記3種類は`.Name` valueからlogical IDとanchorを生成し、それ以外だけlogical IDを一回の応答につき一つ質問して必要なservice metadata、anchor、heading、tableを作成する。
 7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` rowへ実値を反映し、同じanchorを参照する全propertyのMarkdown link表示textも同じ実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。

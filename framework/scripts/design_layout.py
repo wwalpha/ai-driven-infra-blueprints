@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+from design_catalog import design_material_files
+
 
 LAYOUT_PATH = Path(__file__).resolve().parents[1] / "rules" / "resource-layout.json"
 LAYOUTS = json.loads(LAYOUT_PATH.read_text(encoding="utf-8"))
@@ -39,7 +41,7 @@ def layout_errors(root: Path) -> list[str]:
         path.stem.replace("_", ".", 1): {
             line.partition("=")[0] for line in path.read_text(encoding="utf-8").splitlines()
         }
-        for path in (root / "framework" / "materials" / "aws").glob("*.properties")
+        for path in design_material_files(root)
     }
     if set(layouts) != set(catalog):
         errors.append(

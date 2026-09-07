@@ -109,6 +109,7 @@
   "Logs.ResourcePolicy": "independent",
   "Logs.SubscriptionFilter": "independent",
   "MWAA.Environment": "independent",
+  "Macie.ClassificationJob": "independent",
   "Macie.Session": "independent",
   "NetworkFirewall.Firewall": "independent",
   "NetworkFirewall.FirewallPolicy": "independent",

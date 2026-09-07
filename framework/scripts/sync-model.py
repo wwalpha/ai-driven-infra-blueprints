@@ -10,6 +10,7 @@ import re
 import sys
 from pathlib import Path
 
+from design_catalog import design_material_files
 from design_layout import expanded_design
 
 
@@ -33,7 +34,7 @@ def json_sha256(path: Path) -> str:
 
 def identifier_outputs(root: Path) -> dict[str, set[str]]:
     outputs: dict[str, set[str]] = {}
-    for path in sorted((root / "framework" / "materials" / "aws").glob("*.properties")):
+    for path in design_material_files(root):
         resource_type = path.stem.replace("_", ".", 1)
         outputs[resource_type] = {
             line.partition("=")[0]

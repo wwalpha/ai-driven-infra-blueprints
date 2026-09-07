@@ -8,6 +8,7 @@
 - aliasなしの共通moduleは`infra/terraform/modules/`、alias別moduleは`infra/terraform/modules/<alias>/`に置く。同じaliasのmoduleをenvironment間で共用し、異なるaliasのmoduleを共用しない。
 - target固有root、backend、state設定は`infra/terraform/environments/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - 未使用infrastructureを先回りして生成しない。
+- API設計catalogの追加はTerraform実装の対応確認や導入許可を意味しない。CFn非対応を理由にengineを切り替えず、選択済みengineとactive taskの明示scopeを維持する。実装対応が未確認のresourceを黙って除外して完了扱いにしない。
 - 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決し、対応するTerraform resource attribute参照を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをconfigurationへ直書きしない。
 - 詳細設計の表を統合してもKMS KeyとAliasは別resourceとして保持する。grouped Aliasのmodelの`parentReference`から対象Keyを解決し、`parentProperty`に対応する`target_key_id`へKeyのattribute参照を設定する。S3からAliasへの参照は該当Aliasのnameを使用する。表示変更だけを理由に既存resource addressを変更しない。
 - 後続resourceまたはroot moduleが必要とするcatalog `IDENTIFIER_OUTPUT`はnon-sensitive `output`としてresource attributeから公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
