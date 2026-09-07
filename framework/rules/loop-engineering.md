@@ -45,7 +45,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - resource tableの`Source / Comment`が日本語で記載されている
 - resource tableがproperties選択リスト外の設定項目を含まず、literal値が対応するCFn provider schemaまたはAPI設計schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
-- IAM RoleのRoleName一覧、policy anchorと所有Role、Version/Id、全Statement要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。marker欠落や表だけの修正を拒否する
+- 各serviceのpolicy一覧リンク、anchorと所有resource、正式property、Version/Id、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMの既存一覧と表示も維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource table先頭の連続rowにcatalog順で存在する
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
@@ -70,7 +70,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 1. active promptで指定された`docs/designs/**`を更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
 2. 既存resource取得では必要な非ARN current identifierだけをgenerated identifier rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. IAM Roleの設計では`python3 framework/scripts/iam_policy_tables.py <対象service Markdown> --write`でJSONから一覧とpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
+3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONから一覧とpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
 4. local loopを実行する。
 5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 

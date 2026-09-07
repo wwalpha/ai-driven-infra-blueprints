@@ -12,7 +12,7 @@ from pathlib import Path
 
 from design_catalog import design_material_files
 from design_layout import expanded_design
-from iam_policy_tables import without_policy_tables
+from policy_tables import without_policy_tables
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")

@@ -12,12 +12,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from iam_policy_tables import (
+from policy_tables import (
+    POLICY_FORMATS,
     OVERVIEW_HEADERS as IAM_OVERVIEW_HEADERS,
     artifact_id,
     iam_role_policy_artifact_filename,
-    rendered_design as rendered_iam_design,
-    roles_in as iam_roles_in,
+    rendered_design as rendered_policy_design,
+    resources_in as policy_resources_in,
     without_policy_tables,
 )
 
@@ -426,7 +427,7 @@ class Validator:
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-service-model": self.check_generated_service_models,
             "framework.resource-layout": self.check_resource_layout,
-            "framework.iam-policy-tables": self.check_iam_policy_tables,
+            "framework.policy-tables": self.check_policy_tables,
             "framework.api-design-catalog": self.check_api_design_catalog,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
@@ -719,7 +720,7 @@ class Validator:
         for path in properties_paths:
             self.check_target_file(path, self.root / "model")
         service_metadata, catalog_types, catalog_property_owners, identifier_outputs = self.check_design_service_ownership(markdown_paths)
-        self.check_iam_policy_tables()
+        self.check_policy_tables()
         self.check_design_overviews()
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
         self.check_design_links(identifier_outputs)
@@ -927,11 +928,7 @@ class Validator:
 
     @staticmethod
     def is_policy_document_property(property_name: str) -> bool:
-        leaf = property_name.split(".")[-1].replace("[]", "")
-        return leaf.endswith("PolicyDocument") or (
-            leaf.endswith("Policy")
-            and leaf not in {"BlockPublicPolicy", "StreamExceptionPolicy"}
-        )
+        return property_name in POLICY_FORMATS
 
     def check_markdown_iam_policy_artifacts(
         self, path: Path, logical_id: str, rows: list[list[str]]
@@ -1257,15 +1254,15 @@ class Validator:
             for error in catalog.job_errors(values):
                 self.check(False, f"API design constraint: {self.relative(path)}: {error}")
 
-    def check_iam_policy_tables(self) -> None:
+    def check_policy_tables(self) -> None:
         for path in self.design_files():
             try:
                 self.check(
-                    rendered_iam_design(path) == path.read_text(encoding="utf-8"),
-                    f"IAM policy tables or overview differ from design JSON/properties: {self.relative(path)}",
+                    rendered_policy_design(path) == path.read_text(encoding="utf-8"),
+                    f"Policy tables or overview differ from design JSON/properties: {self.relative(path)}",
                 )
             except (OSError, ValueError) as error:
-                self.check(False, f"invalid IAM policy tables: {self.relative(path)}: {error}")
+                self.check(False, f"invalid policy tables: {self.relative(path)}: {error}")
 
     def check_design_overviews(self) -> None:
         for path in self.design_files():
@@ -1273,7 +1270,8 @@ class Validator:
             try:
                 iam_names = {
                     role.anchor: role.name
-                    for role in iam_roles_in(without_policy_tables(lines))
+                    for role in policy_resources_in(without_policy_tables(lines))
+                    if role.resource_type == "IAM.Role"
                 }
             except ValueError as error:
                 self.check(False, f"invalid IAM overview source: {self.relative(path)}: {error}")
@@ -1333,8 +1331,8 @@ class Validator:
                 headers = [cell.strip() for cell in table[0].strip("|").split("|")]
                 alignment = [cell.strip() for cell in table[1].strip("|").split("|")]
                 self.check(
-                    2 <= len(headers) <= 6,
-                    f"resource overview must use 2 to 6 columns: {self.relative(path)}: {current_type}",
+                    2 <= len(headers) <= (7 if current_type != "IAM.Role" and headers[-1:] == ["Policies"] else 6),
+                    f"resource overview must use 2 to 6 columns plus optional Policies: {self.relative(path)}: {current_type}",
                 )
                 self.check(
                     len(headers) == len(set(headers))

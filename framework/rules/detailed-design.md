@@ -61,7 +61,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Markdown structure
 
-保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。IAM Roleは後述のJSONから生成するpolicy Statement表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。policy JSONを持つresourceは後述のJSONから生成するStatement表または設定表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - 独立表示するcatalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。親へ統合するresourceは後述の共通表示contractに従う。
@@ -80,7 +80,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
-- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。
+- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
 - 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。
 
 S3の例:
@@ -208,7 +208,42 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 
 例は`VPCFLOWLOGROLE01`から`vpcflowlogrole01`、`VPCFlowLogsToCloudWatchLogs`から`vpc-flow-logs-to-cloud-watch-logs`とする。AWS service名辞書や個別例外は使わない。IAM Role以外のpolicy artifactは既存のstable lower-kebab-case規約を維持する。
 
-## IAM Role policy tables
+## Service policy tables
+
+設定表のpolicy JSONリンクだけでなく、所有resourceの設定表直後にJSON本文の派生表示を生成する。resource設定はMarkdownのproperty row、policy本文はそのrowが参照するJSON artifactを正本とし、派生表示を独立した設計入力にしない。
+
+### 対象と形式
+
+表示方式の機械可読な定義は`framework/scripts/policy_tables.py`の`POLICY_FORMATS`とする。正式なcatalog propertyを完全一致で登録し、provider schemaで型を確認する。property名の末尾だけでpolicy documentと判定しない。catalogへdocument形式のpolicy propertyを追加する場合は、表示方式の登録とfocused checkも同じ明示scopeのtaskで更新する。
+
+| 形式 | 対象 |
+| --- | --- |
+| Statement表 | IAM Roleのtrust／inline、IAM ManagedPolicy、S3 BucketPolicy、KMS KeyPolicy、VPC endpoint、SQS／SNS、ECR repository、Secrets Manager、CloudWatch Logsのresource policy、API Gateway、EventBridge、SSO PermissionSet inline、DynamoDBのtable／stream／replica policy |
+| 内包するStatement表 | `DynamoDB.Table.ResourcePolicy`のJSON object内の`PolicyDocument`。外側の構造を保持し、未知のwrapper keyは省略せず停止する |
+| 設定表 | SNSのdelivery／filter／redrive／replay／archive／data protection、SQSのredrive／redrive allow、CloudWatch Logsのdata protection、ECR lifecycle |
+
+`SecurityPolicy`、`SslPolicy`、policy名、ARN、booleanなどのscalar／referenceは通常の設定行を維持する。CloudFrontやNetwork Firewall、Auto Scaling等のcatalogで個別propertyへ展開されているpolicy設定も既存の4列表へ記載する。選択していないpolicy、policy名、権限を表示のために作成・補完しない。
+
+### 所属と派生表示
+
+- IAM Roleは下記の既存一覧・表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
+- S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
+- IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
+- 見出しは`### ポリシー：<表示名>`または`### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。
+- IAM Role以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。
+- Statement表の連番、列、Principal展開、Condition、Version/Id、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。権限policy以外のJSONをStatement形式と推測しない。
+- 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。
+- `ECR.Repository.LifecyclePolicy`はwrapperの全設定を表示したうえで、`LifecyclePolicyText`がある場合はJSON文字列をparseした内容も設定表で表示する。JSON文字列以外や不正なJSONは停止する。表示からJSON本文を書き戻さない。
+- 全形式で重複JSON key、不正なJSON定数、JSON object以外のartifact、他service配下のartifact参照を拒否する。marker欠落・重複・不正な所属、表や一覧リンクと正本との不一致をlocal loopでFAILとする。
+- 生成は指定したMarkdown一件の派生範囲とpolicy一覧列だけを更新する。modelには派生表示を重複保持せず、既存のJSONリンクとcanonical hashを維持する。
+
+policyを含む設計を保存・変更した後、model生成前に実行する。`--write`なしはread-onlyの一致検証になる。
+
+```console
+python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/<service-id>.md --write
+```
+
+### IAM Role policy tables
 
 IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はMarkdownのproperty row、policy本文はそこから参照するJSON artifactを正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
 
@@ -227,7 +262,7 @@ IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し
 IAMを含む設計を保存・変更した後、model生成前に実行する。`--write`を省略するとread-onlyの一致検証になる。
 
 ```console
-python3 framework/scripts/iam_policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write
+python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write
 ```
 
 生成される信頼ポリシー表の形式例（値は対象設計のJSONに従う）:
