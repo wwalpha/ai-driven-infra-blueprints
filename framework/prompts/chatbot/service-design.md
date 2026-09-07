@@ -54,7 +54,8 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 7. `framework/rules/aws-resource-naming.md`
 8. `framework/rules/model-information.md`
 9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`
-10. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
+10. `framework/rules/resource-layout.json`（全resourceの独立表示・親への統合関係）
+11. `framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -197,6 +198,9 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 - stable logical IDとexplicit anchorを使用する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`のlogical IDは`.Name` valueと完全一致させる
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
+- resourceの表示関係は`framework/rules/resource-layout.json`に従う。未登録resourceはframework保守が必要なblockerとして停止する。同一serviceや参照関係だけを理由に統合しない
+- `KMS.Alias`は所属する`KMS.Key`の同じtableのKey設定の後へ置き、独立heading・table・一覧を作らない。AliasName rowの`Source / Comment`先頭へ`<a id="kms-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に属性の意味を日本語で記載する。複数Aliasはそれぞれ確定済みlogical IDとanchorを保持する。未確定のlogical IDは一つ質問し、推測しない
+- `KMS.Alias.TargetKeyId` rowは省略し、包含するKeyを親として解決する。S3からのlinkはAlias行のanchorとAliasNameを維持する。外部親しかなく包含するKeyが設計されていない場合は、必要な親の設計またはframework対応を明示して停止する。詳細は`framework/rules/detailed-design.md`のRelated resource displayに従う
 - 各fileのservice metadata直後に`## リソース一覧`を置き、detail blockを持つresource typeごとに1 resourceを1 rowで一覧表示する。columnは2〜6個の重要parameterへ絞り、`BucketName`、`Region`、`KMSAlias`のような短い名前を使う。最初のcolumnは対応するdetail blockへのsame-file linkとし、一覧値はdetail tableと一致させる
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する
@@ -236,5 +240,7 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 6. chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。その他のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければ、上記3種類は`.Name` valueからlogical IDとanchorを生成し、それ以外だけlogical IDを一回の応答につき一つ質問して必要なservice metadata、anchor、heading、tableを作成する。
 7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` rowへ実値を反映し、同じanchorを参照する全propertyのMarkdown link表示textも同じ実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。
+
+上記6のsection作成にも`resource-layout.json`を適用する。KMS Aliasなどのgrouped childは独立sectionを作らず、確定した所属親のtableへ識別marker付きで反映する。親を特定する選択済みpropertyの現在値と親のcurrent identifierが一致することを確認し、親が設計にない場合や対応を解決できない場合は停止する。未選択の親resource/propertyの取得や作成へscopeを広げない。
 
 chatbot自身がrepositoryまたはAWSを変更したと表現してはいけません。通常設計は設計完了前にCodex反映依頼を出力してはいけない。既存AWS configuration branchは取得scope確定後にCodexへ引き渡し、IaC実装やdeployへ進んではいけない。

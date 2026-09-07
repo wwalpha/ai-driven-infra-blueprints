@@ -13,6 +13,13 @@ import sys
 from pathlib import Path
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
+from design_layout import (
+    GROUPED,
+    GROUPED_RESOURCE_TYPES,
+    IMPLICIT_GROUPED_PROPERTIES,
+    expanded_design,
+    layout_errors,
+)
 
 
 REQUIRED_RULES = {
@@ -82,9 +89,7 @@ REQUIRED_NAME_PROPERTIES = {
     "EC2.Subnet": "EC2.Subnet.Name",
     "EC2.VPC": "EC2.VPC.Name",
 }
-GROUPED_RESOURCE_TYPES = {"S3.Bucket": {"S3.BucketPolicy"}}
-GROUPED_CHILD_RESOURCE_TYPES = set().union(*GROUPED_RESOURCE_TYPES.values())
-IMPLICIT_GROUPED_PROPERTIES = {"S3.BucketPolicy": {"Bucket"}}
+GROUPED_CHILD_RESOURCE_TYPES = set(GROUPED)
 DESIGN_ONLY_PROPERTIES = {"S3.Bucket.Region": "S3.Bucket"}
 S3_KMS_MASTER_KEY_ID = (
     "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
@@ -149,6 +154,7 @@ class Validator:
         self.check_task_type_requirements()
         self.check_initialized_paths()
         self.check_catalog()
+        self.check_resource_layout()
         self.check_designs()
         self.check_observed_values()
         self.check_iac_selection()
@@ -421,6 +427,7 @@ class Validator:
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-service-model": self.check_generated_service_models,
+            "framework.resource-layout": self.check_resource_layout,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
             "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
@@ -960,6 +967,10 @@ class Validator:
             self.check(key not in self.markdown_iam_policy_artifacts, f"duplicate IAM inline PolicyName: {self.relative(path)}: {logical_id}: {policy_name}")
             self.markdown_iam_policy_artifacts.setdefault(key, artifact)
 
+    def check_resource_layout(self) -> None:
+        errors = layout_errors(self.root)
+        self.check(not errors, "; ".join(errors) or "resource layout decisions are invalid")
+
     def check_design_tables(
         self,
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
@@ -969,6 +980,22 @@ class Validator:
     ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
+            try:
+                _, children = expanded_design(lines)
+            except ValueError as error:
+                self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
+                children = {}
+            for child in children.values():
+                resource_type = child["resourceType"]
+                if self.schema_catalog is not None:
+                    present = {
+                        self.resource_property_path(resource_type, prop)
+                        for prop in [*(row[1] for row in child["rows"]), child["parentProperty"]]
+                    }
+                    for required in self.schema_catalog.required_properties(resource_type):
+                        if resource_type in catalog_property_owners.get(required, set()):
+                            self.check(required in present, f"required grouped property missing: {self.relative(path)}: {child['logicalId']}: {required}")
+                self.check_generated_identifier(path, resource_type, child["logicalId"], child["rows"], identifier_outputs)
             self.check(
                 len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
                 f"design must contain exactly one H1 title: {self.relative(path)}",
@@ -1056,6 +1083,11 @@ class Validator:
                             if current_resource_type in row_types
                             else min(row_types, default="")
                         )
+                        if schema_type in GROUPED:
+                            self.check(
+                                cells[1].startswith(schema_type + "."),
+                                f"grouped property must use its full catalog name: {self.relative(path)}: {cells[1]}",
+                            )
                         if (
                             self.schema_catalog is not None
                             and schema_type
@@ -1119,29 +1151,6 @@ class Validator:
                                 LOWER_KEBAB_PATTERN.fullmatch(region) is not None
                                 and region != "UNSET",
                                 f"S3.Bucket.Region must be a confirmed AWS region ID: {self.relative(path)}: {current_logical_id}",
-                            )
-                        policy_rows = [
-                            row
-                            for row in rows
-                            if "S3.BucketPolicy"
-                            in catalog_property_owners.get(row[1], set())
-                        ]
-                        if policy_rows:
-                            first_policy = rows.index(policy_rows[0])
-                            self.check(
-                                all(
-                                    "S3.BucketPolicy"
-                                    in catalog_property_owners.get(row[1], set())
-                                    for row in rows[first_policy:]
-                                ),
-                                f"S3.BucketPolicy rows must follow S3.Bucket rows: {self.relative(path)}: {current_logical_id}",
-                            )
-                            self.check(
-                                not any(
-                                    row[1] == "S3.BucketPolicy.Bucket"
-                                    for row in policy_rows
-                                ),
-                                f"S3.BucketPolicy.Bucket must be omitted from its enclosing S3.Bucket table: {self.relative(path)}: {current_logical_id}",
                             )
                     if self.schema_catalog is not None:
                         schema_types = {current_resource_type} | {
@@ -1318,7 +1327,12 @@ class Validator:
         for path in self.design_files():
             pending_anchor = ""
             current: tuple[Path, str] | None = None
-            for line in path.read_text(encoding="utf-8").splitlines():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            try:
+                lines, _ = expanded_design(lines)
+            except ValueError as error:
+                self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
+            for line in lines:
                 if anchor := ANCHOR_PATTERN.fullmatch(line):
                     pending_anchor = anchor.group(1)
                 elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):

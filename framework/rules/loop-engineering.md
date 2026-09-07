@@ -34,6 +34,8 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `tasks/`には`active.md`だけがある
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
+- `framework/rules/resource-layout.json`が全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
+- grouped childの識別、親への所属、schema、参照を検証し、KMSの複数AliasとS3からのAlias参照を失わない
 - required directory/file structureが存在する
 - `project.json`とenvironment/target directory pathが一致する
 - `framework/rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効

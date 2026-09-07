@@ -1,9 +1,10 @@
-# S3詳細設計のBucket表示contract更新
+# 関連resourceの共通表示contractとKMS統合
 
 ## Task contract
 
 - Task type: `governance`
-- Goal: S3 Bucketのblock構成、識別子、主要parameter一覧をわかりやすく一貫して生成するframework contractへ更新する
+- Target: framework共通
+- Goal: resourceの表示関係を共通定義し、S3の既存統合を維持しながらKMS KeyとAliasを一つの詳細表へ統合する。子resourceの識別、親への関連付け、外部参照を保持し、新規catalog resourceの未判定を検出する。
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -11,52 +12,50 @@
 
 ## Required changes
 
-- [R1] S3.BucketPolicyを対応するS3.Bucketのtableへ含め、独立headingを作らず、S3.Bucket.BucketNameをtable先頭へ置く詳細設計生成ruleとchatbot promptへ更新する。
-- [R2] validatorが上記S3専用groupingとBucketName順序を検証し、group内の各resource typeをprovider schemaで検証する。
-- [R3] grouped S3 tableが一つのresource blockとして全rowとpolicy artifact hashをgenerated service modelへ保持するfocused checkとmodel contractを追加する。
-- [R4] S3.BucketのKMSMasterKeyIDはKMS.Keyのgenerated KeyIdではなく、対応するKMS.AliasのAliasNameを表示するresource linkとする。
-- [R5] 各S3.Bucket tableの2行目にhuman-confirmedのbucket配置regionをdesign-only `S3.Bucket.Region` rowとして必須化し、project.jsonのtarget region以外も許可する。
-- [R6] grouped S3.BucketPolicyはPolicyDocumentだけをS3.Bucket tableへ表示し、対象bucketはblockから暗黙に特定して`S3.BucketPolicy.Bucket` rowを生成しない。
-- [R7] S3.Bucket blockのheading identifier、anchor、generated model logicalIdをBucketNameと一致させる。
-- [R8] 全詳細設計へresource type別の一覧tableを生成し、1 resourceを1行、重要parameterを2〜6列、短いcolumn名で表示する。一覧はgenerated modelへ重複保持しない。
+- [R1] 全catalog resourceの表示方針を共通定義し、S3 BucketPolicyとKMS Aliasの親、親property、個数と識別方法を登録する。未判定resourceと不整合をlocal loopで検出する。
+- [R2] KMS Key表内の複数Aliasを識別可能にし、Aliasの独立見出し、誤配置、重複、参照切れを検証する。S3の既存表示とpolicy統合を維持する。
+- [R3] grouped Aliasの識別子、親への関連付けとAlias参照をmodelへ保持し、S3の既存model contractを維持する。
+- [R4] 詳細設計、model、IaC参照、設計promptとcatalog保守手順へ共通contractを反映し、focused checksとlocal loopで検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `changed:framework/prompts/chatbot/service-design.md`
+- [R1] `exists:framework/rules/resource-layout.json`
+- [R1] `exists:framework/scripts/design_layout.py`
+- [R1] `check:framework.resource-layout`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R2] `changed:framework/scripts/validate-blueprint.checks.py`
 - [R2] `check:framework.schema-backed-design-validation`
-- [R3] `changed:framework/rules/model-information.md`
-- [R3] `changed:framework/scripts/sync-model.checks.py`
+- [R2] `exists:framework/scripts/design_layout.checks.py`
+- [R3] `changed:framework/scripts/sync-model.py`
 - [R3] `check:framework.generated-service-model`
 - [R4] `changed:framework/rules/detailed-design.md`
-- [R4] `changed:framework/scripts/validate-blueprint.checks.py`
-- [R5] `changed:framework/prompts/chatbot/service-design.md`
-- [R5] `changed:framework/scripts/validate-blueprint.py`
-- [R5] `check:framework.schema-backed-design-validation`
-- [R6] `changed:framework/rules/detailed-design.md`
-- [R6] `changed:framework/scripts/validate-blueprint.checks.py`
-- [R7] `changed:framework/scripts/sync-model.checks.py`
-- [R7] `check:framework.generated-service-model`
-- [R8] `changed:framework/scripts/sync-model.py`
-- [R8] `changed:framework/scripts/validate-blueprint.py`
-- [R8] `changed:framework/prompts/chatbot/service-design.md`
+- [R4] `changed:framework/rules/model-information.md`
+- [R4] `changed:framework/rules/cloudformation.md`
+- [R4] `changed:framework/rules/terraform.md`
+- [R4] `changed:framework/rules/loop-engineering.md`
+- [R4] `changed:framework/prompts/chatbot/service-design.md`
+- [R4] `changed:README.md`
 
 ## Allowed paths
 
+- `tasks/active.md`
+- `README.md`
+- `framework/rules/resource-layout.json`
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
+- `framework/rules/cloudformation.md`
+- `framework/rules/terraform.md`
+- `framework/rules/loop-engineering.md`
 - `framework/prompts/chatbot/service-design.md`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/design_layout.checks.py`
 - `framework/scripts/validate-blueprint.py`
 - `framework/scripts/validate-blueprint.checks.py`
 - `framework/scripts/sync-model.py`
 - `framework/scripts/sync-model.checks.py`
-- `tasks/active.md`
 
 ## Out of scope
 
-- consumer repositoryの`docs/designs/**`と`model/**`の移行
-- `framework/materials/aws/**`、IaC、scenario、resultの変更
-- AWS API、AWS mutation、deploy/apply
-- S3以外のresource grouping変更
+- consumer repositoryへのframework同期、既存の詳細設計とmodelの移行
+- AWS catalog/schemaの内容変更
+- S3とKMS以外のresourceの自動統合
+- IaC implementation、AWS操作、scenario、resultの変更

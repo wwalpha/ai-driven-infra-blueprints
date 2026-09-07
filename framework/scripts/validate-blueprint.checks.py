@@ -505,16 +505,16 @@ def check_s3_bucket_policy_grouping() -> None:
             """# AWS KMS 詳細設計
 
 - Design service ID: `kms`
-- Owned catalog resource types: `KMS.Alias`
+- Owned catalog resource types: `KMS.Key`, `KMS.Alias`
 
-<a id="kms-appdatakeyalias"></a>
+<a id="kms-appdatakey"></a>
 
-## KMS.Alias: AppDataKeyAlias
+## KMS.Key: AppDataKey
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Alias.AliasName | `alias/app-data` | application data用keyを識別するalias |
-| 2 | KMS.Alias.TargetKeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | aliasを関連付けるKMS key |
+| 1 | KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
+| 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="kms-appdatakeyalias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
 """,
             encoding="utf-8",
         )
@@ -537,7 +537,7 @@ def check_s3_bucket_policy_grouping() -> None:
 """
         metadata = {
             design: ("s3", ("S3.Bucket", "S3.BucketPolicy")),
-            kms_design: ("kms", ("KMS.Alias",)),
+            kms_design: ("kms", ("KMS.Key", "KMS.Alias")),
         }
 
         def errors(markdown: str) -> list[str]:

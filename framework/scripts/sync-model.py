@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+from design_layout import expanded_design
+
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
 OWNED_TYPES = re.compile(r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$")
@@ -50,7 +52,8 @@ def linked_resource(path: Path, value: str) -> tuple[str, str] | None:
     if not target.is_file():
         return None
     pending_anchor = ""
-    for line in target.read_text(encoding="utf-8").splitlines():
+    lines, _ = expanded_design(target.read_text(encoding="utf-8").splitlines())
+    for line in lines:
         if anchor := ANCHOR.fullmatch(line):
             pending_anchor = anchor.group(1)
         elif resource := RESOURCE.fullmatch(line):
@@ -77,6 +80,7 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
 def model_for(path: Path, root: Path | None = None) -> str:
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
+    lines, children = expanded_design(lines)
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
         re.findall(
@@ -114,6 +118,11 @@ def model_for(path: Path, root: Path | None = None) -> str:
                     f"desired.resource.{key}.anchor={pending_anchor}",
                 )
             )
+            if child := children.get(current_anchor):
+                output.extend((
+                    f'desired.resource.{key}.parentProperty={child["parentProperty"]}',
+                    f'desired.resource.{key}.parentReference=[{child["parentLogicalId"]}](#{child["parentAnchor"]})',
+                ))
             pending_anchor = ""
             index += 1
             continue

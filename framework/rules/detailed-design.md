@@ -19,6 +19,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
+- 上記section作成にも`resource-layout.json`を適用し、grouped childは独立headingを作らない。選択済みの親propertyの現在値と設計済み親のcurrent identifierから所属を確認し、親table内へ反映する。所属が不明または親の設計がない場合は停止し、未選択resource/propertyへscopeを広げない。
 
 ## AWS resource naming
 
@@ -63,7 +64,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
-- catalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。
+- 独立表示するcatalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。親へ統合するresourceは後述の共通表示contractに従う。
 - `S3.Bucket`だけは`## S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の`<logical-id>`は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
@@ -107,7 +108,7 @@ S3の例:
 - `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
-- Listener、Route、association、UserDataなどの child component は独立 table にしてよい。Bucket Policyは上記の`S3.Bucket`専用ruleに従う。
+- resourceの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。
 - `framework/materials/aws/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
 - 選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
 - 上記4種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
@@ -125,6 +126,37 @@ S3の例:
 - `Value`を意味なく言い換えただけの説明
 
 例えば、VPCのCIDRには`VPCで使用するIPv4アドレス範囲`、inline policy nameには`IAM Roleへ埋め込む権限ポリシーの名前`、project tag keyには`リソースが属するプロジェクトを識別するタグのキー`と記載する。更新根拠やverification結果は詳細設計へ保存せず、observed valueまたは完了報告を扱う既存ルールに従う。
+
+## Related resource display
+
+`framework/rules/resource-layout.json`は全catalog resourceについて、`independent`または親へ統合する関係を明示する。表示上のまとまりとAWS/IaC resourceの識別・lifecycleを分離する。
+
+- 統合定義の`parent`は包含するresource type、`parentProperty`は子から親への正式property、`maxCount`は親あたりの子の最大数（`null`は複数可）、`identityProperty`は子を識別する先頭propertyとする。
+- 親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。子の独立heading・table・一覧は作らない。子のresource typeも`Owned catalog resource types`へ含める。
+- `parentProperty`のrowは省略し、包含する親へのlogical referenceとして解決する。外部の既存親を参照する子だけの設計はこの形式では表現せず、対応する親の設計または別の表示contractが必要であることを報告する。
+- `identityProperty`がない単一の子は親のmodelへrowを保持する。既存のS3 BucketPolicyはこの形式を維持する。
+- `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
+- 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。
+- 外部からの参照は子のanchorへ維持する。親へのlinkに置換したり、先頭の子を代表として選んだりしない。
+- 各子のpropertyはその子自身のprovider schemaで検証する。所属親が異なる型、独立heading、欠落した識別情報、子の個数超過、重複、参照切れをlocal loopで拒否する。
+
+KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alias.TargetKeyId` rowは省略する。KeyId、Keyの設定、AliasNameの順とし、複数AliasではAliasName rowと識別markerをそれぞれ保持する。Key一覧の`AliasNames`列には対応するalias名を表示できる。
+
+```md
+<a id="kms-s3filetransferkey01"></a>
+
+## KMS.Key: S3FILETRANSFERKEY01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | KMS.Key.KeyId | `PENDING_DEPLOY` | KMS keyを一意に識別するID |
+| 2 | KMS.Key.EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
+| 3 | KMS.Alias.AliasName | `alias/venus-dev-s3-file-transfer` | <a id="kms-s3filetransferkeyalias01"></a><!-- logical-id: S3FILETRANSFERKEYALIAS01 --> KMS keyを識別するalias |
+```
+
+S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#kms-s3filetransferkeyalias01)`とし、AliasNameを表示する。
+
+新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。現時点でS3とKMS以外は独立表示を維持し、方針変更は明示scopeのframework taskで行う。
 
 ## JSON design artifacts
 

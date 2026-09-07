@@ -52,6 +52,11 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 
 ## Grouping
 
+- 表示関係の正本は`framework/rules/resource-layout.json`とする。S3 BucketPolicyのようにidentityを持たない子の既存row groupingは維持する。
+- KMS Aliasのようにidentityを持つ子は、Markdownの同一table内でも独立した`desired.resource.<番号>.resourceType`、`logicalId`、`anchor`と自身の`desired.row.*`を生成する。親の次に子を出現順で並べる。Markdown内の非表示markerは構造として解釈し、rowのcommentには日本語説明だけを保持する。
+- 子の`desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId`と`parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`を生成する。省略した親propertyはこのlogical referenceから復元し、physical KeyIdや先頭Aliasによる補完をしない。これはdesiredの所属関係であり、observed値を追加しない。
+- Alias参照は子のanchorとAliasNameをそのまま保持し、KeyIdへの変換やobserved namespaceへの分離をしない。子の移動時はparentReferenceだけが新しい所属親を指し、確定済みlogical IDとanchorは維持する。
+
 - AWS service ownership boundaryごとにMarkdownとpropertiesを一対一対応させ、同じService ID、相対path、file stemを使う。
 - `desired.service.<service-id>.serviceId`のkeyとvalueはfile stemと一致させる。
 - `desired.service.<service-id>.ownedCatalogResourceTypes`はMarkdownと同じresource typeを同じ順序でcomma区切りにする。

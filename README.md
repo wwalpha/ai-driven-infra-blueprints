@@ -245,6 +245,8 @@ tests/
 
 通常のproject taskでは`framework/materials/aws/*.properties`を変更しません。不足resourceがある場合は、source specification versionと対象resourceを明示した専用catalog-maintenance taskで更新します。
 
+resource追加・削除時は`framework/rules/resource-layout.json`の表示方針も同じtaskのAllowed pathsへ含めて更新します。全catalog resourceに独立表示または親への統合を明示し、未判定をlocal loopで拒否します。所属先、複数の子、共有・複数対象、外部参照を確認し、条件付き統合が必要ならその判定と検証を先にframeworkへ実装します。現在はS3 BucketPolicyとKMS Aliasを親の詳細表へ統合し、その他は独立表示を維持します。KMS Aliasの識別marker、参照とmodelは`framework/rules/detailed-design.md`と`framework/rules/model-information.md`に従います。
+
 `framework/materials/cloudformation-schema/ap-northeast-1/`は、propertiesで選択したresource typeについて公式CloudFormation provider schemaのfull propertyと型・制約を保持します。対象件数は`framework/materials/cloudformation-schema.properties`を正本とします。設計値とCloudFormation templateのproperty名、`type`、`enum`、`pattern`、長さ、範囲、`required`の検証元です。
 
 - provenance: `framework/materials/cloudformation-schema.properties`
