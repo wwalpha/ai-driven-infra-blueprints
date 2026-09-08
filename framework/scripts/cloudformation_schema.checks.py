@@ -35,6 +35,19 @@ def main() -> None:
     assert catalog.literal_errors("Athena.WorkGroup", "State", "unexpected")
     assert catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"] == "string"
     materials = root / "framework" / "materials" / "aws"
+    # These optional fields are intentionally supported by the curated catalog.
+    for resource_type, properties in {
+        "SecretsManager.Secret": ("Type",),
+        "SecretsManager.RotationSchedule": (
+            "ExternalSecretRotationMetadata[].Key",
+            "ExternalSecretRotationMetadata[].Value",
+            "ExternalSecretRotationRoleArn",
+        ),
+    }.items():
+        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
+        for property_path in properties:
+            assert f"{resource_type}.{property_path}=" in lines, property_path
+            assert catalog.property_schema(resource_type, property_path)["type"] == "string"
     assert sum(
         line.endswith("=IDENTIFIER_OUTPUT")
         for path in materials.glob("*.properties")
