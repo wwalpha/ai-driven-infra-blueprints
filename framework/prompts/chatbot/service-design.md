@@ -198,7 +198,7 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 すべてのserviceで`framework/rules/detailed-design.md`のService policy tablesに従い、選択したpolicy JSONの内容を所有resourceの設定表直後へ生成してください。正式propertyと表示方式は`framework/scripts/policy_tables.py`の`POLICY_FORMATS`で確認し、権限policyはStatement表、配信・フィルタ・再送・ライフサイクル・data protection等は全要素の設定表へ表示してください。scalarや個別propertyへ展開済みの設定は既存の設定行を維持し、名前の末尾だけでJSON policyと判断しないでください。
 
-IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名、所有resourceとartifact IDから作るanchor、正式Property、元JSONリンクを保持してください。一覧の元の2〜6列へ`Policies`列を追加し、各resourceが所有するpolicy表へlinkします。同じtypeのpolicy未設定resourceは表示だけを`—`とし、policyや名前を作成しません。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
+IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名、所有resourceとartifact IDから作るanchor、正式Property、元JSONリンクを保持してください。ただし`KMS.Key.KeyPolicy`はKMS Keyの設定表直後に置くため、派生表示のProperty、JSON、Version、Idを省略し、anchor、見出し、Statement表だけを生成してください。一覧の元の2〜6列へ`Policies`列を追加し、各resourceが所有するpolicy表へlinkします。同じtypeのpolicy未設定resourceは表示だけを`—`とし、policyや名前を作成しません。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
 
 IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/rules/detailed-design.md`のIAM Role policy tablesに従ってRoleName・信頼ポリシー・インラインポリシーの3列の一覧と、各Roleの設定表直後のpolicy Statement表も出力してください。表は1 Statementを1行とし、複数Actionはcell内改行、Conditionは演算子・完全なkey・値を同じcellへ保持します。JSONに存在するVersion/Id、Sid、Principal種別、NotAction、NotResource等を省略・補完せず、各Roleの表示範囲を`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲んでください。信頼ポリシーの表示名はJSONリンクのtext、inline policy名はPolicyNameを使用し、別Roleの同名policyには別anchorを使用します。policy表はJSONの派生表示とし、保存時に決定的生成と照合します。
 

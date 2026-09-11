@@ -255,9 +255,9 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - IAM Roleは下記の既存一覧・表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
 - S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
 - IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
-- 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。
+- 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。`KMS.Key.KeyPolicy`だけはKMS Keyの設定表直後に所属が確定し、同じ設定rowにPropertyとJSONリンクがあるため、派生表示へ再表示しない。
 - IAM Role以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。
-- Statement表の連番、列、Principal展開、Condition、Version/Id、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。権限policy以外のJSONをStatement形式と推測しない。
+- Statement表の連番、列、Principal展開、Condition、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。JSONにあるVersion/Idも表示するが、`KMS.Key.KeyPolicy`の派生表示では省略する。権限policy以外のJSONをStatement形式と推測しない。
 - 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。
 - `ECR.Repository.LifecyclePolicy`はwrapperの全設定を表示したうえで、`LifecyclePolicyText`がある場合はJSON文字列をparseした内容も設定表で表示する。JSON文字列以外や不正なJSONは停止する。表示からJSON本文を書き戻さない。
 - 全形式で重複JSON key、不正なJSON定数、JSON object以外のartifact、他service配下のartifact参照を拒否する。marker欠落・重複・不正な所属、表や一覧リンクと正本との不一致をlocal loopでFAILとする。

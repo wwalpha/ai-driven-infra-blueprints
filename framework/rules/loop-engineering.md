@@ -45,7 +45,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - resource tableの`Source / Comment`が日本語で記載されている
 - resource tableがproperties選択リスト外の設定項目を含まず、literal値が対応するCFn provider schemaまたはAPI設計schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
-- 各serviceのpolicy一覧リンク、anchorと所有resource、正式property、Version/Id、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMの既存一覧と表示も維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
+- 各serviceのpolicy一覧リンク、anchorと所有resource、正式property、Version/Id、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。KMS KeyPolicyだけは設定表にある正式propertyとJSONリンクを派生表示へ再表示せず、Version/Idも省略する。IAMの既存一覧と表示も維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - 必要なgenerated current identifierが独立sectionではなく該当resource table先頭の連続rowにcatalog順で存在する
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する

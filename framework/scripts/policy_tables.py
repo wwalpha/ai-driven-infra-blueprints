@@ -236,7 +236,8 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         raise ValueError(f"policy JSON must be an object: {policy.link}")
     result = [f'<a id="{policy.anchor}"></a>', "", f"#### {policy.kind}：{policy.label}", ""]
     style = POLICY_FORMATS[policy.property_name]
-    if not policy.property_name.startswith("IAM.Role."):
+    compact = policy.property_name == "KMS.Key.KeyPolicy"
+    if not policy.property_name.startswith("IAM.Role.") and not compact:
         result.extend([f"Property：{code(policy.property_name)}", "", f"JSON：[{policy.label}]({policy.link})", ""])
     if style == "settings":
         result.extend(table(["Property", "Type", "Value"], settings_rows(document)))
@@ -294,9 +295,10 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     columns = []
     for key in STATEMENT_KEYS:
         columns.extend(sorted({column for flat in flattened for column in flat if column == key or column.startswith(key + ".")}))
-    for key in ("Version", "Id"):
-        if key in document:
-            result.extend([f"{key}：{code(document[key])}", ""])
+    if not compact:
+        for key in ("Version", "Id"):
+            if key in document:
+                result.extend([f"{key}：{code(document[key])}", ""])
     result.extend(table(["Statement", *columns], [
         [str(number), *(flat.get(column, "—") for column in columns)]
         for number, flat in enumerate(flattened, 1)

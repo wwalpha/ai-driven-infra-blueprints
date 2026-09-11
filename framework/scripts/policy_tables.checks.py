@@ -214,6 +214,8 @@ def service_policy_checks():
             document = {"RegistryId": "123456789012", "LifecyclePolicyText": json.dumps({"rules": [{"rulePriority": 1, "selection": {"tagStatus": "untagged", "countNumber": 10}, "action": {"type": "expire"}}]})}
         else:
             document = settings if style == "settings" else statement
+        if prop == "KMS.Key.KeyPolicy":
+            document = {**document, "Id": "key-default"}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             # S3 keeps the policy row inside its bucket, without a new resource.
@@ -244,7 +246,11 @@ def service_policy_checks():
             assert MODEL.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
             assert f"#{service}-sample-a-policy-access" in rendered and f"#{service}-sample-b-policy-access" in rendered
-            assert f"Property：`{prop}`" in rendered
+            if prop == "KMS.Key.KeyPolicy":
+                for duplicate in ("Property：", "JSON：", "Version：", "Id："):
+                    assert duplicate not in rendered, duplicate
+            else:
+                assert f"Property：`{prop}`" in rendered
             assert rendered.count("実装注記を維持する。") == 2
             assert "| LogicalId | Label | Policies |" in rendered
             if style == "settings":
@@ -273,7 +279,8 @@ def service_policy_checks():
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"
             assert errors(rendered.replace(f"[Access](#{service}-sample-b-policy-access)", f"[Access](#{service}-sample-a-policy-access)", 1)), "wrong owner link must fail"
-            assert errors(rendered.replace(f"Property：`{prop}`", "Property：`Wrong`", 1)), "wrong source property must fail"
+            if prop != "KMS.Key.KeyPolicy":
+                assert errors(rendered.replace(f"Property：`{prop}`", "Property：`Wrong`", 1)), "wrong source property must fail"
             assert errors(rendered.replace(START, START + "\n" + START, 1)), "nested markers must fail"
             # Same resource cannot silently collapse repeated policy documents.
             row = next(line for line in original.splitlines() if f" | {prop} | " in line)
