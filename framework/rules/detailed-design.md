@@ -77,20 +77,14 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 各詳細設計fileはservice metadataの直後に`## リソース一覧`を正確に1件置く。一覧の範囲は次の`## リソース詳細`直前までとし、resourceのanchor・詳細table・policy表を含めない。
 
-- 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeと下記のSubnet一覧に統合するAssociationは独立一覧を作らない。
-- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。Subnet一覧に統合するAssociationを除く全detail blockを重複なく一覧へ載せる。
+- 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
+- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
 - IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
 - 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。ただしSecurity Group一覧は後述のとおりSG属性の正本とし、基本設定の詳細tableを作らない。
 
-`EC2.SubnetRouteTableAssociation.SubnetId`が同じfileの`EC2.Subnet`詳細へlinkしている場合、そのAssociationは該当Subnetの一覧rowへ統合する。
-
-- `EC2.Subnet`一覧に`RouteTableId`を含め、合計2〜6列を維持する。`RouteTableId`はAssociation詳細の同名propertyのValueをそのまま表示する。`AssociationId`列は記載せず、Association詳細への一覧linkも不要とする。
-- 対応は`SubnetId`のlink先anchorで確定し、physical ID、`PENDING_DEPLOY`、出現順で推測しない。同じSubnetへ複数のAssociationを割り当てない。
-- 同じ一覧にAssociation未設計のSubnetがある場合、`RouteTableId`は表示だけを`—`とする。Main Route Tableなどの値を補完しない。
-- 統合したAssociationの独立一覧rowは作らない。同じfileに参照先Subnetの詳細がないAssociationだけは独立一覧を維持する。
-- Association自身のmetadata、anchor、heading、4列の詳細tableとmodelは維持する。この扱いは一覧だけの統合であり、`resource-layout.json`の詳細表示は変更しない。
+`EC2.Subnet`一覧に`RouteTableId`を含める場合は、同じSubnet詳細tableの`EC2.SubnetRouteTableAssociation.RouteTableId`とValueを一致させる。Association未設計のSubnetは表示だけを`—`とし、Main Route Tableなどの値を補完しない。`AssociationId`列は記載しない。
 
 S3の例:
 
@@ -180,7 +174,9 @@ KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alia
 
 S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#kms-s3filetransferkeyalias01)`とし、AliasNameを表示する。
 
-新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。S3 BucketPolicy、KMS Alias、Security Group rule以外の詳細blockは独立表示を維持し、方針変更は明示scopeのframework taskで行う。
+`EC2.SubnetRouteTableAssociation`は`EC2.Subnet`に属するidentityなしの単一childとする。Subnet自身の全rowの後へ`EC2.SubnetRouteTableAssociation.RouteTableId`だけを置き、`Id`と`SubnetId`、Associationの独立anchor・heading・table・一覧は作らない。所属Subnetは包含するtableから解決し、Associationを設計しないSubnetではRouteTableId row自体を省略する。
+
+新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、共有・複数対象のassociationを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。既存の統合対象以外の詳細blockは独立表示を維持し、方針変更は明示scopeのframework taskで行う。
 
 ## Security Group rules tables
 

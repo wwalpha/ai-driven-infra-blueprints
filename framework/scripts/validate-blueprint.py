@@ -1344,23 +1344,12 @@ class Validator:
                 f"resource anchors must be inside resource details: {self.relative(path)}",
             )
 
-            association_type = "EC2.SubnetRouteTableAssociation"
-            subnet_associations: dict[str, list[str]] = {}
-            for anchor, (resource_type, _) in resources.items():
-                if resource_type != association_type:
-                    continue
-                subnet = RESOURCE_LINK_PATTERN.fullmatch(properties[anchor].get(f"{association_type}.SubnetId", ""))
-                if (
-                    subnet and (path.parent / (subnet.group(2) or path.name)).resolve() == path.resolve()
-                    and resources.get(subnet.group(3), ("", ""))[0] == "EC2.Subnet"
-                ):
-                    subnet_associations.setdefault(subnet.group(3), []).append(anchor)
-            merged_associations = {anchor for anchors in subnet_associations.values() for anchor in anchors}
-            for subnet, associations in subnet_associations.items():
-                self.check(
-                    len(associations) == 1,
-                    f"Subnet must have at most one Route Table association: {self.relative(path)}: {subnet}",
-                )
+            association_route_table = "EC2.SubnetRouteTableAssociation.RouteTableId"
+            subnet_route_tables = {
+                anchor: properties[anchor][association_route_table]
+                for anchor, (resource_type, _) in resources.items()
+                if resource_type == "EC2.Subnet" and association_route_table in properties[anchor]
+            }
 
             listed: list[str] = []
             overview_types: list[str] = []
@@ -1433,37 +1422,26 @@ class Validator:
                         f"resource overview link must match its detail block: {self.relative(path)}: {current_type}: {label}",
                     )
                     listed.append(anchor)
-                    if current_type == "EC2.Subnet" and (subnet_associations or "RouteTableId" in headers):
+                    if current_type == "EC2.Subnet" and (subnet_route_tables or "RouteTableId" in headers):
                         values = dict(zip(headers, cells))
                         self.check(
                             "RouteTableId" in values,
                             f"Subnet overview requires RouteTableId column: {self.relative(path)}",
                         )
-                        associations = subnet_associations.get(anchor, [])
-                        if len(associations) > 1:
-                            continue
-                        expected_route = "—"
-                        if associations:
-                            association = associations[0]
-                            source = properties[association]
-                            expected_route = source.get(f"{association_type}.RouteTableId", "")
-                            self.check(
-                                bool(expected_route),
-                                f"Subnet association details require RouteTableId: {self.relative(path)}: {association}",
-                            )
+                        expected_route = subnet_route_tables.get(anchor, "—")
                         self.check(
                             values.get("RouteTableId") == expected_route,
-                            f"Subnet overview association must match its detail values and anchor: {self.relative(path)}: {anchor}",
+                            f"Subnet overview RouteTableId must match its detail table: {self.relative(path)}: {anchor}",
                         )
 
-            detail_types = [resource_type for anchor, (resource_type, _) in resources.items() if anchor not in merged_associations]
+            detail_types = [resource_type for resource_type, _ in resources.values()]
             self.check(
                 len(overview_types) == len(set(overview_types))
                 and set(overview_types) == set(detail_types),
                 f"resource overview types must match detail resource types: {self.relative(path)}",
             )
             self.check(
-                len(listed) == len(set(listed)) and set(listed) == set(resources) - merged_associations,
+                len(listed) == len(set(listed)) and set(listed) == set(resources),
                 f"resource overview must list every detail resource exactly once: {self.relative(path)}",
             )
 

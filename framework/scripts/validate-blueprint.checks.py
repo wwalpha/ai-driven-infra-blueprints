@@ -692,30 +692,29 @@ def check_subnet_association_overview() -> None:
     ])
     details = "## リソース詳細\n\n"
     for number in range(1, 4):
+        route_table = (
+            f"| 3 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
+            if number < 3 else ""
+        )
         details += (
             f'<a id="vpc-subnet-{number}"></a>\n\n### EC2.Subnet: subnet-{number}\n\n'
             f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
             f"| 1 | EC2.Subnet.SubnetId | `subnet-{number:08d}` | Subnetを識別するID |\n"
-            f"| 2 | EC2.Subnet.Name | `subnet-{number}` | SubnetのNameタグ |\n\n"
+            f"| 2 | EC2.Subnet.Name | `subnet-{number}` | SubnetのNameタグ |\n"
+            f"{route_table}\n"
         )
     details += (
         '<a id="vpc-route"></a>\n\n### EC2.RouteTable: route\n\n'
         f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
         "| 1 | EC2.RouteTable.RouteTableId | `rtb-00000001` | Route Tableを識別するID |\n\n"
     )
-    for number in range(1, 3):
-        details += (
-            f'<a id="vpc-assoc-{number}"></a>\n\n### {association_type}: Assoc{number}\n\n'
-            f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
-            f"| 1 | {association_type}.Id | `rtbassoc-{number:08d}` | 関連付けを識別するID |\n"
-            f"| 2 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
-            f"| 3 | {association_type}.SubnetId | [subnet-{number:08d}](#vpc-subnet-{number}) | 関連付けるSubnet |\n\n"
-        )
-    independent = "\n".join([
-        f"### {association_type}", "", "| Association | Id |", "| --- | --- |",
-        "| [Assoc1](#vpc-assoc-1) | `rtbassoc-00000001` |",
-        "| [Assoc2](#vpc-assoc-2) | `rtbassoc-00000002` |", "", "",
-    ])
+    independent = (
+        f'<a id="vpc-assoc-1"></a>\n\n### {association_type}: Assoc1\n\n'
+        f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
+        f"| 1 | {association_type}.Id | `rtbassoc-00000001` | 関連付けを識別するID |\n"
+        f"| 2 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
+        f"| 3 | {association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1) | 関連付けるSubnet |\n\n"
+    )
     valid = metadata + overview + details
     legacy_overview = overview.replace(subnet_header, subnet_header + " AssociationId |", 1).replace(
         "| --- | --- | --- | --- | --- |", "| --- | --- | --- | --- | --- | --- |", 1
@@ -739,41 +738,31 @@ def check_subnet_association_overview() -> None:
         # An overview edit must not change resources, references, or observed IDs.
         design.write_text(metadata + legacy_overview + details, encoding="utf-8")
         assert model.model_for(design, SCRIPT.parents[2]) == merged_model
-        assert "desired.resource.005.resourceType=EC2.SubnetRouteTableAssociation" in merged_model
-        assert "observed.row.005-001.value=`rtbassoc-00000001`" in merged_model
-        assert "desired.row.006-003.value=[subnet-2](#vpc-subnet-2)" in merged_model
+        assert "resourceType=EC2.SubnetRouteTableAssociation" not in merged_model
+        assert "desired.row.001-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
+        assert "desired.row.001-003.value=[route](#vpc-route)" in merged_model
+        assert "observed.row.001-003.value=rtb-00000001" in merged_model
+        assert "desired.row.002-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
+        assert "EC2.SubnetRouteTableAssociation.Id" not in merged_model
+        assert "EC2.SubnetRouteTableAssociation.SubnetId" not in merged_model
 
         pending = valid
-        for identifier in ("rtb-00000001", "rtbassoc-00000001", "rtbassoc-00000002", *(f"subnet-{number:08d}" for number in range(1, 4))):
+        for identifier in ("rtb-00000001", *(f"subnet-{number:08d}" for number in range(1, 4))):
             pending = pending.replace(identifier, "PENDING_DEPLOY")
         assert not errors(pending), errors(pending)
-        assert not errors(valid.replace(
-            f"{association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1)",
-            f"{association_type}.SubnetId | [subnet-00000001](vpc.md#vpc-subnet-1)",
-        ))
 
         bad_designs = [
-            (metadata + overview + independent + details, "types must match"),
+            (valid + independent, "types must match"),
             (metadata + legacy_overview + details, "must omit AssociationId"),
             (valid.replace(" | RouteTableId |", " | RouteTable |", 1), "requires RouteTableId column"),
-            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-00000001](#vpc-assoc-1)", 1), "must match its detail values and anchor"),
-            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-other](#vpc-route)", 1), "must match its detail values and anchor"),
-            (valid.replace(" | — |", " | `rtb-main` |", 1), "must match its detail values and anchor"),
-            (valid.replace("[subnet-00000002](#vpc-subnet-2)", "[subnet-00000001](#vpc-subnet-1)"), "at most one"),
+            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-00000001](#vpc-wrong)", 1), "must match its detail table"),
+            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-other](#vpc-route)", 1), "must match its detail table"),
+            (valid.replace(" | — |", " | `rtb-main` |", 1), "must match its detail table"),
             (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
         ]
         for markdown, message in bad_designs:
             failures = errors(markdown)
             assert any(message in failure for failure in failures), (message, failures)
-
-        # Associations to subnets outside this file keep their own overview.
-        external = metadata + overview.replace("[rtb-00000001](#vpc-route)", "—") + independent + details
-        for number in range(1, 3):
-            external = external.replace(
-                f"[subnet-{number:08d}](#vpc-subnet-{number})", f"[subnet-{number:08d}](network.md#vpc-subnet-{number})"
-            )
-        assert not errors(external), errors(external)
-
 
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]

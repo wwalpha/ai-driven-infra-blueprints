@@ -71,7 +71,12 @@
     "display": "rule-table"
   },
   "EC2.Subnet": "independent",
-  "EC2.SubnetRouteTableAssociation": "independent",
+  "EC2.SubnetRouteTableAssociation": {
+    "parent": "EC2.Subnet",
+    "parentProperty": "SubnetId",
+    "maxCount": 1,
+    "identityProperty": null
+  },
   "EC2.TransitGateway": "independent",
   "EC2.TransitGatewayRoute": "independent",
   "EC2.TransitGatewayRouteTable": "independent",

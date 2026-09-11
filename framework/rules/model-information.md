@@ -45,7 +45,7 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、SG属性の正本となるSecurity Group一覧を除き、人間向けの派生summaryとしてmodel生成対象から除外する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`、design-only `S3.Bucket.Region`は`desired.row.*`へlosslessに反映する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。`S3.Bucket`のtableにgroup化した`S3.BucketPolicy.PolicyDocument` rowは、独立した`desired.resource.*`を作らず、同じ`S3.Bucket` resource番号の`desired.row.*`へProperty名を保ってlosslessに反映する。対象bucketは包含するresourceから暗黙に特定し、`S3.BucketPolicy.Bucket` rowは生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
+resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、SG属性の正本となるSecurity Group一覧を除き、人間向けの派生summaryとしてmodel生成対象から除外する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`、design-only `S3.Bucket.Region`は`desired.row.*`へlosslessに反映する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と`EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へProperty名を保ってlosslessに反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 
@@ -66,7 +66,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 
 ## Grouping
 
-- 表示関係の正本は`framework/rules/resource-layout.json`とする。S3 BucketPolicyのようにidentityを持たない子の既存row groupingは維持する。
+- 表示関係の正本は`framework/rules/resource-layout.json`とする。S3 BucketPolicyとSubnet Route Table Associationのようにidentityを持たない単一の子は、親resourceのrowとして保持する。
 - KMS Aliasのようにidentityを持つ子は、Markdownの同一table内でも独立した`desired.resource.<番号>.resourceType`、`logicalId`、`anchor`と自身の`desired.row.*`を生成する。親の次に子を出現順で並べる。Markdown内の非表示markerは構造として解釈し、rowのcommentには日本語説明だけを保持する。
 - 子の`desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId`と`parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`を生成する。省略した親propertyはこのlogical referenceから復元し、physical KeyIdや先頭Aliasによる補完をしない。これはdesiredの所属関係であり、observed値を追加しない。
 - Alias参照は子のanchorとAliasNameをそのまま保持し、KeyIdへの変換やobserved namespaceへの分離をしない。子の移動時はparentReferenceだけが新しい所属親を指し、確定済みlogical IDとanchorは維持する。
