@@ -654,15 +654,15 @@ def check_subnet_association_overview() -> None:
         "# VPC 詳細設計\n\n- Design service ID: `vpc`\n"
         f"- Owned catalog resource types: `EC2.Subnet`, `EC2.RouteTable`, `{association_type}`\n\n"
     )
-    subnet_header = "| Name | SubnetId | AvailabilityZone | CidrBlock | RouteTableId | AssociationId |"
+    subnet_header = "| Name | SubnetId | AvailabilityZone | CidrBlock | RouteTableId |"
     subnet_rows = [
         f"| [subnet-{number}](#vpc-subnet-{number}) | `subnet-{number:08d}` | `ap-northeast-1a` | `10.0.{number}.0/24` | "
-        + (f"[rtb-00000001](#vpc-route) | [rtbassoc-{number:08d}](#vpc-assoc-{number}) |" if number < 3 else "— | — |")
+        + ("[rtb-00000001](#vpc-route) |" if number < 3 else "— |")
         for number in range(1, 4)
     ]
     overview = "\n".join([
         "## リソース一覧", "", "### EC2.Subnet", "", subnet_header,
-        "| --- | --- | --- | --- | --- | --- |", *subnet_rows, "",
+        "| --- | --- | --- | --- | --- |", *subnet_rows, "",
         "### EC2.RouteTable", "", "| Name | RouteTableId |", "| --- | --- |",
         "| [route](#vpc-route) | `rtb-00000001` |", "", "",
     ])
@@ -693,6 +693,12 @@ def check_subnet_association_overview() -> None:
         "| [Assoc2](#vpc-assoc-2) | `rtbassoc-00000002` |", "", "",
     ])
     valid = metadata + overview + details
+    legacy_overview = overview.replace(subnet_header, subnet_header + " AssociationId |", 1).replace(
+        "| --- | --- | --- | --- | --- |", "| --- | --- | --- | --- | --- | --- |", 1
+    )
+    for number, row in enumerate(subnet_rows, 1):
+        association_cell = f"[rtbassoc-{number:08d}](#vpc-assoc-{number})" if number < 3 else "—"
+        legacy_overview = legacy_overview.replace(row, f"{row} {association_cell} |", 1)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         design = root / "docs/designs/dev/123456789012/vpc.md"
@@ -707,7 +713,7 @@ def check_subnet_association_overview() -> None:
         assert not errors(valid), errors(valid)
         merged_model = model.model_for(design, SCRIPT.parents[2])
         # An overview edit must not change resources, references, or observed IDs.
-        design.write_text(metadata + overview + independent + details, encoding="utf-8")
+        design.write_text(metadata + legacy_overview + details, encoding="utf-8")
         assert model.model_for(design, SCRIPT.parents[2]) == merged_model
         assert "desired.resource.005.resourceType=EC2.SubnetRouteTableAssociation" in merged_model
         assert "observed.row.005-001.value=`rtbassoc-00000001`" in merged_model
@@ -724,11 +730,11 @@ def check_subnet_association_overview() -> None:
 
         bad_designs = [
             (metadata + overview + independent + details, "types must match"),
-            (valid.replace(" | AssociationId |", " | Association |", 1), "requires RouteTableId and AssociationId"),
-            (valid.replace("[rtbassoc-00000001](#vpc-assoc-1)", "[rtbassoc-00000001](#vpc-assoc-2)", 1), "must match its detail values and anchor"),
-            (valid.replace("[rtbassoc-00000001]", "[rtbassoc-99999999]", 1), "must match its detail values and anchor"),
+            (metadata + legacy_overview + details, "must omit AssociationId"),
+            (valid.replace(" | RouteTableId |", " | RouteTable |", 1), "requires RouteTableId column"),
+            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-00000001](#vpc-assoc-1)", 1), "must match its detail values and anchor"),
             (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-other](#vpc-route)", 1), "must match its detail values and anchor"),
-            (valid.replace(" | — | — |", " | `rtb-main` | — |", 1), "must match its detail values and anchor"),
+            (valid.replace(" | — |", " | `rtb-main` |", 1), "must match its detail values and anchor"),
             (valid.replace("[subnet-00000002](#vpc-subnet-2)", "[subnet-00000001](#vpc-subnet-1)"), "at most one"),
             (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
         ]
@@ -737,11 +743,11 @@ def check_subnet_association_overview() -> None:
             assert any(message in failure for failure in failures), (message, failures)
 
         # Associations to subnets outside this file keep their own overview.
-        external = metadata + overview + independent + details
+        external = metadata + overview.replace("[rtb-00000001](#vpc-route)", "—") + independent + details
         for number in range(1, 3):
             external = external.replace(
-                f"[rtb-00000001](#vpc-route) | [rtbassoc-{number:08d}](#vpc-assoc-{number})", "— | —"
-            ).replace(f"[subnet-{number:08d}](#vpc-subnet-{number})", f"[subnet-{number:08d}](network.md#vpc-subnet-{number})")
+                f"[subnet-{number:08d}](#vpc-subnet-{number})", f"[subnet-{number:08d}](network.md#vpc-subnet-{number})"
+            )
         assert not errors(external), errors(external)
 
 

@@ -1374,6 +1374,11 @@ class Validator:
                     and all(re.fullmatch(r":?---+:?", cell) for cell in alignment),
                     f"invalid resource overview table alignment: {self.relative(path)}: {current_type}",
                 )
+                if current_type == "EC2.Subnet":
+                    self.check(
+                        "AssociationId" not in headers,
+                        f"Subnet overview must omit AssociationId: {self.relative(path)}",
+                    )
                 for row in table[2:]:
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(
@@ -1399,30 +1404,26 @@ class Validator:
                         f"resource overview link must match its detail block: {self.relative(path)}: {current_type}: {label}",
                     )
                     listed.append(anchor)
-                    if current_type == "EC2.Subnet" and (subnet_associations or {"RouteTableId", "AssociationId"} & set(headers)):
+                    if current_type == "EC2.Subnet" and (subnet_associations or "RouteTableId" in headers):
                         values = dict(zip(headers, cells))
                         self.check(
-                            {"RouteTableId", "AssociationId"} <= values.keys(),
-                            f"Subnet overview requires RouteTableId and AssociationId columns: {self.relative(path)}",
+                            "RouteTableId" in values,
+                            f"Subnet overview requires RouteTableId column: {self.relative(path)}",
                         )
                         associations = subnet_associations.get(anchor, [])
                         if len(associations) > 1:
                             continue
-                        expected_route = expected_association = "—"
+                        expected_route = "—"
                         if associations:
                             association = associations[0]
                             source = properties[association]
-                            identifier = self.unquoted(source.get(f"{association_type}.Id", ""))
                             expected_route = source.get(f"{association_type}.RouteTableId", "")
-                            expected_association = f"[{identifier}](#{association})"
                             self.check(
-                                bool(identifier and expected_route),
-                                f"Subnet association details require Id and RouteTableId: {self.relative(path)}: {association}",
+                                bool(expected_route),
+                                f"Subnet association details require RouteTableId: {self.relative(path)}: {association}",
                             )
-                            listed.append(association)
                         self.check(
-                            values.get("RouteTableId") == expected_route
-                            and values.get("AssociationId") == expected_association,
+                            values.get("RouteTableId") == expected_route,
                             f"Subnet overview association must match its detail values and anchor: {self.relative(path)}: {anchor}",
                         )
 
@@ -1433,7 +1434,7 @@ class Validator:
                 f"resource overview types must match detail resource types: {self.relative(path)}",
             )
             self.check(
-                len(listed) == len(set(listed)) and set(listed) == set(resources),
+                len(listed) == len(set(listed)) and set(listed) == set(resources) - merged_associations,
                 f"resource overview must list every detail resource exactly once: {self.relative(path)}",
             )
 

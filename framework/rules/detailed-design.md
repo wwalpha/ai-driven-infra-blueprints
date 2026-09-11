@@ -77,7 +77,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 各詳細設計fileはservice metadataの直後、最初のresource anchorより前に`## リソース一覧`を正確に1件置く。
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeと下記のSubnet一覧に統合するAssociationは独立一覧を作らない。
-- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。Subnet一覧内のAssociationId linkを含め、全detail blockを重複なく一覧へ載せる。
+- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。Subnet一覧に統合するAssociationを除く全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
 - IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
@@ -85,9 +85,9 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 `EC2.SubnetRouteTableAssociation.SubnetId`が同じfileの`EC2.Subnet`詳細へlinkしている場合、そのAssociationは該当Subnetの一覧rowへ統合する。
 
-- `EC2.Subnet`一覧に`RouteTableId`と`AssociationId`を含め、合計2〜6列を維持する。`RouteTableId`はAssociation詳細の同名propertyのValueをそのまま表示し、`AssociationId`はAssociation詳細の`Id`を表示textとする同詳細anchorへのsame-file linkにする。
+- `EC2.Subnet`一覧に`RouteTableId`を含め、合計2〜6列を維持する。`RouteTableId`はAssociation詳細の同名propertyのValueをそのまま表示する。`AssociationId`列は記載せず、Association詳細への一覧linkも不要とする。
 - 対応は`SubnetId`のlink先anchorで確定し、physical ID、`PENDING_DEPLOY`、出現順で推測しない。同じSubnetへ複数のAssociationを割り当てない。
-- 同じ一覧にAssociation未設計のSubnetがある場合、両columnは表示だけを`—`とする。Main Route Tableなどの値を補完しない。
+- 同じ一覧にAssociation未設計のSubnetがある場合、`RouteTableId`は表示だけを`—`とする。Main Route Tableなどの値を補完しない。
 - 統合したAssociationの独立一覧rowは作らない。同じfileに参照先Subnetの詳細がないAssociationだけは独立一覧を維持する。
 - Association自身のmetadata、anchor、heading、4列の詳細tableとmodelは維持する。この扱いは一覧だけの統合であり、`resource-layout.json`の詳細表示は変更しない。
 
