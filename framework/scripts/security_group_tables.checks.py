@@ -30,16 +30,18 @@ DESIGN = """# Security Group 詳細設計
 
 ### EC2.SecurityGroup
 
-| SecurityGroup | GroupName | Id | VpcId | Description | Tags |
-| --- | --- | --- | --- | --- | --- |
-| [GroupOne](#ec2-groupone) | `group-one` | `sg-00000001` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `Application access` | `[{"Key":"Project","Value":"app"},{"Key":"Environment","Value":"dev"}]` |
-| [GroupTwo](#ec2-grouptwo) | — | `PENDING_DEPLOY` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `No selected rules` | — |
+| SecurityGroup | GroupName | Id | VpcId | Description |
+| --- | --- | --- | --- | --- |
+| [GroupOne](#ec2-groupone) | `group-one` | `sg-00000001` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `Application access` |
+| [GroupTwo](#ec2-grouptwo) | — | `PENDING_DEPLOY` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `No selected rules` |
 
 ## リソース詳細
 
 <a id="ec2-groupone"></a>
 
 ### EC2.SecurityGroup: GroupOne
+
+<!-- security-group-tags: [{"Key":"Project","Value":"app"},{"Key":"Environment","Value":"dev"}] -->
 
 | Direction | IpProtocol | Port | CidrIp | CidrIpv6 | SourcePrefixListId | SourceSecurityGroupId | SourceSecurityGroupOwnerId | DestinationSecurityGroupId | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -54,9 +56,6 @@ DESIGN = """# Security Group 詳細設計
 <a id="ec2-grouptwo"></a>
 
 ### EC2.SecurityGroup: GroupTwo
-
-| Direction | IpProtocol | Port |
-| --- | --- | --- |
 """
 VPC_DESIGN = """# Amazon VPC 詳細設計
 
@@ -153,22 +152,32 @@ def main():
             ["EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol", "`-1`"],
             ["EC2.SecurityGroup.SecurityGroupEgress[].CidrIp", "`10.1.0.0/16`"],
         ]
-        # A single direction and an overview without optional Tags need no extra table.
+        # A single direction and a group without tags need no extra table.
         inbound_only = "\n".join(line for line in DESIGN.splitlines() if not line.startswith("| Outbound")) + "\n"
         assert not errors(inbound_only), errors(inbound_only)
-        no_tags = "\n".join(
-            line.rsplit("|", 2)[0].rstrip() + " |" if line.startswith(("| SecurityGroup |", "| [Group", "| --- | --- | --- | --- | --- | --- |")) and len(line.split("|")) == 8 else line
-            for line in DESIGN.splitlines()
-        ) + "\n"
+        tag_line = next(line for line in DESIGN.splitlines() if line.startswith("<!-- security-group-tags:"))
+        no_tags = DESIGN.replace(tag_line + "\n", "")
         assert not errors(no_tags), errors(no_tags)
         assert "EC2.SecurityGroup.Tags[]" not in "\n".join(security_group_table_lines(no_tags.splitlines()))
+        # No rule tables must still retain both SGs, including the following anchor.
+        rule_lines = [line for line in DESIGN.splitlines() if line.startswith(("| Direction |", "| Inbound", "| Outbound", "| --- | --- | --- | --- | --- | --- |"))]
+        no_rules = "\n".join(line for line in DESIGN.splitlines() if line not in rule_lines) + "\n"
+        for text in (no_rules, no_rules.replace(tag_line + "\n", "")):
+            assert not errors(text), errors(text)
+            source = path.read_bytes()
+            model = MODEL.model_for(path, REPOSITORY)
+            assert path.read_bytes() == source
+            assert model.count(".resourceType=EC2.SecurityGroup\n") == 2
+            assert "desired.resource.002.anchor=ec2-grouptwo\n" in model
+            assert ".resourceType=EC2.SecurityGroupIngress" not in model
+            assert ".resourceType=EC2.SecurityGroupEgress" not in model
+            assert "desired.note." not in model
+            assert (".property=EC2.SecurityGroup.Tags[].Key" in model) == (tag_line in text)
         # Moving a standalone row changes its owner, not its logical or current ID.
         rule = next(line for line in DESIGN.splitlines() if 'id="ec2-egressone"' in line)
         moved = DESIGN.replace(rule + "\n", "").rstrip()
-        empty = "| Direction | IpProtocol | Port |\n| --- | --- | --- |"
         columns = "\n".join(next(line for line in DESIGN.splitlines() if line.startswith(prefix)) for prefix in ("| Direction |", "| --- | --- | --- | --- | --- | --- | --- |"))
-        position = moved.rfind(empty)
-        moved = moved[:position] + columns + "\n" + rule + "\n"
+        moved += "\n\n" + columns + "\n" + rule + "\n"
         assert not errors(moved), errors(moved)
         _, moved_children = expanded_design(moved.splitlines())
         assert moved_children["ec2-egressone"]["parentLogicalId"] == "GroupTwo"
@@ -187,7 +196,14 @@ def main():
         assert port_properties("—", "icmpv6") == {}
         assert "SecurityGroupRuleId" not in DESIGN
         assert "rule-id:" not in generated
+        assert "| Tags |" not in DESIGN
+        assert "security-group-tags" not in generated
         bad = [
+            (DESIGN.replace("| GroupName |", "| Tags |", 1), "omit Tags column"),
+            (DESIGN.replace(tag_line, tag_line + "\n" + tag_line, 1), "at most one tags metadata line"),
+            (DESIGN.replace(tag_line, tag_line[:-3], 1), "invalid Security Group tags metadata"),
+            (DESIGN.replace(tag_line, "<!-- security-group-tags: [] -->", 1), "Tags must be a JSON array"),
+            (DESIGN.replace(tag_line, "", 1).replace("## リソース一覧", tag_line + "\n\n## リソース一覧", 1), "tags metadata must belong to EC2.SecurityGroup"),
             (DESIGN.replace("| Port |", "| FromPort |", 1), "invalid Security Group Direction rule table columns"),
             (DESIGN.replace("| Port |", "| ToPort |", 1), "invalid Security Group Direction rule table columns"),
             (DESIGN.replace("`443`", "`444-443`", 1), "invalid Port range"),
@@ -197,7 +213,7 @@ def main():
             (DESIGN.replace("`Type=128, Code=0`", "`128-0`", 1), "invalid Port"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=256, Code=0`", 1), "outside the protocol range"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=-1, Code=0`", 1), "invalid Port range"),
-            (DESIGN.replace("| Direction | IpProtocol | Port |\n| --- | --- | --- |", "| Direction | SecurityGroupRuleId | IpProtocol | Port |\n| --- | --- | --- | --- |"), "invalid Security Group Direction rule table columns"),
+            (DESIGN + "\n| Direction | SecurityGroupRuleId | IpProtocol | Port |\n| --- | --- | --- | --- |\n", "invalid Security Group Direction rule table columns"),
             (DESIGN.replace("<!-- rule-id: `sgr-00000001` -->", "", 1), "requires complete anchor/logical-id/rule-id markers"),
             (DESIGN.replace("| Inbound <", "| inbound <", 1), "requires complete anchor/logical-id/rule-id markers"),
             (DESIGN.replace("rule-id: `sgr-00000001`", "rule-id: `—`", 1), "requires an Id"),
@@ -212,28 +228,28 @@ def main():
             (DESIGN.replace('| SourcePrefixListId |', '| DestinationPrefixListId |', 1), "do not match Direction"),
             (DESIGN.replace('| IpProtocol |', '| Type |', 1), "invalid Security Group Direction rule table columns"),
             (DESIGN.replace('| VpcId |', '| Region |', 1), "overview requires SecurityGroup"),
-            (DESIGN.replace('| Description | Tags |', '| GroupDescription | Tags |', 1), "overview requires SecurityGroup"),
+            (DESIGN.replace('| Description |', '| GroupDescription |', 1), "overview requires SecurityGroup"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '—', 1), "requires Id, VpcId and Description values"),
-            (DESIGN.replace('`Application access` | `[{', '— | `[{', 1), "requires Id, VpcId and Description values"),
+            (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, VpcId and Description values"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[vpc-wrong](vpc.md#vpc-vpc-app-dev)', 1), "identifier reference does not match"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '`vpc-00000001`', 1), "VpcId must link to its VPC"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#ec2-groupone)', 1), "VpcId must link to a VPC in the same target"),
             (DESIGN.replace('[GroupOne](#ec2-groupone)', '[GroupOne](#ec2-grouptwo)', 1), "overview link must match"),
             (DESIGN.replace('[GroupTwo](#ec2-grouptwo)', '[GroupOne](#ec2-grouptwo)', 1), "unique logical ID link"),
             (DESIGN.replace('"Value":"app"', '"Wrong":"app"', 1), "Tags must be a JSON array"),
-            (DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n", "requires one Direction rule table"),
+            (DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n", "omit empty Security Group rule table"),
             (DESIGN.replace(' | `443` |', ' | `invalid` |', 1), "invalid Port"),
             (DESIGN.replace(' | `tcp` |', ' | — |', 1), "requires IpProtocol"),
             (DESIGN.replace(' | — | — | — | [PENDING_DEPLOY]', ' | `10.0.0.0/24` | — | — | [PENDING_DEPLOY]', 1), "exactly one address"),
             (DESIGN.replace('[PENDING_DEPLOY](#ec2-grouptwo)', '[sg-wrong](#ec2-grouptwo)', 1), "identifier reference does not match"),
             (DESIGN.replace('### EC2.SecurityGroup: GroupOne', '### EC2.Instance: GroupOne'), "must belong to EC2.SecurityGroup"),
-            (DESIGN.replace("| Direction | IpProtocol | Port |\n| --- | --- | --- |", "| No. | Property | Value | Source / Comment |\n| --- | --- | --- | --- |"), "omit the basic property table"),
+            (DESIGN + "\n| No. | Property | Value | Source / Comment |\n| --- | --- | --- | --- |\n", "omit the basic property table"),
             (DESIGN + '\n<a id="ec2-oldrule"></a>\n### EC2.SecurityGroupIngress: OldRule\n', "must use a horizontal Direction"),
         ]
         for text, message in bad:
             failures = errors(text)
             assert any(message in error for error in failures), (message, failures)
-        for text in (DESIGN.replace('| Inbound |', '| invalid |', 1), DESIGN.replace(' | `tcp` |', ' | — |', 1)):
+        for text in (DESIGN.replace('| Inbound |', '| invalid |', 1), DESIGN.replace(' | `tcp` |', ' | — |', 1), DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n"):
             path.write_text(text, encoding="utf-8")
             try:
                 MODEL.model_for(path, REPOSITORY)

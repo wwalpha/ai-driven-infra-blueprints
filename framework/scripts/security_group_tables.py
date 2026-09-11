@@ -8,6 +8,7 @@ import re
 
 SECURITY_GROUP = "EC2.SecurityGroup"
 DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
+TAGS_PREFIX = "<!-- security-group-tags:"
 OVERVIEW_COLUMNS = ["SecurityGroup", "GroupName", "Id", "VpcId", "Description"]
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
@@ -97,8 +98,8 @@ def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
         if lines[end].startswith("|"):
             raise ValueError("Security Group requires exactly one overview table")
         end += 1
-    if headers not in (OVERVIEW_COLUMNS, [*OVERVIEW_COLUMNS, "Tags"]) or not rows:
-        raise ValueError("Security Group overview requires SecurityGroup, GroupName, Id, VpcId, Description and optional Tags")
+    if headers != OVERVIEW_COLUMNS or not rows:
+        raise ValueError("Security Group overview requires SecurityGroup, GroupName, Id, VpcId, Description only; omit Tags column")
     groups = {}
     for row in rows:
         link = re.fullmatch(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]\(#([a-z0-9_.-]+)\)", row[0])
@@ -112,20 +113,6 @@ def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
             value = values["Description" if prop == "GroupDescription" else prop]
             if value != "—":
                 basic.append([f"{SECURITY_GROUP}.{prop}", value, GROUP_COMMENTS[prop]])
-        if values.get("Tags", "—") != "—":
-            try:
-                tags = json.loads(values["Tags"].strip("`"))
-            except ValueError as error:
-                raise ValueError("Security Group Tags must be a JSON array of Key/Value objects") from error
-            if not isinstance(tags, list) or not tags or any(
-                not isinstance(tag, dict) or set(tag) != {"Key", "Value"}
-                or any(not isinstance(value, str) for value in tag.values()) for tag in tags
-            ):
-                raise ValueError("Security Group Tags must be a JSON array of Key/Value objects")
-            for tag in tags:
-                for prop in ("Key", "Value"):
-                    value = json.dumps(tag[prop], ensure_ascii=False)
-                    basic.append([f"{SECURITY_GROUP}.Tags[].{prop}", value, GROUP_COMMENTS[f"Tags[].{prop}"]])
         groups[link.group(1)] = (link.group(2), basic)
     return groups
 
@@ -141,6 +128,8 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         if not heading or heading.group(1) != SECURITY_GROUP:
             if heading and heading.group(1) in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}:
                 raise ValueError("Security Group rules must use a horizontal Direction table")
+            if TAGS_PREFIX in lines[index]:
+                raise ValueError("Security Group tags metadata must belong to EC2.SecurityGroup")
             if lines[index].startswith("| Direction |"):
                 raise ValueError("Security Group rule table must belong to EC2.SecurityGroup")
             result.append(lines[index])
@@ -158,13 +147,40 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         while end < len(lines) and not re.match(r"^#{1,3} ", lines[end]):
             end += 1
         block = lines[index:end]
+        tag_lines = [line for line in block if TAGS_PREFIX in line]
+        if len(tag_lines) > 1:
+            raise ValueError("Security Group requires at most one tags metadata line")
+        if tag_lines:
+            marker = re.fullmatch(r"<!-- security-group-tags: (.+) -->", tag_lines[0])
+            if not marker or "-->" in marker.group(1) or "<!--" in marker.group(1):
+                raise ValueError("invalid Security Group tags metadata; escape comment delimiters in JSON")
+            try:
+                tags = json.loads(marker.group(1))
+            except ValueError as error:
+                raise ValueError("Security Group Tags must be a JSON array of Key/Value objects") from error
+            if not isinstance(tags, list) or not tags or any(
+                not isinstance(tag, dict) or set(tag) != {"Key", "Value"}
+                or any(not isinstance(value, str) for value in tag.values()) for tag in tags
+            ):
+                raise ValueError("Security Group Tags must be a JSON array of Key/Value objects")
+            for tag in tags:
+                for prop in ("Key", "Value"):
+                    value = json.dumps(tag[prop], ensure_ascii=False)
+                    basic_rows.append([f"{SECURITY_GROUP}.Tags[].{prop}", value, GROUP_COMMENTS[f"Tags[].{prop}"]])
+            block = [line for line in block if line not in tag_lines]
+
         start = next((position for position, line in enumerate(block) if line.startswith("|")), -1)
         if start == -1:
-            raise ValueError("Security Group requires one Direction rule table")
-        headers, rules, cursor = table_at(block, start)
-        allowed = (COMMENTS.keys() - {"Id", "FromPort", "ToPort"}) | {"Port"}
-        if headers[:1] != ["Direction"] or not {"IpProtocol", "Port"} <= set(headers) or set(headers[1:]) - allowed:
-            raise ValueError("invalid Security Group Direction rule table columns; omit the basic property table")
+            # Insert the model-only property table before the next resource anchor.
+            start = cursor = 1
+            headers, rules = [], []
+        else:
+            headers, rules, cursor = table_at(block, start)
+            allowed = (COMMENTS.keys() - {"Id", "FromPort", "ToPort"}) | {"Port"}
+            if headers[:1] != ["Direction"] or not {"IpProtocol", "Port"} <= set(headers) or set(headers[1:]) - allowed:
+                raise ValueError("invalid Security Group Direction rule table columns; omit the basic property table")
+            if not rules:
+                raise ValueError("omit empty Security Group rule table")
         properties = [prop for header in headers[1:] for prop in (("FromPort", "ToPort") if header == "Port" else (header,))]
         if any(line.startswith("|") for line in block[cursor:]):
             raise ValueError("Security Group requires one Direction rule table and no basic property table")
