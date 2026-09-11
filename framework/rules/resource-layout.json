@@ -56,8 +56,20 @@
   "EC2.Route": "independent",
   "EC2.RouteTable": "independent",
   "EC2.SecurityGroup": "independent",
-  "EC2.SecurityGroupEgress": "independent",
-  "EC2.SecurityGroupIngress": "independent",
+  "EC2.SecurityGroupEgress": {
+    "parent": "EC2.SecurityGroup",
+    "parentProperty": "GroupId",
+    "maxCount": null,
+    "identityProperty": "Id",
+    "display": "rule-table"
+  },
+  "EC2.SecurityGroupIngress": {
+    "parent": "EC2.SecurityGroup",
+    "parentProperty": "GroupId",
+    "maxCount": null,
+    "identityProperty": "Id",
+    "display": "rule-table"
+  },
   "EC2.Subnet": "independent",
   "EC2.SubnetRouteTableAssociation": "independent",
   "EC2.TransitGateway": "independent",

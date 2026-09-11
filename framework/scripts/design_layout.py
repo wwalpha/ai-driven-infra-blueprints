@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from design_catalog import design_material_files
+from security_group_tables import security_group_table_lines
 
 
 LAYOUT_PATH = Path(__file__).resolve().parents[1] / "rules" / "resource-layout.json"
@@ -52,9 +53,16 @@ def layout_errors(root: Path) -> list[str]:
     for name, rule in layouts.items():
         if rule == "independent":
             continue
-        if not isinstance(rule, dict) or set(rule) != {"parent", "parentProperty", "maxCount", "identityProperty"}:
+        required = {"parent", "parentProperty", "maxCount", "identityProperty"}
+        if not isinstance(rule, dict) or set(rule) not in (required, required | {"display"}):
             errors.append(f"invalid resource layout decision: {name}")
             continue
+        if "display" in rule and (
+            rule["display"] != "rule-table"
+            or name not in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
+            or rule != {"parent": "EC2.SecurityGroup", "parentProperty": "GroupId", "maxCount": None, "identityProperty": "Id", "display": "rule-table"}
+        ):
+            errors.append(f"invalid Security Group rule table layout: {name}")
         parent = rule["parent"]
         if not isinstance(parent, str) or parent not in catalog or layouts.get(parent) != "independent":
             errors.append(f"grouped parent must be an independent catalog resource: {name}: {parent}")
@@ -68,12 +76,14 @@ def layout_errors(root: Path) -> list[str]:
     return errors
 
 
-def expanded_design(lines: list[str]) -> tuple[list[str], dict[str, dict]]:
+def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
     Child anchors and logical IDs live in the first row's comment. Visible tables
     stay grouped; this in-memory expansion never rewrites the source Markdown.
     """
+    if not normalized:
+        lines = security_group_table_lines(lines)
     result: list[str] = []
     children: dict[str, dict] = {}
     parent_type = parent_id = parent_anchor = pending_anchor = service_id = ""
@@ -143,9 +153,11 @@ def expanded_design(lines: list[str]) -> tuple[list[str], dict[str, dict]]:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)
                         name = cells[2].strip("`")
-                        if (resource_type, name) in child_names:
+                        pending_rule = rule.get("display") == "rule-table" and name == "PENDING_DEPLOY"
+                        if not pending_rule and (resource_type, name) in child_names:
                             raise ValueError(f"duplicate grouped identity value: {resource_type}: {name}")
-                        child_names.add((resource_type, name))
+                        if not pending_rule:
+                            child_names.add((resource_type, name))
                         active_child = {
                             "resourceType": resource_type, "logicalId": logical_id, "anchor": anchor,
                             "parentLogicalId": parent_id, "parentAnchor": parent_anchor,

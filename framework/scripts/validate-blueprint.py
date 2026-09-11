@@ -33,6 +33,7 @@ from design_layout import (
     expanded_design,
     layout_errors,
 )
+from security_group_tables import security_group_table_lines
 
 
 REQUIRED_RULES = {
@@ -984,7 +985,8 @@ class Validator:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             try:
-                _, children = expanded_design(lines)
+                lines = security_group_table_lines(lines)
+                _, children = expanded_design(lines, normalized=True)
             except ValueError as error:
                 self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
                 children = {}
@@ -1119,6 +1121,11 @@ class Validator:
                             self.check(
                                 RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
                                 f"S3 KMSMasterKeyID must link to a KMS.Alias: {self.relative(path)}: {current_logical_id}",
+                            )
+                        if cells[1] == "EC2.SecurityGroup.VpcId":
+                            self.check(
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                f"Security Group VpcId must link to its VPC: {self.relative(path)}: {current_logical_id}",
                             )
                         if is_json_link:
                             artifact = (path.parent / artifact_link).resolve()
@@ -1495,7 +1502,12 @@ class Validator:
                 self.check(target.is_file(), f"broken design link: {self.relative(source)}: {raw}")
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
-            for line in source.read_text(encoding="utf-8").splitlines():
+            source_lines = source.read_text(encoding="utf-8").splitlines()
+            try:
+                source_lines = security_group_table_lines(source_lines)
+            except ValueError as error:
+                self.check(False, f"invalid Security Group tables: {self.relative(source)}: {error}")
+            for line in source_lines:
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
                 if not link:
@@ -1503,6 +1515,11 @@ class Validator:
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
                 resource = resources.get((target, fragment))
+                if cells[1] == "EC2.SecurityGroup.VpcId":
+                    self.check(
+                        bool(resource and resource[0] == "EC2.VPC" and target.parent == source.parent.resolve()),
+                        f"Security Group VpcId must link to a VPC in the same target: {self.relative(source)}: {label}",
+                    )
                 if cells[1] == S3_KMS_MASTER_KEY_ID:
                     alias_name = (
                         resource[1].get("KMS.Alias.AliasName") if resource else None

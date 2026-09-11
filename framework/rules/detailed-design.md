@@ -61,7 +61,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Markdown structure
 
-保存対象Markdownは、原則としてH1 title、service metadata、`## リソース一覧`、`## リソース詳細`、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。policy JSONを持つresourceは後述のJSONから生成するStatement表または設定表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+保存対象Markdownは、原則としてH1 title、service metadata、`## リソース一覧`、`## リソース詳細`、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。Security Groupは後述の属性を集約した一覧と、Direction付きの横書きrules表を使う。policy JSONを持つresourceは後述のJSONから生成するStatement表または設定表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
@@ -82,7 +82,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
 - IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
-- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。
+- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。ただしSecurity Group一覧は後述のとおりSG属性の正本とし、基本設定の詳細tableを作らない。
 
 `EC2.SubnetRouteTableAssociation.SubnetId`が同じfileの`EC2.Subnet`詳細へlinkしている場合、そのAssociationは該当Subnetの一覧rowへ統合する。
 
@@ -106,7 +106,7 @@ S3の例:
 
 ## Resource-detail table
 
-すべての resource-detail table は次の header と alignment row を正確に使う。
+resource-detail tableは、後述のSecurity Group rules表を除き、次のheaderとalignment rowを正確に使う。
 
 ```md
 | No. | Property | Value | Source / Comment |
@@ -155,12 +155,12 @@ S3の例:
 
 `framework/rules/resource-layout.json`は全catalog resourceの詳細blockについて、`independent`または親へ統合する関係を明示する。独立した詳細blockを持つresourceでも、Resource overviewで定める条件に従って一覧rowへまとめられる。表示上のまとまりとAWS/IaC resourceの識別・lifecycleを分離する。
 
-- 統合定義の`parent`は包含するresource type、`parentProperty`は子から親への正式property、`maxCount`は親あたりの子の最大数（`null`は複数可）、`identityProperty`は子を識別する先頭propertyとする。
-- 親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。子の独立heading・table・一覧は作らない。子のresource typeも`Owned catalog resource types`へ含める。
+- 統合定義の`parent`は包含するresource type、`parentProperty`は子から親への正式property、`maxCount`は親あたりの子の最大数（`null`は複数可）、`identityProperty`は子を識別する先頭propertyとする。`display: rule-table`はSecurity GroupのDirection付き横書き表を指定する。
+- 通常の統合では親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。`display: rule-table`では後述の単一rule tableへ1 ruleを1 rowで置く。どちらも子ごとの独立heading・table・一覧は作らない。独立resourceとして設計する子のresource typeも`Owned catalog resource types`へ含める。
 - `parentProperty`のrowは省略し、包含する親へのlogical referenceとして解決する。外部の既存親を参照する子だけの設計はこの形式では表現せず、対応する親の設計または別の表示contractが必要であることを報告する。
 - `identityProperty`がない単一の子は親のmodelへrowを保持する。既存のS3 BucketPolicyはこの形式を維持する。
-- `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
-- 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。
+- `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。`display: rule-table`では同じmarkerとcurrent IDの非表示markerを各rule rowの`Direction` cellへ置く。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
+- 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。ただし未作成のSecurity Group ruleのIdは複数rowで`PENDING_DEPLOY`となるため、確定済みlogical IDとanchorで区別する。
 - 外部からの参照は子のanchorへ維持する。親へのlinkに置換したり、先頭の子を代表として選んだりしない。
 - 各子のpropertyはその子自身のprovider schemaで検証する。所属親が異なる型、独立heading、欠落した識別情報、子の個数超過、重複、参照切れをlocal loopで拒否する。
 
@@ -180,11 +180,27 @@ KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alia
 
 S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#kms-s3filetransferkeyalias01)`とし、AliasNameを表示する。
 
-新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。現時点でS3とKMS以外の詳細blockは独立表示を維持し、方針変更は明示scopeのframework taskで行う。
+新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。S3 BucketPolicy、KMS Alias、Security Group rule以外の詳細blockは独立表示を維持し、方針変更は明示scopeのframework taskで行う。
+
+## Security Group rules tables
+
+Security Groupは、リソース一覧の`### EC2.SecurityGroup`にSGの属性を集約する。`## リソース詳細`にはSGごとのanchorと`### EC2.SecurityGroup: <logical-id>`を置き、その直下にInbound／Outboundをまとめた一つの横書きrule tableだけを記載する。SGの基本設定表、方向別の分割表、Ingress/Egressの全体一覧、ruleごとの縦書き4列表は作らない。SG headingはruleの所属先と一覧linkを維持するために残す。
+
+- SG一覧のcolumnは`SecurityGroup | GroupName | Id | VpcId | Description`の5列とし、タグが選択済みの場合だけ末尾へ`Tags`を追加する。最初のcellは確定済みlogical IDを表示するSGのrule blockへのsame-file linkとする。SGごとに一覧rowとrule blockを一つずつ対応させる。
+- `Id`はSGのcurrent IDまたは`PENDING_DEPLOY`、`VpcId`は所属VPCのidentifier参照、`Description`は正式property `EC2.SecurityGroup.GroupDescription`の値とし、いずれも省略しない。`VpcId`のlinkは同じtargetのVPC設計を指し、表示textにVPCのcurrent IDまたは`PENDING_DEPLOY`を使う。所属VPCが未確定なら確認し、default VPCを推測しない。未選択の`GroupName`だけは`—`とする。
+- `Tags`は選択済みの`[{"Key":"...","Value":"..."}]`形式のJSON arrayをinline codeで記載し、未選択のSGは`—`とする。各要素は文字列の`Key`と`Value`を持ち、catalogの`Tags[].Key`／`Tags[].Value`へ配列順を保って展開する。これは一覧でSG属性を一度だけ保持するための表示形式であり、新しいAWS propertyやタグ値を補完しない。
+- rule tableは1 ruleを1 rowとし、先頭columnを`Direction`とする。表示値は頭文字を大文字にした`Inbound`または`Outbound`だけを使用し、正式resource typeのIngress／Egressへ対応させる。`SecurityGroupRuleId`や`Id`のcolumnは作らない。
+- 続くcolumnは`IpProtocol`と`Port`を必須とし、`CidrIp`、`CidrIpv6`、`Description`、`SourcePrefixListId`、`SourceSecurityGroupId`、`SourceSecurityGroupOwnerId`、`DestinationPrefixListId`、`DestinationSecurityGroupId`から選択済みのpropertyを載せる。Inbound rowのDestination系、Outbound rowのSource系cellは`—`とする。`GroupId`や未登録columnは追加せず、一覧の6列上限をrule tableへ適用しない。
+- port表示は`Port`の1列にまとめ、`FromPort`／`ToPort`のcolumnを作らない。単一portは`443`、範囲は`1000-2000`の形式にし、正式propertyのFromPort／ToPortへ同値／開始・終了値として展開する。ICMP／ICMPv6（protocol番号1／58を含む）は同じPort cellに`Type=8, Code=0`の形式でtype/codeを保持し、port範囲として解釈しない。TCP／UDPは0〜65535の範囲、ICMP type/codeは-1〜255とし、type=-1ではcodeも-1とする。FromPort／ToPortの両方を未選択なら`—`とし、値を補完しない。`All`や複数の離れたportを一つの範囲へ読み替えない。Portは表示上のcolumn名であり、catalog propertyを追加しない。
+- 一覧とrule tableのalignmentは全columnを`---`とする。未選択のoptional propertyは表示だけの`—`とし、modelへsentinelを生成しない。片方向だけでも同じtableを使い、両方向のルールが未設計ならheaderとalignmentだけの空tableとする。未設計をdeny設定やAWSのdefault ruleと読み替えず、ruleを自動補完しない。
+- 各ruleはIPv4 CIDR、IPv6 CIDR、Prefix List、Security Groupのいずれか一つを送信元／宛先に持つ。`SourceSecurityGroupOwnerId`は`SourceSecurityGroupId`に付随させる。値、参照先、`-1`、Port内の範囲・ICMP type/codeを保持し、`All`や推測したservice名へ書き換えない。RegionやHTTP/HTTPSなどのTypeを表示目的で追加しない。
+- 独立した`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`のDirection cellは`Inbound <a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> --><!-- rule-id: <IdのValue> -->`とし、Egressでは先頭を`Outbound`とする。表にはDirectionだけを表示し、logical ID・anchor・取得済みcurrent IDまたは`PENDING_DEPLOY`を非表示の構造情報として保持する。Idを画面上のcolumnや説明文へ重複表示せず、modelの正式property `Id`は維持する。`GroupId`は包含するSGから解決し、他SGへの所属を出現順やphysical IDで推測しない。外部SGだけを参照して包含するSGの設計がない場合は停止する。
+- SG自身の`SecurityGroupIngress[]`／`SecurityGroupEgress[]`として設計したinline ruleは、Direction cellを`Inbound`または`Outbound`だけとし、identityやrule-idのmarkerを付けない。catalogに存在しないinline rule IDを作らず、独立ruleへの変換もしない。inlineと独立ruleは同じtable内でも区別を保持する。
+- SG一覧とrule tableのcolumnとValueを設計の正本とする。共通parserは検証・model生成時だけ正式catalog propertyへ展開し、SG属性・inline rule・独立ruleを保持する。元Markdownを書き換えたり、基本設定や縦書き詳細表を重複保存したりしない。
 
 ## JSON design artifacts
 
-選択済みpropertyをJSON documentとして表現する必要がある場合、JSONをMarkdown tableへ埋め込まず、次の独立artifactとして保存する。
+上記Security Group一覧のTagsを除き、選択済みpropertyをJSON documentとして表現する必要がある場合、JSONをMarkdown tableへ埋め込まず、次の独立artifactとして保存する。
 
 ```text
 docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json
