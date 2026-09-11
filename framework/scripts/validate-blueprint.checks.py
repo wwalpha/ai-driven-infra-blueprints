@@ -645,6 +645,106 @@ def check_design_handoff_prompt() -> None:
     assert "Management owner" not in prompt
 
 
+def check_subnet_association_overview() -> None:
+    spec = importlib.util.spec_from_file_location("sync_model", SCRIPT.with_name("sync-model.py"))
+    model = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(model)
+    association_type = "EC2.SubnetRouteTableAssociation"
+    metadata = (
+        "# VPC 詳細設計\n\n- Design service ID: `vpc`\n"
+        f"- Owned catalog resource types: `EC2.Subnet`, `EC2.RouteTable`, `{association_type}`\n\n"
+    )
+    subnet_header = "| Name | SubnetId | AvailabilityZone | CidrBlock | RouteTableId | AssociationId |"
+    subnet_rows = [
+        f"| [subnet-{number}](#vpc-subnet-{number}) | `subnet-{number:08d}` | `ap-northeast-1a` | `10.0.{number}.0/24` | "
+        + (f"[rtb-00000001](#vpc-route) | [rtbassoc-{number:08d}](#vpc-assoc-{number}) |" if number < 3 else "— | — |")
+        for number in range(1, 4)
+    ]
+    overview = "\n".join([
+        "## リソース一覧", "", "### EC2.Subnet", "", subnet_header,
+        "| --- | --- | --- | --- | --- | --- |", *subnet_rows, "",
+        "### EC2.RouteTable", "", "| Name | RouteTableId |", "| --- | --- |",
+        "| [route](#vpc-route) | `rtb-00000001` |", "", "",
+    ])
+    details = ""
+    for number in range(1, 4):
+        details += (
+            f'<a id="vpc-subnet-{number}"></a>\n\n## EC2.Subnet: subnet-{number}\n\n'
+            f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
+            f"| 1 | EC2.Subnet.SubnetId | `subnet-{number:08d}` | Subnetを識別するID |\n"
+            f"| 2 | EC2.Subnet.Name | `subnet-{number}` | SubnetのNameタグ |\n\n"
+        )
+    details += (
+        '<a id="vpc-route"></a>\n\n## EC2.RouteTable: route\n\n'
+        f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
+        "| 1 | EC2.RouteTable.RouteTableId | `rtb-00000001` | Route Tableを識別するID |\n\n"
+    )
+    for number in range(1, 3):
+        details += (
+            f'<a id="vpc-assoc-{number}"></a>\n\n## {association_type}: Assoc{number}\n\n'
+            f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
+            f"| 1 | {association_type}.Id | `rtbassoc-{number:08d}` | 関連付けを識別するID |\n"
+            f"| 2 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
+            f"| 3 | {association_type}.SubnetId | [subnet-{number:08d}](#vpc-subnet-{number}) | 関連付けるSubnet |\n\n"
+        )
+    independent = "\n".join([
+        f"### {association_type}", "", "| Association | Id |", "| --- | --- |",
+        "| [Assoc1](#vpc-assoc-1) | `rtbassoc-00000001` |",
+        "| [Assoc2](#vpc-assoc-2) | `rtbassoc-00000002` |", "", "",
+    ])
+    valid = metadata + overview + details
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs/designs/dev/123456789012/vpc.md"
+        design.parent.mkdir(parents=True)
+
+        def errors(markdown):
+            design.write_text(markdown, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_design_overviews()
+            return validator.errors
+
+        assert not errors(valid), errors(valid)
+        merged_model = model.model_for(design, SCRIPT.parents[2])
+        # An overview edit must not change resources, references, or observed IDs.
+        design.write_text(metadata + overview + independent + details, encoding="utf-8")
+        assert model.model_for(design, SCRIPT.parents[2]) == merged_model
+        assert "desired.resource.005.resourceType=EC2.SubnetRouteTableAssociation" in merged_model
+        assert "observed.row.005-001.value=`rtbassoc-00000001`" in merged_model
+        assert "desired.row.006-003.value=[subnet-2](#vpc-subnet-2)" in merged_model
+
+        pending = valid
+        for identifier in ("rtb-00000001", "rtbassoc-00000001", "rtbassoc-00000002", *(f"subnet-{number:08d}" for number in range(1, 4))):
+            pending = pending.replace(identifier, "PENDING_DEPLOY")
+        assert not errors(pending), errors(pending)
+        assert not errors(valid.replace(
+            f"{association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1)",
+            f"{association_type}.SubnetId | [subnet-00000001](vpc.md#vpc-subnet-1)",
+        ))
+
+        bad_designs = [
+            (metadata + overview + independent + details, "types must match"),
+            (valid.replace(" | AssociationId |", " | Association |", 1), "requires RouteTableId and AssociationId"),
+            (valid.replace("[rtbassoc-00000001](#vpc-assoc-1)", "[rtbassoc-00000001](#vpc-assoc-2)", 1), "must match its detail values and anchor"),
+            (valid.replace("[rtbassoc-00000001]", "[rtbassoc-99999999]", 1), "must match its detail values and anchor"),
+            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-other](#vpc-route)", 1), "must match its detail values and anchor"),
+            (valid.replace(" | — | — |", " | `rtb-main` | — |", 1), "must match its detail values and anchor"),
+            (valid.replace("[subnet-00000002](#vpc-subnet-2)", "[subnet-00000001](#vpc-subnet-1)"), "at most one"),
+            (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
+        ]
+        for markdown, message in bad_designs:
+            failures = errors(markdown)
+            assert any(message in failure for failure in failures), (message, failures)
+
+        # Associations to subnets outside this file keep their own overview.
+        external = metadata + overview + independent + details
+        for number in range(1, 3):
+            external = external.replace(
+                f"[rtb-00000001](#vpc-route) | [rtbassoc-{number:08d}](#vpc-assoc-{number})", "— | —"
+            ).replace(f"[subnet-{number:08d}](#vpc-subnet-{number})", f"[subnet-{number:08d}](network.md#vpc-subnet-{number})")
+        assert not errors(external), errors(external)
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -668,8 +768,9 @@ def main() -> None:
     check_name_tag_and_identifier_order_contract()
     check_s3_bucket_policy_grouping()
     check_resource_overview()
+    check_subnet_association_overview()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (44 focused checks)")
+    print("validate-blueprint: PASS (45 focused checks)")
 
 
 if __name__ == "__main__":

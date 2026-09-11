@@ -76,12 +76,20 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 各詳細設計fileはservice metadataの直後、最初のresource anchorより前に`## リソース一覧`を正確に1件置く。
 
-- 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
-- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
+- 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeと下記のSubnet一覧に統合するAssociationは独立一覧を作らない。
+- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。Subnet一覧内のAssociationId linkを含め、全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
 - IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
 - 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。
+
+`EC2.SubnetRouteTableAssociation.SubnetId`が同じfileの`EC2.Subnet`詳細へlinkしている場合、そのAssociationは該当Subnetの一覧rowへ統合する。
+
+- `EC2.Subnet`一覧に`RouteTableId`と`AssociationId`を含め、合計2〜6列を維持する。`RouteTableId`はAssociation詳細の同名propertyのValueをそのまま表示し、`AssociationId`はAssociation詳細の`Id`を表示textとする同詳細anchorへのsame-file linkにする。
+- 対応は`SubnetId`のlink先anchorで確定し、physical ID、`PENDING_DEPLOY`、出現順で推測しない。同じSubnetへ複数のAssociationを割り当てない。
+- 同じ一覧にAssociation未設計のSubnetがある場合、両columnは表示だけを`—`とする。Main Route Tableなどの値を補完しない。
+- 統合したAssociationの独立一覧rowは作らない。同じfileに参照先Subnetの詳細がないAssociationだけは独立一覧を維持する。
+- Association自身のmetadata、anchor、heading、4列の詳細tableとmodelは維持する。この扱いは一覧だけの統合であり、`resource-layout.json`の詳細表示は変更しない。
 
 S3の例:
 
@@ -109,7 +117,7 @@ S3の例:
 - `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
-- resourceの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。
+- resource-detail tableの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。リソース一覧の表示単位はResource overviewに従う。
 - `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
 - CFn由来の選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
 - 上記4種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
@@ -144,7 +152,7 @@ S3の例:
 
 ## Related resource display
 
-`framework/rules/resource-layout.json`は全catalog resourceについて、`independent`または親へ統合する関係を明示する。表示上のまとまりとAWS/IaC resourceの識別・lifecycleを分離する。
+`framework/rules/resource-layout.json`は全catalog resourceの詳細blockについて、`independent`または親へ統合する関係を明示する。独立した詳細blockを持つresourceでも、Resource overviewで定める条件に従って一覧rowへまとめられる。表示上のまとまりとAWS/IaC resourceの識別・lifecycleを分離する。
 
 - 統合定義の`parent`は包含するresource type、`parentProperty`は子から親への正式property、`maxCount`は親あたりの子の最大数（`null`は複数可）、`identityProperty`は子を識別する先頭propertyとする。
 - 親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。子の独立heading・table・一覧は作らない。子のresource typeも`Owned catalog resource types`へ含める。
@@ -171,7 +179,7 @@ KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alia
 
 S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#kms-s3filetransferkeyalias01)`とし、AliasNameを表示する。
 
-新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。現時点でS3とKMS以外は独立表示を維持し、方針変更は明示scopeのframework taskで行う。
+新規catalog resourceの保守時には、同一service内の所属先、一対多、共有・複数対象、外部参照を確認して表示方針も登録する。schemaの型名や参照propertyだけから親子を自動推測しない。SQS/SNSの複数対象policy、IAM共有policy、associationのような共有・接続resourceを一つの親へ無条件に統合しない。条件付き統合が必要な場合は判定条件と検証を先に実装する。現時点でS3とKMS以外の詳細blockは独立表示を維持し、方針変更は明示scopeのframework taskで行う。
 
 ## JSON design artifacts
 

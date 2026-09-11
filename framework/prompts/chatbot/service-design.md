@@ -62,7 +62,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 7. `framework/rules/aws-resource-naming.md`
 8. `framework/rules/model-information.md`
 9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
-10. `framework/rules/resource-layout.json`（全resourceの独立表示・親への統合関係）
+10. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）
 11. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
@@ -212,10 +212,11 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 
 - stable logical IDとexplicit anchorを使用する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`のlogical IDは`.Name` valueと完全一致させる
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
-- resourceの表示関係は`framework/rules/resource-layout.json`に従う。未登録resourceはframework保守が必要なblockerとして停止する。同一serviceや参照関係だけを理由に統合しない
+- resource-detail tableの表示関係は`framework/rules/resource-layout.json`に従う。未登録resourceはframework保守が必要なblockerとして停止する。同一serviceや参照関係だけを理由に詳細tableを統合しない。リソース一覧は`framework/rules/detailed-design.md`のResource overviewに従う
 - `KMS.Alias`は所属する`KMS.Key`の同じtableのKey設定の後へ置き、独立heading・table・一覧を作らない。AliasName rowの`Source / Comment`先頭へ`<a id="kms-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に属性の意味を日本語で記載する。複数Aliasはそれぞれ確定済みlogical IDとanchorを保持する。未確定のlogical IDは一つ質問し、推測しない
 - `KMS.Alias.TargetKeyId` rowは省略し、包含するKeyを親として解決する。S3からのlinkはAlias行のanchorとAliasNameを維持する。外部親しかなく包含するKeyが設計されていない場合は、必要な親の設計またはframework対応を明示して停止する。詳細は`framework/rules/detailed-design.md`のRelated resource displayに従う
-- 各fileのservice metadata直後に`## リソース一覧`を置き、detail blockを持つresource typeごとに1 resourceを1 rowで一覧表示する。columnは2〜6個の重要parameterへ絞り、`BucketName`、`Region`、`KMSAlias`のような短い名前を使う。最初のcolumnは対応するdetail blockへのsame-file linkとし、一覧値はdetail tableと一致させる
+- 各fileのservice metadata直後に`## リソース一覧`を置く。独立一覧の対象となるresource typeごとに1 resourceを1 rowで表示し、grouped childとSubnet一覧へ統合するAssociationは独立一覧を作らない。columnは2〜6個の重要parameterへ絞り、`BucketName`、`Region`、`KMSAlias`のような短い名前を使う。最初のcolumnは対応するdetail blockへのsame-file linkとし、一覧値はdetail tableと一致させる
+- `EC2.SubnetRouteTableAssociation`はResource overviewの条件に従い、`SubnetId`のlink先Subnetの一覧rowへ`RouteTableId`・`AssociationId`として表示する。Association自身の詳細blockと識別は保持する
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する
 - row番号はtableごとに1から開始する
