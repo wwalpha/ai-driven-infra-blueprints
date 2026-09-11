@@ -9,6 +9,7 @@ import re
 SECURITY_GROUP = "EC2.SecurityGroup"
 DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
 TAGS_PREFIX = "<!-- security-group-tags:"
+SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
 OVERVIEW_COLUMNS = ["SecurityGroup", "GroupName", "Id", "VpcId", "Description"]
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
@@ -61,6 +62,20 @@ def port_properties(value: str, protocol: str) -> dict[str, str]:
     if (not icmp and first > last) or (icmp and first == -1 and last != -1):
         raise ValueError("invalid Port range or ICMP all-types/code pair")
     return {"FromPort": f"`{first}`", "ToPort": f"`{last}`"}
+
+
+def direction_metadata(value: str) -> tuple[str, str | None]:
+    """Separate the rendered Direction from its optional peer SG reference."""
+    if SECURITY_GROUP_ID_PREFIX not in value:
+        return value, None
+    marker = re.fullmatch(r"(.+?) <!-- security-group-id: (.+) -->", value)
+    if (
+        not marker
+        or marker.group(2).strip("`").strip() in {"", "—"}
+        or any(token in marker.group(2) for token in ("<!--", "-->"))
+    ):
+        raise ValueError("invalid Security Group reference metadata")
+    return marker.group(1), marker.group(2)
 
 
 def table_at(lines: list[str], start: int) -> tuple[list[str], list[list[str]], int]:
@@ -117,9 +132,48 @@ def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
     return groups
 
 
+def with_ruleless_headings(
+    lines: list[str], groups: dict[str, tuple[str, list[list[str]]]]
+) -> tuple[list[str], set[str]]:
+    """Add model-only headings where the source intentionally omits an empty title."""
+    lines = list(lines)
+    detailed = lines.index("## リソース詳細")
+    visible = {
+        heading.group(2)
+        for line in lines
+        if (heading := RESOURCE.fullmatch(line)) and heading.group(1) == SECURITY_GROUP
+    }
+    group_anchors = {f'<a id="{anchor}"></a>' for anchor, _ in groups.values()}
+    additions = []
+    for logical_id, (anchor, _) in groups.items():
+        if logical_id in visible:
+            continue
+        anchor_line = f'<a id="{anchor}"></a>'
+        positions = [
+            index for index, line in enumerate(lines) if index > detailed and line == anchor_line
+        ]
+        if len(positions) != 1:
+            continue
+        start = positions[0]
+        end = start + 1
+        while (
+            end < len(lines)
+            and not re.match(r"^#{1,3} ", lines[end])
+            and lines[end] not in group_anchors
+        ):
+            end += 1
+        if any(line.startswith("|") for line in lines[start + 1 : end]):
+            raise ValueError("Security Group rules require a detail heading")
+        additions.append((start + 1, logical_id))
+    for index, logical_id in sorted(additions, reverse=True):
+        lines.insert(index, f"### {SECURITY_GROUP}: {logical_id}")
+    return lines, {logical_id for _, logical_id in additions}
+
+
 def security_group_table_lines(lines: list[str]) -> list[str]:
     """Keep one source for SG attributes and preserve rule identities/ownership."""
     groups = overview_groups(lines)
+    lines, ruleless = with_ruleless_headings(lines, groups) if groups else (lines, set())
     seen = set()
     result: list[str] = []
     index = 0
@@ -171,14 +225,28 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
 
         start = next((position for position, line in enumerate(block) if line.startswith("|")), -1)
         if start == -1:
-            # Insert the model-only property table before the next resource anchor.
+            if logical_id not in ruleless:
+                raise ValueError("omit Security Group detail heading when it has no rules")
+            # Insert the model-only property table below the source's hidden anchor.
             start = cursor = 1
             headers, rules = [], []
         else:
             headers, rules, cursor = table_at(block, start)
-            allowed = (COMMENTS.keys() - {"Id", "FromPort", "ToPort"}) | {"Port"}
+            allowed = (
+                COMMENTS.keys()
+                - {
+                    "Id",
+                    "FromPort",
+                    "ToPort",
+                    "SourceSecurityGroupId",
+                    "DestinationSecurityGroupId",
+                }
+            ) | {"Port"}
             if headers[:1] != ["Direction"] or not {"IpProtocol", "Port"} <= set(headers) or set(headers[1:]) - allowed:
-                raise ValueError("invalid Security Group Direction rule table columns; omit the basic property table")
+                raise ValueError(
+                    "invalid Security Group Direction rule table columns; omit SourceSecurityGroupId, "
+                    "DestinationSecurityGroupId and the basic property table"
+                )
             if not rules:
                 raise ValueError("omit empty Security Group rule table")
         properties = [prop for header in headers[1:] for prop in (("FromPort", "ToPort") if header == "Port" else (header,))]
@@ -189,10 +257,11 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         for row in rules:
             if any("<!--" in value or '<a id=' in value for value in row[1:]):
                 raise ValueError("Security Group rule identity must be in Direction")
-            marker = IDENTITY.fullmatch(row[0])
-            if not marker and ("<!--" in row[0] or '<a id=' in row[0]):
+            direction_cell, security_group_id = direction_metadata(row[0])
+            marker = IDENTITY.fullmatch(direction_cell)
+            if not marker and ("<!--" in direction_cell or '<a id=' in direction_cell):
                 raise ValueError("Direction requires complete anchor/logical-id/rule-id markers")
-            direction_label = marker.group(1) if marker else row[0]
+            direction_label = marker.group(1) if marker else direction_cell
             if direction_label not in DIRECTIONS:
                 raise ValueError("Security Group Direction must be Inbound or Outbound")
             direction = DIRECTIONS[direction_label]
@@ -201,10 +270,13 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
             if "IpProtocol" not in values:
                 raise ValueError("Security Group rule requires IpProtocol")
             values.update(port_properties(values.pop("Port", "—"), values["IpProtocol"]))
+            peer = "Source" if direction == "Ingress" else "Destination"
+            peer_property = f"{peer}SecurityGroupId"
+            if security_group_id is not None:
+                values[peer_property] = security_group_id
             opposite = "Destination" if direction == "Ingress" else "Source"
             if any(prop.startswith(opposite) for prop in values):
                 raise ValueError("Security Group rule properties do not match Direction")
-            peer = "Source" if direction == "Ingress" else "Destination"
             targets = {"CidrIp", "CidrIpv6", f"{peer}PrefixListId", f"{peer}SecurityGroupId"}
             if len(targets & values.keys()) != 1:
                 raise ValueError("Security Group rule requires exactly one address, prefix list, or security group")
@@ -218,7 +290,18 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
                     raise ValueError("standalone Security Group rule requires an Id")
                 target_rows.append([f"{prefix}.Id", identifier, f'<a id="{rule_anchor}"></a><!-- logical-id: {rule_id} --> {COMMENTS["Id"]}'])
             # IpProtocol starts each inline array element, regardless of optional fields.
-            for prop in ["IpProtocol", *(prop for prop in properties if prop != "IpProtocol")]:
+            row_properties = list(properties)
+            if security_group_id is not None:
+                position = next(
+                    (
+                        row_properties.index(prop)
+                        for prop in ("SourceSecurityGroupOwnerId", "Description")
+                        if prop in row_properties
+                    ),
+                    len(row_properties),
+                )
+                row_properties.insert(position, peer_property)
+            for prop in ["IpProtocol", *(prop for prop in row_properties if prop != "IpProtocol")]:
                 if prop in values:
                     target_rows.append([f"{prefix}.{prop}", values[prop], COMMENTS[prop]])
         result.extend([*block[:start], HEADER, ALIGNMENT])

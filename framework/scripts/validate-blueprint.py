@@ -1274,6 +1274,10 @@ class Validator:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
             try:
+                lines = security_group_table_lines(lines)
+            except ValueError:
+                pass
+            try:
                 iam_names = {
                     role.anchor: role.name
                     for role in policy_resources_in(without_policy_tables(lines))
