@@ -10,6 +10,7 @@
 - infrastructure taskは成功したAWS mutation後にMarkdownのgenerated identifier rowを更新し、同じmodelを再生成する。
 - infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
+- `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、modelへ保存しない。詳細section配下のH3 resource headingから従来どおりresourceを識別し、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
 ## Policy derived views
 

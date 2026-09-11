@@ -292,8 +292,10 @@ def check_schema_backed_design_rows() -> None:
 - Design service ID: `logs`
 - Owned catalog resource types: `Logs.LogGroup`
 
+## リソース詳細
+
 <a id="logs-vpcflowloggroup01"></a>
-## Logs.LogGroup: VPCFLOWLOGGROUP01
+### Logs.LogGroup: VPCFLOWLOGGROUP01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -341,9 +343,11 @@ def check_identifier_propagation() -> None:
 - Design service ID: `vpc`
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
 
+## リソース詳細
+
 <a id="vpc-vpc-app-dev"></a>
 
-## EC2.VPC: vpc-app-dev
+### EC2.VPC: vpc-app-dev
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -352,7 +356,7 @@ def check_identifier_propagation() -> None:
 
 <a id="vpc-sbnt-app-dev-private-01"></a>
 
-## EC2.Subnet: sbnt-app-dev-private-01
+### EC2.Subnet: sbnt-app-dev-private-01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -507,9 +511,11 @@ def check_s3_bucket_policy_grouping() -> None:
 - Design service ID: `kms`
 - Owned catalog resource types: `KMS.Key`, `KMS.Alias`
 
+## リソース詳細
+
 <a id="kms-appdatakey"></a>
 
-## KMS.Key: AppDataKey
+### KMS.Key: AppDataKey
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -523,9 +529,11 @@ def check_s3_bucket_policy_grouping() -> None:
 - Design service ID: `s3`
 - Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
 
+## リソース詳細
+
 <a id="s3-app-dev-data-123456789012"></a>
 
-## S3.Bucket: app-dev-data-123456789012
+### S3.Bucket: app-dev-data-123456789012
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -569,8 +577,8 @@ def check_s3_bucket_policy_grouping() -> None:
         wrong_alias = valid.replace("[alias/app-data]", "[alias/other]")
         assert any("must display the referenced KMS alias" in error for error in errors(wrong_alias))
         wrong_heading = valid.replace(
-            "## S3.Bucket: app-dev-data-123456789012",
-            "## S3.Bucket: AppDataBucket",
+            "### S3.Bucket: app-dev-data-123456789012",
+            "### S3.Bucket: AppDataBucket",
         )
         assert any("heading identifier must match BucketName" in error for error in errors(wrong_heading))
         explicit_bucket = valid.replace(
@@ -582,7 +590,7 @@ def check_s3_bucket_policy_grouping() -> None:
         separate_heading = valid.replace(
             "| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
             "\n<a id=\"s3-appdatabucketpolicy\"></a>\n\n"
-            "## S3.BucketPolicy: AppDataBucketPolicy\n\n"
+            "### S3.BucketPolicy: AppDataBucketPolicy\n\n"
             "| No. | Property | Value | Source / Comment |\n"
             "| ---: | --- | --- | --- |\n"
             "| 1 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
@@ -608,9 +616,11 @@ def check_resource_overview() -> None:
 | --- | --- | --- | --- |
 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |
 
+## リソース詳細
+
 <a id="s3-app-dev-data-123456789012"></a>
 
-## S3.Bucket: app-dev-data-123456789012
+### S3.Bucket: app-dev-data-123456789012
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -624,6 +634,20 @@ def check_resource_overview() -> None:
             return validator.errors
 
         assert not errors(valid)
+        details_heading = "## リソース詳細\n\n"
+        invalid_sections = [
+            (valid.replace(details_heading, "", 1), "details heading must appear exactly once"),
+            (valid.replace(details_heading, details_heading * 2, 1), "details heading must appear exactly once"),
+            (valid.replace(details_heading, "", 1).replace("## リソース一覧", details_heading + "## リソース一覧", 1), "details must follow the overview"),
+            (valid.replace(details_heading, "", 1) + "\n" + details_heading, "details must follow the overview"),
+            (valid.replace("### S3.Bucket:", "## S3.Bucket:", 1), "detail heading must use H3"),
+            (valid.replace("### S3.Bucket:", "#### S3.Bucket:", 1), "detail heading must use H3"),
+            (valid.replace(details_heading, "", 1).replace("### S3.Bucket:", details_heading + "### S3.Bucket:", 1), "anchors must be inside resource details"),
+            (valid + "\n### 実装注記\n", "details must follow the overview"),
+        ]
+        for markdown, message in invalid_sections:
+            failures = errors(markdown)
+            assert any(message in failure for failure in failures), (message, failures)
         long_header = valid.replace("| BucketName | Region |", "| S3.Bucket.BucketName | Region |")
         assert any("column names must be short and unique" in error for error in errors(long_header))
         missing_row = valid.replace(
@@ -666,22 +690,22 @@ def check_subnet_association_overview() -> None:
         "### EC2.RouteTable", "", "| Name | RouteTableId |", "| --- | --- |",
         "| [route](#vpc-route) | `rtb-00000001` |", "", "",
     ])
-    details = ""
+    details = "## リソース詳細\n\n"
     for number in range(1, 4):
         details += (
-            f'<a id="vpc-subnet-{number}"></a>\n\n## EC2.Subnet: subnet-{number}\n\n'
+            f'<a id="vpc-subnet-{number}"></a>\n\n### EC2.Subnet: subnet-{number}\n\n'
             f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
             f"| 1 | EC2.Subnet.SubnetId | `subnet-{number:08d}` | Subnetを識別するID |\n"
             f"| 2 | EC2.Subnet.Name | `subnet-{number}` | SubnetのNameタグ |\n\n"
         )
     details += (
-        '<a id="vpc-route"></a>\n\n## EC2.RouteTable: route\n\n'
+        '<a id="vpc-route"></a>\n\n### EC2.RouteTable: route\n\n'
         f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
         "| 1 | EC2.RouteTable.RouteTableId | `rtb-00000001` | Route Tableを識別するID |\n\n"
     )
     for number in range(1, 3):
         details += (
-            f'<a id="vpc-assoc-{number}"></a>\n\n## {association_type}: Assoc{number}\n\n'
+            f'<a id="vpc-assoc-{number}"></a>\n\n### {association_type}: Assoc{number}\n\n'
             f"{MODULE.TABLE_HEADER}\n{MODULE.TABLE_ALIGNMENT}\n"
             f"| 1 | {association_type}.Id | `rtbassoc-{number:08d}` | 関連付けを識別するID |\n"
             f"| 2 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"

@@ -19,7 +19,8 @@ GROUPED_RESOURCE_TYPES = {
 IMPLICIT_GROUPED_PROPERTIES = {
     name: {rule["parentProperty"]} for name, rule in GROUPED.items()
 }
-RESOURCE = re.compile(r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
+DETAILS_HEADING = "## リソース詳細"
+RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 CHILD = re.compile(
     r'^<a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
@@ -182,7 +183,7 @@ def expanded_design(lines: list[str]) -> tuple[list[str], dict[str, dict]]:
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
             result.extend(("", f'<a id="{child["anchor"]}"></a>',
-                           f'## {child["resourceType"]}: {child["logicalId"]}', "", HEADER, ALIGNMENT))
+                           f'### {child["resourceType"]}: {child["logicalId"]}', "", HEADER, ALIGNMENT))
             for number, cells in enumerate(child["rows"], 1):
                 result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
     return result, children

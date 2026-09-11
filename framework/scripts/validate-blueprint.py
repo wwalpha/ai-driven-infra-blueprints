@@ -25,9 +25,11 @@ from policy_tables import (
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
 from design_layout import (
+    DETAILS_HEADING,
     GROUPED,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
+    RESOURCE as RESOURCE_HEADING_PATTERN,
     expanded_design,
     layout_errors,
 )
@@ -64,9 +66,6 @@ MARKDOWN_OWNED_TYPES_PATTERN = re.compile(
 MODEL_SERVICE_ID_PATTERN = re.compile(r"^desired\.service\.(.+)\.serviceId=(.*)$")
 MODEL_OWNED_TYPES_PATTERN = re.compile(
     r"^desired\.service\.(.+)\.ownedCatalogResourceTypes=(.*)$"
-)
-RESOURCE_HEADING_PATTERN = re.compile(
-    r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$"
 )
 OVERVIEW_HEADING = "## リソース一覧"
 OVERVIEW_TYPE_HEADING_PATTERN = re.compile(
@@ -1283,11 +1282,21 @@ class Validator:
                 len(overview_indices) == 1,
                 f"resource overview must appear exactly once: {self.relative(path)}",
             )
+            details_indices = [index for index, line in enumerate(lines) if line == DETAILS_HEADING]
+            self.check(
+                len(details_indices) == 1,
+                f"resource details heading must appear exactly once: {self.relative(path)}",
+            )
             resources: dict[str, tuple[str, str]] = {}
             properties: dict[str, dict[str, str]] = {}
             resource_indices: list[int] = []
             previous = current_anchor = ""
             for index, line in enumerate(lines):
+                if re.match(r"^#{1,6} [A-Za-z0-9]+\.[A-Za-z0-9]+: ", line):
+                    self.check(
+                        RESOURCE_HEADING_PATTERN.fullmatch(line) is not None,
+                        f"resource detail heading must use H3: {self.relative(path)}: {line}",
+                    )
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     anchor = ANCHOR_PATTERN.fullmatch(previous)
                     current_anchor = anchor.group(1) if anchor else ""
@@ -1303,17 +1312,26 @@ class Validator:
                         properties[current_anchor][cells[1]] = cells[2]
                 if line.strip():
                     previous = line.strip()
-            if len(overview_indices) != 1 or not resource_indices:
+            if len(overview_indices) != 1 or len(details_indices) != 1 or not resource_indices:
                 continue
 
             overview_index = overview_indices[0]
+            details_index = details_indices[0]
             first_resource_index = min(resource_indices)
             self.check(
-                overview_index < first_resource_index,
-                f"resource overview must precede resource details: {self.relative(path)}",
+                overview_index < details_index < first_resource_index
+                and all(
+                    not line.startswith(("## ", "### ")) or RESOURCE_HEADING_PATTERN.fullmatch(line)
+                    for line in lines[details_index + 1:]
+                ),
+                f"resource details must follow the overview and contain every resource: {self.relative(path)}",
             )
-            if overview_index >= first_resource_index:
+            if not overview_index < details_index < first_resource_index:
                 continue
+            self.check(
+                not any(ANCHOR_PATTERN.fullmatch(line) for line in lines[overview_index:details_index]),
+                f"resource anchors must be inside resource details: {self.relative(path)}",
+            )
 
             association_type = "EC2.SubnetRouteTableAssociation"
             subnet_associations: dict[str, list[str]] = {}
@@ -1337,7 +1355,7 @@ class Validator:
             overview_types: list[str] = []
             current_type = ""
             index = overview_index + 1
-            while index < first_resource_index:
+            while index < details_index:
                 line = lines[index]
                 if heading := OVERVIEW_TYPE_HEADING_PATTERN.fullmatch(line):
                     current_type = heading.group(1)
@@ -1348,7 +1366,7 @@ class Validator:
                     index += 1
                     continue
                 table: list[str] = []
-                while index < first_resource_index and lines[index].startswith("|"):
+                while index < details_index and lines[index].startswith("|"):
                     table.append(lines[index])
                     index += 1
                 self.check(bool(current_type), f"resource overview table lacks a resource type heading: {self.relative(path)}")

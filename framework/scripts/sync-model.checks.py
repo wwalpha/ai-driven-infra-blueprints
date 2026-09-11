@@ -55,9 +55,11 @@ def main() -> None:
 - Design service ID: `vpc`
 - Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
 
+## リソース詳細
+
 <a id="vpc-vpc-app-dev"></a>
 
-## EC2.VPC: vpc-app-dev
+### EC2.VPC: vpc-app-dev
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -68,7 +70,7 @@ def main() -> None:
 
 <a id="vpc-sbnt-app-dev-private-01"></a>
 
-## EC2.Subnet: sbnt-app-dev-private-01
+### EC2.Subnet: sbnt-app-dev-private-01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -105,9 +107,11 @@ def main() -> None:
 - Design service ID: `kms`
 - Owned catalog resource types: `KMS.Key`, `KMS.Alias`
 
+## リソース詳細
+
 <a id="kms-appdatakey"></a>
 
-## KMS.Key: AppDataKey
+### KMS.Key: AppDataKey
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -130,9 +134,11 @@ def main() -> None:
 | --- | --- | --- | --- |
 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled |
 
+## リソース詳細
+
 <a id="s3-app-dev-data-123456789012"></a>
 
-## S3.Bucket: app-dev-data-123456789012
+### S3.Bucket: app-dev-data-123456789012
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -157,6 +163,7 @@ def main() -> None:
         assert "desired.row.001-005.property=S3.BucketPolicy.PolicyDocument" in s3_model
         assert "desired.row.001-005.artifactSha256=" in s3_model
         assert "リソース一覧" not in s3_model
+        assert "リソース詳細" not in s3_model
         assert "BucketName | Region" not in s3_model
         original_digest = MODULE.json_sha256(artifact)
         artifact.write_text(

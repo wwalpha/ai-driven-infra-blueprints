@@ -61,11 +61,12 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Markdown structure
 
-保存対象Markdownは、原則としてH1 title、service metadata、resource一覧、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。policy JSONを持つresourceは後述のJSONから生成するStatement表または設定表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
+保存対象Markdownは、原則としてH1 title、service metadata、`## リソース一覧`、`## リソース詳細`、resourceごとのexplicit anchor、resource heading、resource-detail tableだけで構成する。policy JSONを持つresourceは後述のJSONから生成するStatement表または設定表も持つ。tableだけでは表現できない場合に限り、必要最小限のimplementation noteを追加してよい。
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
-- 独立表示するcatalog-backed resource headingは`## <catalog-resource-type>: <logical-id>`とする。親へ統合するresourceは後述の共通表示contractに従う。
-- `S3.Bucket`だけは`## S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
+- 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
+- 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <logical-id>`とする。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
+- `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`の`<logical-id>`は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
@@ -74,7 +75,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 ## Resource overview
 
-各詳細設計fileはservice metadataの直後、最初のresource anchorより前に`## リソース一覧`を正確に1件置く。
+各詳細設計fileはservice metadataの直後に`## リソース一覧`を正確に1件置く。一覧の範囲は次の`## リソース詳細`直前までとし、resourceのanchor・詳細table・policy表を含めない。
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeと下記のSubnet一覧に統合するAssociationは独立一覧を作らない。
 - tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。Subnet一覧に統合するAssociationを除く全detail blockを重複なく一覧へ載せる。
@@ -114,7 +115,7 @@ S3の例:
 
 - 各 table の row は 1 から連番にする。
 - catalogで`IDENTIFIER_OUTPUT`と指定された全rowを、Propertyのcatalog順でtable先頭の連続rowとして配置する。通常propertyとidentifier参照rowはその後へ置く。
-- `S3.Bucket`はbucketごとに一つのanchor、`## S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
+- `S3.Bucket`はbucketごとに一つのanchor、`### S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
 - resource-detail tableの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。リソース一覧の表示単位はResource overviewに従う。
@@ -140,7 +141,7 @@ S3の例:
 
 詳細設計の対象とIaCで作成できる対象を分離する。CFn非対応でも、登録済みのAPI catalog resourceは通常のservice metadata、リソース一覧、anchor、heading、4列の詳細表、generated modelへ含める。CFn非対応を理由に詳細設計を省略しない。
 
-- 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`## Macie.ClassificationJob: <logical-id>`を作る。表示関係は`resource-layout.json`に従う。
+- 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`### Macie.ClassificationJob: <logical-id>`を作る。表示関係は`resource-layout.json`に従う。
 - 選択リストは`framework/materials/api/Macie_ClassificationJob.properties`、型・制約は同名の`.json`を正本とする。公式Macie APIのrequest/responseに基づく固定した設計用schemaであり、CloudFormation provider schemaではない。参照元、API version、取得元hash、確認日、`cloudFormationType: null`はframework側に保持し、詳細設計のAWS propertyとして追加しない。
 - APIの正式な大小文字を維持し、`Macie.ClassificationJob.name`、`jobType`、`s3JobDefinition`などを使用する。catalogにないfield、架空のCFn型、実行時の`clientToken`、生成された`jobArn`を追加しない。
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
@@ -168,7 +169,7 @@ KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alia
 ```md
 <a id="kms-s3filetransferkey01"></a>
 
-## KMS.Key: S3FILETRANSFERKEY01
+### KMS.Key: S3FILETRANSFERKEY01
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -237,7 +238,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - IAM Roleは下記の既存一覧・表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
 - S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
 - IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
-- 見出しは`### ポリシー：<表示名>`または`### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。
+- 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。
 - IAM Role以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。
 - Statement表の連番、列、Principal展開、Condition、Version/Id、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。権限policy以外のJSONをStatement形式と推測しない。
 - 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。
@@ -259,7 +260,7 @@ IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
 - 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
 - policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。
-- 見出しは`### 信頼ポリシー：<表示名>`または`### インラインポリシー：<PolicyName>`とする。JSONにある場合だけ`Version：`と`Id：`を表示し、値を補完しない。
+- 見出しは`#### 信頼ポリシー：<表示名>`または`#### インラインポリシー：<PolicyName>`とする。JSONにある場合だけ`Version：`と`Id：`を表示し、値を補完しない。
 - 表は1 Statementを1行とし、先頭列は`Statement`の1始まりの連番とする。JSONのStatement配列順を維持し、Statementが単一objectの場合は1行にする。表の番号と任意の`Sid`は別物とし、`Sid`を発明・変更しない。
 - 列は`Statement`に続き、JSONに存在する`Sid`、`Effect`、`Principal`、`NotPrincipal`、`Action`、`NotAction`、`Resource`、`NotResource`、`Condition`をこの順序で掲載する。Principalがobjectなら`Principal.Service`、`Principal.AWS`、`Principal.Federated`、`Principal.CanonicalUser`のように種別ごとに展開する。NotPrincipalも同様とし、種別の列順は文字列順とする。Statement間で存在しない列のcellは表示だけを`—`にする。
 - 複数Action・Resource・Principal値はcell内で`<br>`区切りにする。Conditionは演算子、context key、値を省略せず、演算子とkeyの文字列順で同じcellへ表示する。複数の条件値はJSON配列として表示し、条件の演算子や配列構造を変えない。Conditionを理由にStatementを分割・統合しない。
@@ -280,7 +281,7 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 <a id="iam-vpcflowlogsrole-trust"></a>
 
-### 信頼ポリシー：FlowLogsTrust
+#### 信頼ポリシー：FlowLogsTrust
 
 Version：`2012-10-17`
 

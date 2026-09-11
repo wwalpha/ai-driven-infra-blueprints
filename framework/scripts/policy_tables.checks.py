@@ -60,6 +60,8 @@ def main():
 | --- | --- |
 | [Profile](#iam-profile) | `example` |
 
+## リソース詳細
+
 """
         for logical_id in ("RoleA", "RoleB"):
             file_id = VALIDATOR.artifact_id(logical_id)
@@ -67,7 +69,7 @@ def main():
                 (artifacts / f"{file_id}-{suffix}.json").write_text(json.dumps(document), encoding="utf-8")
             text += f'''<a id="iam-{logical_id.lower()}"></a>
 
-## IAM.Role: {logical_id}
+### IAM.Role: {logical_id}
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -81,7 +83,7 @@ def main():
 '''
         text += '''<a id="iam-profile"></a>
 
-## IAM.InstanceProfile: Profile
+### IAM.InstanceProfile: Profile
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -95,6 +97,8 @@ def main():
         assert MODEL.model_for(path) == baseline_model, "views must not alter the model"
         assert "desired.note." not in baseline_model
         assert rendered.count(START) == 2
+        assert rendered.count("\n#### ") == 6
+        assert rendered.count("\n## リソース詳細\n") == 1
         assert "[role-rolea](#iam-rolea)" in rendered
         assert "#iam-rolea-inline-logging" in rendered and "#iam-roleb-inline-logging" in rendered
         assert "| Statement | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
@@ -121,7 +125,7 @@ def main():
         assert errors(rendered.replace("`logs:CreateLogStream`<br>`logs:PutLogEvents`", "`logs:CreateLogStream`", 1))
         assert errors(rendered.replace(START, "", 1))
         assert errors(rendered.replace(END, "", 1))
-        assert errors(rendered.replace("## IAM.Role: RoleB", "## IAM.Role: RoleA"))
+        assert errors(rendered.replace("### IAM.Role: RoleB", "### IAM.Role: RoleA"))
         path.write_text(rendered, encoding="utf-8")
 
         # JSON changes affect the existing hash and must invalidate the derived view.
@@ -168,7 +172,7 @@ def main():
         path.write_text(minimal, encoding="utf-8")
         view = rendered_design(path)
         assert "[（RoleName未指定）](#iam-rolea)" in view
-        assert "### インラインポリシー" not in view
+        assert "#### インラインポリシー" not in view
         other_service = "# 他サービスの設計\n\n実装注記を維持する。\n"
         path.write_text(other_service, encoding="utf-8")
         assert rendered_design(path) == other_service
@@ -222,9 +226,9 @@ def service_policy_checks():
             artifact.write_text(json.dumps(document), encoding="utf-8")
             types = list(dict.fromkeys([owner_type, resource_type]))
             metadata = ", ".join(f"`{rt}`" for rt in types)
-            original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n| LogicalId | Label |\n| --- | --- |\n| [sample-a](#{service}-sample-a) | `一つ目` |\n| [sample-b](#{service}-sample-b) | `二つ目` |\n\n"
+            original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n| LogicalId | Label |\n| --- | --- |\n| [sample-a](#{service}-sample-a) | `一つ目` |\n| [sample-b](#{service}-sample-b) | `二つ目` |\n\n## リソース詳細\n\n"
             for name in ("sample-a", "sample-b"):
-                original += f'<a id="{service}-{name}"></a>\n\n## {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
+                original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
                 rows = []
                 if owner_type == "S3.Bucket":
                     rows = [("S3.Bucket.BucketName", f"`{name}`"), ("S3.Bucket.Region", "`us-east-1`")]
@@ -350,9 +354,11 @@ def grouping_and_settings_checks():
 | --- | --- | --- | --- | --- | --- |
 | [Example](#ecr-example) | example | AES256 | MUTABLE | false | false |
 
+## リソース詳細
+
 <a id="ecr-example"></a>
 
-## ECR.Repository: Example
+### ECR.Repository: Example
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |

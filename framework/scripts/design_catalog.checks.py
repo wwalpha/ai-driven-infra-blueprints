@@ -57,9 +57,11 @@ def markdown(values):
 | --- | --- |
 | [Job](#macie-job) | SCHEDULED |
 
+## リソース詳細
+
 <a id="macie-session"></a>
 
-## Macie.Session: Session
+### Macie.Session: Session
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -68,7 +70,7 @@ def markdown(values):
 
 <a id="macie-job"></a>
 
-## Macie.ClassificationJob: Job
+### Macie.ClassificationJob: Job
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |

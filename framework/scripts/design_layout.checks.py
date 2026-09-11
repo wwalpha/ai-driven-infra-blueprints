@@ -36,9 +36,11 @@ KMS = """# KMS 詳細設計
 | [KeyOne](#kms-keyone) | alias/one, alias/two |
 | [KeyTwo](#kms-keytwo) | alias/three |
 
+## リソース詳細
+
 <a id="kms-keyone"></a>
 
-## KMS.Key: KeyOne
+### KMS.Key: KeyOne
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -49,7 +51,7 @@ KMS = """# KMS 詳細設計
 
 <a id="kms-keytwo"></a>
 
-## KMS.Key: KeyTwo
+### KMS.Key: KeyTwo
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -69,9 +71,11 @@ S3 = """# S3 詳細設計
 | --- | --- | --- |
 | [app-data](#s3-app-data) | us-east-1 | alias/two |
 
+## リソース詳細
+
 <a id="s3-app-data"></a>
 
-## S3.Bucket: app-data
+### S3.Bucket: app-data
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -131,10 +135,10 @@ def main() -> None:
             (KMS.replace('id="kms-aliastwo"', 'id="kms-wrong"'), "logical ID/anchor"),
             (KMS.replace('`alias/three`', '`alias/two`'), "duplicate grouped identity value"),
             (KMS.replace('`alias/three`', '`bad-alias`'), "provider schema violation"),
-            (KMS.replace('## KMS.Key: KeyOne', '## S3.Bucket: KeyOne'), "wrong parent"),
+            (KMS.replace('### KMS.Key: KeyOne', '### S3.Bucket: KeyOne'), "wrong parent"),
             (KMS.replace('| 4 | KMS.Alias.AliasName', '| 4 | KMS.Alias.TargetKeyId'), "must be omitted"),
             (KMS.replace('| 4 | KMS.Alias.AliasName', '| 4 | KMS.Key.Description'), "child identity marker"),
-            (KMS.replace('## KMS.Key: KeyOne', '## KMS.Alias: KeyOne'), "independent heading"),
+            (KMS.replace('### KMS.Key: KeyOne', '### KMS.Alias: KeyOne'), "independent heading"),
             (KMS.replace('| 4 | KMS.Alias.AliasName', '\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 4 | KMS.Alias.AliasName'), "exactly one detail table"),
         ]
         for markdown, message in bad_designs:

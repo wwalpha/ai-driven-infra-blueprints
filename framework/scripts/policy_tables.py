@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 
-from design_layout import ANCHOR, HEADER, RESOURCE
+from design_layout import ANCHOR, DETAILS_HEADING, HEADER, RESOURCE
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
@@ -234,7 +234,7 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     document = json.loads(artifact.read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
-    result = [f'<a id="{policy.anchor}"></a>', "", f"### {policy.kind}：{policy.label}", ""]
+    result = [f'<a id="{policy.anchor}"></a>', "", f"#### {policy.kind}：{policy.label}", ""]
     style = POLICY_FORMATS[policy.property_name]
     if not policy.property_name.startswith("IAM.Role."):
         result.extend([f"Property：{code(policy.property_name)}", "", f"JSON：[{policy.label}]({policy.link})", ""])
@@ -306,10 +306,10 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
 
 def render_policy_overviews(text: str, resources: list[Resource]) -> str:
     """Add only the derived Policies column; keep the chosen summary columns."""
-    first_resource = re.search(r"^## [A-Za-z0-9]+\.[A-Za-z0-9]+: ", text, re.MULTILINE)
-    if not first_resource:
+    details_heading = re.search(r"^" + re.escape(DETAILS_HEADING) + r"$", text, re.MULTILINE)
+    if not details_heading:
         raise ValueError("resource details are missing")
-    overview, details = text[:first_resource.start()], text[first_resource.start():]
+    overview, details = text[:details_heading.start()], text[details_heading.start():]
     for resource_type in sorted({resource.resource_type for resource in resources} - {"IAM.Role"}):
         owned = {resource.anchor: resource for resource in resources if resource.resource_type == resource_type}
         required = any(resource.policies for resource in owned.values())
@@ -387,8 +387,8 @@ def rendered_design(path: Path) -> str:
     overview = "### IAM.Role\n\n" + "\n".join(table(OVERVIEW_HEADERS, overview_rows)) + "\n\n"
     pattern = re.compile(r"^### IAM\.Role\n(?:\n|\|[^\n]*\n)*", re.MULTILINE)
     matches = list(pattern.finditer(text))
-    first_resource = re.search(r"^## [A-Za-z0-9]+\.[A-Za-z0-9]+: ", text, re.MULTILINE)
-    if len(matches) != 1 or not first_resource or matches[0].start() > first_resource.start():
+    details_heading = re.search(r"^" + re.escape(DETAILS_HEADING) + r"$", text, re.MULTILINE)
+    if len(matches) != 1 or not details_heading or matches[0].start() > details_heading.start():
         raise ValueError("IAM Role overview must appear exactly once before resource details")
     return pattern.sub(lambda _: overview, text)
 

@@ -216,6 +216,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - `KMS.Alias`は所属する`KMS.Key`の同じtableのKey設定の後へ置き、独立heading・table・一覧を作らない。AliasName rowの`Source / Comment`先頭へ`<a id="kms-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に属性の意味を日本語で記載する。複数Aliasはそれぞれ確定済みlogical IDとanchorを保持する。未確定のlogical IDは一つ質問し、推測しない
 - `KMS.Alias.TargetKeyId` rowは省略し、包含するKeyを親として解決する。S3からのlinkはAlias行のanchorとAliasNameを維持する。外部親しかなく包含するKeyが設計されていない場合は、必要な親の設計またはframework対応を明示して停止する。詳細は`framework/rules/detailed-design.md`のRelated resource displayに従う
 - 各fileのservice metadata直後に`## リソース一覧`を置く。独立一覧の対象となるresource typeごとに1 resourceを1 rowで表示し、grouped childとSubnet一覧へ統合するAssociationは独立一覧を作らない。columnは2〜6個の重要parameterへ絞り、`BucketName`、`Region`、`KMSAlias`のような短い名前を使う。最初のcolumnは対応するdetail blockへのsame-file linkとし、一覧値はdetail tableと一致させる
+- 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置き、全resourceの詳細をその配下へ置く。個々のresource headingは`### <catalog-resource-type>: <logical-id>`、付属するpolicy表の見出しは`####`とする。implementation noteにもresourceと同階層以上の見出しを使わず、一覧へ詳細を混在させない
 - `EC2.SubnetRouteTableAssociation`はResource overviewの条件に従い、`SubnetId`のlink先Subnetの一覧rowへ`RouteTableId`を表示する。`AssociationId`列は記載せず、Association詳細への一覧linkも不要とする。Association自身の詳細blockと識別は保持する
 - resource-detail tableは指定された4列を使う
 - `Source / Comment`は日本語で記載する

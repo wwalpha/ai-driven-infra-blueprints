@@ -11,13 +11,12 @@ import sys
 from pathlib import Path
 
 from design_catalog import design_material_files
-from design_layout import expanded_design
+from design_layout import RESOURCE, expanded_design
 from policy_tables import without_policy_tables
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
 OWNED_TYPES = re.compile(r"^- Owned catalog resource types: (`[^`]+`(?:, `[^`]+`)*)$")
-RESOURCE = re.compile(r"^## ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
