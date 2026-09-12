@@ -12,6 +12,7 @@ from security_group_tables import security_group_table_lines
 
 LAYOUT_PATH = Path(__file__).resolve().parents[1] / "rules" / "resource-layout.json"
 LAYOUTS = json.loads(LAYOUT_PATH.read_text(encoding="utf-8"))
+NAME_PROPERTIES = json.loads(LAYOUT_PATH.with_name("resource-name-properties.json").read_text(encoding="utf-8"))
 GROUPED = {name: rule for name, rule in LAYOUTS.items() if isinstance(rule, dict)}
 GROUPED_RESOURCE_TYPES = {
     rule["parent"]: {name for name, child in GROUPED.items() if child["parent"] == rule["parent"]}
@@ -50,6 +51,23 @@ def layout_errors(root: Path) -> list[str]:
             f"resource layout coverage mismatch: unclassified={sorted(set(catalog) - set(layouts))}, "
             f"stale={sorted(set(layouts) - set(catalog))}"
         )
+    try:
+        names = json.loads((root / "framework/rules/resource-name-properties.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return errors + [f"cannot read resource name decisions: {error}"]
+    if not isinstance(names, dict) or set(names) != set(catalog):
+        errors.append("resource name coverage must match the catalog")
+    if isinstance(names, dict):
+        for resource_type, properties in names.items():
+            if not isinstance(properties, list) or any(not isinstance(prop, str) for prop in properties):
+                errors.append(f"invalid resource name properties: {resource_type}")
+                continue
+            if len(properties) != len(set(properties)):
+                errors.append(f"duplicate resource name properties: {resource_type}")
+            for prop in properties:
+                design_name = resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable"} and prop == "Name"
+                if not design_name and f"{resource_type}.{prop}" not in catalog.get(resource_type, set()):
+                    errors.append(f"resource name property is absent from catalog: {resource_type}.{prop}")
     for name, rule in layouts.items():
         if rule == "independent":
             continue
@@ -74,6 +92,31 @@ def layout_errors(root: Path) -> list[str]:
         if rule["maxCount"] != 1 and not (rule["maxCount"] is None and identity):
             errors.append(f"multiple grouped children require an identity property: {name}")
     return errors
+
+
+def resource_name_rows(resource_type: str, rows: list[list[str]]) -> list[list[str]]:
+    """Select only this resource's own names; never infer names from a suffix."""
+    names = [
+        row
+        for prop in NAME_PROPERTIES.get(resource_type, [])
+        for row in rows
+        if row[1] == f"{resource_type}.{prop}"
+    ]
+    if names:
+        return names
+    for position, row in enumerate(rows):
+        if row[1] in {f"{resource_type}.Tags[].Key", f"{resource_type}.HostedZoneTags[].Key"} and row[2].strip("`") == "Name":
+            if position + 1 >= len(rows) or rows[position + 1][1] != row[1].removesuffix("Key") + "Value":
+                raise ValueError(f"Name tag requires an adjacent Value row: {resource_type}")
+            names.extend(rows[position:position + 2])
+        elif row[1] == f"{resource_type}.Tags":
+            try:
+                tags = json.loads(row[2].strip("`"))
+            except ValueError:
+                continue  # Schema validation reports malformed JSON.
+            if isinstance(tags, dict) and "Name" in tags:
+                names.append(row)
+    return names
 
 
 def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list[str], dict[str, dict]]:

@@ -108,7 +108,11 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 ```
 
 - 各 table の row は 1 から連番にする。
-- catalogで`IDENTIFIER_OUTPUT`と指定された全rowを、Propertyのcatalog順でtable先頭の連続rowとして配置する。通常propertyとidentifier参照rowはその後へ置く。
+- 全serviceのresource設定表は、選択済みの自己名称propertyを1行目へ置く。正式な名称propertyの正本は`framework/rules/resource-name-properties.json`とし、配列順で選択済みの名称rowを先頭へまとめる。`IAM.Role.RoleName`、`Lambda.Function.FunctionName`、`SQS.Queue.QueueName`、Glue／CloudFrontのnested Name、RDSのDB識別名、design-only `.Name`も同じ規則とする。参照先名、列名、policy StatementのSidなどを末尾のNameだけで対象にしない。
+- 名称property未選択時は名前や値を補完しない。自己名称rowがなくhuman-selectedなName tagがある場合は、`Tags[].Key=Name`／直後の`Tags[].Value`（またはHostedZoneTags）の組、object形式ならNameを含むTags rowを先頭へ置く。名称専用propertyを持たないresourceへ架空の`.Name`を追加しない。
+- catalogの全`IDENTIFIER_OUTPUT` rowは名称rowと下記の固定2行目の直後にcatalog順で連続配置する。名称自体がidentifier outputなら重複rowを追加しない。名称未選択で固定行もない場合は従来どおりidentifier outputを先頭にし、その他の選択済みpropertyはその後へ置く。
+- KMS Alias等のgrouped childの名称は子自身の設定範囲の先頭へ置き、親tableの1行目へ移動しない。Security Groupの横書き一覧／rule tableは既存形式を維持し、名前のために基本設定表やruleを追加しない。
+- `Events.Rule`は`Events.Rule.Name`を1行目、`Events.Rule.State`を2行目にそれぞれ必ず一度だけ記載する。`EventBusName`、`EventPattern`など残りの選択済みpropertyは3行目以降へ置く。NameとStateは確定済みの値を使用し、未確定の場合はhumanへ確認する。Stateを`ENABLED`などで自動補完しない。
 - `S3.Bucket`はbucketごとに一つのanchor、`### S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
 - general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
 - 1 file に複数 resource heading と table を置いてよい。
@@ -141,7 +145,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
 - `name`、`jobType`、`s3JobDefinition`を必須とし、未知のproperty、型、enum、長さ、範囲、nested object/arrayも検証する。未使用のoptional配列は空配列でなくrowを省略する。
 - `SCHEDULED`は実行周期を正確に一つ指定する。`ONE_TIME`は`scheduleFrequency`と`initialRun`を省略する。S3対象は`bucketDefinitions`または`bucketCriteria`のどちらか一つにする。managed data identifierの選択方式とID配列、custom data identifierの必須関係も検証する。
-- `Macie.ClassificationJob.jobId`は`IDENTIFIER_OUTPUT`としてtable先頭に置く。未作成は既存の`PENDING_DEPLOY`、取得済みは非ARNの実IDとする。この値はCFnでの作成予定を意味しない。
+- `Macie.ClassificationJob.jobId`は`IDENTIFIER_OUTPUT`として、選択済みの`name`の直後、name未選択ならtable先頭に置く。未作成は既存の`PENDING_DEPLOY`、取得済みは非ARNの実IDとする。この値はCFnでの作成予定を意味しない。
 - 既存Jobの取得がactive taskで許可されている場合、`ListClassificationJobs`で候補を提示し、humanの選択後に`DescribeClassificationJob`で選択済みroot propertyと必要な`jobId`だけを取得する。Cloud Control API用の型は生成しない。optional fieldが欠落またはnullならrowを省略し、response全体、統計、実行状態、生成ARNを保存しない。
 - API catalogを使用しても`design` taskのAWS mutation禁止とlocal validation後の終了を維持する。設計書の作成はJob作成の自動化、Custom Resource、Terraform導入を許可しない。
 
@@ -251,10 +255,10 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - IAM Roleは下記の既存一覧・表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
 - S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
 - IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
-- 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、正式な`Property`と元の`JSON`リンクを表の前に表示する。表示名を架空のresource propertyとして追加しない。`KMS.Key.KeyPolicy`だけはKMS Keyの設定表直後に所属が確定し、同じ設定rowにPropertyとJSONリンクがあるため、派生表示へ再表示しない。
+- 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、全serviceで設定rowにある正式な`Property`と元の`JSON`リンクを派生表示へ再表示しない。派生表示はanchor、見出し、Statement表または設定表で構成する。IAM信頼ポリシーでは下記のVersion表も含める。表示名を架空のresource propertyとして追加しない。
 - IAM Role以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。
-- Statement表の連番、列、Principal展開、Condition、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。JSONにあるVersion/Idも表示するが、`KMS.Key.KeyPolicy`の派生表示では省略する。権限policy以外のJSONをStatement形式と推測しない。
-- 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。
+- Statement表の連番、列、Principal展開、Condition、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。IAMを含む全serviceで独立metadata行の`Version：`と`Id：`を省略し、JSON本文のVersion/Idは保持する。権限policy以外のJSONをStatement形式と推測しない。
+- 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。設定表のProperty列やJSON内のVersion/Idというkeyは独立metadata行ではないため省略しない。
 - `ECR.Repository.LifecyclePolicy`はwrapperの全設定を表示したうえで、`LifecyclePolicyText`がある場合はJSON文字列をparseした内容も設定表で表示する。JSON文字列以外や不正なJSONは停止する。表示からJSON本文を書き戻さない。
 - 全形式で重複JSON key、不正なJSON定数、JSON object以外のartifact、他service配下のartifact参照を拒否する。marker欠落・重複・不正な所属、表や一覧リンクと正本との不一致をlocal loopでFAILとする。
 - 生成は指定したMarkdown一件の派生範囲とpolicy一覧列だけを更新する。modelには派生表示を重複保持せず、既存のJSONリンクとcanonical hashを維持する。
@@ -273,12 +277,13 @@ IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
 - 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
 - policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。
-- 見出しは`#### 信頼ポリシー：<表示名>`または`#### インラインポリシー：<PolicyName>`とする。JSONにある場合だけ`Version：`と`Id：`を表示し、値を補完しない。
+- 見出しは`#### 信頼ポリシー：<表示名>`または`#### インラインポリシー：<PolicyName>`とする。共通ルールに従いProperty、JSON、Version、Idの独立metadata行を表示しない。信頼ポリシーのJSONにVersionがある場合は、見出し直後に`Version`の1列表を置き、値を1行で表示してからStatement表を続ける。Versionがない場合は表も値も補完しない。JSON本文は変更しない。
+- IAM inline policy（`IAM.Role.Policies[].PolicyDocument`）のStatementに`Sid`がある場合は文字列かつ16文字以内とする。超過は検証エラーとし、自動で切り詰め・改名しない。SidがないStatementへ補完しない。この制限を信頼ポリシーや他policyのSid、JSON最上位のId、PolicyName、artifact ID、anchorへ適用しない。
 - 表は1 Statementを1行とし、先頭列は`Statement`の1始まりの連番とする。JSONのStatement配列順を維持し、Statementが単一objectの場合は1行にする。表の番号と任意の`Sid`は別物とし、`Sid`を発明・変更しない。
 - 列は`Statement`に続き、JSONに存在する`Sid`、`Effect`、`Principal`、`NotPrincipal`、`Action`、`NotAction`、`Resource`、`NotResource`、`Condition`をこの順序で掲載する。Principalがobjectなら`Principal.Service`、`Principal.AWS`、`Principal.Federated`、`Principal.CanonicalUser`のように種別ごとに展開する。NotPrincipalも同様とし、種別の列順は文字列順とする。Statement間で存在しない列のcellは表示だけを`—`にする。
 - 複数Action・Resource・Principal値はcell内で`<br>`区切りにする。Conditionは演算子、context key、値を省略せず、演算子とkeyの文字列順で同じcellへ表示する。複数の条件値はJSON配列として表示し、条件の演算子や配列構造を変えない。Conditionを理由にStatementを分割・統合しない。
 - JSON object key順やindentだけの変更では表を変えない。文字列内のMarkdown/HTML特殊文字をescapeし、表示上のescapeをJSON値へ書き戻さない。空配列も省略せず表示する。未知のpolicy/Statement要素、重複JSON key、解釈できない構造は黙って省略せず停止する。
-- Roleごとの生成範囲は`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲む。marker内にはそのRoleのpolicy anchor、見出し、Version/Id、Statement表だけを置く。設定表や手動のimplementation noteを入れない。markerの欠落・重複・不正な所属も検証対象とする。
+- Roleごとの生成範囲は`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲む。marker内にはそのRoleのpolicy anchor、見出し、信頼ポリシーのVersion表、Statement表だけを置く。設定表や手動のimplementation noteを入れない。markerの欠落・重複・不正な所属も検証対象とする。
 - 生成処理は明示したMarkdown一件だけのIAM一覧とmarker内を更新する。policy JSON、Role設定、他のresource一覧・表を変更しない。表の内容やJSONを自動的に正しい権限へ修正しない。
 
 IAMを含む設計を保存・変更した後、model生成前に実行する。`--write`を省略するとread-onlyの一致検証になる。
@@ -296,7 +301,9 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 #### 信頼ポリシー：FlowLogsTrust
 
-Version：`2012-10-17`
+| Version |
+| --- |
+| `2012-10-17` |
 
 | Statement | Effect | Principal.Service | Action | Condition |
 | ---: | --- | --- | --- | --- |
@@ -323,7 +330,7 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 
 ## Generated values and deployment state
 
-- 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource table先頭の連続rowにcatalog順で記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
+- 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource tableの名称rowと固定2行目の直後（いずれもなければ先頭）の連続rowにcatalog順で記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
 - 未作成resourceのdeploy前はidentifier output rowの値を`PENDING_DEPLOY`とする。例えば`EC2.VPC.VpcId`の`Source / Comment`はprefixや取得元ではなく属性の意味だけを表す`VPCを一意に識別するID`とする。
 - current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。同じidentifierを参照する全propertyのMarkdown link表示textも同じphysical IDへ更新し、`Source / Comment`は属性の意味を維持する。
 - replacement後はidentifier output rowと全参照元を新しいphysical IDへ同じ変更で更新する。destroy後はidentifier output rowを`PENDING_DEPLOY`へ戻し、全参照元のlink表示textも`PENDING_DEPLOY`へ戻す。

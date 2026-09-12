@@ -26,8 +26,8 @@ def load(name):
 VALIDATOR = load("validate-blueprint")
 MODEL = load("sync-model")
 VALUES = {
-    "jobId": "PENDING_DEPLOY",
     "name": "daily-data-scan",
+    "jobId": "PENDING_DEPLOY",
     "jobType": "SCHEDULED",
     "s3JobDefinition": {"bucketDefinitions": [{"accountId": "123456789012", "buckets": ["app-data"]}]},
     "scheduleFrequency": {"dailySchedule": {}},
@@ -123,13 +123,13 @@ def main():
         assert not check(), check()
         pending = model.read_text()
         assert f"desired.resource.002.resourceType={MACIE_JOB}" in pending
-        assert "desired.row.002-001.value=[Job](#macie-job)" in pending
-        assert "observed.row.002-001.value=`PENDING_DEPLOY`" in pending
+        assert "desired.row.002-002.value=[Job](#macie-job)" in pending
+        assert "observed.row.002-002.value=`PENDING_DEPLOY`" in pending
         assert "desired.row.002-004.value=" in pending
         assert "observed.row.002-004" not in pending
         assert not check({**VALUES, "jobId": "0123456789abcdef0123456789abcdef"})
-        assert "observed.row.002-001.value=`0123456789abcdef0123456789abcdef`" in model.read_text()
-        assert "desired.row.002-001.value=[Job](#macie-job)" in model.read_text()
+        assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in model.read_text()
+        assert "desired.row.002-002.value=[Job](#macie-job)" in model.read_text()
         single = {key: value for key, value in VALUES.items() if key not in {"scheduleFrequency", "initialRun"}}
         assert not check({**single, "jobType": "ONE_TIME"})
         assert not check({**VALUES, "scheduleFrequency": {"weeklySchedule": {"dayOfWeek": "MONDAY"}}})

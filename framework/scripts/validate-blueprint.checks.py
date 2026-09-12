@@ -315,10 +315,10 @@ def check_schema_backed_design_rows() -> None:
             invalid.replace(
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
-                "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
-                "| 3 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
-                "| 4 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
+                "| 1 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
+                "| 2 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |\n"
+                "| 3 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
+                "| 4 | LogGroupClass | `STANDARD` | ロググループの保存クラス |",
             ),
             encoding="utf-8",
         )
@@ -351,8 +351,8 @@ def check_identifier_propagation() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
-| 2 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 1 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 2 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
 
 <a id="vpc-sbnt-app-dev-private-01"></a>
 
@@ -360,9 +360,9 @@ def check_identifier_propagation() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
-| 3 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
+| 1 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
+| 2 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 3 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
 """,
             encoding="utf-8",
         )
@@ -491,6 +491,121 @@ def check_name_tag_and_identifier_order_contract() -> None:
         identifier_outputs,
     )
     assert any("must be first in catalog order" in error for error in validator.errors)
+
+
+def check_resource_name_order() -> None:
+    from design_layout import NAME_PROPERTIES
+
+    repository = SCRIPT.parents[2]
+    _, _, outputs = MODULE.Validator(repository).catalog_design_properties()
+    path = repository / "docs/designs/dev/123456789012/sample.md"
+
+    def errors(resource_type, properties):
+        rows = [[str(number), f"{resource_type}.{prop}", value, "設定値"]
+                for number, (prop, value) in enumerate(properties, 1)]
+        validator = MODULE.Validator(repository)
+        validator.check_generated_identifier(path, resource_type, "Sample", rows, outputs)
+        return validator.errors
+
+    for resource_type, properties in NAME_PROPERTIES.items():
+        if resource_type == "EC2.SecurityGroup":
+            continue  # Its own attributes are in the existing horizontal overview.
+        for prop in properties:
+            name = (prop, "PENDING_DEPLOY" if f"{resource_type}.{prop}" in outputs.get(resource_type, set()) else "sample-name")
+            fixed = {"Events.Rule": [("State", "DISABLED")], "S3.Bucket": [("Region", "ap-northeast-1")]}.get(resource_type, [])
+            ids = [(item.removeprefix(resource_type + "."), "PENDING_DEPLOY")
+                   for item in sorted(outputs.get(resource_type, set())) if item != f"{resource_type}.{prop}"]
+            rows = [name, *fixed, *ids, ("Description", "説明")]
+            assert not errors(resource_type, rows), (resource_type, errors(resource_type, rows))
+            assert any("name rows must be first" in error for error in errors(resource_type, rows[1:] + rows[:1])), resource_type
+
+    # A reference to another resource must never be promoted to an own name.
+    assert not errors("Lambda.Permission", [("Id", "PENDING_DEPLOY"), ("FunctionName", "referenced-function")])
+    assert not errors("IAM.Role", [("Path", "/")]), "optional RoleName must not be invented"
+    assert not errors("Glue.Job", [("Name", "job"), ("Command.Name", "glueetl")])
+    # Preserve root Name tag pairs and object form; never target nested tag names.
+    tags = [("Tags[].Key", "Name"), ("Tags[].Value", "gateway"), ("InternetGatewayId", "PENDING_DEPLOY")]
+    assert not errors("EC2.InternetGateway", tags)
+    assert errors("EC2.InternetGateway", tags[2:] + tags[:2])
+    assert errors("EC2.InternetGateway", tags[:1] + tags[2:])
+    assert not errors("EC2.InternetGateway", [("Tags", '{"Name":"gateway"}'), tags[-1]])
+    # Model generation preserves the new name/ID order and the observed value.
+    model_spec = importlib.util.spec_from_file_location("name_order_model", SCRIPT.with_name("sync-model.py"))
+    model = importlib.util.module_from_spec(model_spec)
+    model_spec.loader.exec_module(model)
+    with tempfile.TemporaryDirectory() as directory:
+        design = Path(directory) / "vpc.md"
+        design.write_text("""# VPC 設計
+
+- Design service ID: `vpc`
+- Owned catalog resource types: `EC2.VPC`
+
+## リソース詳細
+
+<a id="vpc-vpc-app-dev"></a>
+
+### EC2.VPC: vpc-app-dev
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.VPC.Name | `vpc-app-dev` | VPCの名前 |
+| 2 | EC2.VPC.VpcId | `vpc-0123456789abcdef0` | VPCのID |
+""", encoding="utf-8")
+        generated = model.model_for(design, repository)
+        assert "desired.row.001-001.property=EC2.VPC.Name" in generated
+        assert "observed.row.001-002.value=`vpc-0123456789abcdef0`" in generated
+
+
+def check_event_rule_row_order() -> None:
+    repository = SCRIPT.parents[2]
+    catalog = MODULE.Validator(repository).catalog_design_properties()
+    schema = MODULE.DesignSchemaCatalog(repository)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs/designs/dev/123456789012/eventbridge.md"
+        design.parent.mkdir(parents=True)
+        header = """# EventBridge 詳細設計
+
+- Design service ID: `eventbridge`
+- Owned catalog resource types: `Events.Rule`
+
+## リソース詳細
+
+<a id="eventbridge-hulftretrievaldetectrule"></a>
+
+### Events.Rule: HulftRetrievalDetectRule
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+"""
+        rows = [
+            ("Name", "ebr-event-venus-dev-hulft-retrieval-detect"),
+            ("State", "DISABLED"),
+            ("EventBusName", "default"),
+            ("ScheduleExpression", "rate(5 minutes)"),
+        ]
+
+        def errors(selected):
+            design.write_text(header + "".join(
+                f"| {number} | Events.Rule.{prop} | `{value}` | ルールの設定 |\n"
+                for number, (prop, value) in enumerate(selected, 1)
+            ), encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.schema_catalog = schema
+            validator.check_design_tables({design: ("eventbridge", ("Events.Rule",))}, *catalog)
+            return validator.errors
+
+        assert not errors(rows), errors(rows)
+        for selected in (rows[2:3] + rows[:2] + rows[3:], [rows[1], rows[0], *rows[2:]]):
+            assert any("must appear exactly once at row" in error for error in errors(selected))
+        for index in (0, 1):
+            for selected in (rows[:index] + rows[index + 1:], rows + [rows[index]]):
+                assert any("must appear exactly once at row" in error for error in errors(selected))
+            for value in ("", "UNSET", "PENDING_DEPLOY"):
+                selected = rows.copy()
+                selected[index] = (rows[index][0], value)
+                assert any("must have a confirmed value" in error for error in errors(selected))
+        assert not errors([rows[0], ("State", "ENABLED"), *rows[2:]])
 
 
 def check_s3_bucket_policy_grouping() -> None:
@@ -785,11 +900,13 @@ def main() -> None:
     check_schema_backed_design_rows()
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
+    check_resource_name_order()
+    check_event_rule_row_order()
     check_s3_bucket_policy_grouping()
     check_resource_overview()
     check_subnet_association_overview()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (45 focused checks)")
+    print("validate-blueprint: PASS (47 focused checks)")
 
 
 if __name__ == "__main__":

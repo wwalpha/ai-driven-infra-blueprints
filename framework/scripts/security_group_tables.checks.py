@@ -76,8 +76,8 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.VpcId | `vpc-00000001` | VPCを一意に識別するID |
-| 2 | EC2.VPC.Name | vpc-app-dev | VPCを識別する名前 |
+| 1 | EC2.VPC.Name | vpc-app-dev | VPCを識別する名前 |
+| 2 | EC2.VPC.VpcId | `vpc-00000001` | VPCを一意に識別するID |
 | 3 | EC2.VPC.CidrBlock | `10.0.0.0/16` | VPCで使用するIPv4アドレス範囲 |
 """
 

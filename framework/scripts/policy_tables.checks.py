@@ -96,6 +96,7 @@ def main():
         assert rendered_design(path) == rendered, "generation must be idempotent"
         assert MODEL.model_for(path) == baseline_model, "views must not alter the model"
         assert "desired.note." not in baseline_model
+        assert rendered.count("| Version |\n| --- |\n| `2012-10-17` |") == 2
         assert rendered.count(START) == 2
         assert rendered.count("\n#### ") == 6
         assert rendered.count("\n## リソース詳細\n") == 1
@@ -119,6 +120,10 @@ def main():
             return validator.errors
 
         assert not errors(rendered), errors(rendered)
+        for metadata in ("Property：", "JSON：", "Version：", "Id："):
+            assert metadata not in rendered
+            assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
+        assert errors(rendered.replace("| `2012-10-17` |", "| `2008-10-17` |", 1)), "wrong trust Version must fail"
         assert errors(text), "missing views must fail"
         assert errors(rendered.replace("[role-rolea](#iam-rolea)", "[Wrong](#iam-rolea)"))
         assert errors(rendered.replace("[Extra](#iam-roleb-inline-extra)", "[Extra](#iam-rolea-inline-extra)"))
@@ -147,6 +152,7 @@ def main():
         special_view = "\n".join(policy_lines(path, role.policies[0]))
         assert "NotPrincipal.AWS" in special_view and "NotPrincipal.Federated" in special_view
         assert "&#124;" in special_view and "&lt;value&gt;" in special_view
+        assert "| Version |" not in special_view, "do not invent an absent Version table"
         assert "Version：" not in special_view, "do not invent absent Version"
         artifact.write_text(json.dumps({**trust, "Unknown": True}), encoding="utf-8")
         assert errors(rendered), "unknown policy elements must never be omitted"
@@ -157,6 +163,28 @@ def main():
         artifact.write_text(json.dumps(trust), encoding="utf-8")
         assert errors(rendered.replace(START, START + "\n" + START, 1))
         assert errors(rendered.replace("iam/role-a-trust-policy.json", "../role-a-trust-policy.json"))
+
+        # The 16-character limit belongs only to inline Statement.Sid.
+        inline_artifact = artifacts / "role-a-logging.json"
+        role = resources_in(without_policy_tables(rendered.splitlines()))[0]
+        for sid, valid in (("S" * 16, True), ("S" * 17, False), (17, False)):
+            document = json.loads(json.dumps(inline))
+            document["Statement"][0]["Sid"] = sid
+            inline_artifact.write_text(json.dumps(document), encoding="utf-8")
+            try:
+                view = "\n".join(policy_lines(path, role.policies[1]))
+            except ValueError as error:
+                assert not valid and "Sid must be a string of at most 16 characters" in str(error)
+            else:
+                assert valid and "S" * 16 in view
+            assert json.loads(inline_artifact.read_text()) == document
+        assert any("Sid must be" in error for error in errors(rendered))
+        inline_artifact.write_text(json.dumps(inline), encoding="utf-8")
+        trust_with_sid = json.loads(json.dumps(trust))
+        trust_with_sid["Statement"][0]["Sid"] = "T" * 17
+        artifact.write_text(json.dumps(trust_with_sid), encoding="utf-8")
+        assert "T" * 17 in "\n".join(policy_lines(path, role.policies[0]))
+        artifact.write_text(json.dumps(trust), encoding="utf-8")
 
         # --write updates only derived Markdown and requires an explicit file.
         path.write_text(text, encoding="utf-8")
@@ -194,11 +222,11 @@ def service_policy_checks():
             if "Policy" in prop.split(".")[-1] and "object" in schema.property_schema(resource_type, prop[len(resource_type) + 1:]).get("type", []):
                 candidates.add(prop)
     assert candidates == set(POLICY_FORMATS), "catalog policy documents need an explicit display decision"
-    statement = {"Version": "2012-10-17", "Statement": [
+    statement = {"Version": "2012-10-17", "Id": "access-policy", "Statement": [
         {"Sid": "AllowRead", "Effect": "Allow", "Principal": "*", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::example/*"]},
         {"Effect": "Deny", "NotPrincipal": {"AWS": ["arn:aws:iam::123456789012:root"]}, "NotAction": "s3:GetObject", "NotResource": "arn:aws:s3:::other/*", "Condition": {"Bool": {"aws:SecureTransport": "false"}}},
     ]}
-    settings = {"Statement": [{"Operation": {"Audit": {}}, "DataIdentifier": ["example"]}], "filter": {"a/b~c": [False, None, 3, "a|<b>", {}, [], ""]}}
+    settings = {"Version": "2026-09-12", "Id": "settings-id", "Statement": [{"Operation": {"Audit": {}}, "DataIdentifier": ["example"]}], "filter": {"a/b~c": [False, None, 3, "a|<b>", {}, [], ""]}}
     for prop, style in POLICY_FORMATS.items():
         resource_type = ".".join(prop.split(".")[:2])
         catalog = repository / "framework/materials/aws" / (resource_type.replace(".", "_") + ".properties")
@@ -214,8 +242,6 @@ def service_policy_checks():
             document = {"RegistryId": "123456789012", "LifecyclePolicyText": json.dumps({"rules": [{"rulePriority": 1, "selection": {"tagStatus": "untagged", "countNumber": 10}, "action": {"type": "expire"}}]})}
         else:
             document = settings if style == "settings" else statement
-        if prop == "KMS.Key.KeyPolicy":
-            document = {**document, "Id": "key-default"}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             # S3 keeps the policy row inside its bucket, without a new resource.
@@ -246,11 +272,8 @@ def service_policy_checks():
             assert MODEL.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
             assert f"#{service}-sample-a-policy-access" in rendered and f"#{service}-sample-b-policy-access" in rendered
-            if prop == "KMS.Key.KeyPolicy":
-                for duplicate in ("Property：", "JSON：", "Version：", "Id："):
-                    assert duplicate not in rendered, duplicate
-            else:
-                assert f"Property：`{prop}`" in rendered
+            for duplicate in ("Property：", "JSON：", "Version：", "Id："):
+                assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
             assert "| LogicalId | Label | Policies |" in rendered
             if style == "settings":
@@ -259,6 +282,8 @@ def service_policy_checks():
                     assert "LifecyclePolicyTextの内容：" in rendered
                     assert "`/rules/0/selection/countNumber` | number | `10`" in rendered
                 else:
+                    assert "`/Version` | string | `2026-09-12`" in rendered
+                    assert "`/Id` | string | `settings-id`" in rendered
                     assert "`/filter/a~1b~0c/0` | boolean | `false`" in rendered
                     assert "`/filter/a~1b~0c/1` | null | `null`" in rendered
                     assert "| object | `{}` |" in rendered and "| array | `[]` |" in rendered
@@ -279,8 +304,8 @@ def service_policy_checks():
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"
             assert errors(rendered.replace(f"[Access](#{service}-sample-b-policy-access)", f"[Access](#{service}-sample-a-policy-access)", 1)), "wrong owner link must fail"
-            if prop != "KMS.Key.KeyPolicy":
-                assert errors(rendered.replace(f"Property：`{prop}`", "Property：`Wrong`", 1)), "wrong source property must fail"
+            for metadata in (f"Property：`{prop}`", f"JSON：[Access]({service}/access.json)", "Version：`2012-10-17`", "Id：`access-policy`"):
+                assert errors(rendered.replace(START, START + "\n\n" + metadata, 1)), (prop, metadata)
             assert errors(rendered.replace(START, START + "\n" + START, 1)), "nested markers must fail"
             # Same resource cannot silently collapse repeated policy documents.
             row = next(line for line in original.splitlines() if f" | {prop} | " in line)

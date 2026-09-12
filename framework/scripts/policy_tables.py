@@ -236,9 +236,6 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         raise ValueError(f"policy JSON must be an object: {policy.link}")
     result = [f'<a id="{policy.anchor}"></a>', "", f"#### {policy.kind}：{policy.label}", ""]
     style = POLICY_FORMATS[policy.property_name]
-    compact = policy.property_name == "KMS.Key.KeyPolicy"
-    if not policy.property_name.startswith("IAM.Role.") and not compact:
-        result.extend([f"Property：{code(policy.property_name)}", "", f"JSON：[{policy.label}]({policy.link})", ""])
     if style == "settings":
         result.extend(table(["Property", "Type", "Value"], settings_rows(document)))
         if policy.property_name == "ECR.Repository.LifecyclePolicy" and "LifecyclePolicyText" in document:
@@ -265,6 +262,10 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     for statement in statements:
         if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
             raise ValueError(f"unsupported policy Statement keys: {policy.link}")
+        if policy.property_name == "IAM.Role.Policies[].PolicyDocument" and "Sid" in statement:
+            sid = statement["Sid"]
+            if not isinstance(sid, str) or len(sid) > 16:
+                raise ValueError(f"IAM inline policy Sid must be a string of at most 16 characters: {policy.link}")
         if not isinstance(statement.get("Effect"), str) or statement["Effect"] not in {"Allow", "Deny"}:
             raise ValueError(f"invalid policy Statement Effect: {policy.link}")
         flat = {}
@@ -295,10 +296,8 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     columns = []
     for key in STATEMENT_KEYS:
         columns.extend(sorted({column for flat in flattened for column in flat if column == key or column.startswith(key + ".")}))
-    if not compact:
-        for key in ("Version", "Id"):
-            if key in document:
-                result.extend([f"{key}：{code(document[key])}", ""])
+    if policy.property_name == "IAM.Role.AssumeRolePolicyDocument" and "Version" in document:
+        result.extend([*table(["Version"], [[code(document["Version"])]]), ""])
     result.extend(table(["Statement", *columns], [
         [str(number), *(flat.get(column, "—") for column in columns)]
         for number, flat in enumerate(flattened, 1)

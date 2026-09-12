@@ -15,7 +15,8 @@
 ## Policy derived views
 
 - 各serviceのresource設定表とそこから参照するpolicy JSONがmodelの入力であり、JSONリンクとcanonical hashの既存形式を維持する。
-- リソース一覧のpolicyリンク列、IAMのRoleName一覧、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、Property/JSONリンクの再表示、Version/Id、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
+- リソース一覧のpolicyリンク列、IAMのRoleName一覧、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
+- 全serviceで派生表示のProperty/JSON/Version/Idの独立metadata行を省略する。元の設定rowのpropertyとJSONリンク、およびVersion/Idを含むJSON全体のcanonical hashは引き続きmodelへ保持する。
 - policy JSON変更時は`framework/scripts/policy_tables.py <対象service Markdown> --write`で派生表示を更新してからmodelを生成する。model生成はMarkdownやJSONを修正しない。local loopはJSONと表示の不一致も拒否する。
 
 ## Format
@@ -45,7 +46,7 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、SG属性の正本となるSecurity Group一覧を除き、人間向けの派生summaryとしてmodel生成対象から除外する。catalogの全`IDENTIFIER_OUTPUT` rowは各resourceの先頭にcatalog順で並べる。通常のresource propertyと詳細設計専用の`.Name`、design-only `S3.Bucket.Region`は`desired.row.*`へlosslessに反映する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と`EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へProperty名を保ってlosslessに反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
+resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、SG属性の正本となるSecurity Group一覧を除き、人間向けの派生summaryとしてmodel生成対象から除外する。Markdownでは`framework/rules/resource-name-properties.json`に従って選択済みの自己名称rowを先頭に置き、catalogの全`IDENTIFIER_OUTPUT` rowは名称rowと固定2行目の直後にcatalog順で並べる。modelはこのMarkdown順を保持し、identifier先頭へ並べ戻さない。通常のresource propertyと詳細設計専用の`.Name`、design-only `S3.Bucket.Region`は`desired.row.*`へlosslessに反映する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と`EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へProperty名を保ってlosslessに反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 

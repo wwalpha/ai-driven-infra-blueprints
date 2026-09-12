@@ -32,6 +32,7 @@ from design_layout import (
     RESOURCE as RESOURCE_HEADING_PATTERN,
     expanded_design,
     layout_errors,
+    resource_name_rows,
 )
 from security_group_tables import security_group_table_lines
 
@@ -881,10 +882,26 @@ class Validator:
                 re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                 f"generated ARN is forbidden in design: {self.relative(path)}: {property_name}",
             )
-        if expected_properties:
+        # Security Group basic rows are normalized from its horizontal overview.
+        try:
+            names = [] if resource_type == "EC2.SecurityGroup" else resource_name_rows(resource_type, rows)
+        except ValueError as error:
+            self.check(False, f"{self.relative(path)}: {error}")
+            return
+        if names:
             self.check(
-                [row[1] for row in rows[: len(expected_properties)]] == expected_properties,
-                f"identifier output rows must be first in catalog order: {self.relative(path)}: {resource_type}",
+                rows[:len(names)] == names,
+                f"resource name rows must be first: {self.relative(path)}: {resource_type}",
+            )
+        leading = [row[1] for row in names]
+        second = {"Events.Rule": "Events.Rule.State", "S3.Bucket": "S3.Bucket.Region"}.get(resource_type)
+        if second and any(row[1] == second for row in rows):
+            leading.append(second)
+        remaining_outputs = [prop for prop in expected_properties if prop not in leading]
+        if remaining_outputs:
+            self.check(
+                [row[1] for row in rows[len(leading):len(leading) + len(remaining_outputs)]] == remaining_outputs,
+                f"identifier output rows must be first in catalog order after name and fixed rows: {self.relative(path)}: {resource_type}",
             )
 
     def check_required_name_tag(
@@ -1136,6 +1153,19 @@ class Validator:
                 if current_resource_type in catalog_types:
                     if self.schema_catalog is not None and current_resource_type in self.schema_catalog.api_schemas:
                         self.check_api_design_rows(path, current_resource_type, rows)
+                    if current_resource_type == "Events.Rule":
+                        for position, property_name in enumerate(("Events.Rule.Name", "Events.Rule.State")):
+                            selected = [row for row in rows if row[1] == property_name]
+                            self.check(
+                                len(selected) == 1 and len(rows) > position and rows[position][1] == property_name,
+                                f"{property_name} must appear exactly once at row {position + 1}: {self.relative(path)}: {current_logical_id}",
+                            )
+                            if len(selected) == 1:
+                                value = self.unquoted(selected[0][2]).strip()
+                                self.check(
+                                    value not in {"", "UNSET", "PENDING_DEPLOY"},
+                                    f"{property_name} must have a confirmed value: {self.relative(path)}: {current_logical_id}",
+                                )
                     if current_resource_type == "S3.Bucket":
                         bucket_name_rows = [
                             row for row in rows if row[1] == "S3.Bucket.BucketName"
