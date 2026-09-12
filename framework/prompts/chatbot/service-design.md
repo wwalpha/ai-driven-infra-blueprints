@@ -38,7 +38,7 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 - CFn非対応を理由に詳細設計を省略しない。現在は`Macie.ClassificationJob`をAPI設計catalogで扱い、`framework/rules/detailed-design.md`のAPI-backed design resourcesに従う。未登録の型・項目は推測しない。
 - SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。値を初期値で勝手に確定しない。
 - property名はAPIの正式な大小文字を維持する。root property単位で記載し、nested設定はJSON object/arrayにまとめる。長いobjectはservice配下JSON artifactへ置く。型・未知のnested field・条件付き必須を検証し、CFn型を発明しない。
-- nameが選択済みなら1行目、jobIdはその直後のidentifier rowへ置く。name未選択ならjobIdを先頭とし、nameを補完しない。clientToken、jobArn、取得response全体は出力しない。read-only取得時のoptional nullは省略する。
+- name、jobIdを含む表示順はAPI propertiesに従う。未選択name、clientToken、jobArn、取得response全体は出力しない。read-only取得時のoptional nullは省略する。
 - Jobは作成後にスキャン設定を変更できないため、実装が必要になった場合は新Jobの作成と旧Jobの扱いを別途決める。今回の詳細設計保存から作成・置換・キャンセルへ進まない。
 
 ## Role
@@ -62,7 +62,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 7. `framework/rules/aws-resource-naming.md`
 8. `framework/rules/model-information.md`
 9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
-10. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）と`framework/rules/resource-name-properties.json`（全resourceの自己名称propertyと表示優先順）
+10. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）
 11. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
@@ -196,15 +196,17 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化した`<role-artifact-id>-trust-policy.json`を使用してください。inline policyは確定した`PolicyName`を設計値として`PolicyDocument`の直前に記録し、`<role-artifact-id>-<policy-name-artifact-id>.json`を使用してください。`PolicyName`が未確定の場合はfilenameを推測せず、blockerとして停止してください。正規化は`framework/rules/detailed-design.md`に従い、AWS service名辞書や個別例外を使ってはいけません。
 
-すべてのserviceで`framework/rules/detailed-design.md`のService policy tablesに従い、選択したpolicy JSONの内容を所有resourceの設定表直後へ生成してください。正式propertyと表示方式は`framework/scripts/policy_tables.py`の`POLICY_FORMATS`で確認し、権限policyはStatement表、配信・フィルタ・再送・ライフサイクル・data protection等は全要素の設定表へ表示してください。scalarや個別propertyへ展開済みの設定は既存の設定行を維持し、名前の末尾だけでJSON policyと判断しないでください。
+すべてのserviceでpolicy Statement表の先頭列名は`No.`とし、1始まりの連番を表示してください。JSONの`Statement` keyは変更しません。`framework/rules/detailed-design.md`のService policy tablesに従い、選択したpolicy JSONの内容を所有resourceの設定表直後へ生成してください。正式propertyと表示方式は`framework/scripts/policy_tables.py`の`POLICY_FORMATS`で確認し、権限policyはStatement表、配信・フィルタ・再送・ライフサイクル・data protection等は全要素の設定表へ表示してください。scalarや個別propertyへ展開済みの設定は既存の設定行を維持し、名前の末尾だけでJSON policyと判断しないでください。
 
 IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名と、所有resourceとartifact IDから作るanchorを保持してください。VPC endpoint、KMS、IAMを含む全policyで派生表示のProperty、JSON、Version、Idの独立metadata行を省略し、anchor、見出し、Statement表または設定表を生成してください。元の設定rowの正式PropertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名keyは保持してください。一覧の元の2〜6列へ`Policies`列を追加し、各resourceが所有するpolicy表へlinkします。同じtypeのpolicy未設定resourceは表示だけを`—`とし、policyや名前を作成しません。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
 
 IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/rules/detailed-design.md`のIAM Role policy tablesに従ってRoleName・信頼ポリシー・インラインポリシーの3列の一覧と、各Roleの設定表直後のpolicy Statement表も出力してください。表は1 Statementを1行とし、複数Actionはcell内改行、Conditionは演算子・完全なkey・値を同じcellへ保持します。信頼ポリシーJSONにVersionがある場合は見出し直後の`Version`の1列表へ値を1行で表示し、その後にStatement表を置いてください。Versionがない場合は補完しません。Version/Idの独立metadata行は省略し、JSONに存在するStatement内のSid、Principal種別、NotAction、NotResource等は省略・補完せず、各Roleの表示範囲を`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲んでください。信頼ポリシーの表示名はJSONリンクのtext、inline policy名はPolicyNameを使用し、別Roleの同名policyには別anchorを使用します。policy表はJSONの派生表示とし、保存時に決定的生成と照合します。
 
-`Events.Rule`の設定表は`Events.Rule.Name`を1行目、`Events.Rule.State`を2行目に必ず一度だけ記載し、EventBusName、EventPatternなどは3行目以降へ置いてください。NameまたはStateが未確定なら確認し、Stateを`ENABLED`などで補完してはいけません。
+`Events.Rule.Name`と`Events.Rule.State`を必ず一度だけ記載し、表示順はpropertiesに従ってください。NameまたはStateが未確定なら確認し、Stateを`ENABLED`などで補完してはいけません。
 
-完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
+`CidrBlock`等のCIDR値は、詳細表・リソース一覧・参照link表示・配列内のいずれも`PENDING_DEPLOY`にしてはいけません。deploy前でも確定済みCIDRを記載し、未確定ならhumanへ確認してください。CIDRがcatalog上のidentifier outputでも例外にしません。`VpcId`等の生成IDの`PENDING_DEPLOY`とは区別してください。
+
+完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。見出し・`Property`から分かる対象resource名の繰り返しを省き、属性の意味だけを短く記載してください。ただし参照先・通信元・通信先を区別する名称は残してください。grouped resourceもrowの`Property`の所属で判断してください。例えば`EC2.Subnet.SubnetId`は`一意に識別するID`、`EC2.Subnet.AvailabilityZone`は`配置するAvailability Zone`とします。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
 完了時の応答を、chat上だけの`完了報告`、保存対象の`設計ファイル`、`Codex反映依頼`へ明確に分けてください。既存AWS configuration branchだけの場合、`設計ファイル`には「Codex取得後に作成」と記載し、未完成Markdownを出力しない。
 
@@ -222,14 +224,14 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - `EC2.SubnetRouteTableAssociation`は所属する`EC2.Subnet`の同じ詳細tableへ統合し、Subnet自身のrowの後に`EC2.SubnetRouteTableAssociation.RouteTableId`だけを記載する。`Id`と`SubnetId`、Associationの独立anchor・heading・table・一覧は作らない。Subnet一覧に`RouteTableId`列を置く場合は詳細rowと同じValueを表示し、Association未設計のSubnetは表示だけを`—`とする
 - Security Groupは一覧を`SecurityGroup | GroupName | Id | VpcId | Description`の5列に固定し、Tags列を追加しない。選択済みタグは所属SGのheading後、ruleがない場合はanchor後の非表示security-group-tags metadataへ保持し、タグ表やタグ値を追加しない。DescriptionはGroupDescription、VpcIdは所属VPCへのidentifier参照を表示し、基本設定の詳細表は重複作成しない。詳細にはSGのanchorを置き、ruleが1件以上ある場合だけheadingと単一rule tableを出力する。ruleがないSGはheadingも出力しない。rule tableは先頭列を`Direction`、表示値を`Inbound`／`Outbound`とし、SecurityGroupRuleId、SourceSecurityGroupId、DestinationSecurityGroupId列は作らない。続く列はIpProtocol・Portと必要な正式property名とし、1 ruleを1 rowで記載する。FromPort／ToPortは表示せず、Portに単一port（443）・範囲（1000-2000）・ICMP type/code（Type=8, Code=0）を記載する。両propertyの未選択は—とし、Portから正式propertyへ復元できる値を保持する。SG参照値と独立ruleのlogical ID・anchor・current IDは`framework/rules/detailed-design.md`に従ってDirection cellの非表示metadataへ保持し、markerを持たないinline ruleと区別する。未確定の所属VPC、サンプル値、Type、Regionを補完しない
 - resource-detail tableはSecurity Groupの横書きrule tableを除き、指定された4列を使う
-- `Source / Comment`は日本語で記載する
+- `Source / Comment`は対象resource名の重複を省き、属性の意味を日本語で短く記載する。参照先・通信元・通信先を区別する名称は残す
 - 4列のresource-detail tableのrow番号はtableごとに1から開始する
-- 全serviceで`framework/rules/resource-name-properties.json`に登録された選択済みの自己名称propertyを各resource tableの1行目へ置く。IAM.Role.RoleName、nested Name、RDSのDB識別名、design-only .Nameも対象とし、参照先名を混同しない。名前未選択の場合は補完しない。自己名称rowがなく選択済みName tagがある場合はKey/Valueの組またはTags objectを先頭へ置く。catalogの全`IDENTIFIER_OUTPUT` rowは名称rowと固定2行目の直後（いずれもなければ先頭）へcatalog順で置き、名称と同じpropertyは重複させない。KMS AliasのAliasNameは子の設定範囲の先頭とし、親の先頭へ移動しない。Security Group自身のIdは一覧に置き、横書きrule tableの独立ruleのIdはDirection cellの非表示rule-id markerに保持する
+- 全serviceのresource設定表はmaterialsのproperties行順とし、未選択・非表示項目は飛ばす。名前先頭・生成ID先頭などの再配置をしない。配列の各要素とgrouped childごとの設定範囲を保持し、design-only .Name、S3.Region、SG横書き表の特殊ルールは維持する。
 - `S3.Bucket`のheading identifierとanchorのidentifier部分はBucketNameと一致させる。`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableを出力しない
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない
-- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`は、それぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`とnon-empty valueを1 rowで記載し、`Tags[].Key=Name`／`Tags[].Value`の2 rowを作らない。その他のresourceの`Name` tagはhumanが明示した場合だけ、array形式ではkey／value row、object形式ではnon-empty `Name` keyを持つJSON objectで記載する
+- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`に1 rowの`.Name`とnon-empty valueがあり、resource heading identifierと一致する
 - environment、AWS account、AWS region、purpose、deployment stateのfile metadataを出力しない
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを出力しない
 - 値を推測しない

@@ -164,17 +164,7 @@ def main() -> None:
         layout_path = root / "framework/rules/resource-layout.json"
         layout_path.parent.mkdir(parents=True)
         layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")
-        shutil.copyfile(REPOSITORY / "framework/rules/resource-name-properties.json", layout_path.with_name("resource-name-properties.json"))
         assert not layout_errors(root)
-        name_path = layout_path.with_name("resource-name-properties.json")
-        names = json.loads(name_path.read_text())
-        missing_name = dict(names)
-        del missing_name["IAM.Role"]
-        name_path.write_text(json.dumps(missing_name))
-        assert any("name coverage" in error for error in layout_errors(root))
-        name_path.write_text(json.dumps({**names, "IAM.Role": ["MissingName"]}))
-        assert any("name property is absent" in error for error in layout_errors(root))
-        name_path.write_text(json.dumps(names))
         (root / "framework/materials/aws/Example_Child.properties").write_text("Example.Child.Name=\n", encoding="utf-8")
         assert any("unclassified=['Example.Child']" in error for error in layout_errors(root))
         broken = {**LAYOUTS, "Example.Child": "independent", "KMS.Alias": {**LAYOUTS["KMS.Alias"], "parentProperty": "Missing"}}

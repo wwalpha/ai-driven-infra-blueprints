@@ -142,7 +142,7 @@ def api_snapshot_errors(root: Path) -> list[str]:
             return ["Macie catalog must separate jobId from runtime token and generated ARN"]
         selected = (directory / "Macie_ClassificationJob.properties").read_text(encoding="utf-8").splitlines()
         expected = [f"{MACIE_JOB}.{key}=" + ("IDENTIFIER_OUTPUT" if key == "jobId" else "") for key in sorted(schema["properties"])]
-        if selected != expected:
+        if len(selected) != len(expected) or set(selected) != set(expected):
             return ["Macie API selection list does not match its design schema"]
         for key in schema["properties"]:
             catalog.property_schema(MACIE_JOB, key)

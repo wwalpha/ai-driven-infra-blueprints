@@ -16,7 +16,7 @@ IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logi
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 COMMENTS = {
-    "Id": "Security Groupルールを一意に識別するID",
+    "Id": "一意に識別するID",
     "IpProtocol": "通信を許可するIP protocol",
     "FromPort": "許可するport範囲の開始値、またはICMP type",
     "ToPort": "許可するport範囲の終了値、またはICMP code",
@@ -27,15 +27,15 @@ COMMENTS = {
     "SourceSecurityGroupOwnerId": "通信元Security Groupを所有するAWS account ID",
     "DestinationPrefixListId": "通信先として許可するPrefix ListのID",
     "DestinationSecurityGroupId": "通信先として許可するSecurity GroupのID",
-    "Description": "Security Groupルールの用途を説明する値",
+    "Description": "用途の説明",
 }
 GROUP_COMMENTS = {
-    "Id": "Security Groupを一意に識別するID",
-    "GroupDescription": "Security Groupの用途を説明する値",
-    "GroupName": "Security Groupの名前",
-    "VpcId": "Security Groupが所属するVPCのID",
-    "Tags[].Key": "Security Groupへ付与するタグのキー",
-    "Tags[].Value": "Security Groupへ付与するタグの値",
+    "Id": "一意に識別するID",
+    "GroupDescription": "用途の説明",
+    "GroupName": "名前",
+    "VpcId": "所属するVPCのID",
+    "Tags[].Key": "付与するタグのキー",
+    "Tags[].Value": "付与するタグの値",
 }
 
 

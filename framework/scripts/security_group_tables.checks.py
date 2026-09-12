@@ -115,6 +115,11 @@ def main():
         original = path.read_bytes()
         generated = MODEL.model_for(path, REPOSITORY)
         assert path.read_bytes() == original
+        assert "observed.row.002-001.comment=一意に識別するID\n" in generated
+        assert "desired.row.001-004.comment=所属するVPCのID\n" in generated
+        assert "desired.row.002-005.comment=通信元として許可するSecurity GroupのID\n" in generated
+        assert "comment=通信先として許可するSecurity GroupのID\n" in generated
+        assert "comment=Security Group" not in generated
         assert "desired.row.001-002.property=EC2.SecurityGroup.GroupDescription\n" in generated
         assert "desired.row.001-002.value=`Application access`\n" in generated
         assert "desired.row.001-004.property=EC2.SecurityGroup.VpcId\n" in generated

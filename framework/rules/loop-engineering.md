@@ -48,7 +48,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - 各serviceのpolicy一覧リンク、anchorと所有resource、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMを含む全policyでProperty、JSON、Version、Idの独立metadata行を省略する。信頼ポリシーのVersionはJSONに存在する場合だけ1列表へ表示し、JSONと照合する。元の設定rowの正式propertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名key、IAMの既存一覧を維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
 - IAM inline policyのStatement内のSidが存在する場合は文字列かつ16文字以内であり、超過を自動修正していない
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
-- `framework/rules/resource-name-properties.json`が全catalog resourceの自己名称propertyを明示分類し、選択済みの名称row（該当時はName tag）が各設定範囲の先頭にある。必要なgenerated current identifierは独立sectionではなく名称rowと固定2行目の直後（いずれもなければ先頭）にcatalog順で連続して存在する
+- resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
 - cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
 - generated ARNが`model/`に存在しない

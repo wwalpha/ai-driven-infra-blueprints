@@ -102,7 +102,7 @@ def main():
         assert rendered.count("\n## リソース詳細\n") == 1
         assert "[role-rolea](#iam-rolea)" in rendered
         assert "#iam-rolea-inline-logging" in rendered and "#iam-roleb-inline-logging" in rendered
-        assert "| Statement | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
+        assert "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
         assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
         condition_row = next(line for line in rendered.splitlines() if line.startswith("| 1 | Allow |"))
         assert "aws:SourceAccount" in condition_row and "aws:SourceArn" in condition_row
@@ -120,6 +120,7 @@ def main():
             return validator.errors
 
         assert not errors(rendered), errors(rendered)
+        assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
         for metadata in ("Property：", "JSON：", "Version：", "Id："):
             assert metadata not in rendered
             assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
@@ -277,7 +278,7 @@ def service_policy_checks():
             assert rendered.count("実装注記を維持する。") == 2
             assert "| LogicalId | Label | Policies |" in rendered
             if style == "settings":
-                assert "| Property | Type | Value |" in rendered and "| Statement |" not in rendered
+                assert "| Property | Type | Value |" in rendered and "| No. | Sid |" not in rendered
                 if prop == "ECR.Repository.LifecyclePolicy":
                     assert "LifecyclePolicyTextの内容：" in rendered
                     assert "`/rules/0/selection/countNumber` | number | `10`" in rendered
@@ -289,7 +290,7 @@ def service_policy_checks():
                     assert "| object | `{}` |" in rendered and "| array | `[]` |" in rendered
                     assert "&#124;" in rendered and "&lt;b&gt;" in rendered
             else:
-                assert "| Statement | Sid | Effect | Principal | NotPrincipal.AWS | Action | NotAction | Resource | NotResource | Condition |" in rendered
+                assert "| No. | Sid | Effect | Principal | NotPrincipal.AWS | Action | NotAction | Resource | NotResource | Condition |" in rendered
 
             def errors(content):
                 path.write_text(content, encoding="utf-8")
@@ -300,6 +301,8 @@ def service_policy_checks():
                 return validator.errors
 
             assert not errors(rendered), (prop, errors(rendered))
+            if style != "settings":
+                assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
             assert errors(original), "missing views must fail"
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"

@@ -75,7 +75,9 @@ def markdown(values):
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 """
-    for number, (key, value) in enumerate(values.items(), 1):
+    order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / "framework/materials/api/Macie_ClassificationJob.properties").read_text().splitlines()]
+    for number, key in enumerate(sorted(values, key=lambda key: order.index(key) if key in order else len(order)), 1):
+        value = values[key]
         raw = value if isinstance(value, str) else json.dumps(value)
         text += f"| {number} | {MACIE_JOB}.{key} | `{raw}` | Jobの{key}を設定する項目 |\n"
     return text.replace("| [Job](#macie-job) | SCHEDULED |", f"| [Job](#macie-job) | {values.get('jobType', '')} |")
@@ -175,7 +177,7 @@ def main():
         artifact.write_text(json.dumps(VALUES["s3JobDefinition"]))
         text = markdown(VALUES).replace("`" + json.dumps(VALUES["s3JobDefinition"]) + "`", "[対象条件](macie/job-scope.json)")
         assert not check(text=text), check(text=text)
-        assert "desired.row.002-004.artifactSha256=" in model.read_text()
+        assert "desired.row.002-006.artifactSha256=" in model.read_text()
         artifact.write_text('{"unknown":true}')
         assert any("API schema violation" in error for error in check(text=text))
         artifact.unlink()

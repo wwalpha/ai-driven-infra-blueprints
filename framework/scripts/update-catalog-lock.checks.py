@@ -23,6 +23,8 @@ def main() -> None:
             encoding="utf-8",
         )
         assert MODULE.catalog_counts([catalog]) == (1, 1)
+        catalog.write_text("EC2.VPC.VpcId=IDENTIFIER_OUTPUT\nEC2.VPC.CidrBlock=\n", encoding="utf-8")
+        assert MODULE.catalog_counts([catalog]) == (1, 1), "catalog order is human-controlled"
         catalog.write_text("EC2.VPC.VpcId=UNKNOWN\n", encoding="utf-8")
         try:
             MODULE.catalog_counts([catalog])

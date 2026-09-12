@@ -112,5 +112,4 @@ provider schemaまたはAWS serviceの現在の制約がこのsectionより厳�
 
 ## 設定表の表示順
 
-- 全serviceで選択済みの自己名称を設定表の1行目へ置く。対象propertyと優先順は`framework/rules/resource-name-properties.json`、Name tag、生成ID、固定2行目、grouped child、SG横書き表示の扱いは`framework/rules/detailed-design.md`に従う。
-- この表示順は命名対象や必須性を増やさない。名前未選択のresourceへ名前やName tagを補完しない。参照先名を自己名称として扱わない。
+- 通常propertyの表示順はmaterialsのproperties行順に従う。Name tagの必須性、design-only .Nameの1行表示・heading・anchorの契約は維持し、表示位置は`framework/rules/detailed-design.md`に従う。

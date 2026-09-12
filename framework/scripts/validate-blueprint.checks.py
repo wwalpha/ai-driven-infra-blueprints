@@ -315,10 +315,10 @@ def check_schema_backed_design_rows() -> None:
             invalid.replace(
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
-                "| 1 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
-                "| 2 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |\n"
-                "| 3 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 4 | LogGroupClass | `STANDARD` | ロググループの保存クラス |",
+                "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
+                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 3 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
+                "| 4 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
             ),
             encoding="utf-8",
         )
@@ -490,70 +490,85 @@ def check_name_tag_and_identifier_order_contract() -> None:
         ],
         identifier_outputs,
     )
-    assert any("must be first in catalog order" in error for error in validator.errors)
+    assert any("catalog file order" in error for error in validator.errors)
 
 
-def check_resource_name_order() -> None:
-    from design_layout import NAME_PROPERTIES
-
+def check_cidr_pending_deploy() -> None:
     repository = SCRIPT.parents[2]
-    _, _, outputs = MODULE.Validator(repository).catalog_design_properties()
-    path = repository / "docs/designs/dev/123456789012/sample.md"
-
-    def errors(resource_type, properties):
-        rows = [[str(number), f"{resource_type}.{prop}", value, "設定値"]
-                for number, (prop, value) in enumerate(properties, 1)]
-        validator = MODULE.Validator(repository)
-        validator.check_generated_identifier(path, resource_type, "Sample", rows, outputs)
-        return validator.errors
-
-    for resource_type, properties in NAME_PROPERTIES.items():
-        if resource_type == "EC2.SecurityGroup":
-            continue  # Its own attributes are in the existing horizontal overview.
-        for prop in properties:
-            name = (prop, "PENDING_DEPLOY" if f"{resource_type}.{prop}" in outputs.get(resource_type, set()) else "sample-name")
-            fixed = {"Events.Rule": [("State", "DISABLED")], "S3.Bucket": [("Region", "ap-northeast-1")]}.get(resource_type, [])
-            ids = [(item.removeprefix(resource_type + "."), "PENDING_DEPLOY")
-                   for item in sorted(outputs.get(resource_type, set())) if item != f"{resource_type}.{prop}"]
-            rows = [name, *fixed, *ids, ("Description", "説明")]
-            assert not errors(resource_type, rows), (resource_type, errors(resource_type, rows))
-            assert any("name rows must be first" in error for error in errors(resource_type, rows[1:] + rows[:1])), resource_type
-
-    # A reference to another resource must never be promoted to an own name.
-    assert not errors("Lambda.Permission", [("Id", "PENDING_DEPLOY"), ("FunctionName", "referenced-function")])
-    assert not errors("IAM.Role", [("Path", "/")]), "optional RoleName must not be invented"
-    assert not errors("Glue.Job", [("Name", "job"), ("Command.Name", "glueetl")])
-    # Preserve root Name tag pairs and object form; never target nested tag names.
-    tags = [("Tags[].Key", "Name"), ("Tags[].Value", "gateway"), ("InternetGatewayId", "PENDING_DEPLOY")]
-    assert not errors("EC2.InternetGateway", tags)
-    assert errors("EC2.InternetGateway", tags[2:] + tags[:2])
-    assert errors("EC2.InternetGateway", tags[:1] + tags[2:])
-    assert not errors("EC2.InternetGateway", [("Tags", '{"Name":"gateway"}'), tags[-1]])
-    # Model generation preserves the new name/ID order and the observed value.
-    model_spec = importlib.util.spec_from_file_location("name_order_model", SCRIPT.with_name("sync-model.py"))
-    model = importlib.util.module_from_spec(model_spec)
-    model_spec.loader.exec_module(model)
+    catalog = MODULE.Validator(repository).catalog_design_properties()
+    schema = MODULE.DesignSchemaCatalog(repository)
     with tempfile.TemporaryDirectory() as directory:
-        design = Path(directory) / "vpc.md"
-        design.write_text("""# VPC 設計
+        root = Path(directory)
+        path = root / "docs/designs/staging/123456789012/vpc.md"
+        path.parent.mkdir(parents=True)
+        valid = """# VPC 詳細設計
 
 - Design service ID: `vpc`
 - Owned catalog resource types: `EC2.VPC`
 
+## リソース一覧
+
+### EC2.VPC
+
+| Name | VpcId | CidrBlock |
+| --- | --- | --- |
+| [vpc-app-staging](#vpc-vpc-app-staging) | `PENDING_DEPLOY` | `10.0.0.0/16` |
+
 ## リソース詳細
 
-<a id="vpc-vpc-app-dev"></a>
+<a id="vpc-vpc-app-staging"></a>
 
-### EC2.VPC: vpc-app-dev
+### EC2.VPC: vpc-app-staging
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.Name | `vpc-app-dev` | VPCの名前 |
-| 2 | EC2.VPC.VpcId | `vpc-0123456789abcdef0` | VPCのID |
-""", encoding="utf-8")
-        generated = model.model_for(design, repository)
-        assert "desired.row.001-001.property=EC2.VPC.Name" in generated
-        assert "observed.row.001-002.value=`vpc-0123456789abcdef0`" in generated
+| 1 | EC2.VPC.Name | `vpc-app-staging` | VPCの名前 |
+| 2 | EC2.VPC.VpcId | `PENDING_DEPLOY` | VPCのID |
+| 3 | EC2.VPC.CidrBlock | `10.0.0.0/16` | VPCのIPv4アドレス範囲 |
+"""
+
+        def errors(text):
+            path.write_text(text, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.schema_catalog = schema
+            validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog)
+            validator.check_design_overviews()
+            return validator.errors
+
+        assert not errors(valid), errors(valid)
+        for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-vpc-app-staging)"):
+            # Reject either table independently, not merely when both agree.
+            assert any("CIDR must not use" in error for error in errors(valid.replace("`10.0.0.0/16`", pending, 1)))
+            assert any("CIDR must not use" in error for error in errors(valid.replace("EC2.VPC.CidrBlock | `10.0.0.0/16`", "EC2.VPC.CidrBlock | " + pending)))
+        for prop in ("EC2.Subnet.CidrBlock", "EC2.Route.CidrBlock", "EC2.Route.DestinationCidrBlock", "EC2.SecurityGroupIngress.CidrIp", "EC2.TransitGateway.TransitGatewayCidrBlocks"):
+            validator = MODULE.Validator(root)
+            validator.check_cidr_value(path, prop, '["10.0.0.0/16","PENDING_DEPLOY"]')
+            assert validator.errors, prop
+            validator = MODULE.Validator(root)
+            validator.check_cidr_value(path, prop, "10.0.0.0/16")
+            assert not validator.errors, prop
+
+
+def check_catalog_display_order() -> None:
+    from design_layout import catalog_order_errors
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        material = root / "framework/materials/aws/Example_Resource.properties"
+        material.parent.mkdir(parents=True)
+        lines = ["Example.Resource.Name=", "Example.Resource.Hidden=", "Example.Resource.Id=IDENTIFIER_OUTPUT", "Example.Resource.Tags[].Key=", "Example.Resource.Tags[].Value="]
+        material.write_text("\n".join(lines) + "\n")
+        def rows(*properties):
+            return [[str(n), "Example.Resource." + prop, "value", "属性"] for n, prop in enumerate(properties, 1)]
+        selected = rows("Name", "Id", "Tags[].Key", "Tags[].Value", "Tags[].Key", "Tags[].Value")
+        assert not catalog_order_errors("Example.Resource", selected, root)
+        assert catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
+        assert catalog_order_errors("Example.Resource", rows("Tags[].Value", "Tags[].Key"), root)
+        assert catalog_order_errors("Example.Resource", rows("Tags[].Key", "Name", "Tags[].Key"), root)
+        material.write_text("\n".join([lines[2], *lines[:2], *lines[3:]]) + "\n")
+        assert not catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
+        assert catalog_order_errors("Example.Resource", rows("Name", "Id"), root)
+        assert len(selected) == 6 and all("Hidden" not in row[1] for row in selected)
 
 
 def check_event_rule_row_order() -> None:
@@ -597,10 +612,10 @@ def check_event_rule_row_order() -> None:
 
         assert not errors(rows), errors(rows)
         for selected in (rows[2:3] + rows[:2] + rows[3:], [rows[1], rows[0], *rows[2:]]):
-            assert any("must appear exactly once at row" in error for error in errors(selected))
+            assert any("catalog file order" in error for error in errors(selected))
         for index in (0, 1):
             for selected in (rows[:index] + rows[index + 1:], rows + [rows[index]]):
-                assert any("must appear exactly once at row" in error for error in errors(selected))
+                assert any("must appear exactly once" in error for error in errors(selected))
             for value in ("", "UNSET", "PENDING_DEPLOY"):
                 selected = rows.copy()
                 selected[index] = (rows[index][0], value)
@@ -900,13 +915,14 @@ def main() -> None:
     check_schema_backed_design_rows()
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
-    check_resource_name_order()
+    check_cidr_pending_deploy()
+    check_catalog_display_order()
     check_event_rule_row_order()
     check_s3_bucket_policy_grouping()
     check_resource_overview()
     check_subnet_association_overview()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (47 focused checks)")
+    print("validate-blueprint: PASS (48 focused checks)")
 
 
 if __name__ == "__main__":

@@ -298,7 +298,7 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         columns.extend(sorted({column for flat in flattened for column in flat if column == key or column.startswith(key + ".")}))
     if policy.property_name == "IAM.Role.AssumeRolePolicyDocument" and "Version" in document:
         result.extend([*table(["Version"], [[code(document["Version"])]]), ""])
-    result.extend(table(["Statement", *columns], [
+    result.extend(table(["No.", *columns], [
         [str(number), *(flat.get(column, "—") for column in columns)]
         for number, flat in enumerate(flattened, 1)
     ], numbered=True))

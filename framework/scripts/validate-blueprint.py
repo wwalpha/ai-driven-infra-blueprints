@@ -32,7 +32,7 @@ from design_layout import (
     RESOURCE as RESOURCE_HEADING_PATTERN,
     expanded_design,
     layout_errors,
-    resource_name_rows,
+    catalog_order_errors,
 )
 from security_group_tables import security_group_table_lines
 
@@ -686,7 +686,7 @@ class Validator:
             lines = text.splitlines()
             prefix = path.stem.replace("_", ".", 1) + "."
             self.check(text.endswith("\n"), f"catalog file lacks final newline: {self.relative(path)}")
-            self.check(lines == sorted(set(lines)), f"catalog lines must be sorted and unique: {self.relative(path)}")
+            self.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {self.relative(path)}")
             for line in lines:
                 self.check(MATERIAL_PATTERN.fullmatch(line) is not None, f"invalid catalog line: {self.relative(path)}: {line}")
                 self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
@@ -854,6 +854,12 @@ class Validator:
         prefix = resource_type + "."
         return property_name[len(prefix) :] if property_name.startswith(prefix) else property_name
 
+    def check_cidr_value(self, path: Path, property_name: str, value: str) -> None:
+        self.check(
+            not ("cidr" in property_name.lower() and "PENDING_DEPLOY" in value.upper()),
+            f"CIDR must not use PENDING_DEPLOY: {self.relative(path)}: {property_name}",
+        )
+
     def check_generated_identifier(
         self,
         path: Path,
@@ -882,27 +888,9 @@ class Validator:
                 re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                 f"generated ARN is forbidden in design: {self.relative(path)}: {property_name}",
             )
-        # Security Group basic rows are normalized from its horizontal overview.
-        try:
-            names = [] if resource_type == "EC2.SecurityGroup" else resource_name_rows(resource_type, rows)
-        except ValueError as error:
-            self.check(False, f"{self.relative(path)}: {error}")
-            return
-        if names:
-            self.check(
-                rows[:len(names)] == names,
-                f"resource name rows must be first: {self.relative(path)}: {resource_type}",
-            )
-        leading = [row[1] for row in names]
-        second = {"Events.Rule": "Events.Rule.State", "S3.Bucket": "S3.Bucket.Region"}.get(resource_type)
-        if second and any(row[1] == second for row in rows):
-            leading.append(second)
-        remaining_outputs = [prop for prop in expected_properties if prop not in leading]
-        if remaining_outputs:
-            self.check(
-                [row[1] for row in rows[len(leading):len(leading) + len(remaining_outputs)]] == remaining_outputs,
-                f"identifier output rows must be first in catalog order after name and fixed rows: {self.relative(path)}: {resource_type}",
-            )
+        if resource_type != "EC2.SecurityGroup" and resource_type not in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}:
+            for error in catalog_order_errors(resource_type, rows):
+                self.check(False, f"{self.relative(path)}: {error}")
 
     def check_required_name_tag(
         self,
@@ -932,6 +920,7 @@ class Validator:
         )
         if len(name_rows) != 1:
             return
+        self.check(rows[0] == name_rows[0], f"design-only Name must be the first row: {self.relative(path)}: {property_name}")
         value = self.unquoted(name_rows[0][2]).strip()
         self.check(bool(value), f"required Name value must not be empty: {self.relative(path)}: {property_name}")
         self.check(
@@ -1079,6 +1068,7 @@ class Validator:
                     self.check(len(cells) == 4, f"table row must have four cells: {self.relative(path)}")
                     if len(cells) == 4:
                         rows.append(cells)
+                        self.check_cidr_value(path, cells[1], cells[2])
                         self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
                         self.check(
                             JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
@@ -1154,11 +1144,11 @@ class Validator:
                     if self.schema_catalog is not None and current_resource_type in self.schema_catalog.api_schemas:
                         self.check_api_design_rows(path, current_resource_type, rows)
                     if current_resource_type == "Events.Rule":
-                        for position, property_name in enumerate(("Events.Rule.Name", "Events.Rule.State")):
+                        for property_name in ("Events.Rule.Name", "Events.Rule.State"):
                             selected = [row for row in rows if row[1] == property_name]
                             self.check(
-                                len(selected) == 1 and len(rows) > position and rows[position][1] == property_name,
-                                f"{property_name} must appear exactly once at row {position + 1}: {self.relative(path)}: {current_logical_id}",
+                                len(selected) == 1,
+                                f"{property_name} must appear exactly once: {self.relative(path)}: {current_logical_id}",
                             )
                             if len(selected) == 1:
                                 value = self.unquoted(selected[0][2]).strip()
@@ -1435,6 +1425,8 @@ class Validator:
                     )
                     if len(cells) != len(headers):
                         continue
+                    for header, value in zip(headers, cells):
+                        self.check_cidr_value(path, header, value)
                     link = RESOURCE_LINK_PATTERN.fullmatch(cells[0])
                     self.check(
                         bool(link and not link.group(2)),

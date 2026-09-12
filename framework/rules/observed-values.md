@@ -11,6 +11,7 @@
 - `Macie.ClassificationJob.jobId`もAPI catalogの`IDENTIFIER_OUTPUT`として扱う。既存Jobを取得する許可済みdesign taskでは`DescribeClassificationJob`から必要なjobIdを取得する。CFn Outputsやstack resourceへ探索を広げず、responseのjobArn、統計、実行状態を永続化しない。
 - AWS managed-policy ARNなどのhuman-provided design ARNはobserved valueではなく、必要なdesign inputとして`desired.*`へ残してよい。
 - current valueがまだ存在しないgenerated fieldは`PENDING_DEPLOY`とし、そのidentifierを参照する全propertyのMarkdown link表示textも`PENDING_DEPLOY`とする。
+- `CidrBlock`、`DestinationCidrBlock`、`CidrIp`等のCIDR項目は、詳細表・リソース一覧とも`PENDING_DEPLOY`を禁止する。deploy前でも確定済みCIDRを表示し、未確定ならhumanへ確認する。参照linkの表示値や配列内も同じとし、catalogでidentifier outputとされるCIDRでも例外にしない。`VpcId`等の生成IDのPENDING_DEPLOY許容は維持する。
 - 既存resource取得ではchatbotが選択したpropertyだけを詳細設計のdesired valueへ直接差分反映し、必要な非ARN generated identifierをobserved valueへ反映する。未選択propertyと未選択resourceは変更しない。
 - current physical valueはresourceが現在存在する間だけ保持する。replacementでは新しい値だけをidentifier output rowと全参照元へ反映する。
 - destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻し、modelを再生成する。
