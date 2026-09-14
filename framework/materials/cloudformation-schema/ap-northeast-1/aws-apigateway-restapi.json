@@ -217,6 +217,10 @@
       },
       "type": "array",
       "uniqueItems": false
+    },
+    "Version": {
+      "description": "",
+      "type": "string"
     }
   },
   "readOnlyProperties": [

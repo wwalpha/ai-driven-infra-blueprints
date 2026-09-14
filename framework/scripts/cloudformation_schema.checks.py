@@ -35,8 +35,21 @@ def main() -> None:
     assert catalog.literal_errors("Athena.WorkGroup", "State", "unexpected")
     assert catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"] == "string"
     materials = root / "framework" / "materials" / "aws"
-    # These optional fields are intentionally supported by the curated catalog.
+    # These fields are intentionally supported by the curated catalog.
     for resource_type, properties in {
+        "IAM.User": (
+            "UserName",
+            "Groups",
+            "LoginProfile.Password",
+            "LoginProfile.PasswordResetRequired",
+            "ManagedPolicyArns",
+            "Path",
+            "PermissionsBoundary",
+            "Policies[].PolicyName",
+            "Policies[].PolicyDocument",
+            "Tags[].Key",
+            "Tags[].Value",
+        ),
         "SecretsManager.Secret": ("Type",),
         "SecretsManager.RotationSchedule": (
             "ExternalSecretRotationMetadata[].Key",
@@ -47,12 +60,18 @@ def main() -> None:
         lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
         for property_path in properties:
             assert f"{resource_type}.{property_path}=" in lines, property_path
-            assert catalog.property_schema(resource_type, property_path)["type"] == "string"
+            node = catalog.property_schema(resource_type, property_path)
+            assert "type" in node
+            if resource_type.startswith("SecretsManager."):
+                assert node["type"] == "string"
+    assert catalog.property_schema("IAM.User", "UserName")["type"] == "string"
+    assert catalog.property_schema("IAM.User", "LoginProfile.PasswordResetRequired")["type"] == "boolean"
+    assert "object" in catalog.property_schema("IAM.User", "Policies[].PolicyDocument")["type"]
     assert sum(
         line.endswith("=IDENTIFIER_OUTPUT")
         for path in materials.glob("*.properties")
         for line in path.read_text(encoding="utf-8").splitlines()
-    ) == 71
+    ) == 69
     eip = (materials / "EC2_EIP.properties").read_text(encoding="utf-8")
     assert "EC2.EIP.AllocationId=IDENTIFIER_OUTPUT" in eip
     assert "EC2.EIP.PublicIp=IDENTIFIER_OUTPUT" in eip

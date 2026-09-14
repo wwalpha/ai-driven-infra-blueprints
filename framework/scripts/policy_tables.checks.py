@@ -214,6 +214,7 @@ def service_policy_checks():
 
     repository = SCRIPTS.parents[1]
     schema = CloudFormationSchemaCatalog(repository)
+    assert POLICY_FORMATS["IAM.User.Policies[].PolicyDocument"] == "statement"
     candidates = set()
     for catalog in (repository / "framework/materials/aws").glob("*.properties"):
         resource_type = catalog.stem.replace("_", ".", 1)
@@ -261,6 +262,8 @@ def service_policy_checks():
                 rows = []
                 if owner_type == "S3.Bucket":
                     rows = [("S3.Bucket.BucketName", f"`{name}`"), ("S3.Bucket.Region", "`us-east-1`")]
+                if prop == "IAM.User.Policies[].PolicyDocument":
+                    rows.append(("IAM.User.Policies[].PolicyName", "`Access`"))
                 rows.append((prop, f"[Access]({service}/access.json)"))
                 for number, (key, value) in enumerate(rows, 1):
                     original += f"| {number} | {key} | {value} | 設定の値 |\n"
@@ -272,7 +275,8 @@ def service_policy_checks():
             assert rendered_design(path) == rendered, prop
             assert MODEL.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
-            assert f"#{service}-sample-a-policy-access" in rendered and f"#{service}-sample-b-policy-access" in rendered
+            suffix = "inline-access" if prop == "IAM.User.Policies[].PolicyDocument" else "policy-access"
+            assert f"#{service}-sample-a-{suffix}" in rendered and f"#{service}-sample-b-{suffix}" in rendered
             for duplicate in ("Property：", "JSON：", "Version：", "Id："):
                 assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
@@ -291,6 +295,8 @@ def service_policy_checks():
                     assert "&#124;" in rendered and "&lt;b&gt;" in rendered
             else:
                 assert "| No. | Sid | Effect | Principal | NotPrincipal.AWS | Action | NotAction | Resource | NotResource | Condition |" in rendered
+                if prop == "IAM.User.Policies[].PolicyDocument":
+                    assert "#### インラインポリシー：Access" in rendered
 
             def errors(content):
                 path.write_text(content, encoding="utf-8")
@@ -306,7 +312,7 @@ def service_policy_checks():
             assert errors(original), "missing views must fail"
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"
-            assert errors(rendered.replace(f"[Access](#{service}-sample-b-policy-access)", f"[Access](#{service}-sample-a-policy-access)", 1)), "wrong owner link must fail"
+            assert errors(rendered.replace(f"[Access](#{service}-sample-b-{suffix})", f"[Access](#{service}-sample-a-{suffix})", 1)), "wrong owner link must fail"
             for metadata in (f"Property：`{prop}`", f"JSON：[Access]({service}/access.json)", "Version：`2012-10-17`", "Id：`access-policy`"):
                 assert errors(rendered.replace(START, START + "\n\n" + metadata, 1)), (prop, metadata)
             assert errors(rendered.replace(START, START + "\n" + START, 1)), "nested markers must fail"

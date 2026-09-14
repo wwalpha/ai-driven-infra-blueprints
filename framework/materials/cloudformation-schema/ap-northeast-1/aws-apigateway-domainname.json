@@ -82,7 +82,8 @@
       "permissions": [
         "apigateway:GET",
         "apigateway:PUT",
-        "apigateway:PATCH"
+        "apigateway:PATCH",
+        "apigateway:DELETE"
       ]
     }
   },
@@ -170,6 +171,11 @@
   "sourceUrl": "https://github.com/aws-cloudformation/aws-cloudformation-rpdk.git",
   "tagging": {
     "cloudFormationSystemTags": true,
+    "permissions": [
+      "apigateway:PUT",
+      "apigateway:DELETE",
+      "apigateway:GET"
+    ],
     "tagOnCreate": true,
     "tagProperty": "/properties/Tags",
     "tagUpdatable": true,

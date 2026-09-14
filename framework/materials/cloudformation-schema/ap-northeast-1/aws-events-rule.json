@@ -1,4 +1,9 @@
 {
+  "additionalIdentifiers": [
+    [
+      "/properties/RuleName"
+    ]
+  ],
   "additionalProperties": false,
   "conditionalCreateOnlyProperties": [
     "/properties/EventBusName"
@@ -560,6 +565,10 @@
       "description": "The Amazon Resource Name (ARN) of the role that is used for target invocation.",
       "type": "string"
     },
+    "RuleName": {
+      "description": "The name of the rule, exposed as a read-only attribute for use with Fn::GetAtt.",
+      "type": "string"
+    },
     "ScheduleExpression": {
       "description": "The scheduling expression. For example, \"cron(0 20 * * ? *)\", \"rate(5 minutes)\". For more information, see Creating an Amazon EventBridge rule that runs on a schedule.",
       "type": "string"
@@ -593,7 +602,8 @@
     }
   },
   "readOnlyProperties": [
-    "/properties/Arn"
+    "/properties/Arn",
+    "/properties/RuleName"
   ],
   "tagging": {
     "cloudFormationSystemTags": true,

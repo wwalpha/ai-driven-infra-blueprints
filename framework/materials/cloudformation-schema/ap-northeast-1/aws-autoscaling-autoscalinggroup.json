@@ -171,6 +171,7 @@
       "description": "",
       "properties": {
         "TargetCapacityTypes": {
+          "description": "",
           "insertionOrder": true,
           "items": {
             "enum": [
@@ -776,6 +777,7 @@
         "autoscaling:Describe*",
         "autoscaling:EnableMetricsCollection",
         "autoscaling:PutNotificationConfiguration",
+        "autoscaling:SuspendProcesses",
         "cloudwatch:PutMetricAlarm",
         "ec2:Describe*",
         "ec2:Get*",
@@ -835,6 +837,8 @@
         "autoscaling:PutLifecycleHook",
         "autoscaling:StartInstanceRefresh",
         "autoscaling:CancelInstanceRefresh",
+        "autoscaling:SuspendProcesses",
+        "autoscaling:ResumeProcesses",
         "cloudwatch:PutMetricAlarm",
         "ec2:Describe*",
         "ec2:Get*",

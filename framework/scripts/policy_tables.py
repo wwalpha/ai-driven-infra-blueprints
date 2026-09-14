@@ -32,6 +32,7 @@ POLICY_FORMATS = {
     "IAM.ManagedPolicy.PolicyDocument": "statement",
     "IAM.Role.AssumeRolePolicyDocument": "statement",
     "IAM.Role.Policies[].PolicyDocument": "statement",
+    "IAM.User.Policies[].PolicyDocument": "statement",
     "KMS.Key.KeyPolicy": "statement",
     "Logs.LogGroup.ResourcePolicyDocument": "statement",
     "Logs.ResourcePolicy.PolicyDocument": "statement",
@@ -52,6 +53,10 @@ POLICY_FORMATS = {
     "SQS.Queue.RedrivePolicy": "settings",
 }
 POLICY_KEYS = {"Version", "Id", "Statement"}
+INLINE_POLICY_DOCUMENTS = {
+    "IAM.Role.Policies[].PolicyDocument",
+    "IAM.User.Policies[].PolicyDocument",
+}
 STATEMENT_KEYS = (
     "Sid", "Effect", "Principal", "NotPrincipal", "Action", "NotAction",
     "Resource", "NotResource", "Condition",
@@ -179,9 +184,10 @@ def resources_in(lines: list[str]) -> list[Resource]:
             if not match:
                 raise ValueError(f"policy requires a JSON artifact link: {logical_id}: {row[1]}")
             label, link = match.groups()
-            inline = row[1] == "IAM.Role.Policies[].PolicyDocument"
+            inline = row[1] in INLINE_POLICY_DOCUMENTS
             if inline:
-                if number == 0 or rows[number - 1][1] != "IAM.Role.Policies[].PolicyName":
+                policy_name_property = row[1].removesuffix("PolicyDocument") + "PolicyName"
+                if number == 0 or rows[number - 1][1] != policy_name_property:
                     raise ValueError(f"IAM inline policy requires a preceding PolicyName: {logical_id}")
                 label = literal(rows[number - 1][2])
                 if label in {"", "UNSET", "PENDING_DEPLOY"}:

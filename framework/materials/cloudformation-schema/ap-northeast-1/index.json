@@ -94,6 +94,7 @@
     "AWS::IAM::InstanceProfile": "aws-iam-instanceprofile.json",
     "AWS::IAM::ManagedPolicy": "aws-iam-managedpolicy.json",
     "AWS::IAM::Role": "aws-iam-role.json",
+    "AWS::IAM::User": "aws-iam-user.json",
     "AWS::KMS::Alias": "aws-kms-alias.json",
     "AWS::KMS::Key": "aws-kms-key.json",
     "AWS::KinesisFirehose::DeliveryStream": "aws-kinesisfirehose-deliverystream.json",

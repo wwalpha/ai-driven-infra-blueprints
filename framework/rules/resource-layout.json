@@ -109,6 +109,7 @@
   "IAM.InstanceProfile": "independent",
   "IAM.ManagedPolicy": "independent",
   "IAM.Role": "independent",
+  "IAM.User": "independent",
   "KMS.Alias": {
     "identityProperty": "AliasName",
     "maxCount": null,
