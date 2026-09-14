@@ -6,12 +6,12 @@
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
-- `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`だけとし、詳細設計ではそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`の1 rowで表す。
+- `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`だけとし、詳細設計ではそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
 - その他のresourceでは、humanが`Name` tagを明示した場合だけ設計する。taggableであることを理由に質問、追加、blocker判定をしない。
-- 上記3種類の`.Name`は詳細設計専用propertyとし、IaCではcase-sensitiveな`Name` keyを持つtagへ変換する。`Tags[].Key`と`Tags[].Value`の2 rowでは表さない。
+- 上記4種類の`.Name`は詳細設計専用propertyとし、IaCではcase-sensitiveな`Name` keyを持つtagへ変換する。`Tags[].Key`と`Tags[].Value`の2 rowでは表さない。
 - その他のresourceでhuman-selectedな`Name` tagを使用する場合は、array形式では`Tags[].Key`と直後の`Tags[].Value`、object形式では`Tags` JSON objectで表す。
 - `Name` tagのkeyはcase-sensitiveな`Name`を正確に使用し、valueを空にしない。
-- 上記3種類のresource heading identifierは`.Name` valueと完全一致させ、anchorはService IDとそのvalueをlowercaseで結ぶ。
+- 上記4種類のresource heading identifierは`.Name` valueと完全一致させ、anchorはService IDとそのvalueをlowercaseで結ぶ。
 - 既存resourceと既存詳細設計の確定済み名称を自動変更しない。renameまたはreplacementは別の明示依頼がある場合だけ扱う。
 - 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
 - CloudFormation logical ID、詳細設計のlogical ID、JSON artifact filenameには、それぞれの既存ruleを適用する。
@@ -35,7 +35,7 @@
 
 | Policy | AWS resource | Rule |
 | --- | --- | --- |
-| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
+| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`)、Flow Log (`EC2.FlowLog.Name`) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
 | Conditional | 長期運用するEC2 Instance、VPC peering connection、VPC endpoint、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
 | Optional by default | Internet gateway、Elastic IP address、Security group、固有のname／identifier propertyを持つresource | 関連先または正式なname／identifierで識別できるため、自動追加しない |
 
@@ -48,6 +48,7 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | Amazon VPC | VPC | `EC2.VPC.Name` | `vpc-{{application}}-{{environment}}` |
 | Amazon VPC | Subnet | `EC2.Subnet.Name` | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
 | Amazon VPC | Route table | `EC2.RouteTable.Name` | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
+| Amazon VPC | Flow Log | `EC2.FlowLog.Name` | `flowlog-{{application}}-{{environment}}[-{{target_alias}}]` |
 | Amazon VPC | VPC peering connection | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
 | Amazon VPC | Internet gateway | Name tag | `igw-{{application}}-{{environment}}` |
 | Amazon VPC | VPC endpoint | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |

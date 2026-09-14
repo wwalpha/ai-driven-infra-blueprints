@@ -49,7 +49,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - IAM inline policyのStatement内のSidが存在する場合は文字列かつ16文字以内であり、超過を自動修正していない
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
-- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
+- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
 - cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
 - generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効

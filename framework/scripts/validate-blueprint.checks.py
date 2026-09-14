@@ -410,6 +410,7 @@ def check_name_tag_and_identifier_order_contract() -> None:
     repository = SCRIPT.parents[2]
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
     assert MODULE.REQUIRED_NAME_PROPERTIES == {
+        "EC2.FlowLog": "EC2.FlowLog.Name",
         "EC2.RouteTable": "EC2.RouteTable.Name",
         "EC2.Subnet": "EC2.Subnet.Name",
         "EC2.VPC": "EC2.VPC.Name",
@@ -456,6 +457,27 @@ def check_name_tag_and_identifier_order_contract() -> None:
         [["1", "EC2.Subnet.Name", "PRIVATE_SUBNET_01", "Nameタグの値"]],
     )
     assert any("lower-kebab-case" in error for error in validator.errors)
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.FlowLog",
+        "flowlog-venus-staging-non-cde",
+        [["1", "EC2.FlowLog.Name", "flowlog-venus-staging-non-cde", "Nameタグの値"]],
+    )
+    assert not validator.errors, validator.errors
+
+    validator = MODULE.Validator(repository)
+    validator.check_required_name_tag(
+        path,
+        "EC2.FlowLog",
+        "flowlog-venus-staging-non-cde",
+        [
+            ["1", "EC2.FlowLog.Tags[].Key", "Name", "Nameタグのキー"],
+            ["2", "EC2.FlowLog.Tags[].Value", "flowlog-venus-staging-non-cde", "Nameタグの値"],
+        ],
+    )
+    assert any("one-row property" in error for error in validator.errors)
 
     validator = MODULE.Validator(repository)
     validator.check_required_name_tag(
@@ -823,7 +845,7 @@ def check_subnet_association_overview() -> None:
     details = "## リソース詳細\n\n"
     for number in range(1, 4):
         route_table = (
-            f"| 3 | {association_type}.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
+            f"| 3 | EC2.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
             if number < 3 else ""
         )
         details += (
@@ -875,6 +897,26 @@ def check_subnet_association_overview() -> None:
         assert "desired.row.002-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
         assert "EC2.SubnetRouteTableAssociation.Id" not in merged_model
         assert "EC2.SubnetRouteTableAssociation.SubnetId" not in merged_model
+
+        design.write_text(
+            valid.replace("EC2.RouteTableId", f"{association_type}.RouteTableId"),
+            encoding="utf-8",
+        )
+        catalog_types, property_owners, identifier_outputs = MODULE.Validator(
+            SCRIPT.parents[2]
+        ).catalog_design_properties()
+        validator = MODULE.Validator(root)
+        validator.schema_catalog = MODULE.DesignSchemaCatalog(SCRIPT.parents[2])
+        validator.check_design_tables(
+            {design: ("vpc", ("EC2.Subnet", "EC2.RouteTable", association_type))},
+            catalog_types,
+            property_owners,
+            identifier_outputs,
+        )
+        assert any(
+            "must use Markdown display property EC2.RouteTableId" in error
+            for error in validator.errors
+        ), validator.errors
 
         pending = valid
         for identifier in ("rtb-00000001", *(f"subnet-{number:08d}" for number in range(1, 4))):

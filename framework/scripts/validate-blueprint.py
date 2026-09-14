@@ -26,6 +26,7 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
 from design_layout import (
     DETAILS_HEADING,
+    DISPLAY_PROPERTY_ALIASES,
     GROUPED,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
@@ -97,6 +98,7 @@ TASK_TYPES = {
     "migration",
 }
 REQUIRED_NAME_PROPERTIES = {
+    "EC2.FlowLog": "EC2.FlowLog.Name",
     "EC2.RouteTable": "EC2.RouteTable.Name",
     "EC2.Subnet": "EC2.Subnet.Name",
     "EC2.VPC": "EC2.VPC.Name",
@@ -1067,6 +1069,13 @@ class Validator:
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(len(cells) == 4, f"table row must have four cells: {self.relative(path)}")
                     if len(cells) == 4:
+                        display_property = cells[1]
+                        cells[1] = DISPLAY_PROPERTY_ALIASES.get(display_property, display_property)
+                        if cells[1] in DISPLAY_PROPERTY_ALIASES.values():
+                            self.check(
+                                display_property in DISPLAY_PROPERTY_ALIASES,
+                                f"grouped property must use Markdown display property EC2.RouteTableId: {self.relative(path)}: {display_property}",
+                            )
                         rows.append(cells)
                         self.check_cidr_value(path, cells[1], cells[2])
                         self.check(cells[0] == str(number), f"table numbering error: {self.relative(path)}")
@@ -1364,7 +1373,7 @@ class Validator:
                 f"resource anchors must be inside resource details: {self.relative(path)}",
             )
 
-            association_route_table = "EC2.SubnetRouteTableAssociation.RouteTableId"
+            association_route_table = "EC2.RouteTableId"
             subnet_route_tables = {
                 anchor: properties[anchor][association_route_table]
                 for anchor, (resource_type, _) in resources.items()

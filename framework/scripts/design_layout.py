@@ -20,6 +20,9 @@ GROUPED_RESOURCE_TYPES = {
 IMPLICIT_GROUPED_PROPERTIES = {
     name: {rule["parentProperty"]} for name, rule in GROUPED.items()
 }
+DISPLAY_PROPERTY_ALIASES = {
+    "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
+}
 DETAILS_HEADING = "## リソース詳細"
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
@@ -160,7 +163,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
-            prop = cells[1]
+            cells[1] = prop = DISPLAY_PROPERTY_ALIASES.get(cells[1], cells[1])
             resource_type = ".".join(prop.split(".")[:2])
             rule = GROUPED.get(resource_type)
             marker = CHILD.match(cells[3])
