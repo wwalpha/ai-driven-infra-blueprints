@@ -977,6 +977,7 @@ def check_cloudformation_yaml_rules() -> None:
             "    Properties:\n"
             "      AssumeRolePolicyDocument: *sharedTrustPolicy\n"
             "      JobId: !Select [0, !Split ['|', !Ref GlueJob]]\n"
+            "      Imported: !ImportValue fixed-export\n"
             "      Description: 'Fn::Select: is text'\n"
             "      UserData: |\n"
             "        Ref: is text too\n"
@@ -989,6 +990,9 @@ def check_cloudformation_yaml_rules() -> None:
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {'Fn::Select': [0, !Ref GlueJob]}"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Join: ['-', [a, b]]}"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Sub: '${AWS::Region}'}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue: fixed-export"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue:\n          !Sub '${NetworkStack}-SubnetID'"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        'Fn::ImportValue': !Sub '${NetworkStack}-SubnetID'"),
         ):
             assert any("must use YAML short form" in error for error in errors(bad)), errors(bad)
 
