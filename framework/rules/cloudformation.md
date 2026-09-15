@@ -5,9 +5,7 @@
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。`ImportValue`の値に`!Sub`を使用しない。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
-- 同一YAML template内の複数IAM Roleで`AssumeRolePolicyDocument`の全要素と値が同じ場合、template上部の`Metadata.Constants.SharedTrustPolicy: &sharedTrustPolicy`に元のtrust policyを一度だけ定義し、最初のRoleを含む全Roleで`AssumeRolePolicyDocument: *sharedTrustPolicy`を使用する。`Mappings`には置かない。内容が異なるtrust policyは共有せず、Roleごとの設計JSON artifactと参照は維持する。
-- 同一YAML template内の複数箇所で完全一致する非Policyの設定ブロックは、resourceの値と挙動を変えずに共有できる場合、template上部の`Metadata.Constants`に一度定義し、各箇所でYAML aliasを使用する。`Mappings`を共通定数の置き場にしない。
-- IAM/KMSなどの権限Policyは、本体も`Statement`、`Action`、`Resource`などの一部もYAML anchor/aliasで共通化せず、各Policyに元の設定を明示する。
+- CloudFormation YAMLではYAML anchor/aliasとhash merge（`<<:`）を使用しない。信頼ポリシー、IAM/KMSなどの権限Policy、その他の設定ブロックが同じ場合も各resourceに元の値を明示し、Roleごとの設計JSON artifactと参照を維持する。
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
