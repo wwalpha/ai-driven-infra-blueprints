@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused check for framework-only repository synchronization."""
+"""Focused check for framework and .agents repository synchronization."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ def main() -> None:
         )
         assert result.returncode == 0, result.stderr
         assert (target / "framework" / "scripts" / SCRIPT.name).is_file()
+        skill = Path(__file__).resolve().parents[2] / ".agents/skills/initialize/SKILL.md"
+        assert (target / ".agents/skills/initialize/SKILL.md").read_bytes() == skill.read_bytes()
         assert not (target / "docs").exists()
         assert not (target / "tasks").exists()
     print("sync-existing-files: PASS")

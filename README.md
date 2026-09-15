@@ -149,13 +149,13 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 
 ## Framework distribution
 
-`framework/`だけを共通資産の配布単位とします。既存repositoryへ同期する場合は、配布元repositoryのrootで次を実行します。
+`framework/`と`.agents/`を共通資産の配布単位とします。既存repositoryへ同期する場合は、配布元repositoryのrootで次を実行します。
 
 ```console
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-このcommandは`<target-repository>/framework/**`だけを追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`AGENTS.md`と`README.md`は各repositoryのentrypointとしてrootに残します。
+このcommandは`<target-repository>/framework/**`と`<target-repository>/.agents/**`を追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`AGENTS.md`と`README.md`は各repositoryのentrypointとしてrootに残します。
 
 ## Repository structure
 
