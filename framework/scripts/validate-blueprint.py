@@ -175,6 +175,7 @@ class Validator:
         self.check_observed_values()
         self.check_iac_selection()
         self.check_cloudformation_yaml_rules()
+        self.check_cloudformation_environment_parameters()
         self.check_scenarios()
         self.check_results()
         self.check_scenario_changes()
@@ -1757,6 +1758,65 @@ class Validator:
                     self.check(False, f"identical IAM trust policy must use YAML anchor/alias: {self.relative(path)}:{index + 1} (first at {trust_bodies[document]})")
                 elif document.strip():
                     trust_bodies[document] = index + 1
+
+    def check_cloudformation_environment_parameters(self) -> None:
+        templates = self.root / "infra" / "cloudformation" / "templates"
+        parameters = self.root / "infra" / "cloudformation" / "parameters"
+        environment_templates: set[Path] = set()
+        for path in sorted(templates.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+                continue
+            section = ""
+            parameter_keys: dict[int, set[str]] = {}
+            used = False
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if re.match(r"^[A-Za-z][A-Za-z0-9]*:\s*(?:#.*)?$", line):
+                    section = line.split(":", 1)[0]
+                    continue
+                if section == "Parameters":
+                    key = re.match(r"^( +)([A-Za-z][A-Za-z0-9]*):", line)
+                    if key:
+                        parameter_keys.setdefault(len(key.group(1)), set()).add(key.group(2))
+                if section == "Resources" and not line.lstrip().startswith("#"):
+                    used |= bool(re.search(r"!Ref\s+Environment\b|\$\{Environment\}", line))
+            if used:
+                environment_templates.add(path)
+                declared = bool(parameter_keys) and "Environment" in parameter_keys[min(parameter_keys)]
+                self.check(declared, f"CloudFormation resource uses Environment without Parameters.Environment: {self.relative(path)}")
+
+        for path in sorted(parameters.rglob("*.json")):
+            parts = path.relative_to(parameters).parts
+            if len(parts) < 3:
+                continue
+            environment, target_directory = parts[:2]
+            candidates = [
+                templates / target_directory / f"{path.stem}{suffix}"
+                for suffix in (".yaml", ".yml")
+            ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml")]
+            matching_template = next((candidate for candidate in candidates if candidate.is_file()), None)
+            requires_environment = matching_template in environment_templates
+            try:
+                entries = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                self.check(False, f"invalid CloudFormation parameter JSON: {self.relative(path)}: {error}")
+                continue
+            if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+                self.check(False, f"CloudFormation parameter file must be a parameter array: {self.relative(path)}")
+                continue
+            environment_values = [entry.get("ParameterValue") for entry in entries if entry.get("ParameterKey") == "Environment"]
+            if requires_environment or environment_values:
+                self.check(
+                    environment_values == [environment],
+                    f"CloudFormation Environment parameter must equal target environment: {self.relative(path)}",
+                )
+            component = re.compile(rf"(?<![a-z0-9]){re.escape(environment)}(?![a-z0-9])", re.IGNORECASE)
+            for entry in entries:
+                value = entry.get("ParameterValue")
+                if entry.get("ParameterKey") != "Environment" and isinstance(value, str):
+                    self.check(
+                        component.search(value) is None,
+                        f"CloudFormation parameter value contains Environment component: {self.relative(path)}: {entry.get('ParameterKey')}",
+                    )
 
     @staticmethod
     def metadata_values(path: Path, label: str) -> list[str]:

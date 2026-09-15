@@ -15,6 +15,8 @@
 - 後続resourceまたは別stackが必要とするcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
 - aliasなしの共通templateは`infra/cloudformation/templates/`、alias別templateは`infra/cloudformation/templates/<alias>/`に置く。同じaliasのtemplateをenvironment間で共用し、異なるaliasのtemplateを共用しない。
 - target固有parameterは`infra/cloudformation/parameters/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
+- resourceの正式な名前propertyまたは`Name` tagにEnvironment IDを含める場合、templateの`Parameters`に独立した`Environment`を宣言し、target別parameter fileでは`Environment`に`project.json`の対象Environment IDを設定する。名前はresourceのproperty／tag valueで`!Sub`、`!Join`、`!Ref`などから合成し、AWS account ID等の独立したcomponentと同様に扱う。詳細設計にある確定済みの完成名は変更しない。
+- target別parameter fileの`Environment`以外のparameter value（resource名、prefix、suffix等）に対象Environment IDを名称componentとして含めない。例えば`Environment=dev`、`NamePrefix=app`から`app-dev-role`をtemplate内で作る。`NamePrefix=app-dev`は`Environment` parameterの有無にかかわらず違反とする。templateに完成名を固定したり、別parameterにEnvironmentを埋め込んで二重に付加したりしない。
 - 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
 - authorized operationはAWS CLIで行う。
 

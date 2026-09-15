@@ -1012,6 +1012,60 @@ def check_cloudformation_yaml_rules() -> None:
         different = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body.replace("ec2.amazonaws.com", "lambda.amazonaws.com"))
         assert not errors(different), errors(different)
 
+
+def check_cloudformation_environment_parameters() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        template = root / "infra/cloudformation/templates/role.yaml"
+        parameter = root / "infra/cloudformation/parameters/dev/123456789012/role.json"
+        template.parent.mkdir(parents=True)
+        parameter.parent.mkdir(parents=True)
+        valid_template = """Parameters:
+  Environment:
+    Type: String
+  NamePrefix:
+    Type: String
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'
+"""
+
+        def errors(yaml: str, values: list[dict[str, str]]) -> list[str]:
+            template.write_text(yaml, encoding="utf-8")
+            parameter.write_text(json.dumps(values), encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_cloudformation_environment_parameters()
+            return validator.errors
+
+        valid_values = [
+            {"ParameterKey": "Environment", "ParameterValue": "dev"},
+            {"ParameterKey": "NamePrefix", "ParameterValue": "app"},
+        ]
+        assert not errors(valid_template, valid_values)
+        assert not errors(valid_template.replace("  ", "    "), valid_values)
+        assert not errors(valid_template.replace("!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'", "!Ref Environment"), valid_values)
+        assert any("without Parameters.Environment" in error for error in errors(
+            valid_template.replace("  Environment:\n    Type: String\n", ""), valid_values
+        ))
+        assert any("must equal target environment" in error for error in errors(
+            valid_template, valid_values[1:]
+        ))
+        assert any("must equal target environment" in error for error in errors(
+            valid_template, [{**valid_values[0], "ParameterValue": "prod"}, valid_values[1]]
+        ))
+        assert any("contains Environment component" in error for error in errors(
+            valid_template, [valid_values[0], {**valid_values[1], "ParameterValue": "app-dev"}]
+        ))
+        assert any("contains Environment component" in error for error in errors(
+            valid_template.replace("!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'", "!Ref NamePrefix"),
+            [{"ParameterKey": "NamePrefix", "ParameterValue": "app-dev-role"}],
+        ))
+        assert not errors(
+            valid_template, [valid_values[0], {**valid_values[1], "ParameterValue": "device"}]
+        )
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -1040,8 +1094,9 @@ def main() -> None:
     check_resource_overview()
     check_subnet_association_overview()
     check_cloudformation_yaml_rules()
+    check_cloudformation_environment_parameters()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (49 focused checks)")
+    print("validate-blueprint: PASS (50 focused checks)")
 
 
 if __name__ == "__main__":
