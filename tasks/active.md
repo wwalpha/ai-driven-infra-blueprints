@@ -1,10 +1,10 @@
-# 既存ファイル同期へ .agents を含める
+# IAM Roleの共通信頼ポリシーをtemplate内で共有する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework 共通 / 既存repositoryへの同期script
-- Goal: `sync-existing-files.py`で`framework/`に加えて`.agents/`も同期する。
+- Target: framework共通 / CloudFormation記載ルール
+- Goal: 同一CloudFormation template内で内容が同じIAM Role trust policyをYAMLアンカーとエイリアスで共有する。
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,23 +12,17 @@
 
 ## Required changes
 
-- [R1] 同期scriptの対象へrootの`.agents/**`を追加する。
-- [R2] focused checkで`.agents`のコピーを確認する。
-- [R3] READMEの同期範囲を実際の挙動に合わせる。
+- [R1] 同一template内のIAM Roleが同じtrust policyを持つ場合に、Role別の設計JSONを維持しながらYAMLアンカーとエイリアスで実装を共有するルールを追加する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/sync-existing-files.py`
-- [R2] `changed:framework/scripts/sync-existing-files.checks.py`
-- [R3] `changed:README.md`
+- [R1] `changed:framework/rules/cloudformation.md`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/sync-existing-files.py`
-- `framework/scripts/sync-existing-files.checks.py`
-- `README.md`
+- `framework/rules/cloudformation.md`
 
 ## Out of scope
 
-- 実targetへの同期、target固有のdesign/model/IaC、AWS操作、scenario、commit/pushへ進まない。未追跡`CMD.md`を保持する。
+- 既存templateやtarget、design/model、IaC、AWS操作、scenario、commit/pushは変更・実行しない。未追跡`CMD.md`を保持する。

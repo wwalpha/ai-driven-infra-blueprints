@@ -4,6 +4,8 @@
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
+- CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
+- 同一YAML template内の複数IAM Roleで`AssumeRolePolicyDocument`の全要素と値が同じ場合、最初のRoleのpolicy objectを`AssumeRolePolicyDocument: &sharedTrustPolicy`で定義し、他のRoleは`AssumeRolePolicyDocument: *sharedTrustPolicy`で共有する。内容が異なるtrust policyは共有せず、Roleごとの設計JSON artifactと参照は維持する。
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
