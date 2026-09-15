@@ -64,6 +64,7 @@ Jobが要求scopeに含まれる場合は未実装対象として明示し、対
 対象scopeから必要なtemplate/module、parameter、dependencyを特定する。既存boundaryと共通部品があれば再利用し、未使用resource、将来用module、compatibility layerは作成しない。
 
 CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従う。AWS service単位で機械的に分割しない。dependency cycle、parameter不足、参照先不明がある場合は、不足情報を報告して停止する。
+CloudWatch Logs resourceとIAM Roleは利用するresourceのtemplateへ含め、これらだけの単独templateを作らない。利用側resourceを一意に特定できない場合は推測せず停止する。
 
 対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、設計linkと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
 

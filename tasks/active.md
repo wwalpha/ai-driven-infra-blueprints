@@ -1,32 +1,32 @@
-# CloudFormationの別stack resource参照をexport/importへ移行する
+# CloudFormationのCloudWatch LogsとIAM Roleを利用側templateへ含める
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation cross-stack reference workflow
-- Goal: template外のstack-owned resourceを参照または文字列で使用する場合、既存exportを調査し、必要ならproducer stackへexportを追加・deployしてからconsumer templateでImportValueを使用する。
+- Target: framework共通 / CloudFormation template boundary
+- Goal: CloudWatch Logs resourceとIAM Roleの単独CloudFormation templateを禁止し、利用resourceを持つtemplateへ含める。
 
 ## Required changes
 
-- [R1] CloudFormation ruleに、外部resource参照の特定、exportの調査、producer deploy後のconsumer importの順序を規定する。
-- [R2] implement promptに、引用・文字列内の参照の発見とproducer/consumerの実装境界を規定する。
-- [R3] deploy promptに、deployed exportのread-only確認とproducer先行deployの検証を規定する。
-- [R4] update promptに、同じtaskで扱えるproducer export追加・deploy後のconsumer ImportValue変更・deploy順を規定する。
+- [R1] CloudFormation ruleにCloudWatch LogsとIAM Roleの配置境界を規定する。
+- [R2] implement promptで利用側templateへの配置を指示する。
+- [R3] repository validatorで単独templateを検出する。
+- [R4] focused checkで単独配置の拒否と利用側配置の許可を検証する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/cloudformation.md`
 - [R2] `changed:framework/prompts/codex/03_implement.md`
-- [R3] `changed:framework/prompts/codex/04_deploy.md`
-- [R4] `changed:framework/prompts/codex/05_update.md`
+- [R3] `changed:framework/scripts/validate-blueprint.py`
+- [R4] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/cloudformation.md`
 - `framework/prompts/codex/03_implement.md`
-- `framework/prompts/codex/04_deploy.md`
-- `framework/prompts/codex/05_update.md`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope
 

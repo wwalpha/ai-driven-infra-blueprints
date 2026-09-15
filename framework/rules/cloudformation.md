@@ -9,6 +9,7 @@
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
+- CloudWatch Logs resource（`AWS::Logs::*`）と`AWS::IAM::Role`だけを所有する単独template/stackは作らない。これらは利用するresourceを所有するtemplateに含める。Roleに付随するIAM PolicyやInstanceProfileだけを加えて単独templateとみなさない扱いにはしない。
 - cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
 - template外のresourceを`!Ref`、`!GetAtt`、`!Sub`、policy/設定値の文字列などで使う場合は、実際のresourceとその所有stackを特定する。文字列の一致だけでresource参照と判断しない。同一AWS account・regionの別CloudFormation stackが所有するresourceなら、producer templateのOutputsとdeploy済みstackのexportsを照合し、必要な値をexport済みか確認する。所有stack、参照する値、export名が一意に確認できなければ推測せず停止する。
 - 必要なexportがない場合はproducer templateに必要な値だけのOutput/Exportを追加し、許可されたinfrastructure taskでproducer stackを先にdeployする。terminal successと実際のexport名・値をread-onlyで確認するまでconsumer templateを変更・deployしない。既存importが使うexport名・値を命名形式だけで変更しない。producerとconsumerを同じtaskで扱えない場合はtask boundaryを守って順に実施する。

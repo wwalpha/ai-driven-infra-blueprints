@@ -982,6 +982,8 @@ def check_cloudformation_yaml_rules() -> None:
             "      UserData: |\n"
             "        Ref: is text too\n"
             "      Extra: {Fn::Length: [a, b]}\n"
+            "  Consumer:\n"
+            "    Type: AWS::EC2::Instance\n"
         )
         assert not errors(valid), errors(valid)
         for bad in (
@@ -1011,6 +1013,16 @@ def check_cloudformation_yaml_rules() -> None:
         assert any("identical IAM trust policy" in error for error in errors(duplicate)), errors(duplicate)
         different = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body.replace("ec2.amazonaws.com", "lambda.amazonaws.com"))
         assert not errors(different), errors(different)
+
+        consumer = "  Consumer:\n    Type: AWS::EC2::Instance\n"
+        boundary_error = "must share the consuming resource template"
+        assert any(boundary_error in error for error in errors(valid.replace(consumer, "")))
+        assert any(boundary_error in error for error in errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n"))
+        assert any(boundary_error in error for error in errors("Resources:\n  Filter:\n    Type: AWS::Logs::SubscriptionFilter\n"))
+        assert any(boundary_error in error for error in errors(
+            "Resources:\n  Role:\n    Type: AWS::IAM::Role\n  Policy:\n    Type: AWS::IAM::Policy\n"
+        ))
+        assert not errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n" + consumer)
 
 
 def check_cloudformation_environment_parameters() -> None:

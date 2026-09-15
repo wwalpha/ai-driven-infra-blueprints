@@ -1759,6 +1759,44 @@ class Validator:
                 elif document.strip():
                     trust_bodies[document] = index + 1
 
+            resource_types: set[str] = set()
+            in_resources = False
+            resource_indent: int | None = None
+            property_indent: int | None = None
+            for line in lines:
+                code = self.unquoted_yaml(line)
+                if not code.strip():
+                    continue
+                indent = len(code) - len(code.lstrip(" "))
+                if indent == 0:
+                    in_resources = code.startswith("Resources:")
+                    resource_indent = property_indent = None
+                    continue
+                if not in_resources:
+                    continue
+                resource = re.fullmatch(r"( +)[A-Za-z0-9]+:\s*", code)
+                if resource and (resource_indent is None or indent <= resource_indent):
+                    resource_indent, property_indent = indent, None
+                    continue
+                if resource_indent is None or indent <= resource_indent:
+                    continue
+                if property_indent is None:
+                    property_indent = indent
+                if indent == property_indent:
+                    resource_type = re.fullmatch(r"\s*Type:\s*(AWS::[A-Za-z0-9:]+)\s*", code)
+                    if resource_type:
+                        resource_types.add(resource_type.group(1))
+
+            iam_support_types = {
+                "AWS::IAM::Role", "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy",
+                "AWS::IAM::InstanceProfile",
+            }
+            if "AWS::IAM::Role" in resource_types or any(kind.startswith("AWS::Logs::") for kind in resource_types):
+                self.check(
+                    any(not kind.startswith("AWS::Logs::") and kind not in iam_support_types for kind in resource_types),
+                    f"CloudWatch Logs and IAM Role must share the consuming resource template: {self.relative(path)}",
+                )
+
     def check_cloudformation_environment_parameters(self) -> None:
         templates = self.root / "infra" / "cloudformation" / "templates"
         parameters = self.root / "infra" / "cloudformation" / "parameters"
