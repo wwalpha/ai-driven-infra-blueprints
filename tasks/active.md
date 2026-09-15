@@ -1,10 +1,10 @@
-# CloudFormation YAMLルールのcheckerを追加する
+# CloudFormation短縮関数のchecker対象を確認する
 
 ## Task contract
 
 - Task type: `governance`
 - Target: framework共通 / CloudFormation templateのlocal validation
-- Goal: CloudFormation YAML templateの長形式組み込み関数、ブロック形式の配列引数、同一trust policy本文の重複をlocal loopで検出する。
+- Goal: CloudFormation短縮関数のcheckerがSelect/Split以外の関数にも適用されることを機械検証する。
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,18 +12,15 @@
 
 ## Required changes
 
-- [R1] CloudFormation YAML templateの長形式組み込み関数、ブロック形式の配列引数、同一trust policy本文の重複を検出するcheckerをlocal validatorへ追加する。
-- [R2] checkerの許可例と拒否例をfocused checkで検証する。
+- [R1] Join/Subの長形式とJoinのブロック形式配列をfocused checkの拒否例へ追加する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/validate-blueprint.py`
-- [R2] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R1] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/validate-blueprint.py`
 - `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope

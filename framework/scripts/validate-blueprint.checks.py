@@ -987,6 +987,8 @@ def check_cloudformation_yaml_rules() -> None:
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId:\n        Fn::Select:\n          - 0\n          - Ref: GlueJob"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Select: [0, {Ref: GlueJob}]}"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {'Fn::Select': [0, !Ref GlueJob]}"),
+            valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Join: ['-', [a, b]]}"),
+            valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Sub: '${AWS::Region}'}"),
         ):
             assert any("must use YAML short form" in error for error in errors(bad)), errors(bad)
 
@@ -995,6 +997,11 @@ def check_cloudformation_yaml_rules() -> None:
             "JobId: !Select\n        - 0\n        - !Split ['|', !Ref GlueJob]",
         )
         assert any("must use YAML flow form" in error for error in errors(block_array)), errors(block_array)
+        join_block_array = valid.replace(
+            "JobId: !Select [0, !Split ['|', !Ref GlueJob]]",
+            "JobId: !Join\n        - '-'\n        - [a, b]",
+        )
+        assert any("must use YAML flow form" in error for error in errors(join_block_array)), errors(join_block_array)
 
         duplicate = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body)
         assert any("identical IAM trust policy" in error for error in errors(duplicate)), errors(duplicate)
