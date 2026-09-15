@@ -945,6 +945,62 @@ def check_subnet_association_overview() -> None:
             failures = errors(markdown)
             assert any(message in failure for failure in failures), (message, failures)
 
+
+def check_cloudformation_yaml_rules() -> None:
+    trust_body = """        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+"""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        template = root / "infra/cloudformation/templates/iam.yaml"
+        template.parent.mkdir(parents=True)
+
+        def errors(yaml: str) -> list[str]:
+            template.write_text(yaml, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_cloudformation_yaml_rules()
+            return validator.errors
+
+        valid = (
+            "Resources:\n"
+            "  RoleA:\n"
+            "    Type: AWS::IAM::Role\n"
+            "    Properties:\n"
+            "      AssumeRolePolicyDocument: &sharedTrustPolicy\n"
+            + trust_body
+            + "  RoleB:\n"
+            "    Type: AWS::IAM::Role\n"
+            "    Properties:\n"
+            "      AssumeRolePolicyDocument: *sharedTrustPolicy\n"
+            "      JobId: !Select [0, !Split ['|', !Ref GlueJob]]\n"
+            "      Description: 'Fn::Select: is text'\n"
+            "      UserData: |\n"
+            "        Ref: is text too\n"
+            "      Extra: {Fn::Length: [a, b]}\n"
+        )
+        assert not errors(valid), errors(valid)
+        for bad in (
+            valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId:\n        Fn::Select:\n          - 0\n          - Ref: GlueJob"),
+            valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Select: [0, {Ref: GlueJob}]}"),
+            valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {'Fn::Select': [0, !Ref GlueJob]}"),
+        ):
+            assert any("must use YAML short form" in error for error in errors(bad)), errors(bad)
+
+        block_array = valid.replace(
+            "JobId: !Select [0, !Split ['|', !Ref GlueJob]]",
+            "JobId: !Select\n        - 0\n        - !Split ['|', !Ref GlueJob]",
+        )
+        assert any("must use YAML flow form" in error for error in errors(block_array)), errors(block_array)
+
+        duplicate = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body)
+        assert any("identical IAM trust policy" in error for error in errors(duplicate)), errors(duplicate)
+        different = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body.replace("ec2.amazonaws.com", "lambda.amazonaws.com"))
+        assert not errors(different), errors(different)
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -972,8 +1028,9 @@ def main() -> None:
     check_s3_bucket_policy_grouping()
     check_resource_overview()
     check_subnet_association_overview()
+    check_cloudformation_yaml_rules()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (48 focused checks)")
+    print("validate-blueprint: PASS (49 focused checks)")
 
 
 if __name__ == "__main__":

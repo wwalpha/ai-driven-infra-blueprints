@@ -1,10 +1,10 @@
-# IAM Roleの共通信頼ポリシーをtemplate内で共有する
+# CloudFormation YAMLルールのcheckerを追加する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation記載ルール
-- Goal: 同一CloudFormation template内で内容が同じIAM Role trust policyをYAMLアンカーとエイリアスで共有する。
+- Target: framework共通 / CloudFormation templateのlocal validation
+- Goal: CloudFormation YAML templateの長形式組み込み関数、ブロック形式の配列引数、同一trust policy本文の重複をlocal loopで検出する。
 - AWS mutation: forbidden
 - AWS API execution: forbidden
 - CloudFormation/Terraform execution: forbidden
@@ -12,16 +12,19 @@
 
 ## Required changes
 
-- [R1] 同一template内のIAM Roleが同じtrust policyを持つ場合に、Role別の設計JSONを維持しながらYAMLアンカーとエイリアスで実装を共有するルールを追加する。
+- [R1] CloudFormation YAML templateの長形式組み込み関数、ブロック形式の配列引数、同一trust policy本文の重複を検出するcheckerをlocal validatorへ追加する。
+- [R2] checkerの許可例と拒否例をfocused checkで検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/cloudformation.md`
+- [R1] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/rules/cloudformation.md`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope
 

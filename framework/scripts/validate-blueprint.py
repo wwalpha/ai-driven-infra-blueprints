@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 from policy_tables import (
@@ -120,6 +121,18 @@ RESULT_METADATA = (
     "Status",
     "Executed at",
 )
+SHORT_CF_INTRINSICS = (
+    "Ref", "Fn::And", "Fn::Base64", "Fn::Cidr", "Fn::Equals", "Fn::FindInMap",
+    "Fn::GetAtt", "Fn::GetAZs", "Fn::GetStackOutput", "Fn::If", "Fn::ImportValue",
+    "Fn::Join", "Fn::Not", "Fn::Or", "Fn::Select", "Fn::Split", "Fn::Sub",
+    "Fn::Transform",
+)
+_SHORT_CF_NAMES = "|".join(re.escape(name) for name in SHORT_CF_INTRINSICS)
+LONG_CF_KEY = re.compile(rf"(?<![A-Za-z0-9_])(?:{_SHORT_CF_NAMES})\s*:")
+QUOTED_LONG_CF_KEY = re.compile(
+    rf"(?P<prefix>^|[{{,]|-\s)\s*(?P<quote>['\"])(?:{_SHORT_CF_NAMES})(?P=quote)\s*:"
+)
+TRUST_POLICY_KEY = re.compile(r"^( *)AssumeRolePolicyDocument:\s*(.*)$")
 
 
 class Validator:
@@ -161,6 +174,7 @@ class Validator:
         self.check_designs()
         self.check_observed_values()
         self.check_iac_selection()
+        self.check_cloudformation_yaml_rules()
         self.check_scenarios()
         self.check_results()
         self.check_scenario_changes()
@@ -1658,6 +1672,91 @@ class Validator:
                     self.check(target in self.accounts, f"Terraform target is not defined: {self.relative(path)}")
                     if target in self.accounts:
                         self.check(self.accounts[target]["engine"] == "terraform", f"Terraform is not selected: {self.relative(path)}")
+
+    @staticmethod
+    def unquoted_yaml(line: str) -> str:
+        code: list[str] = []
+        quote = ""
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if quote:
+                if quote == '"' and char == "\\" and index + 1 < len(line):
+                    code.extend("  ")
+                    index += 2
+                    continue
+                if quote == "'" and char == "'" and index + 1 < len(line) and line[index + 1] == "'":
+                    code.extend("  ")
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ""
+                code.append(" ")
+            elif char in "'\"":
+                quote = char
+                code.append(" ")
+            elif char == "#":
+                break
+            else:
+                code.append(char)
+            index += 1
+        return "".join(code)
+
+    def check_cloudformation_yaml_rules(self) -> None:
+        base = self.root / "infra" / "cloudformation" / "templates"
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+                continue
+            lines = path.read_text(encoding="utf-8").splitlines()
+            trust_bodies: dict[str, int] = {}
+            scalar_indent: int | None = None
+            for index, line in enumerate(lines):
+                indent = len(line) - len(line.lstrip(" "))
+                if scalar_indent is not None:
+                    if not line.strip() or indent > scalar_indent:
+                        continue
+                    scalar_indent = None
+                code = self.unquoted_yaml(line)
+                quoted_long = any(
+                    match.group("prefix") == code[match.start("prefix"):match.end("prefix")]
+                    for match in QUOTED_LONG_CF_KEY.finditer(line)
+                )
+                if LONG_CF_KEY.search(code) or quoted_long:
+                    self.check(False, f"CloudFormation intrinsic must use YAML short form: {self.relative(path)}:{index + 1}")
+
+                tag = re.search(r"![A-Za-z][A-Za-z0-9]*\s*$", code)
+                if tag and re.fullmatch(r"![A-Za-z][A-Za-z0-9]*\s*(?:#.*)?", line[tag.start():]):
+                    for later in lines[index + 1:]:
+                        if not later.strip() or later.lstrip().startswith("#"):
+                            continue
+                        if len(later) - len(later.lstrip(" ")) > indent and later.lstrip().startswith("- "):
+                            self.check(False, f"CloudFormation intrinsic array must use YAML flow form: {self.relative(path)}:{index + 1}")
+                        break
+
+                if re.search(r":\s*(?:![A-Za-z][A-Za-z0-9]*\s*)?[>|][+-]?\s*$", code):
+                    scalar_indent = indent
+                    continue
+
+                trust = TRUST_POLICY_KEY.match(line)
+                if not trust:
+                    continue
+                value = trust.group(2).strip()
+                if value.startswith("*"):
+                    continue
+                value = re.sub(r"^&[A-Za-z0-9_-]+\s*", "", value)
+                body: list[str] = []
+                for later in lines[index + 1:]:
+                    if not later.strip() or later.lstrip().startswith("#"):
+                        continue
+                    if len(later) - len(later.lstrip(" ")) <= len(trust.group(1)):
+                        break
+                    body.append(later)
+                # ponytail: catches copied YAML bodies; add a YAML parser if equivalent formatting must count.
+                document = value + "\n" + textwrap.dedent("\n".join(body)).strip()
+                if document.strip() and document in trust_bodies:
+                    self.check(False, f"identical IAM trust policy must use YAML anchor/alias: {self.relative(path)}:{index + 1} (first at {trust_bodies[document]})")
+                elif document.strip():
+                    trust_bodies[document] = index + 1
 
     @staticmethod
     def metadata_values(path: Path, label: str) -> list[str]:
