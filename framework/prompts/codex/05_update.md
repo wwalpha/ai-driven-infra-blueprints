@@ -95,7 +95,7 @@ scriptが終了code 0を返した場合だけ続行する。失敗時はcredenti
 
 このtaskでDesign scopeから生成した対象IaCのuncommitted diffだけはdeploy対象として許可する。task開始前から存在したIaC diffまたはDeployment scope外のdiffは許可しない。
 
-`04_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、未承認delete/replacementの説明付きhuman確認待ち、承認後の同じtaskと同じchange setまたは保存済みplanによる再開、実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、credential/permission不足、またはdeployment failureでは後続unitを実行せず停止する。未承認のdelete/replacementだけはfailureとして終了せずhuman確認待ちにする。
+`04_deploy.md`のdeployment unit解決、engine別validation、change set／plan確認、未承認delete/replacementの説明付きhuman確認待ち、承認後の同じtaskと同じchange setまたは保存済みplanによる再開、並列実行、完了確認、failure stop ruleに従う。scope超過、account/region不一致、credential/permission不足、またはdeployment failureでは新たなunitを起動せず、実行中のCloudFormation stackの終状態を確認して停止する。未承認のdelete/replacementだけはfailureとして終了せずhuman確認待ちにする。
 
 deploy/applyが成功した場合:
 

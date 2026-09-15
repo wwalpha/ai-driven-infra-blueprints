@@ -43,6 +43,8 @@
 5. active promptがdeploy/updateを許可し、change scopeがpromptと一致し、delete/replacementが事前承認済みまたはchange set作成後にhuman承認された場合だけexecutionへ進む。
 6. IaC修正が必要な場合はこのphaseで変更せず停止する。
 
+複数stackではcross-stack referenceの依存元がterminal successとなり、必要なobserved valueの反映が終わったunitだけを実行可能とする。実行可能なunit同士は並列でchange setを実行し、各stackの完了を個別に確認する。他の独立unitが実行中でも、依存元の成功と必要なobserved valueの反映が終わったunitは次に進める。失敗または未承認のdelete/replacementを検出したら新たなunitを起動せず、実行中のstackの終状態を確認して成功済み・失敗・未実行を区別する。成功済みstackを自動rollback、delete、redeployしない。
+
 `update` phase:
 
 1. humanがtask開始前に手動修正した詳細設計を変更せず、service modelを同期する。
