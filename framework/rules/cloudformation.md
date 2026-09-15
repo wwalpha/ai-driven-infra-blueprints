@@ -10,7 +10,12 @@
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。
 - cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
+- template外のresourceを`!Ref`、`!GetAtt`、`!Sub`、policy/設定値の文字列などで使う場合は、実際のresourceとその所有stackを特定する。文字列の一致だけでresource参照と判断しない。同一AWS account・regionの別CloudFormation stackが所有するresourceなら、producer templateのOutputsとdeploy済みstackのexportsを照合し、必要な値をexport済みか確認する。所有stack、参照する値、export名が一意に確認できなければ推測せず停止する。
+- 必要なexportがない場合はproducer templateに必要な値だけのOutput/Exportを追加し、許可されたinfrastructure taskでproducer stackを先にdeployする。terminal successと実際のexport名・値をread-onlyで確認するまでconsumer templateを変更・deployしない。既存importが使うexport名・値を命名形式だけで変更しない。producerとconsumerを同じtaskで扱えない場合はtask boundaryを守って順に実施する。
+- producerのexport確認後、consumer templateではそのexport名を`!ImportValue`で参照する。参照値を文字列の一部に使う場合は`!Sub`のvariable mapまたは`!Join`へ`!ImportValue`を渡し、physical IDやgenerated ARNをliteralに残さない。import先は同じAWS account・regionとし、producer成功後にconsumerのchange setを作成する。cross-stack用のARN exportが必要な場合もgenerated ARNをobserved valueとして保存しない。
+- templateの`Resources` key（resource logical ID）と`Outputs.*.Export.Name`の最終値はPascalCaseとする。先頭はASCII大文字、以降はASCII英数字だけを使い、hyphen、underscore、空白を含めない。exportしないOutputのkeyやAWS生成のphysical IDにはこのruleを適用しない。
 - 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決して`!Ref`を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをtemplateへ直書きしない。
+- 詳細設計のlogical IDとCloudFormation resource logical IDは一意に対応付け、template内の`!Ref`、`!GetAtt`、OutputsにはCloudFormation側のPascalCase IDを使用する。設計IDやanchor、確定済みresource名は命名形式だけを理由に変更しない。PascalCaseへの変換で衝突する場合、またはtarget別parameterを含むExport Nameの最終値を確認できない場合は推測せず停止する。既存stackのlogical IDやExport Nameの変更はresourceの削除・再作成やcross-stack参照の切断を伴い得るため、命名形式だけを理由に自動変更しない。
 - 詳細設計の表を統合しても、KMS KeyとAliasはそれぞれ正式なCloudFormation resourceとして実装する。grouped Aliasのlogical IDとanchorを保持し、modelの`parentProperty`へ`parentReference`が指すKeyの`!Ref`を設定する。S3からAliasへの参照は該当Aliasの`!Ref`とし、Keyの参照に置換しない。表示変更だけを理由に既存IaC logical IDを変更しない。
 - 後続resourceまたは別stackが必要とするcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
 - aliasなしの共通templateは`infra/cloudformation/templates/`、alias別templateは`infra/cloudformation/templates/<alias>/`に置く。同じaliasのtemplateをenvironment間で共用し、異なるaliasのtemplateを共用しない。

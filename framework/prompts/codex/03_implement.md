@@ -65,6 +65,8 @@ Jobが要求scopeに含まれる場合は未実装対象として明示し、対
 
 CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従う。AWS service単位で機械的に分割しない。dependency cycle、parameter不足、参照先不明がある場合は、不足情報を報告して停止する。
 
+対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、設計linkと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
+
 ## Implement and validate
 
 承認済みdesignと対応するservice modelだけをinputとして、選択済みengineの最小構成を実装する。
@@ -76,8 +78,9 @@ identifierを参照するMarkdown linkはanchorから参照先resourceのlogical
 CloudFormationの場合:
 
 1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用し、対象の`infra/cloudformation/parameters/<environment>/<target-directory>/`だけを変更する。
-2. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
-3. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
+2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、設計logical IDとの対応、template内参照、export/importの一致と一意性を確認する。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
+3. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
+4. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
 
 Terraformの場合:
 

@@ -76,11 +76,11 @@ python framework/scripts/check-deploy-context.py --environment <environment> --a
 
 scriptが終了code 0を返した場合だけ、出力されたregionとIaC engineを使用して続行する。失敗時は推測、credential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
 
-preflight成功後、対象stackまたはTerraform stateと既存resourceをread-onlyで確認する。engine切替、state/backendの不明点、対象IaCと承認済みdesignの不一致があれば停止する。
+preflight成功後、対象stackまたはTerraform stateと既存resourceをread-onlyで確認する。CloudFormationのcross-stack参照では`describe-stacks`でproducerのOutputs、`list-exports`で同じaccount・regionのdeploy済みexportsを調べ、export名、値、`ExportingStackId`を照合する。engine切替、state/backendの不明点、対象IaCと承認済みdesignの不一致があれば停止する。
 
 ## Resolve deployment units
 
-CloudFormationでは対象template、stack、parameter file、dependencyを既存IaCから特定する。cross-stack referenceから各unitの依存元を決定し、同時に実行可能なunitはtemplate path順に列挙する。dependency cycle、stack name不足、parameter不足、参照先不明がある場合は停止する。
+CloudFormationでは対象template、stack、parameter file、dependencyを既存IaCから特定する。文字列中のresource参照もcross-stack dependencyへ含め、exportが未deployならproducer stackを先行unitとする。同時に実行可能なunitはtemplate path順に列挙する。dependency cycle、stack name不足、parameter不足、参照先不明がある場合は停止する。
 
 Terraformでは対象root、workspace、backend、variable inputを既存IaCから特定する。不足または不一致があれば停止する。
 
@@ -92,10 +92,10 @@ CloudFormationの場合:
 
 1. 対象全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 2. 対象全templateへ`aws cloudformation validate-template`を実行する。
-3. 依存元stackがterminal successとなり、必要なobserved valueの反映が終わったunitを実行可能とする。最初は依存元のないunitが実行可能となる。実行可能な各unitのchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。
+3. 依存元stackがterminal successとなり、必要なobserved valueとexportの確認が終わったunitを実行可能とする。最初は依存元のないunitが実行可能となる。必要なexportが未deployなら、scope内のproducer templateにOutput/Exportが用意されている場合だけproducerのchange setへ進む。deploy phaseではIaCを変更せず、Output/Exportがない場合やproducerがscope外なら実行を止めて実装の前提を報告する。実行可能な各unitのchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。
 4. 未承認のdelete/replacementがある場合は次の`Confirm unapproved delete/replacement`に従い、新たなchange setを実行せずhuman確認待ちにする。
 5. 確認済みの実行可能なunitは、事前承認済みまたはchange set作成後にhuman承認された同じchange setを並列で実行する。stackごとにterminal successを確認する。他の独立unitが実行中でも、依存元の成功と必要なobserved valueの反映が終わったunitは手順3へ進める。
-6. 各stackの成功後、必要なnon-ARN identifierをstack Outputsから取得し、対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新する。同じMarkdownへの更新は完了したunitごとに行い、依存先のchange set作成前に反映する。
+6. 各stackの成功後、必要なnon-ARN identifierをstack Outputsから取得し、対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新する。producerでは実際のexport名・値をread-onlyで再確認する。同じMarkdownへの更新は完了したunitごとに行い、依存先のchange set作成前に反映する。
 
 Terraformの場合:
 

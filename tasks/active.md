@@ -1,26 +1,30 @@
-# CloudFormation の複数stackを依存関係に応じて並列deployする
+# CloudFormationの別stack resource参照をexport/importへ移行する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation deployment workflow
-- Goal: 複数stackをdeployする際、依存元の完了が必要なstackは順序を守り、独立したstackは並列でdeployする。
+- Target: framework共通 / CloudFormation cross-stack reference workflow
+- Goal: template外のstack-owned resourceを参照または文字列で使用する場合、既存exportを調査し、必要ならproducer stackへexportを追加・deployしてからconsumer templateでImportValueを使用する。
 
 ## Required changes
 
-- [R1] CloudFormation ruleに、dependencyを守った並列deployと失敗時の扱いを規定する。
-- [R2] deploy promptに、並列で実行できるunitの起動、完了確認、observed value反映を規定し、update promptとの整合を取る。
+- [R1] CloudFormation ruleに、外部resource参照の特定、exportの調査、producer deploy後のconsumer importの順序を規定する。
+- [R2] implement promptに、引用・文字列内の参照の発見とproducer/consumerの実装境界を規定する。
+- [R3] deploy promptに、deployed exportのread-only確認とproducer先行deployの検証を規定する。
+- [R4] update promptに、同じtaskで扱えるproducer export追加・deploy後のconsumer ImportValue変更・deploy順を規定する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/cloudformation.md`
-- [R2] `changed:framework/prompts/codex/04_deploy.md`
-- [R2] `changed:framework/prompts/codex/05_update.md`
+- [R2] `changed:framework/prompts/codex/03_implement.md`
+- [R3] `changed:framework/prompts/codex/04_deploy.md`
+- [R4] `changed:framework/prompts/codex/05_update.md`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/cloudformation.md`
+- `framework/prompts/codex/03_implement.md`
 - `framework/prompts/codex/04_deploy.md`
 - `framework/prompts/codex/05_update.md`
 

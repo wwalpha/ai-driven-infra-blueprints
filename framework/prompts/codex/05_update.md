@@ -17,8 +17,8 @@ fileを変更する前に、次の順序でtargetとscopeを特定する。
 2. humanが変更した既存詳細設計Markdownのpathが`docs/designs/<environment>/<target-directory>/<service-id>.md`に一致することを確認し、pathからenvironmentとtarget directoryを取得する。
 3. 取得したenvironment／target directoryの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認し、aliasがある場合はalias、常に実際のAWS account IDを取得する。変更済み詳細設計がない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
 4. 同じtargetでhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
-5. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。
-6. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。
+5. 対応するservice modelと、`03_implement.md`のimplementation unit解決に従って変更が必要な既存template／parameter fileまたはTerraform root／resourceを特定する。CloudFormationの変更済みdesignが同じaccount・regionの別stack所有resourceを参照する場合は、そのproducer templateも必要なOutput/Export追加の候補とする。
+6. `04_deploy.md`のdeployment unit解決に従い、既存IaCからstack名、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。cross-stack exportが必要なproducerとconsumerを同じtaskで扱う場合は両stackをscopeへ含める。
 
 scope外のuncommitted changeがある場合は取り込まず停止する。repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるtarget、file path、scope全体をuserへ再入力させず、値を推測しない。
 
@@ -72,7 +72,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 1. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
 2. model生成失敗またはMarkdown validation failureではdesignを修正せず停止する。
-3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、自動特定したDeployment scopeに必要なIaCだけを最小変更する。
+3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、自動特定したDeployment scopeに必要なIaCだけを最小変更する。CloudFormationのcross-stack参照はpreflight後にdeploy済みexportを調べるまでproducer Output/Exportとconsumer `!ImportValue`の変更を保留する。
 4. IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。human decisionまたはdesign変更が必要なら停止する。
 
 ## Preflight and deploy
@@ -92,6 +92,8 @@ python framework/scripts/check-deploy-context.py --environment <environment> --a
 ```
 
 scriptが終了code 0を返した場合だけ続行する。失敗時はcredential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
+
+CloudFormationのcross-stack参照を同じtaskで扱う場合は、preflight後に`describe-stacks`と`list-exports`でproducer stackのOutputsとdeploy済みexportsをread-onlyで照合する。既存exportがあればその名前・値を確認してconsumer templateの参照と文字列中の該当箇所を`!ImportValue`へ変更し、static validation、change set確認、consumer deployへ進む。exportがなければproducer templateに必要なOutput/Exportだけを追加し、static validation、change set確認、producer deploy、terminal successと実際のexport確認を先に行う。その後に初めてconsumer templateを`!ImportValue`へ変更し、static validation、change set確認、consumer deployへ進む。両stackがDeployment scopeに含まれない場合はscopeを推測で広げず停止する。
 
 このtaskでDesign scopeから生成した対象IaCのuncommitted diffだけはdeploy対象として許可する。task開始前から存在したIaC diffまたはDeployment scope外のdiffは許可しない。
 
