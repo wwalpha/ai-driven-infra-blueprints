@@ -67,9 +67,9 @@ S3 = """# S3 詳細設計
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias |
-| --- | --- | --- |
-| [app-data](#s3-app-data) | us-east-1 | alias/two |
+| BucketName | Region | KMSAlias | SSEAlgorithm |
+| --- | --- | --- | --- |
+| [app-data](#s3-app-data) | us-east-1 | alias/two | `aws:kms` |
 
 ## リソース詳細
 
@@ -81,7 +81,8 @@ S3 = """# S3 詳細設計
 | ---: | --- | --- | --- |
 | 1 | S3.Bucket.BucketName | `app-data` | bucketの名前 |
 | 2 | S3.Bucket.Region | `us-east-1` | bucketを配置するregion |
-| 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
+| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
+| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
 """
 
 
@@ -123,7 +124,10 @@ def main() -> None:
         assert "observed.row.003" not in model
         assert MODEL.linked_resource(s3, "[alias/two](kms.md#kms-aliastwo)") == ("KMS.Alias", "AliasTwo")
         s3_model = MODEL.model_for(s3, REPOSITORY)
+        assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID" in s3_model
         assert "desired.row.001-003.value=[alias/two](kms.md#kms-aliastwo)" in s3_model
+        assert "desired.row.001-004.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm" in s3_model
+        assert "desired.row.001-004.value=`aws:kms`" in s3_model
         assert "observed.row.001-003" not in s3_model
 
         marker = '<a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> '
@@ -146,6 +150,8 @@ def main() -> None:
             assert any(message in error for error in failures), (message, failures)
         for reference in ("[alias/one](kms.md#kms-aliastwo)", "[alias/two](kms.md#kms-keyone)", "[alias/two](kms.md#kms-missing)"):
             assert errors(KMS, S3.replace("[alias/two](kms.md#kms-aliastwo)", reference))
+        formal_kms = "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID"
+        assert any("must use its Markdown display alias" in error for error in errors(KMS, S3.replace("S3.Bucket.BucketEncryption[].KMSMasterKeyID", formal_kms)))
 
         # Moving an identified child updates only its parent relationship, not its identity.
         alias_line = next(line for line in KMS.splitlines() if marker in line)
@@ -164,7 +170,12 @@ def main() -> None:
         layout_path = root / "framework/rules/resource-layout.json"
         layout_path.parent.mkdir(parents=True)
         layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")
+        alias_path = layout_path.with_name("display-property-aliases.json")
+        shutil.copy(REPOSITORY / "framework/rules/display-property-aliases.json", alias_path)
         assert not layout_errors(root)
+        alias_path.write_text(json.dumps({"S3.Bucket.BucketEncryption[].SSEAlgorithm": "S3.Bucket.Unknown"}), encoding="utf-8")
+        assert any("invalid display property alias" in error for error in layout_errors(root))
+        shutil.copy(REPOSITORY / "framework/rules/display-property-aliases.json", alias_path)
         (root / "framework/materials/aws/Example_Child.properties").write_text("Example.Child.Name=\n", encoding="utf-8")
         assert any("unclassified=['Example.Child']" in error for error in layout_errors(root))
         broken = {**LAYOUTS, "Example.Child": "independent", "KMS.Alias": {**LAYOUTS["KMS.Alias"], "parentProperty": "Missing"}}

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from design_catalog import design_material_files
 from design_layout import RESOURCE, expanded_design
+from macie_bucket_tables import write_job_bucket_definitions
 from policy_tables import without_policy_tables
 
 
@@ -217,6 +218,10 @@ def sync(
         for path in sorted(docs.rglob("*.md"))
         if selected(path, docs, environment, target_directory)
     ]
+    if write:
+        for path in markdown_paths:
+            if path.stem == "macie":
+                write_job_bucket_definitions(path)
     expected = {
         (models / path.relative_to(docs)).with_suffix(".properties"): model_for(path, root)
         for path in markdown_paths

@@ -691,9 +691,10 @@ def check_s3_bucket_policy_grouping() -> None:
 | ---: | --- | --- | --- |
 | 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 | 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |
-| 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
-| 4 | S3.Bucket.VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
-| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
+| 5 | S3.Bucket.VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
+| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """
         metadata = {
             design: ("s3", ("S3.Bucket", "S3.BucketPolicy")),
@@ -734,13 +735,13 @@ def check_s3_bucket_policy_grouping() -> None:
         )
         assert any("heading identifier must match BucketName" in error for error in errors(wrong_heading))
         explicit_bucket = valid.replace(
-            "| 5 | S3.BucketPolicy.PolicyDocument",
-            "| 5 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | bucket policyを適用するbucket |\n"
             "| 6 | S3.BucketPolicy.PolicyDocument",
+            "| 6 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | bucket policyを適用するbucket |\n"
+            "| 7 | S3.BucketPolicy.PolicyDocument",
         )
         assert any("S3.BucketPolicy.Bucket must be omitted" in error for error in errors(explicit_bucket))
         separate_heading = valid.replace(
-            "| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
+            "| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
             "\n<a id=\"s3-appdatabucketpolicy\"></a>\n\n"
             "### S3.BucketPolicy: AppDataBucketPolicy\n\n"
             "| No. | Property | Value | Source / Comment |\n"
@@ -764,9 +765,9 @@ def check_resource_overview() -> None:
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | Versioning |
-| --- | --- | --- | --- |
-| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |
+| BucketName | Region | KMSAlias | Versioning | SSEAlgorithm |
+| --- | --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | — |
 
 ## リソース詳細
 
@@ -786,6 +787,14 @@ def check_resource_overview() -> None:
             return validator.errors
 
         assert not errors(valid)
+        with_policies = valid.replace("| Versioning | SSEAlgorithm |", "| Versioning | Policies |", 1)
+        assert any("must show SSEAlgorithm instead of Policies" in error for error in errors(with_policies))
+        with_algorithm = valid.replace("| — |", "| `aws:kms` |", 1).replace(
+            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
+            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n| 2 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |",
+        )
+        assert not errors(with_algorithm)
+        assert any("SSEAlgorithm must match its detail table" in error for error in errors(with_algorithm.replace("| `aws:kms` |\n\n## リソース詳細", "| `AES256` |\n\n## リソース詳細")))
         details_heading = "## リソース詳細\n\n"
         invalid_sections = [
             (valid.replace(details_heading, "", 1), "details heading must appear exactly once"),
@@ -803,7 +812,7 @@ def check_resource_overview() -> None:
         long_header = valid.replace("| BucketName | Region |", "| S3.Bucket.BucketName | Region |")
         assert any("column names must be short and unique" in error for error in errors(long_header))
         missing_row = valid.replace(
-            "| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |\n",
+            "| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | — |\n",
             "",
         )
         assert any("must list every detail resource exactly once" in error for error in errors(missing_row))
@@ -914,7 +923,7 @@ def check_subnet_association_overview() -> None:
             identifier_outputs,
         )
         assert any(
-            "must use Markdown display property EC2.RouteTableId" in error
+        "must use its Markdown display alias" in error
             for error in validator.errors
         ), validator.errors
 

@@ -36,7 +36,7 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 ## CFn非対応の設計対象
 
 - CFn非対応を理由に詳細設計を省略しない。現在は`Macie.ClassificationJob`をAPI設計catalogで扱い、`framework/rules/detailed-design.md`のAPI-backed design resourcesに従う。未登録の型・項目は推測しない。
-- SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。値を初期値で勝手に確定しない。
+- SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。固定bucketを列挙する`bucketDefinitions`型Jobでは、Jobの設定表後に`framework/rules/detailed-design.md`の3列対応表を作り、Job・AWS account・bucketを1行ずつ確定する。`s3JobDefinition` rowは同serviceのJSON artifactへlinkし、対応表をbucketDefinitionsの正本とする。`bucketCriteria`型Jobには固定bucket表を作らない。値を初期値で勝手に確定しない。
 - property名はAPIの正式な大小文字を維持する。root property単位で記載し、nested設定はJSON object/arrayにまとめる。長いobjectはservice配下JSON artifactへ置く。型・未知のnested field・条件付き必須を検証し、CFn型を発明しない。
 - name、jobIdを含む表示順はAPI propertiesに従う。未選択name、clientToken、jobArn、取得response全体は出力しない。read-only取得時のoptional nullは省略する。
 - Jobは作成後にスキャン設定を変更できないため、実装が必要になった場合は新Jobの作成と旧Jobの扱いを別途決める。今回の詳細設計保存から作成・置換・キャンセルへ進まない。
@@ -198,7 +198,7 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 すべてのserviceでpolicy Statement表の先頭列名は`No.`とし、1始まりの連番を表示してください。JSONの`Statement` keyは変更しません。`framework/rules/detailed-design.md`のService policy tablesに従い、選択したpolicy JSONの内容を所有resourceの設定表直後へ生成してください。正式propertyと表示方式は`framework/scripts/policy_tables.py`の`POLICY_FORMATS`で確認し、権限policyはStatement表、配信・フィルタ・再送・ライフサイクル・data protection等は全要素の設定表へ表示してください。scalarや個別propertyへ展開済みの設定は既存の設定行を維持し、名前の末尾だけでJSON policyと判断しないでください。
 
-IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名と、所有resourceとartifact IDから作るanchorを保持してください。VPC endpoint、KMS、IAMを含む全policyで派生表示のProperty、JSON、Version、Idの独立metadata行を省略し、anchor、見出し、Statement表または設定表を生成してください。元の設定rowの正式PropertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名keyは保持してください。一覧の元の2〜6列へ`Policies`列を追加し、各resourceが所有するpolicy表へlinkします。同じtypeのpolicy未設定resourceは表示だけを`—`とし、policyや名前を作成しません。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
+IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名と、所有resourceとartifact IDから作るanchorを保持してください。VPC endpoint、KMS、IAMを含む全policyで派生表示のProperty、JSON、Version、Idの独立metadata行を省略し、anchor、見出し、Statement表または設定表を生成してください。元の設定rowのPropertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名keyは保持してください。S3.Bucket以外の一覧の元の2〜6列へ`Policies`列を追加し、各resourceが所有するpolicy表へlinkします。同じtypeのpolicy未設定resourceは表示だけを`—`とし、policyや名前を作成しません。S3.Bucket一覧では`Policies`を表示せず、代わりに詳細rowと一致する`SSEAlgorithm`を表示してください。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
 
 IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/rules/detailed-design.md`のIAM Role policy tablesに従ってRoleName・信頼ポリシー・インラインポリシーの3列の一覧と、各Roleの設定表直後のpolicy Statement表も出力してください。表は1 Statementを1行とし、複数Actionはcell内改行、Conditionは演算子・完全なkey・値を同じcellへ保持します。信頼ポリシーJSONにVersionがある場合は見出し直後の`Version`の1列表へ値を1行で表示し、その後にStatement表を置いてください。Versionがない場合は補完しません。Version/Idの独立metadata行は省略し、JSONに存在するStatement内のSid、Principal種別、NotAction、NotResource等は省略・補完せず、各Roleの表示範囲を`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲んでください。信頼ポリシーの表示名はJSONリンクのtext、inline policy名はPolicyNameを使用し、別Roleの同名policyには別anchorを使用します。policy表はJSONの派生表示とし、保存時に決定的生成と照合します。
 
@@ -227,7 +227,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - `Source / Comment`は対象resource名の重複を省き、属性の意味を日本語で短く記載する。参照先・通信元・通信先を区別する名称は残す
 - 4列のresource-detail tableのrow番号はtableごとに1から開始する
 - 全serviceのresource設定表はmaterialsのproperties行順とし、未選択・非表示項目は飛ばす。名前先頭・生成ID先頭などの再配置をしない。配列の各要素とgrouped childごとの設定範囲を保持し、design-only .Name、S3.Region、SG横書き表の特殊ルールは維持する。
-- `S3.Bucket`のheading identifierとanchorのidentifier部分はBucketNameと一致させる。`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableを出力しない
+- `S3.Bucket`のheading identifierとanchorのidentifier部分はBucketNameと一致させる。`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。暗号化のKMSMasterKeyIDとSSEAlgorithmは`framework/rules/display-property-aliases.json`の短いProperty名で表示し、正式propertyへ対応させる。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableを出力しない
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定された正式property名のrowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない

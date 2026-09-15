@@ -1,0 +1,5 @@
+{
+  "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
+  "S3.Bucket.BucketEncryption[].KMSMasterKeyID": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",
+  "S3.Bucket.BucketEncryption[].SSEAlgorithm": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm"
+}

@@ -24,6 +24,7 @@ from policy_tables import (
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
+from macie_bucket_tables import job_bucket_tables
 from design_layout import (
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
@@ -1074,7 +1075,7 @@ class Validator:
                         if cells[1] in DISPLAY_PROPERTY_ALIASES.values():
                             self.check(
                                 display_property in DISPLAY_PROPERTY_ALIASES,
-                                f"grouped property must use Markdown display property EC2.RouteTableId: {self.relative(path)}: {display_property}",
+                                f"formal property must use its Markdown display alias: {self.relative(path)}: {display_property}",
                             )
                         rows.append(cells)
                         self.check_cidr_value(path, cells[1], cells[2])
@@ -1151,7 +1152,7 @@ class Validator:
                             self.markdown_design_artifacts.add(artifact)
                 if current_resource_type in catalog_types:
                     if self.schema_catalog is not None and current_resource_type in self.schema_catalog.api_schemas:
-                        self.check_api_design_rows(path, current_resource_type, rows)
+                        self.check_api_design_rows(path, current_resource_type, current_logical_id, rows)
                     if current_resource_type == "Events.Rule":
                         for property_name in ("Events.Rule.Name", "Events.Rule.State"):
                             selected = [row for row in rows if row[1] == property_name]
@@ -1255,7 +1256,7 @@ class Validator:
                 if line.strip():
                     previous = line.strip()
 
-    def check_api_design_rows(self, path: Path, resource_type: str, rows: list[list[str]]) -> None:
+    def check_api_design_rows(self, path: Path, resource_type: str, logical_id: str, rows: list[list[str]]) -> None:
         catalog = self.schema_catalog
         schema = catalog.schema(resource_type)
         values = {}
@@ -1288,6 +1289,19 @@ class Validator:
         if len(self.errors) == before:
             for error in catalog.job_errors(values):
                 self.check(False, f"API design constraint: {self.relative(path)}: {error}")
+        if resource_type == "Macie.ClassificationJob":
+            try:
+                tables = job_bucket_tables(path)
+            except (OSError, ValueError) as error:
+                self.check(False, f"invalid Macie bucket table: {self.relative(path)}: {error}")
+                return
+            scope = values.get("s3JobDefinition", {})
+            if isinstance(scope, dict) and "bucketDefinitions" in scope:
+                self.check(logical_id in tables, f"Macie bucketDefinitions requires a Markdown mapping table and JSON artifact: {self.relative(path)}: {logical_id}")
+                if logical_id in tables:
+                    self.check(scope["bucketDefinitions"] == tables[logical_id][1], f"Macie bucket mapping differs from JSON artifact: {self.relative(path)}: {logical_id}")
+            else:
+                self.check(logical_id not in tables, f"Macie bucket table requires bucketDefinitions, not bucketCriteria: {self.relative(path)}: {logical_id}")
 
     def check_policy_tables(self) -> None:
         for path in self.design_files():
@@ -1426,6 +1440,11 @@ class Validator:
                         "AssociationId" not in headers,
                         f"Subnet overview must omit AssociationId: {self.relative(path)}",
                     )
+                if current_type == "S3.Bucket":
+                    self.check(
+                        "Policies" not in headers and "SSEAlgorithm" in headers,
+                        f"S3 Bucket overview must show SSEAlgorithm instead of Policies: {self.relative(path)}",
+                    )
                 for row in table[2:]:
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(
@@ -1463,6 +1482,12 @@ class Validator:
                         self.check(
                             values.get("RouteTableId") == expected_route,
                             f"Subnet overview RouteTableId must match its detail table: {self.relative(path)}: {anchor}",
+                        )
+                    if current_type == "S3.Bucket" and "SSEAlgorithm" in headers:
+                        expected_algorithm = properties.get(anchor, {}).get("S3.Bucket.BucketEncryption[].SSEAlgorithm", "—")
+                        self.check(
+                            dict(zip(headers, cells))["SSEAlgorithm"] == expected_algorithm,
+                            f"S3 Bucket overview SSEAlgorithm must match its detail table: {self.relative(path)}: {anchor}",
                         )
 
             detail_types = [resource_type for resource_type, _ in resources.values()]
@@ -1522,6 +1547,8 @@ class Validator:
                 self.check(False, f"invalid Security Group tables: {self.relative(source)}: {error}")
             for line in source_lines:
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
+                if len(cells) == 4:
+                    cells[1] = DISPLAY_PROPERTY_ALIASES.get(cells[1], cells[1])
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
                 if not link:
                     continue

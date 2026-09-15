@@ -312,14 +312,14 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
 
 
 def render_policy_overviews(text: str, resources: list[Resource]) -> str:
-    """Add only the derived Policies column; keep the chosen summary columns."""
+    """Refresh derived Policies columns, except for S3 Bucket summaries."""
     details_heading = re.search(r"^" + re.escape(DETAILS_HEADING) + r"$", text, re.MULTILINE)
     if not details_heading:
         raise ValueError("resource details are missing")
     overview, details = text[:details_heading.start()], text[details_heading.start():]
     for resource_type in sorted({resource.resource_type for resource in resources} - {"IAM.Role"}):
         owned = {resource.anchor: resource for resource in resources if resource.resource_type == resource_type}
-        required = any(resource.policies for resource in owned.values())
+        required = resource_type != "S3.Bucket" and any(resource.policies for resource in owned.values())
         pattern = re.compile(r"^### " + re.escape(resource_type) + r"\n(?:\n|\|[^\n]*\n)*", re.MULTILINE)
         matches = list(pattern.finditer(overview))
         if len(matches) != 1:

@@ -81,7 +81,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
 - columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
-- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
+- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。S3.Bucketの一覧には`Policies`を置かず、`SSEAlgorithm`を表示する。その他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
 - 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。ただしSecurity Group一覧は後述のとおりSG属性の正本とし、基本設定の詳細tableを作らない。
 
 `EC2.Subnet`一覧に`RouteTableId`を含める場合は、同じSubnet詳細tableの`EC2.RouteTableId`とValueを一致させる。Association未設計のSubnetは表示だけを`—`とし、Main Route Tableなどの値を補完しない。`AssociationId`列は記載しない。
@@ -93,9 +93,9 @@ S3の例:
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | Versioning |
-| --- | --- | --- | --- |
-| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` |
+| BucketName | Region | KMSAlias | Versioning | SSEAlgorithm |
+| --- | --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | `aws:kms` |
 ```
 
 ## Resource-detail table
@@ -108,16 +108,16 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 ```
 
 - 各 table の row は 1 から連番にする。
-- resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。
+- resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。短い表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。
 - grouped childは所属する設定範囲内、配列は各要素内でcatalog順を適用する。複数要素のrowをproperty単位で横断sortしない。親子の所属、identity marker、IAM PolicyNameとPolicyDocumentの対応を保つ。Security Groupの横書き一覧／rule table、JSONから生成するpolicy表は既存形式を維持する。
 - `CidrBlock`、`DestinationCidrBlock`、`CidrIp`等のCIDR項目は、詳細表・リソース一覧とも`PENDING_DEPLOY`を禁止する。deploy前でも確定済みCIDRを表示し、未確定ならhumanへ確認する。参照linkの表示値や配列内も同じとし、catalogでidentifier outputとされるCIDRでも例外にしない。`VpcId`等の生成IDのPENDING_DEPLOY許容は維持する。
 - `Events.Rule`は`Events.Rule.Name`と`Events.Rule.State`をそれぞれ必ず一度だけ記載する。表示順はpropertiesに従う。NameとStateは確定済みの値を使用し、未確定の場合はhumanへ確認する。Stateを`ENABLED`などで自動補完しない。
 - `S3.Bucket`はbucketごとに一つのanchor、`### S3.Bucket: <BucketName>` heading、tableを使用する。heading identifierとanchorのidentifier部分は`S3.Bucket.BucketName` valueに一致させる。`S3.Bucket.BucketName`をtableの先頭row、design-only `S3.Bucket.Region`を2行目に置き、RegionのValueはbucketごとにhumanが確定したAWS region IDとする。`project.json`のtarget `awsRegion`は自動転記せず、`us-east-1`など別regionを許可する。対応する`S3.BucketPolicy`を設計する場合は、`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableは作らない。
-- general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。
+- general purpose `S3.Bucket`でSSE-KMSを使用する場合、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`のValueは、同じtargetに設計した`KMS.Alias`のanchorへのresource linkとし、linkの表示textはその`KMS.Alias.AliasName`と一致させる。`KMS.Key.KeyId`のgenerated valueは表示しない。暗号化方式は`S3.Bucket.BucketEncryption[].SSEAlgorithm`と表示し、両rowをmodelではalias fileの正式propertyへ戻す。
 - 1 file に複数 resource heading と table を置いてよい。
 - resource-detail tableの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。リソース一覧の表示単位はResource overviewに従う。
-- `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
+- `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`は同じspelling、または`framework/rules/display-property-aliases.json`に登録した表示名を使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
 - CFn由来の選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
 - 上記5種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
@@ -143,6 +143,17 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 - 選択リストは`framework/materials/api/Macie_ClassificationJob.properties`、型・制約は同名の`.json`を正本とする。公式Macie APIのrequest/responseに基づく固定した設計用schemaであり、CloudFormation provider schemaではない。参照元、API version、取得元hash、確認日、`cloudFormationType: null`はframework側に保持し、詳細設計のAWS propertyとして追加しない。
 - APIの正式な大小文字を維持し、`Macie.ClassificationJob.name`、`jobType`、`s3JobDefinition`などを使用する。catalogにないfield、架空のCFn型、実行時の`clientToken`、生成された`jobArn`を追加しない。
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
+- 固定bucketを列挙する`bucketDefinitions`型Jobでは、`s3JobDefinition` rowを同service配下JSON artifactへのlinkとし、そのJobの設定表の後に`#### 対象S3 bucket`と3列の対応表を置く。この表をJob・AWS account ID・bucketの正本とする。1 bucketを1行とし、Job cellはそのJobへのsame-file link、account cellは確定済み12桁ID、Bucket cellは同targetのS3設計へのrelative linkまたは外部bucket名のliteralとする。S3 linkの表示名はlink先BucketNameに一致させ、同じaccountの行を連続させる。重複bucket、別Jobへのlink、空表を拒否する。
+
+```md
+#### 対象S3 bucket
+
+| Job | AWS account ID | Bucket |
+| --- | --- | --- |
+| [CdeSadJob](#macie-cdesadjob) | `123456789012` | [example-bucket](s3.md#s3-example-bucket) |
+```
+
+- `framework/scripts/sync-model.py --write`は対応表の行順からJSON artifactの`bucketDefinitions`をaccountごとに生成し、JSON内の選択済み`scoping`は保持する。local validationは表とJSONのaccount、bucket、順序を照合する。`bucketCriteria`型Jobには固定bucket対応表を置かず、従来どおりJSON objectを正本とする。
 - `name`、`jobType`、`s3JobDefinition`を必須とし、未知のproperty、型、enum、長さ、範囲、nested object/arrayも検証する。未使用のoptional配列は空配列でなくrowを省略する。
 - `SCHEDULED`は実行周期を正確に一つ指定する。`ONE_TIME`は`scheduleFrequency`と`initialRun`を省略する。S3対象は`bucketDefinitions`または`bucketCriteria`のどちらか一つにする。managed data identifierの選択方式とID配列、custom data identifierの必須関係も検証する。
 - `Macie.ClassificationJob.jobId`は`IDENTIFIER_OUTPUT`としてcatalog順に記載する。未作成は既存の`PENDING_DEPLOY`、取得済みは非ARNの実IDとする。この値はCFnでの作成予定を意味しない。
@@ -256,7 +267,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
 - IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
 - 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、全serviceで設定rowにある正式な`Property`と元の`JSON`リンクを派生表示へ再表示しない。派生表示はanchor、見出し、Statement表または設定表で構成する。IAM信頼ポリシーでは下記のVersion表も含める。表示名を架空のresource propertyとして追加しない。
-- IAM Role以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。
+- IAM RoleとS3.Bucket以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。S3.Bucketの`SSEAlgorithm`は詳細rowのValueと一致させ、未選択のbucketは一覧だけ`—`とする。
 - Statement表の連番、列、Principal展開、Condition、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。IAMを含む全serviceで独立metadata行の`Version：`と`Id：`を省略し、JSON本文のVersion/Idは保持する。権限policy以外のJSONをStatement形式と推測しない。
 - 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。設定表のProperty列やJSON内のVersion/Idというkeyは独立metadata行ではないため省略しない。
 - `ECR.Repository.LifecyclePolicy`はwrapperの全設定を表示したうえで、`LifecyclePolicyText`がある場合はJSON文字列をparseした内容も設定表で表示する。JSON文字列以外や不正なJSONは停止する。表示からJSON本文を書き戻さない。

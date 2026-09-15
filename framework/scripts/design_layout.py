@@ -20,9 +20,8 @@ GROUPED_RESOURCE_TYPES = {
 IMPLICIT_GROUPED_PROPERTIES = {
     name: {rule["parentProperty"]} for name, rule in GROUPED.items()
 }
-DISPLAY_PROPERTY_ALIASES = {
-    "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
-}
+DISPLAY_ALIAS_PATH = Path(__file__).resolve().parents[1] / "rules" / "display-property-aliases.json"
+DISPLAY_PROPERTY_ALIASES = json.loads(DISPLAY_ALIAS_PATH.read_text(encoding="utf-8"))
 DETAILS_HEADING = "## リソース詳細"
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
@@ -48,6 +47,18 @@ def layout_errors(root: Path) -> list[str]:
         }
         for path in design_material_files(root)
     }
+    try:
+        aliases = json.loads((root / "framework" / "rules" / "display-property-aliases.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        errors.append(f"cannot read display property aliases: {error}")
+        aliases = {}
+    selected = set().union(*catalog.values())
+    if not isinstance(aliases, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in aliases.items()) or len(set(aliases.values())) != len(aliases):
+        errors.append("display property aliases must be a one-to-one object")
+    else:
+        for display, formal in aliases.items():
+            if not isinstance(display, str) or not isinstance(formal, str) or display in selected or formal not in selected or display.split(".")[0] != formal.split(".")[0]:
+                errors.append(f"invalid display property alias: {display}: {formal}")
     if set(layouts) != set(catalog):
         errors.append(
             f"resource layout coverage mismatch: unclassified={sorted(set(catalog) - set(layouts))}, "

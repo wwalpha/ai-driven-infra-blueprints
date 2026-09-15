@@ -32,6 +32,8 @@ def main() -> None:
             "S3.Bucket.BucketName=\n"
             "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
             ".ServerSideEncryptionByDefault.KMSMasterKeyID=\n"
+            "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
+            ".ServerSideEncryptionByDefault.SSEAlgorithm=\n"
             "S3.Bucket.VersioningConfiguration.Status=\n",
             encoding="utf-8",
         )
@@ -130,9 +132,9 @@ def main() -> None:
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | Versioning |
-| --- | --- | --- | --- |
-| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled |
+| BucketName | Region | KMSAlias | Versioning | SSEAlgorithm |
+| --- | --- | --- | --- | --- |
+| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled | aws:kms |
 
 ## リソース詳細
 
@@ -144,9 +146,10 @@ def main() -> None:
 | ---: | --- | --- | --- |
 | 1 | S3.Bucket.BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
 | 2 | S3.Bucket.Region | us-east-1 | bucketを配置するAWS region |
-| 3 | S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
-| 4 | S3.Bucket.VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
-| 5 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | aws:kms | 暗号化方式 |
+| 5 | S3.Bucket.VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
+| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """,
             encoding="utf-8",
         )
@@ -158,10 +161,12 @@ def main() -> None:
         assert "desired.row.001-002.property=S3.Bucket.Region" in s3_model
         assert "desired.row.001-002.value=us-east-1" in s3_model
         assert "desired.row.001-003.value=[alias/app-data](kms.md#kms-appdatakeyalias)" in s3_model
+        assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID" in s3_model
+        assert "desired.row.001-004.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm" in s3_model
         assert "observed.row.001-003" not in s3_model
         assert "S3.BucketPolicy.Bucket" not in s3_model
-        assert "desired.row.001-005.property=S3.BucketPolicy.PolicyDocument" in s3_model
-        assert "desired.row.001-005.artifactSha256=" in s3_model
+        assert "desired.row.001-006.property=S3.BucketPolicy.PolicyDocument" in s3_model
+        assert "desired.row.001-006.artifactSha256=" in s3_model
         assert "リソース一覧" not in s3_model
         assert "リソース詳細" not in s3_model
         assert "BucketName | Region" not in s3_model

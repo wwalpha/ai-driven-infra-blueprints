@@ -35,6 +35,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須とgenerated modelを検証し、CFn型解決で拒否する
+- `bucketDefinitions`型Macie JobのMarkdown対応表が同JobのJSON artifactのaccount・bucket・順序と一致し、欠落・重複・別Jobへの所属を拒否する。`bucketCriteria`型には固定bucket対応表を置かない
 - `framework/rules/resource-layout.json`がCFn/APIの全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
 - grouped childの識別、親への所属、schema、参照を検証し、KMSの複数AliasとS3からのAlias参照を失わない
 - required directory/file structureが存在する
@@ -71,7 +72,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 1. active promptで指定された`docs/designs/**`を更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
 2. 既存resource取得では必要な非ARN current identifierだけをgenerated identifier rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONから一覧とpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。
+3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONから一覧とpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。`bucketDefinitions`型Macie Jobでは同commandがMarkdown対応表からJSON artifactのbucketDefinitionsを更新してからmodelを生成する。
 4. local loopを実行する。
 5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 

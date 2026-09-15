@@ -18,8 +18,11 @@
 - リソース一覧のpolicyリンク列、IAMのRoleName一覧、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
 - 全serviceで派生表示のProperty/JSON/Version/Idの独立metadata行を省略する。元の設定rowのpropertyとJSONリンク、およびVersion/Idを含むJSON全体のcanonical hashは引き続きmodelへ保持する。
 - policy JSON変更時は`framework/scripts/policy_tables.py <対象service Markdown> --write`で派生表示を更新してからmodelを生成する。model生成はMarkdownやJSONを修正しない。local loopはJSONと表示の不一致も拒否する。
+- `S3.Bucket`一覧の`SSEAlgorithm`は詳細rowからの派生表示とし、policy一覧link列は生成しない。policy JSONと詳細rowは従来どおりmodelに保持する。
 
 ## Format
+
+Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。
 
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 
@@ -63,6 +66,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - `framework/materials/api/*.properties`も同じcatalog読込に含める。`Macie.ClassificationJob`のresource type、logical ID、anchorと全設計rowを既存の`desired.*`へ生成する。
 - `jobId`は同catalogの`IDENTIFIER_OUTPUT`から判定し、desiredには自己anchorへのlogical reference、observedにはcurrent IDまたは`PENDING_DEPLOY`を保持する。Job IDを参照する通常のMarkdown linkも既存のidentifier reference処理を使う。
 - JSON object/arrayのinline値はそのまま保持し、JSON artifactは既存のpathとcanonical hashを保持する。`clientToken`、`jobArn`、CFn対応情報や作成者情報をmodelへ追加しない。
+- `bucketDefinitions`型Macie JobはMarkdownの`#### 対象S3 bucket`表をJob・account・bucket対応の正本とする。`sync-model.py --write`で同じserviceの`S3JobDefinition` JSON artifactへ`bucketDefinitions`を生成してからmodelを再生成し、表自体は`desired.note.*`や追加resourceへ保存しない。modelは従来のJSON linkとcanonical hashを保持する。`scoping`はJSON内の選択済み設定として保持し、`bucketCriteria`型Jobには対応表を生成しない。
 - service modelにJobが存在することを、CFnで作成可能または実装済みという判定に使用しない。実装可否はresource typeから対応するcatalog/schemaへ解決する。
 
 ## Grouping

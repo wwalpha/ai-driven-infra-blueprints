@@ -256,7 +256,8 @@ def service_policy_checks():
             artifact.write_text(json.dumps(document), encoding="utf-8")
             types = list(dict.fromkeys([owner_type, resource_type]))
             metadata = ", ".join(f"`{rt}`" for rt in types)
-            original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n| LogicalId | Label |\n| --- | --- |\n| [sample-a](#{service}-sample-a) | `一つ目` |\n| [sample-b](#{service}-sample-b) | `二つ目` |\n\n## リソース詳細\n\n"
+            summary = "| LogicalId | Label | SSEAlgorithm |\n| --- | --- | --- |\n| [sample-a](#s3-sample-a) | `一つ目` | — |\n| [sample-b](#s3-sample-b) | `二つ目` | — |" if owner_type == "S3.Bucket" else f"| LogicalId | Label |\n| --- | --- |\n| [sample-a](#{service}-sample-a) | `一つ目` |\n| [sample-b](#{service}-sample-b) | `二つ目` |"
+            original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n{summary}\n\n## リソース詳細\n\n"
             for name in ("sample-a", "sample-b"):
                 original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
                 rows = []
@@ -276,11 +277,23 @@ def service_policy_checks():
             assert MODEL.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
             suffix = "inline-access" if prop == "IAM.User.Policies[].PolicyDocument" else "policy-access"
-            assert f"#{service}-sample-a-{suffix}" in rendered and f"#{service}-sample-b-{suffix}" in rendered
+            if owner_type == "S3.Bucket":
+                assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
+            else:
+                assert f"#{service}-sample-a-{suffix}" in rendered and f"#{service}-sample-b-{suffix}" in rendered
             for duplicate in ("Property：", "JSON：", "Version：", "Id："):
                 assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
-            assert "| LogicalId | Label | Policies |" in rendered
+            if owner_type == "S3.Bucket":
+                assert "| LogicalId | Label | SSEAlgorithm |" in rendered and "Policies" not in rendered
+                stale = rendered.replace("| LogicalId | Label | SSEAlgorithm |", "| LogicalId | Label | SSEAlgorithm | Policies |", 1)
+                stale = stale.replace("| --- | --- | --- |", "| --- | --- | --- | --- |", 1)
+                stale = stale.replace(" | — |\n", " | — | — |\n", 2)
+                path.write_text(stale, encoding="utf-8")
+                assert rendered_design(path) == rendered, "S3 Policies column must be removed"
+                path.write_text(rendered, encoding="utf-8")
+            else:
+                assert "| LogicalId | Label | Policies |" in rendered
             if style == "settings":
                 assert "| Property | Type | Value |" in rendered and "| No. | Sid |" not in rendered
                 if prop == "ECR.Repository.LifecyclePolicy":
@@ -312,7 +325,10 @@ def service_policy_checks():
             assert errors(original), "missing views must fail"
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"
-            assert errors(rendered.replace(f"[Access](#{service}-sample-b-{suffix})", f"[Access](#{service}-sample-a-{suffix})", 1)), "wrong owner link must fail"
+            if owner_type == "S3.Bucket":
+                assert errors(rendered.replace(f'id="{service}-sample-b-{suffix}"', f'id="{service}-sample-a-{suffix}"', 1)), "duplicate policy anchor must fail"
+            else:
+                assert errors(rendered.replace(f"[Access](#{service}-sample-b-{suffix})", f"[Access](#{service}-sample-a-{suffix})", 1)), "wrong owner link must fail"
             for metadata in (f"Property：`{prop}`", f"JSON：[Access]({service}/access.json)", "Version：`2012-10-17`", "Id：`access-policy`"):
                 assert errors(rendered.replace(START, START + "\n\n" + metadata, 1)), (prop, metadata)
             assert errors(rendered.replace(START, START + "\n" + START, 1)), "nested markers must fail"
