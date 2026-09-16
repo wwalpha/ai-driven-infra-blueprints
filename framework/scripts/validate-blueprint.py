@@ -10,7 +10,6 @@ import json
 import re
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
 from policy_tables import (
@@ -131,7 +130,7 @@ LONG_CF_KEY = re.compile(rf"(?<![A-Za-z0-9_])(?:{_SHORT_CF_NAMES})\s*:")
 QUOTED_LONG_CF_KEY = re.compile(
     rf"(?P<prefix>^|[{{,]|-\s)\s*(?P<quote>['\"])(?:{_SHORT_CF_NAMES})(?P=quote)\s*:"
 )
-TRUST_POLICY_KEY = re.compile(r"^( *)AssumeRolePolicyDocument:\s*(.*)$")
+YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
@@ -1728,7 +1727,6 @@ class Validator:
             if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
                 continue
             lines = path.read_text(encoding="utf-8").splitlines()
-            trust_bodies: dict[str, int] = {}
             scalar_indent: int | None = None
             for index, line in enumerate(lines):
                 indent = len(line) - len(line.lstrip(" "))
@@ -1737,6 +1735,8 @@ class Validator:
                         continue
                     scalar_indent = None
                 code = self.unquoted_yaml(line)
+                if YAML_REUSE.search(code):
+                    self.check(False, f"CloudFormation YAML anchor/alias/merge is forbidden: {self.relative(path)}:{index + 1}")
                 quoted_long = any(
                     match.group("prefix") == code[match.start("prefix"):match.end("prefix")]
                     for match in QUOTED_LONG_CF_KEY.finditer(line)
@@ -1756,27 +1756,6 @@ class Validator:
                 if re.search(r":\s*(?:![A-Za-z][A-Za-z0-9]*\s*)?[>|][+-]?\s*$", code):
                     scalar_indent = indent
                     continue
-
-                trust = TRUST_POLICY_KEY.match(line)
-                if not trust:
-                    continue
-                value = trust.group(2).strip()
-                if value.startswith("*"):
-                    continue
-                value = re.sub(r"^&[A-Za-z0-9_-]+\s*", "", value)
-                body: list[str] = []
-                for later in lines[index + 1:]:
-                    if not later.strip() or later.lstrip().startswith("#"):
-                        continue
-                    if len(later) - len(later.lstrip(" ")) <= len(trust.group(1)):
-                        break
-                    body.append(later)
-                # ponytail: catches copied YAML bodies; add a YAML parser if equivalent formatting must count.
-                document = value + "\n" + textwrap.dedent("\n".join(body)).strip()
-                if document.strip() and document in trust_bodies:
-                    self.check(False, f"identical IAM trust policy must use YAML anchor/alias: {self.relative(path)}:{index + 1} (first at {trust_bodies[document]})")
-                elif document.strip():
-                    trust_bodies[document] = index + 1
 
             resource_types: set[str] = set()
             in_resources = False

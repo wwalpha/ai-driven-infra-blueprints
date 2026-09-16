@@ -1009,17 +1009,18 @@ def check_cloudformation_yaml_rules() -> None:
             "  RoleA:\n"
             "    Type: AWS::IAM::Role\n"
             "    Properties:\n"
-            "      AssumeRolePolicyDocument: &sharedTrustPolicy\n"
+            "      AssumeRolePolicyDocument:\n"
             + trust_body
             + "  RoleB:\n"
             "    Type: AWS::IAM::Role\n"
             "    Properties:\n"
-            "      AssumeRolePolicyDocument: *sharedTrustPolicy\n"
-            "      JobId: !Select [0, !Split ['|', !Ref GlueJob]]\n"
+            "      AssumeRolePolicyDocument:\n"
+            + trust_body
+            + "      JobId: !Select [0, !Split ['|', !Ref GlueJob]]\n"
             "      Imported: !ImportValue fixed-export\n"
-            "      Description: 'Fn::Select: is text'\n"
+            "      Description: 'Fn::Select: &shared *alias <<: is text'\n"
             "      UserData: |\n"
-            "        Ref: is text too\n"
+            "        Ref: &shared *alias <<: is text too\n"
             "      Extra: {Fn::Length: [a, b]}\n"
             "  Consumer:\n"
             "    Type: AWS::EC2::Instance\n"
@@ -1048,9 +1049,13 @@ def check_cloudformation_yaml_rules() -> None:
         )
         assert any("must use YAML flow form" in error for error in errors(join_block_array)), errors(join_block_array)
 
-        duplicate = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body)
-        assert any("identical IAM trust policy" in error for error in errors(duplicate)), errors(duplicate)
-        different = valid.replace("AssumeRolePolicyDocument: *sharedTrustPolicy\n", "AssumeRolePolicyDocument:\n" + trust_body.replace("ec2.amazonaws.com", "lambda.amazonaws.com"))
+        for forbidden in (
+            valid.replace("AssumeRolePolicyDocument:\n", "AssumeRolePolicyDocument: &sharedTrustPolicy\n", 1),
+            valid.replace("AssumeRolePolicyDocument:\n" + trust_body, "AssumeRolePolicyDocument: *sharedTrustPolicy\n", 1),
+            valid.replace("AssumeRolePolicyDocument:\n" + trust_body, "AssumeRolePolicyDocument:\n        <<: {}\n", 1),
+        ):
+            assert any("anchor/alias/merge is forbidden" in error for error in errors(forbidden)), errors(forbidden)
+        different = valid.replace("ec2.amazonaws.com", "lambda.amazonaws.com", 1)
         assert not errors(different), errors(different)
 
         consumer = "  Consumer:\n    Type: AWS::EC2::Instance\n"

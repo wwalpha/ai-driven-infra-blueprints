@@ -5,7 +5,7 @@
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。`ImportValue`の値に`!Sub`を使用しない。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
-- CloudFormation YAMLではYAML anchor/aliasとhash merge（`<<:`）を使用しない。信頼ポリシー、IAM/KMSなどの権限Policy、その他の設定ブロックが同じ場合も各resourceに元の値を明示し、Roleごとの設計JSON artifactと参照を維持する。
+- CloudFormation YAMLではYAML anchor/aliasとhash merge（`<<:`）を使用しない。同一の信頼ポリシー、IAM/KMSなどの権限Policy、その他の設定ブロックは各resourceに元の値を明示する。同一内容を理由に共有を要求せず、Roleごとの設計JSON artifactと参照を維持する。
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとする。

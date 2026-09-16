@@ -1,38 +1,30 @@
-# active taskの不在状態と検知境界を見直す
+# CloudFormation YAMLアンカー禁止の検証を統一する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / active task lifecycle and local validation
-- Goal: 変更のないアイドル状態では`tasks/active.md`の不在を許容し、変更中のtask contract不在は検出する。
+- Target: framework共通 / CloudFormation YAML rule and validator
+- Goal: YAML anchor/alias/hash merge禁止を正とし、検証器のアンカー要求との矛盾を解消する。
 
 ## Required changes
 
-- [R1] active taskの不在を許容する状態と変更中の必須条件をrepository ruleへ規定する。
-- [R2] README、loop engineering rule、およびactive taskを参照するpromptのlifecycle説明を同期する。
-- [R3] validatorでclean idle状態または`active.md`単独削除時の不在を許容し、他の変更中の不在を拒否する。
-- [R4] focused checkでidle状態、単独削除、他の変更中の不在を検証する。
+- [R1] CloudFormation YAML ruleで同一の信頼ポリシーの明示記載を維持し、アンカー禁止を明確にする。
+- [R2] validatorから同一信頼ポリシーのアンカー要求を除き、YAML anchor/alias/hash mergeを拒否する。
+- [R3] focused checkで同一信頼ポリシーの明示記載を許容し、禁止構文を拒否する。
 
 ## Acceptance checks
 
-- [R1] `check:framework.active-task-transition`
-- [R2] `check:framework.active-task-transition`
-- [R3] `changed:framework/scripts/validate-blueprint.py`
-- [R4] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R1] `changed:framework/rules/cloudformation.md`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `AGENTS.md`
-- `README.md`
-- `framework/rules/loop-engineering.md`
-- `framework/prompts/chatbot/service-design.md`
-- `framework/prompts/codex/03_implement.md`
-- `framework/prompts/codex/04_deploy.md`
-- `framework/prompts/codex/05_update.md`
+- `framework/rules/cloudformation.md`
 - `framework/scripts/validate-blueprint.py`
 - `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope
 
-- target、design/model、IaC、AWS操作、scenario、prompt変更、commit/pushは変更・実行しない。未追跡`CMD.md`は保持する。
+- design/model、IaC、AWS操作、scenario、その他のframeworkは変更しない。未追跡`CMD.md`は保持する。
