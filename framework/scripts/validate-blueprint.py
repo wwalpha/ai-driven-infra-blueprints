@@ -723,7 +723,7 @@ class Validator:
             prefix = path.stem.replace("_", ".", 1) + "."
             self.check(text.endswith("\n"), f"catalog file lacks final newline: {self.relative(path)}")
             self.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {self.relative(path)}")
-            for line in lines:
+            for index, line in enumerate(lines):
                 self.check(MATERIAL_PATTERN.fullmatch(line) is not None, f"invalid catalog line: {self.relative(path)}: {line}")
                 self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
 
@@ -1761,7 +1761,8 @@ class Validator:
             in_resources = False
             resource_indent: int | None = None
             property_indent: int | None = None
-            for line in lines:
+            seen_resource = False
+            for index, line in enumerate(lines):
                 code = self.unquoted_yaml(line)
                 if not code.strip():
                     continue
@@ -1774,6 +1775,9 @@ class Validator:
                     continue
                 resource = re.fullmatch(r"( +)[A-Za-z0-9]+:\s*", code)
                 if resource and (resource_indent is None or indent <= resource_indent):
+                    if seen_resource:
+                        self.check(not lines[index - 1].strip(), f"CloudFormation resources must be separated by a blank line: {self.relative(path)}:{index + 1}")
+                    seen_resource = True
                     resource_indent, property_indent = indent, None
                     continue
                 if resource_indent is None or indent <= resource_indent:

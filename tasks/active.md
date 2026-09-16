@@ -1,23 +1,22 @@
-# Security Groupを利用resourceのCloudFormation templateへ同居させる
+# CloudFormation resource間へ空行を入れる
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation template boundary rule and validator
-- Goal: Security GroupをIAM Role、CloudWatch Logsと同様に利用するresourceのtemplateへ含め、SG単独templateを禁止する。
+- Target: framework共通 / CloudFormation YAML formatting
+- Goal: CloudFormation templateの`Resources`配下でresource間を空行区切りにし、可読性を保つ。
 
 ## Required changes
 
-- [R1] CloudFormation ruleでSecurity Groupを利用するresourceのtemplateへ含める。
-- [R2] implement promptへ同じtemplate boundaryを反映する。
-- [R3] validatorとfocused checkでSecurity Group単独templateを拒否する。
+- [R1] CloudFormation ruleとimplement promptでresource間の空行を必須にする。
+- [R2] validatorとfocused checkで空行のないresource境界を拒否する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/cloudformation.md`
-- [R2] `changed:framework/prompts/codex/03_implement.md`
-- [R3] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R1] `changed:framework/prompts/codex/03_implement.md`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
@@ -29,4 +28,4 @@
 
 ## Out of scope
 
-- design/model、既存IaC、AWS操作、scenario、他のframework ruleは変更しない。未追跡`CMD.md`は保持する。
+- 既存IaC template、design/model、AWS操作、scenario、他のformat ruleは変更しない。未追跡`CMD.md`は保持する。

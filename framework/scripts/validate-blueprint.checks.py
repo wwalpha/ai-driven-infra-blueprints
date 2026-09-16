@@ -1011,7 +1011,7 @@ def check_cloudformation_yaml_rules() -> None:
             "    Properties:\n"
             "      AssumeRolePolicyDocument:\n"
             + trust_body
-            + "  RoleB:\n"
+            + "\n  RoleB:\n"
             "    Type: AWS::IAM::Role\n"
             "    Properties:\n"
             "      AssumeRolePolicyDocument:\n"
@@ -1022,10 +1022,14 @@ def check_cloudformation_yaml_rules() -> None:
             "      UserData: |\n"
             "        Ref: &shared *alias <<: is text too\n"
             "      Extra: {Fn::Length: [a, b]}\n"
-            "  Consumer:\n"
+            "\n  Consumer:\n"
             "    Type: AWS::EC2::Instance\n"
         )
         assert not errors(valid), errors(valid)
+        assert any(
+            "resources must be separated by a blank line" in error
+            for error in errors(valid.replace("\n  RoleB:", "  RoleB:", 1))
+        )
         for bad in (
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId:\n        Fn::Select:\n          - 0\n          - Ref: GlueJob"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Select: [0, {Ref: GlueJob}]}"),
@@ -1058,7 +1062,7 @@ def check_cloudformation_yaml_rules() -> None:
         different = valid.replace("ec2.amazonaws.com", "lambda.amazonaws.com", 1)
         assert not errors(different), errors(different)
 
-        consumer = "  Consumer:\n    Type: AWS::EC2::Instance\n"
+        consumer = "\n  Consumer:\n    Type: AWS::EC2::Instance\n"
         boundary_error = "must share the consuming resource template"
         assert any(boundary_error in error for error in errors(valid.replace(consumer, "")))
         assert any(boundary_error in error for error in errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n"))
