@@ -4,7 +4,8 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Task boundary
 
-- repository変更前に最新依頼のtask type、target、Goalをactive taskと比較し、異なる場合は最初のrepository changeで`tasks/active.md`を上書きする。
+- repository変更前に`tasks/active.md`があれば最新依頼のtask type、target、Goalと比較する。変更のないclean repositoryでの`active.md`不在はidle状態として許容する。idle状態から変更を始める場合は、最初のcoherent changeで`tasks/active.md`を作成または上書きする。
+- `active.md`がない状態で`tasks/active.md`以外の変更がある場合は、task contract不在としてlocal loopを失敗させる。
 - read-only調査とchat-only設計相談はactive taskの切替を要求せず、残っている前taskをblockerにしない。
 - loopはactive taskのtask typeとAllowed paths内だけで完結する。
 - loop成功後に別taskを作成または実行しない。
@@ -16,7 +17,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。一層でも未実行または失敗の場合はFAILとする。
+local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態ではactive taskなしを許容する。一層でも未実行または失敗の場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -29,9 +30,9 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 
 各coherent logical change後に次を決定的に確認する。
 
-- active task promptと有効なTask typeが存在する
+- 変更がある場合はactive task promptと有効なTask typeが存在する。変更のないidle状態では`tasks/active.md`がなくてもよい
 - changed pathsがTask type boundaryとAllowed paths内にある
-- `tasks/`には`active.md`だけがある
+- `tasks/`が存在する場合は`active.md`だけがある。idle状態では`tasks/`ごと省略してよい
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須とgenerated modelを検証し、CFn型解決で拒否する

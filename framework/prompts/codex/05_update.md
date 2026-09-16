@@ -26,7 +26,7 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 
 1. `AGENTS.md`
 2. `README.md`
-3. `tasks/active.md`
+3. 存在する場合は`tasks/active.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. `git status --short`と、repository差分から特定したDesign scopeのdiff
 6. 対象の`docs/designs/<environment>/<target-directory>/*.md`と関連するJSON artifact

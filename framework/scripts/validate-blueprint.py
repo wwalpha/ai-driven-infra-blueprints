@@ -54,7 +54,6 @@ REQUIRED_DIRECTORIES = (
     "docs/designs",
     "model",
     "infra",
-    "tasks",
     "tests/scenarios",
     "tests/results",
 )
@@ -245,8 +244,16 @@ class Validator:
 
     def check_task_scope(self) -> None:
         prompt = self.root / "tasks" / "active.md"
-        self.check(prompt.is_file(), f"active task prompt missing: {self.relative(prompt)}")
+        self.changed_paths = (
+            self.git_paths(["diff", "--name-only"])
+            | self.git_paths(["diff", "--cached", "--name-only"])
+            | self.git_paths(["ls-files", "--others", "--exclude-standard"])
+        )
         if not prompt.is_file():
+            self.check(
+                not self.changed_paths,
+                f"active task prompt missing: {self.relative(prompt)} while repository has changes",
+            )
             return
 
         lines = prompt.read_text(encoding="utf-8").splitlines()
@@ -333,11 +340,6 @@ class Validator:
                 allowed.append(match.group(1))
         self.check(bool(allowed), f"Allowed paths section missing or empty: {self.relative(prompt)}")
 
-        self.changed_paths = (
-            self.git_paths(["diff", "--name-only"])
-            | self.git_paths(["diff", "--cached", "--name-only"])
-            | self.git_paths(["ls-files", "--others", "--exclude-standard"])
-        )
         for changed in sorted(self.changed_paths):
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
@@ -561,8 +563,8 @@ class Validator:
             return
         entries = sorted(tasks.iterdir())
         self.check(
-            len(entries) == 1 and entries[0].is_file() and entries[0].name == "active.md",
-            "tasks directory must contain only tasks/active.md",
+            not entries or (len(entries) == 1 and entries[0].is_file() and entries[0].name == "active.md"),
+            "tasks directory must contain only tasks/active.md, or be empty while idle",
         )
 
     def check_project_topology(self) -> None:

@@ -109,6 +109,22 @@ def check_task_contract() -> None:
         assert any("Infrastructure phase must appear exactly once" in error for error in validator.errors)
 
 
+def check_idle_without_active_task() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        validator.check_tasks()
+        assert not validator.errors, validator.errors
+
+        (root / "README.md").write_text("changed\n", encoding="utf-8")
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert any("active task prompt missing" in error for error in validator.errors)
+
+
 def check_task_type_dispatch() -> None:
     valid = {
         "initialization": {"project.json"},
@@ -1092,6 +1108,7 @@ def main() -> None:
     assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
     check_task_contract()
+    check_idle_without_active_task()
     check_task_type_dispatch()
     check_optional_alias_targets()
     check_optional_alias_contract()
@@ -1108,7 +1125,7 @@ def main() -> None:
     check_cloudformation_yaml_rules()
     check_cloudformation_environment_parameters()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (50 focused checks)")
+    print("validate-blueprint: PASS (51 focused checks)")
 
 
 if __name__ == "__main__":

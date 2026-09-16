@@ -4,7 +4,7 @@
 
 ## 常時適用ルール
 
-- 変更前に`tasks/active.md`が存在し、`## Task contract`に`Task type`が正確に1件記載されていなければならない。
+- repository変更では`tasks/active.md`をtask contractとして使用する。変更のないアイドル状態ではこのfileがなくてもよい。fileがない状態で変更を始める場合は、最初のcoherent changeで今回のcontractを作成し、それ以外の変更はcontract作成後に行う。
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
@@ -24,8 +24,8 @@
 
 ## Task transition
 
-- repository変更前に、最新のuser依頼のtask type、target、Goalを`tasks/active.md`と比較する。
-- task type、target、Goalのいずれかが異なるrepository変更は新しいtaskとし、最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。
+- repository変更前に、`tasks/active.md`があれば最新のuser依頼のtask type、target、Goalと比較する。fileがないclean repositoryはidle状態として扱う。
+- task type、target、Goalのいずれかが異なるrepository変更は新しいtaskとし、最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。`active.md`がない状態では、validatorが`tasks/active.md`以外の変更を拒否する。
 - read-only調査とchat-only設計相談はrepository taskを開始しない。完了済みの前taskが`tasks/active.md`に残っていてもchat-only作業のblockerにしない。
 - chat-only設計をrepositoryへ保存する依頼は新しい`design` taskとし、保存前にactive taskを切り替える。
 - `## Required changes`の各項目には一意なRequirement IDを付け、`## Acceptance checks`で同じIDへ一つ以上の機械検証を対応付ける。

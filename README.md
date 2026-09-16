@@ -30,11 +30,11 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
-- `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする
+- `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
 
 ## Task transition
 
-repositoryを変更する新しい依頼を受けた場合、Codexは最新依頼のtask type、target、Goalを現在の`tasks/active.md`と比較します。いずれかが異なる場合は新しいtaskとして扱い、最初のrepository changeで`tasks/active.md`を上書きします。
+repositoryを変更する新しい依頼を受けた場合、Codexは`tasks/active.md`があれば最新依頼のtask type、target、Goalと比較します。`active.md`がないclean repositoryはidle状態です。いずれかが異なる場合、またはidle状態から変更を始める場合は新しいtaskとして扱い、最初のcoherent changeで`tasks/active.md`を今回の契約として作成または上書きします。`active.md`がない状態で他のpathだけを変更した場合はvalidatorが失敗します。
 
 read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
 
@@ -191,7 +191,7 @@ framework/
     sync-existing-files.py
     update-catalog-lock.py
     validate-blueprint.py
-tasks/active.md
+tasks/active.md  # task実行中だけ必要。idle状態では省略可
 docs/
   system-overview.md
   designs/<environment>/<target-directory>/
