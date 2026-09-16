@@ -1785,14 +1785,25 @@ class Validator:
                     if resource_type:
                         resource_types.add(resource_type.group(1))
 
-            iam_support_types = {
+            support_types = {
                 "AWS::IAM::Role", "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy",
                 "AWS::IAM::InstanceProfile",
             }
-            if "AWS::IAM::Role" in resource_types or any(kind.startswith("AWS::Logs::") for kind in resource_types):
+            is_security_group = lambda kind: kind.startswith("AWS::EC2::SecurityGroup")
+            requires_consumer = (
+                "AWS::IAM::Role" in resource_types
+                or any(kind.startswith("AWS::Logs::") for kind in resource_types)
+                or any(is_security_group(kind) for kind in resource_types)
+            )
+            if requires_consumer:
                 self.check(
-                    any(not kind.startswith("AWS::Logs::") and kind not in iam_support_types for kind in resource_types),
-                    f"CloudWatch Logs and IAM Role must share the consuming resource template: {self.relative(path)}",
+                    any(
+                        not kind.startswith("AWS::Logs::")
+                        and kind not in support_types
+                        and not is_security_group(kind)
+                        for kind in resource_types
+                    ),
+                    f"CloudWatch Logs, IAM Role, and Security Group must share the consuming resource template: {self.relative(path)}",
                 )
 
     def check_cloudformation_environment_parameters(self) -> None:

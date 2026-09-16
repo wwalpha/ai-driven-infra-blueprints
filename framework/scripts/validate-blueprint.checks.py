@@ -1066,7 +1066,14 @@ def check_cloudformation_yaml_rules() -> None:
         assert any(boundary_error in error for error in errors(
             "Resources:\n  Role:\n    Type: AWS::IAM::Role\n  Policy:\n    Type: AWS::IAM::Policy\n"
         ))
+        assert any(boundary_error in error for error in errors(
+            "Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n  Ingress:\n    Type: AWS::EC2::SecurityGroupIngress\n"
+        ))
+        assert any(boundary_error in error for error in errors(
+            "Resources:\n  Egress:\n    Type: AWS::EC2::SecurityGroupEgress\n"
+        ))
         assert not errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n" + consumer)
+        assert not errors("Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n" + consumer)
 
 
 def check_cloudformation_environment_parameters() -> None:

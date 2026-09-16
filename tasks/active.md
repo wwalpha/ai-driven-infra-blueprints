@@ -1,30 +1,32 @@
-# CloudFormation YAMLアンカー禁止の検証を統一する
+# Security Groupを利用resourceのCloudFormation templateへ同居させる
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation YAML rule and validator
-- Goal: YAML anchor/alias/hash merge禁止を正とし、検証器のアンカー要求との矛盾を解消する。
+- Target: framework共通 / CloudFormation template boundary rule and validator
+- Goal: Security GroupをIAM Role、CloudWatch Logsと同様に利用するresourceのtemplateへ含め、SG単独templateを禁止する。
 
 ## Required changes
 
-- [R1] CloudFormation YAML ruleで同一の信頼ポリシーの明示記載を維持し、アンカー禁止を明確にする。
-- [R2] validatorから同一信頼ポリシーのアンカー要求を除き、YAML anchor/alias/hash mergeを拒否する。
-- [R3] focused checkで同一信頼ポリシーの明示記載を許容し、禁止構文を拒否する。
+- [R1] CloudFormation ruleでSecurity Groupを利用するresourceのtemplateへ含める。
+- [R2] implement promptへ同じtemplate boundaryを反映する。
+- [R3] validatorとfocused checkでSecurity Group単独templateを拒否する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/cloudformation.md`
-- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:framework/prompts/codex/03_implement.md`
+- [R3] `changed:framework/scripts/validate-blueprint.py`
 - [R3] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/cloudformation.md`
+- `framework/prompts/codex/03_implement.md`
 - `framework/scripts/validate-blueprint.py`
 - `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope
 
-- design/model、IaC、AWS操作、scenario、その他のframeworkは変更しない。未追跡`CMD.md`は保持する。
+- design/model、既存IaC、AWS操作、scenario、他のframework ruleは変更しない。未追跡`CMD.md`は保持する。
