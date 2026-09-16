@@ -10,18 +10,13 @@
 
 - [R1] active taskの不在を許容する状態と変更中の必須条件をrepository ruleへ規定する。
 - [R2] README、loop engineering rule、およびactive taskを参照するpromptのlifecycle説明を同期する。
-- [R3] validatorでclean idle状態の`active.md`不在を許容し、変更中の不在を拒否する。
-- [R4] focused checkでidle状態と変更中の不在を検証する。
+- [R3] validatorでclean idle状態または`active.md`単独削除時の不在を許容し、他の変更中の不在を拒否する。
+- [R4] focused checkでidle状態、単独削除、他の変更中の不在を検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:AGENTS.md`
-- [R2] `changed:README.md`
-- [R2] `changed:framework/rules/loop-engineering.md`
-- [R2] `changed:framework/prompts/chatbot/service-design.md`
-- [R2] `changed:framework/prompts/codex/03_implement.md`
-- [R2] `changed:framework/prompts/codex/04_deploy.md`
-- [R2] `changed:framework/prompts/codex/05_update.md`
+- [R1] `check:framework.active-task-transition`
+- [R2] `check:framework.active-task-transition`
 - [R3] `changed:framework/scripts/validate-blueprint.py`
 - [R4] `changed:framework/scripts/validate-blueprint.checks.py`
 

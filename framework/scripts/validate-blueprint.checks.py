@@ -119,6 +119,29 @@ def check_idle_without_active_task() -> None:
         validator.check_tasks()
         assert not validator.errors, validator.errors
 
+        (root / "tasks").mkdir()
+        (root / "tasks" / "active.md").write_text("# completed\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tasks/active.md"], cwd=root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=validator",
+                "-c",
+                "user.email=validator@example.invalid",
+                "commit",
+                "-qm",
+                "active-task",
+            ],
+            cwd=root,
+            check=True,
+        )
+        (root / "tasks" / "active.md").unlink()
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        validator.check_tasks()
+        assert not validator.errors, validator.errors
+
         (root / "README.md").write_text("changed\n", encoding="utf-8")
         validator = MODULE.Validator(root)
         validator.check_task_scope()

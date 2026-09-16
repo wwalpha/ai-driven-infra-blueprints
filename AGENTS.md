@@ -4,7 +4,7 @@
 
 ## 常時適用ルール
 
-- repository変更では`tasks/active.md`をtask contractとして使用する。変更のないアイドル状態ではこのfileがなくてもよい。fileがない状態で変更を始める場合は、最初のcoherent changeで今回のcontractを作成し、それ以外の変更はcontract作成後に行う。
+- repository変更では`tasks/active.md`をtask contractとして使用する。変更のないアイドル状態ではこのfileがなくてもよい。fileがない状態で変更を始める場合は、最初のcoherent changeで今回のcontractを作成し、idleへ移行する`active.md`単独の削除を除く他の変更はcontract作成後に行う。
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。

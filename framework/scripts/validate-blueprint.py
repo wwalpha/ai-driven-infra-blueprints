@@ -187,7 +187,10 @@ class Validator:
             return 1
 
         print(f"Blueprint repository validation: PASS ({self.checks} checks)")
-        print(f"- task type: {self.task_type}")
+        if self.task_type:
+            print(f"- task type: {self.task_type}")
+        else:
+            print("- task state: idle (no active task)")
         print(f"- task requirements: {', '.join(self.requirement_ids)}")
         print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
@@ -251,8 +254,8 @@ class Validator:
         )
         if not prompt.is_file():
             self.check(
-                not self.changed_paths,
-                f"active task prompt missing: {self.relative(prompt)} while repository has changes",
+                not (self.changed_paths - {"tasks/active.md"}),
+                f"active task prompt missing: {self.relative(prompt)} while repository has non-contract changes",
             )
             return
 
@@ -476,6 +479,20 @@ class Validator:
         self.check("## Task transition" in agents, "AGENTS.md lacks Task transition rules")
         self.check("## Task transition" in readme, "README.md lacks Task transition workflow")
         self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
+        required = {
+            "AGENTS.md": "変更のないアイドル状態ではこのfileがなくてもよい",
+            "README.md": "`active.md`がないclean repositoryはidle状態",
+            "framework/rules/loop-engineering.md": "変更のないidle状態では`tasks/active.md`がなくてもよい",
+            "framework/prompts/chatbot/service-design.md": "存在する場合は`tasks/active.md`",
+            "framework/prompts/codex/03_implement.md": "存在する場合は`tasks/active.md`",
+            "framework/prompts/codex/04_deploy.md": "存在する場合は`tasks/active.md`",
+            "framework/prompts/codex/05_update.md": "存在する場合は`tasks/active.md`",
+        }
+        for relative, literal in required.items():
+            path = self.root / relative
+            self.check(path.is_file(), f"active task lifecycle file missing: {relative}")
+            if path.is_file():
+                self.check(literal in path.read_text(encoding="utf-8"), f"active task lifecycle rule missing: {relative}")
 
     def check_framework_design_handoff(self) -> None:
         path = self.root / "framework" / "prompts" / "chatbot" / "service-design.md"
