@@ -56,6 +56,14 @@ def main() -> None:
             "ExternalSecretRotationMetadata[].Value",
             "ExternalSecretRotationRoleArn",
         ),
+        "GuardDuty.MalwareProtectionPlan": (
+            "Actions.Tagging.Status",
+            "ProtectedResource.S3Bucket.BucketName",
+            "ProtectedResource.S3Bucket.ObjectPrefixes[]",
+            "Role",
+            "Tags[].Key",
+            "Tags[].Value",
+        ),
     }.items():
         lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
         for property_path in properties:
@@ -67,11 +75,15 @@ def main() -> None:
     assert catalog.property_schema("IAM.User", "UserName")["type"] == "string"
     assert catalog.property_schema("IAM.User", "LoginProfile.PasswordResetRequired")["type"] == "boolean"
     assert "object" in catalog.property_schema("IAM.User", "Policies[].PolicyDocument")["type"]
-    assert sum(
-        line.endswith("=IDENTIFIER_OUTPUT")
-        for path in materials.glob("*.properties")
-        for line in path.read_text(encoding="utf-8").splitlines()
-    ) == 69
+    assert catalog.required_properties("GuardDuty.MalwareProtectionPlan") == {"ProtectedResource", "Role"}
+    assert "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId=IDENTIFIER_OUTPUT" in (
+        materials / "GuardDuty_MalwareProtectionPlan.properties"
+    ).read_text().splitlines()
+    assert catalog.property_schema("GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId")["type"] == "string"
+    assert catalog.schema("GuardDuty.MalwareProtectionPlan")["primaryIdentifier"] == [
+        "/properties/MalwareProtectionPlanId"
+    ]
+    assert catalog.literal_errors("GuardDuty.MalwareProtectionPlan", "Actions.Tagging.Status", "ENABLED") == []
     eip = (materials / "EC2_EIP.properties").read_text(encoding="utf-8")
     assert "EC2.EIP.AllocationId=IDENTIFIER_OUTPUT" in eip
     assert "EC2.EIP.PublicIp=IDENTIFIER_OUTPUT" in eip

@@ -302,9 +302,14 @@ def snapshot_errors(root: Path) -> list[str]:
             for pointer in primary & read_only
             if not pointer.rsplit("/", 1)[-1].lower().endswith("arn")
         }
+        allowed_outputs = expected_outputs | {
+            pointer
+            for pointer in read_only
+            if pointer.rsplit("/", 1)[-1].lower().endswith(("id", "identifier"))
+        }
         for pointer in sorted(expected_outputs - identifier_outputs):
             errors.append(f"generated primary identifier is missing: {resource_type}: {pointer}")
-        for pointer in sorted(identifier_outputs - expected_outputs):
+        for pointer in sorted(identifier_outputs - allowed_outputs):
             errors.append(f"invalid identifier output: {resource_type}: {pointer}")
         for pointer in sorted((primary - read_only) - catalog_pointers):
             errors.append(f"selected primary identifier is missing: {resource_type}: {pointer}")

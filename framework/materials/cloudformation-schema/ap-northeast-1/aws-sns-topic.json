@@ -167,6 +167,12 @@
       "description": "The ID of an AWS managed customer master key (CMK) for SNS or a custom CMK. For more information, see [Key terms](https://docs.aws.amazon.com/sns/latest/dg/sns-server-side-encryption.html#sse-key-terms). For more examples, see ``KeyId`` in the *API Reference*.\n This property applies only to [server-side-encryption](https://docs.aws.amazon.com/sns/latest/dg/sns-server-side-encryption.html).",
       "type": "string"
     },
+    "MaximumMessageSize": {
+      "description": "",
+      "maximum": 1048576,
+      "minimum": 1024,
+      "type": "integer"
+    },
     "SignatureVersion": {
       "description": "The signature version corresponds to the hashing algorithm used while creating the signature of the notifications, subscription confirmations, or unsubscribe confirmation messages sent by Amazon SNS. By default, ``SignatureVersion`` is set to ``1``.",
       "type": "string"

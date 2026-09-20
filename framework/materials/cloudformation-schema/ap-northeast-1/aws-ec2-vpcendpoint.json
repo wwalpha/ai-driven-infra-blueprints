@@ -286,7 +286,8 @@
         "Gateway",
         "GatewayLoadBalancer",
         "ServiceNetwork",
-        "Resource"
+        "Resource",
+        "Tunnel"
       ],
       "type": "string"
     },
