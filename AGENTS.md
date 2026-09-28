@@ -69,6 +69,7 @@
 
 - `docs/designs/**`をintended designのsource of truthとする。
 - `model/**`は`framework/scripts/sync-model.py`で生成し、手動編集しない。
+- CloudFormation stackの管理対象はtarget別`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を詳細設計の正本とし、同名の`model/**`を生成する。templateとstackは一対一に限定しない。deploy時はStackNameでAWS実体を照合し、設計外stackを自動採用しない。
 - 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
 - design task、infrastructure `update` phase、成功したAWS mutation後はMarkdown更新後に同じservice modelを再生成する。design taskで既存resourceを取得した場合は確認済みcurrent identifierを`observed.*`へ生成してよい。
 - local loopはgenerated modelがMarkdownと一致しない場合に失敗する。

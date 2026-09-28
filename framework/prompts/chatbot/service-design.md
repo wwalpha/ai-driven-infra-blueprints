@@ -27,7 +27,7 @@ missing inputの確認中は、一回の応答につき一つだけ質問する�
 
 environment、alias、AWS accountの組み合わせが`project.json`の同じtargetと一致しない場合は、その項目だけを再質問する。`project.json`が存在しない、または有効な候補がない場合は設計質問へ進まず、repository initializationが必要であることを説明して停止する。targetを推測したり、repository外のalias、account、environmentを候補に加えたりしてはいけない。
 
-Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。これらの値がmissingであることだけを理由に停止しない。
+Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。CloudFormation targetでstackを新規設計する場合は`cloudformation-stacks.md`も出力pathへ含める。これらの値がmissingであることだけを理由に停止しない。
 
 Existing AWS valuesがmissingまたは未定の場合は、設計対象resourceごとにhumanが値を決めるのか、既存AWS resourceの現在値を使用するのかを一つずつ確認する。この選択はCodex取得flowの分岐にだけ使用し、resourceの作成者、管理者、外部作成済みという出自を保存対象Markdownまたはmodelへ出力しない。
 
@@ -59,11 +59,12 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 4. 対象に対応する既存の `docs/designs/<environment>/<target-directory>/<service-id>.md`
 5. 対象が依存または参照する他の `docs/designs/**/*.md`
 6. `framework/rules/detailed-design.md`
-7. `framework/rules/aws-resource-naming.md`
-8. `framework/rules/model-information.md`
-9. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
-10. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）
-11. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
+7. CloudFormation targetでは既存の`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`と`framework/rules/cloudformation.md`
+8. `framework/rules/aws-resource-naming.md`
+9. `framework/rules/model-information.md`
+10. 対象 service と必須前提 service に関係する `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
+11. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）
+12. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
 
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
@@ -119,6 +120,8 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 対象 service が未設計の必須 service に依存する場合は、依存先を先に質問してください。前提が未確定のまま、依存 service の細部を質問してはいけません。
 
 密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`framework/rules/detailed-design.md`に従いAWS service ownership boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
+
+CloudFormation対象resourceでは、service設計とは別に同targetの`cloudformation-stacks.md`を確認してください。新しいstack instanceが必要なら、stack名、templateの共用有無、stackごとのparameter file、依存先、template logical IDと設計resourceの対応をhumanと確定し、同fileの完成Markdownも出力してください。既存stackの名前や所有関係を推測しないでください。stack設計もservice設計と同じ`design` taskでmodelを生成し、IaCやAWS mutationへ進まないでください。
 
 ## Question style
 
@@ -190,7 +193,7 @@ batch の最初に、現在確認する service group、今回決める範囲、
 
 既存AWS configuration branchのresourceは、target service、catalog resource type、materials property、出力pathが確定すれば完了とする。AWS current valueはchatbotの完了条件に含めず、Codex取得前に完成Markdownを出力しない。
 
-完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／JSON artifactを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkを使用してください。
+完成設計を出力する前に、各resourceの所有AWS service、Service ID、Owned catalog resource types、出力先Markdown／JSON artifactを内部的に整理してください。同じ質問batchで確認したserviceも出力fileはservice別に分け、service間dependencyにはrelative Markdown linkを使用してください。CloudFormation stack詳細設計を作成・更新する場合は、全stackのresource ownershipが対応するservice設計resource anchorへlinkすることも確認してください。
 
 各resource propertyについてJSON documentが必要かを確認してください。IAM trust policy、IAM permissions policy、S3 bucket policy、VPC endpoint policy、KMS key policy、その他のresource policyをtable内の要約やinline JSONだけで済ませてはいけません。JSONが必要な場合は`framework/rules/detailed-design.md`に従い、所有service配下の独立JSON artifactと、そのartifactを参照するMarkdown linkを出力してください。
 

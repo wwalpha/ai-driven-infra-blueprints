@@ -29,6 +29,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
+- `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、template、個別parameter、依存先、設計resource対応の詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
 
@@ -52,7 +53,7 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 8. `model/`
 9. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/target directory別・AWS service別の詳細設計の正本とする。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/target directory別の詳細設計の正本とする。service resourceはAWS service別file、CloudFormation stackはtarget別`cloudformation-stacks.md`に記載する。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -197,6 +198,7 @@ docs/
   designs/<environment>/<target-directory>/
 model/
   <environment>/<target-directory>/<service-id>.properties
+  <environment>/<target-directory>/cloudformation-stacks.properties  # stack設計がある場合
 infra/
   cloudformation/  # CloudFormationを選択したtargetがある場合だけ
     templates/  # aliasなしの共通template
@@ -214,8 +216,9 @@ tests/
 ## Design information
 
 - `docs/designs/<environment>/<target-directory>/`はhuman-readable current designの正本。
+- CloudFormation targetでstackをdeployする場合は同directoryの`cloudformation-stacks.md`をstack管理の正本とする。同じtemplateを複数StackNameへ適用でき、各stackに個別parameter fileとservice設計resourceの所有対応を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
 - `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
-- 一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。
+- service用の一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。stack詳細設計pairはtarget内のdeployment unitを所有する。
 - service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
 - policy JSONは`docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated modelへそのまま反映する。
 - topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`framework/rules/detailed-design.md`を正本とする。

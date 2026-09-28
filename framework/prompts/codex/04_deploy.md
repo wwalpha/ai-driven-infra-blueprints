@@ -7,7 +7,7 @@
 - Target environment: `{{project.jsonのenvironment}}`
 - Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
-- Deployment scope: `{{対象のtemplate/stackまたはTerraform root/resource。複数可}}`
+- Deployment scope: `{{対象のStackNameまたはTerraform root/resource。複数可}}`
 - Authorized delete/replacement: `none`
 - AWS profile: `{{使用するprofile名。default credential chainの場合は空}}`
 
@@ -78,9 +78,11 @@ scriptが終了code 0を返した場合だけ、出力されたregionとIaC engi
 
 preflight成功後、対象stackまたはTerraform stateと既存resourceをread-onlyで確認する。CloudFormationのcross-stack参照では`describe-stacks`でproducerのOutputs、`list-exports`で同じaccount・regionのdeploy済みexportsを調べ、export名、値、`ExportingStackId`を照合する。engine切替、state/backendの不明点、対象IaCと承認済みdesignの不一致があれば停止する。
 
+CloudFormationでは`list-stacks`でtarget account/regionのstackを確認し、stack詳細設計のStackNameごとに`describe-stacks`、必要な場合だけ`get-template`と`list-stack-resources`でtemplate、parameter、所有resource、terminal statusを照合する。設計済みで未作成、設計済みで現存、設計外、同名だが内容不一致を区別する。設計外stackや内容不一致を自動採用・変更・削除せず、scopeとの衝突がある場合は停止する。StackId/ARNやstatus snapshotをrepositoryへ保存しない。
+
 ## Resolve deployment units
 
-CloudFormationでは対象template、stack、parameter file、dependencyを既存IaCから特定する。文字列中のresource参照もcross-stack dependencyへ含め、exportが未deployならproducer stackを先行unitとする。同時に実行可能なunitはtemplate path順に列挙する。dependency cycle、stack name不足、parameter不足、参照先不明がある場合は停止する。
+CloudFormationではstack詳細設計のStackNameをdeployment unitとして対象template、stack固有parameter file、設計resource対応、dependencyを特定する。同じtemplateを複数stackへdeployできるが、scope内の全StackNameを個別unitとして扱う。文字列中のresource参照もcross-stack dependencyへ含め、exportが未deployならproducer stackを先行unitとする。同時に実行可能なunitはStackName順に列挙する。dependency cycle、stack設計不足、parameter不足、参照先不明がある場合は停止する。
 
 Terraformでは対象root、workspace、backend、variable inputを既存IaCから特定する。不足または不一致があれば停止する。
 
@@ -92,10 +94,10 @@ CloudFormationの場合:
 
 1. 対象全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 2. 対象全templateへ`aws cloudformation validate-template`を実行する。
-3. 依存元stackがterminal successとなり、必要なobserved valueとexportの確認が終わったunitを実行可能とする。最初は依存元のないunitが実行可能となる。必要なexportが未deployなら、scope内のproducer templateにOutput/Exportが用意されている場合だけproducerのchange setへ進む。deploy phaseではIaCを変更せず、Output/Exportがない場合やproducerがscope外なら実行を止めて実装の前提を報告する。実行可能な各unitのchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。
+3. 依存元stackがterminal successとなり、必要なobserved valueとexportの確認が終わったunitを実行可能とする。最初は依存元のないunitが実行可能となる。必要なexportが未deployなら、scope内のproducer templateにOutput/Exportが用意されている場合だけproducerのchange setへ進む。deploy phaseではIaCを変更せず、Output/Exportがない場合やproducerがscope外なら実行を止めて実装の前提を報告する。実行可能な各StackNameとそのtemplate・parameter fileで個別のchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。同じtemplateの別StackNameを一つのchange setとみなさない。
 4. 未承認のdelete/replacementがある場合は次の`Confirm unapproved delete/replacement`に従い、新たなchange setを実行せずhuman確認待ちにする。
 5. 確認済みの実行可能なunitは、事前承認済みまたはchange set作成後にhuman承認された同じchange setを並列で実行する。stackごとにterminal successを確認する。他の独立unitが実行中でも、依存元の成功と必要なobserved valueの反映が終わったunitは手順3へ進める。
-6. 各stackの成功後、必要なnon-ARN identifierをstack Outputsから取得し、対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新する。producerでは実際のexport名・値をread-onlyで再確認する。同じMarkdownへの更新は完了したunitごとに行い、依存先のchange set作成前に反映する。
+6. 各stackの成功後、stack詳細設計のStackNameとLogicalIdから所有する設計resourceを特定し、必要なnon-ARN identifierをそのstackのOutputsから取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、正式なidentifier output rowと全参照元を更新する。producerでは実際のexport名・値をread-onlyで再確認する。同じMarkdownへの更新は完了したunitごとに行い、依存先のchange set作成前に反映する。
 
 Terraformの場合:
 

@@ -34,7 +34,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 
 ## AWS service ownership boundary
 
-詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのdesign fileは一つのAWS serviceだけを所有する。
+service resource詳細設計のfile grouping unitは、security boundaryやIAM Permissions Boundaryではなく、人間が認識するAWS serviceごとの責務を表すAWS service ownership boundaryとする。一つのservice design fileは一つのAWS serviceだけを所有する。`cloudformation-stacks.md`は上記のdeployment unit専用とする。
 
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - fileは`docs/designs/<environment>/<target-directory>/<service-id>.md`に置く。
@@ -48,6 +48,28 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
+
+## CloudFormation stack詳細設計
+
+CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用template、stack固有parameter file、依存先、各stackが所有する設計resourceをここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
+
+```md
+# CloudFormation stack 詳細設計
+
+## Stack一覧
+| StackName | Template | Parameters | DependsOn |
+| --- | --- | --- | --- |
+| cfn-stack-app-dev-job-01 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-01.json | — |
+| cfn-stack-app-dev-job-02 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-02.json | cfn-stack-app-dev-job-01 |
+
+## Resource ownership
+| StackName | LogicalId | Design resource |
+| --- | --- | --- |
+| cfn-stack-app-dev-job-01 | Job | [Job01](glue.md#glue-job01) |
+| cfn-stack-app-dev-job-02 | Job | [Job02](glue.md#glue-job02) |
+```
+
+`DependsOn`は依存がなければ`—`、あれば同じtargetのStackNameをcomma区切りで記載する。`LogicalId`はtemplateの`Resources` key、Design resourceは同じtargetのservice詳細設計resource anchorへの相対linkとする。templateの全`Resources`をstackごとに対応付ける。同じtemplateを複数行で使えるが、各stackのStackName、parameter file、所有する設計resourceは一意にする。stackごとのparameter、resource名、Export名が衝突しない設計値をhumanが確定する。既存stack名と既存exportを命名形式だけで変更しない。対応する`model/<environment>/<target-directory>/cloudformation-stacks.properties`は`sync-model.py`で生成し、手動編集しない。IaC pathは設計時に予定pathを記載でき、implement phaseで実fileを作成する。
 
 generic validatorがservice ownershipを判断するため、各Markdownには次のmachine-readable service metadataだけを正確に1件ずつ記載する。
 

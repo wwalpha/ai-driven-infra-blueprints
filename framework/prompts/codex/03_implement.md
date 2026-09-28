@@ -64,6 +64,7 @@ Jobが要求scopeに含まれる場合は未実装対象として明示し、対
 対象scopeから必要なtemplate/module、parameter、dependencyを特定する。既存boundaryと共通部品があれば再利用し、未使用resource、将来用module、compatibility layerは作成しない。
 
 CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従う。AWS service単位で機械的に分割しない。dependency cycle、parameter不足、参照先不明がある場合は、不足情報を報告して停止する。
+CloudFormationでは対象targetの`cloudformation-stacks.md`と生成modelを読み、scope内resourceのStackName、template、個別parameter file、LogicalId対応を特定する。同じtemplateを複数stackで共用する場合もstackごとのparameterと生成resource名・Export名の一意性を確認する。stack詳細設計がない、またはownershipが曖昧な場合はIaCを推測で作らず、design taskが必要であることを報告する。
 CloudWatch Logs resource、IAM Role、Security Groupは利用するresourceのtemplateへ含め、これらだけの単独templateを作らない。利用側resourceを一意に特定できない場合は推測せず停止する。
 
 対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、設計linkと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
@@ -78,7 +79,7 @@ identifierを参照するMarkdown linkはanchorから参照先resourceのlogical
 
 CloudFormationの場合:
 
-1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用し、対象の`infra/cloudformation/parameters/<environment>/<target-directory>/`だけを変更する。
+1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用し、stack詳細設計が指定する`infra/cloudformation/parameters/<environment>/<target-directory>/`の個別fileだけを変更する。template `Resources`のlogical IDと所有する設計resourceの対応を全stack instanceで照合する。
 2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、設計logical IDとの対応、template内参照、export/importの一致と一意性を確認する。`Resources`配下のresource間には1行以上の空行を入れる。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
 3. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 4. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。

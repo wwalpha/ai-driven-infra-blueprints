@@ -32,6 +32,8 @@ Implementation scope: docs/designs/dev/cde/vpc.md
 
 新規設計では、`service-design.md`が完成したMarkdown／JSONと、それらをrepositoryへ作成する自己完結型Codex promptを出力する。既存AWS resourceの現在値を使用する場合は完成Markdownを出力せず、対象service、resource type、propertyを含むread-only取得用Codex promptを出力する。Codexはresource候補をhumanが選択した後、現在値を詳細設計へ直接差分反映する。どちらも設計保存専用の固定promptは使用しない。
 
+CloudFormation targetでstackを管理する場合は、service別詳細設計とともにtarget別`cloudformation-stacks.md`をdesign taskで保存する。`03_implement.md`はそこに記載した各StackNameのtemplateと個別parameter fileを実装し、`04_deploy.md`はStackName単位でAWS実体と照合してdeployする。同じtemplateを複数StackNameに割り当てられる。
+
 手動修正時はimplementとdeployへ分割しない。`05_update.md`がhumanの設計差分をimmutable inputとして受け取り、model同期、IaC反映、deploy/applyまでを一つのtaskで行う。
 
 ## Workflow order

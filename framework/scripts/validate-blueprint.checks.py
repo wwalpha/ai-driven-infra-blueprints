@@ -1133,6 +1133,72 @@ Resources:
             valid_template, [valid_values[0], {**valid_values[1], "ParameterValue": "device"}]
         )
 
+def check_cloudformation_stack_design() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / "docs" / "designs" / "dev" / "123456789012"
+        target.mkdir(parents=True)
+        (target / "glue.md").write_text(
+            '<a id="glue-job01"></a>\n### Glue.Job: Job01\n<a id="glue-job02"></a>\n### Glue.Job: Job02\n', encoding="utf-8"
+        )
+        stack_file = target / "cloudformation-stacks.md"
+        stack_file.write_text(
+            """# CloudFormation stack 詳細設計
+
+## Stack一覧
+| StackName | Template | Parameters | DependsOn |
+| --- | --- | --- | --- |
+| stack-job-01 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-01.json | — |
+| stack-job-02 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-02.json | stack-job-01 |
+
+## Resource ownership
+| StackName | LogicalId | Design resource |
+| --- | --- | --- |
+| stack-job-01 | Job | [Job01](glue.md#glue-job01) |
+| stack-job-02 | Job | [Job02](glue.md#glue-job02) |
+""",
+            encoding="utf-8",
+        )
+        template = root / "infra" / "cloudformation" / "templates" / "job.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text(
+            "Parameters:\n  Environment:\n    Type: String\nResources:\n  Job:\n    Type: AWS::Glue::Job\n    Properties:\n      Name: !Ref Environment\n",
+            encoding="utf-8",
+        )
+        parameter_dir = root / "infra" / "cloudformation" / "parameters" / "dev" / "123456789012"
+        parameter_dir.mkdir(parents=True)
+        for name in ("job-01", "job-02"):
+            (parameter_dir / f"{name}.json").write_text(
+                '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n', encoding="utf-8"
+            )
+
+        def errors() -> list[str]:
+            validator = MODULE.Validator(root)
+            validator.accounts[("dev", "123456789012")] = {
+                "account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"
+            }
+            validator.check_stack_designs()
+            validator.check_cloudformation_environment_parameters()
+            return validator.errors
+
+        assert not errors(), errors()
+        original = stack_file.read_text(encoding="utf-8")
+        stack_file.write_text(original.replace("| stack-job-02 | infra", "| stack-job-01 | infra"), encoding="utf-8")
+        assert any("duplicate stack name" in error for error in errors())
+        stack_file.write_text(original.replace("[Job02](glue.md#glue-job02)", "[Job01](glue.md#glue-job01)"), encoding="utf-8")
+        assert any("multiple stacks" in error for error in errors())
+        stack_file.write_text(original.replace("job-01.json | —", "job-01.json | stack-job-02"), encoding="utf-8")
+        assert any("dependency cycle" in error for error in errors())
+        stack_file.write_text(original, encoding="utf-8")
+        (parameter_dir / "job-02.json").write_text("[]\n", encoding="utf-8")
+        assert any("must equal target environment" in error for error in errors())
+        (parameter_dir / "job-02.json").write_text(
+            '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n', encoding="utf-8"
+        )
+        template.write_text(template.read_text(encoding="utf-8") + "  Role:\n    Type: AWS::IAM::Role\n", encoding="utf-8")
+        assert any("ownership differs from template" in error for error in errors())
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -1163,8 +1229,9 @@ def main() -> None:
     check_subnet_association_overview()
     check_cloudformation_yaml_rules()
     check_cloudformation_environment_parameters()
+    check_cloudformation_stack_design()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (51 focused checks)")
+    print("validate-blueprint: PASS (57 focused checks)")
 
 
 if __name__ == "__main__":

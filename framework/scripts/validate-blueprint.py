@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import fnmatch
+from graphlib import CycleError, TopologicalSorter
 import json
 import re
 import subprocess
@@ -33,6 +34,8 @@ from design_layout import (
     IMPLICIT_GROUPED_PROPERTIES,
     RESOURCE as RESOURCE_HEADING_PATTERN,
     expanded_design,
+    STACK_DESIGN,
+    stack_design,
     layout_errors,
     catalog_order_errors,
 )
@@ -728,7 +731,10 @@ class Validator:
                 self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
 
     def design_files(self) -> list[Path]:
-        return sorted((self.root / "docs" / "designs").rglob("*.md"))
+        return sorted(path for path in (self.root / "docs" / "designs").rglob("*.md") if path.name != STACK_DESIGN)
+
+    def stack_design_files(self) -> list[Path]:
+        return sorted((self.root / "docs" / "designs").rglob(STACK_DESIGN))
 
     def check_target_file(self, path: Path, base: Path) -> tuple[str, str] | None:
         parts = path.relative_to(base).parts
@@ -741,8 +747,9 @@ class Validator:
 
     def check_designs(self) -> None:
         self.check_generated_service_models()
+        self.check_stack_designs()
         markdown_paths = self.design_files()
-        properties_paths = sorted((self.root / "model").rglob("*.properties"))
+        properties_paths = sorted(path for path in (self.root / "model").rglob("*.properties") if path.stem != Path(STACK_DESIGN).stem)
         markdown = {
             path.relative_to(self.root / "docs" / "designs").with_suffix("").as_posix()
             for path in markdown_paths
@@ -762,6 +769,101 @@ class Validator:
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
         self.check_design_links(identifier_outputs)
         self.check_design_artifacts()
+
+    def check_stack_designs(self) -> None:
+        names: set[tuple[str, str, str]] = set()
+        for path in self.stack_design_files():
+            target = self.check_target_file(path, self.root / "docs" / "designs")
+            if target is None or target not in self.accounts:
+                continue
+            self.check(
+                self.accounts[target]["engine"] == "cloudformation",
+                f"stack design requires CloudFormation target: {self.relative(path)}",
+            )
+            try:
+                stacks, resources = stack_design(path)
+            except ValueError as error:
+                self.check(False, f"invalid stack design: {self.relative(path)}: {error}")
+                continue
+            stack_names = {stack["name"] for stack in stacks}
+            self.check(len(stack_names) == len(stacks), f"duplicate stack name in design: {self.relative(path)}")
+            owned: set[tuple[str, str]] = set()
+            design_resources: set[tuple[Path, str]] = set()
+            for stack in stacks:
+                name = stack["name"]
+                self.check(re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", name) is not None, f"invalid stack name: {name}")
+                identity = (self.accounts[target]["account"], self.accounts[target]["region"], name)
+                self.check(identity not in names, f"duplicate stack in AWS account/region: {name}")
+                names.add(identity)
+                template = Path(stack["template"])
+                template_parts = ("infra", "cloudformation", "templates")
+                suffix = (self.accounts[target]["alias"], template.name) if self.accounts[target]["alias"] else (template.name,)
+                self.check(
+                    template.parts == (*template_parts, *suffix) and template.suffix in {".yaml", ".yml"},
+                    f"stack template is outside target template path: {self.relative(path)}: {name}",
+                )
+                parameters = Path(stack["parameters"])
+                self.check(
+                    parameters.parts == ("infra", "cloudformation", "parameters", *target, parameters.name)
+                    and parameters.suffix == ".json",
+                    f"stack parameters are outside target parameter path: {self.relative(path)}: {name}",
+                )
+                deps = [] if stack["depends_on"] == "—" else [value.strip() for value in stack["depends_on"].split(",")]
+                self.check(len(deps) == len(set(deps)) and all(dep in stack_names and dep != name for dep in deps), f"invalid stack dependency: {name}")
+                stack["dependencies"] = deps
+            try:
+                list(TopologicalSorter({stack["name"]: stack["dependencies"] for stack in stacks}).static_order())
+            except CycleError as error:
+                self.check(False, f"stack dependency cycle: {self.relative(path)}: {error.args[1]}")
+            for resource in resources:
+                key = (resource["stack"], resource["logical_id"])
+                self.check(resource["stack"] in stack_names, f"resource ownership names unknown stack: {self.relative(path)}: {resource['stack']}")
+                self.check(re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", resource["logical_id"]) is not None, f"invalid CloudFormation logical ID: {self.relative(path)}: {resource['logical_id']}")
+                self.check(key not in owned, f"duplicate stack logical ID ownership: {self.relative(path)}: {key}")
+                owned.add(key)
+                link = RESOURCE_LINK_PATTERN.fullmatch(resource["design"])
+                target_path = (path.parent / link.group(2)).resolve() if link else path
+                valid_target = bool(link and target_path.parent == path.parent.resolve() and target_path.is_file() and target_path.name != STACK_DESIGN)
+                self.check(valid_target, f"invalid stack design resource link: {self.relative(path)}: {resource['design']}")
+                if valid_target:
+                    design_key = (target_path, link.group(3))
+                    self.check(design_key not in design_resources, f"design resource belongs to multiple stacks: {self.relative(path)}: {resource['design']}")
+                    design_resources.add(design_key)
+                    try:
+                        lines, _ = expanded_design(target_path.read_text(encoding="utf-8").splitlines())
+                    except ValueError:
+                        lines = []
+                    anchors: set[str] = set()
+                    pending = ""
+                    for line in lines:
+                        if anchor := ANCHOR_PATTERN.fullmatch(line):
+                            pending = anchor.group(1)
+                        elif RESOURCE_HEADING_PATTERN.fullmatch(line):
+                            if pending:
+                                anchors.add(pending)
+                            pending = ""
+                    self.check(link.group(3) in anchors, f"stack design resource anchor missing: {self.relative(path)}: {resource['design']}")
+            for name in stack_names:
+                self.check(any(resource["stack"] == name for resource in resources), f"stack has no design resource ownership: {self.relative(path)}: {name}")
+            for stack in stacks:
+                template_path = self.root / stack["template"]
+                if not template_path.is_file():
+                    continue  # A design task may name a template that implement has not created yet.
+                logical_ids: set[str] = set()
+                in_resources = False
+                resource_indent: int | None = None
+                for line in template_path.read_text(encoding="utf-8").splitlines():
+                    if line and not line.startswith(" "):
+                        in_resources = line.startswith("Resources:")
+                        resource_indent = None
+                    elif in_resources and (match := re.fullmatch(r"( +)([A-Za-z][A-Za-z0-9]*):\s*(?:#.*)?", line)):
+                        indent = len(match.group(1))
+                        if resource_indent is None:
+                            resource_indent = indent
+                        if indent == resource_indent:
+                            logical_ids.add(match.group(2))
+                mapped = {resource["logical_id"] for resource in resources if resource["stack"] == stack["name"]}
+                self.check(mapped == logical_ids, f"stack resource ownership differs from template: {self.relative(path)}: {stack['name']}: missing={sorted(logical_ids - mapped)}, extra={sorted(mapped - logical_ids)}")
 
     def catalog_design_properties(
         self,
@@ -1813,6 +1915,21 @@ class Validator:
     def check_cloudformation_environment_parameters(self) -> None:
         templates = self.root / "infra" / "cloudformation" / "templates"
         parameters = self.root / "infra" / "cloudformation" / "parameters"
+        stack_parameters: dict[Path, Path] = {}
+        designed_targets: set[tuple[str, str]] = set()
+        for design in self.stack_design_files():
+            target_parts = design.relative_to(self.root / "docs" / "designs").parts
+            if len(target_parts) != 3:
+                continue
+            designed_targets.add((target_parts[0], target_parts[1]))
+            try:
+                stacks, _ = stack_design(design)
+            except ValueError:
+                continue
+            for stack in stacks:
+                parameter_path = self.root / stack["parameters"]
+                self.check(parameter_path not in stack_parameters, f"parameter file belongs to multiple stacks: {stack['parameters']}")
+                stack_parameters[parameter_path] = self.root / stack["template"]
         environment_templates: set[Path] = set()
         for path in sorted(templates.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
@@ -1844,7 +1961,11 @@ class Validator:
                 templates / target_directory / f"{path.stem}{suffix}"
                 for suffix in (".yaml", ".yml")
             ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml")]
-            matching_template = next((candidate for candidate in candidates if candidate.is_file()), None)
+            matching_template = stack_parameters.get(path) or next((candidate for candidate in candidates if candidate.is_file()), None)
+            self.check(
+                (environment, target_directory) not in designed_targets or path in stack_parameters,
+                f"parameter file is absent from stack design: {self.relative(path)}",
+            )
             requires_environment = matching_template in environment_templates
             try:
                 entries = json.loads(path.read_text(encoding="utf-8"))

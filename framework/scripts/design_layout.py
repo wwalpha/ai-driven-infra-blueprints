@@ -30,6 +30,41 @@ CHILD = re.compile(
 )
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
+STACK_DESIGN = "cloudformation-stacks.md"
+STACK_HEADER = "| StackName | Template | Parameters | DependsOn |"
+STACK_RESOURCE_HEADER = "| StackName | LogicalId | Design resource |"
+
+
+def stack_design(path: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Read the two canonical tables in a target's stack detailed design."""
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    if lines[:4] != [
+        "# CloudFormation stack 詳細設計", "## Stack一覧", STACK_HEADER,
+        "| --- | --- | --- | --- |",
+    ]:
+        raise ValueError("invalid CloudFormation stack design header")
+    try:
+        ownership = lines.index("## Resource ownership")
+    except ValueError as error:
+        raise ValueError("CloudFormation stack design has no resource ownership table") from error
+    if lines[ownership + 1:ownership + 3] != [STACK_RESOURCE_HEADER, "| --- | --- | --- |"]:
+        raise ValueError("invalid CloudFormation resource ownership header")
+
+    def rows(start: int, end: int, columns: tuple[str, ...]) -> list[dict[str, str]]:
+        result = []
+        for line in lines[start:end]:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if not line.startswith("|") or not line.endswith("|") or len(cells) != len(columns) or not all(cells):
+                raise ValueError(f"invalid CloudFormation stack design row: {line}")
+            result.append(dict(zip(columns, cells)))
+        if not result:
+            raise ValueError("CloudFormation stack design table must not be empty")
+        return result
+
+    return (
+        rows(4, ownership, ("name", "template", "parameters", "depends_on")),
+        rows(ownership + 3, len(lines), ("stack", "logical_id", "design")),
+    )
 
 
 def layout_errors(root: Path) -> list[str]:
