@@ -146,6 +146,7 @@
     "AWS::SQS::QueuePolicy": "aws-sqs-queuepolicy.json",
     "AWS::SSO::Assignment": "aws-sso-assignment.json",
     "AWS::SSO::PermissionSet": "aws-sso-permissionset.json",
+    "AWS::Scheduler::Schedule": "aws-scheduler-schedule.json",
     "AWS::SecretsManager::ResourcePolicy": "aws-secretsmanager-resourcepolicy.json",
     "AWS::SecretsManager::RotationSchedule": "aws-secretsmanager-rotationschedule.json",
     "AWS::SecretsManager::Secret": "aws-secretsmanager-secret.json",

@@ -172,6 +172,7 @@
   "SQS.QueuePolicy": "independent",
   "SSO.Assignment": "independent",
   "SSO.PermissionSet": "independent",
+  "Scheduler.Schedule": "independent",
   "SecretsManager.ResourcePolicy": "independent",
   "SecretsManager.RotationSchedule": "independent",
   "SecretsManager.Secret": "independent",

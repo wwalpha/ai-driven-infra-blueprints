@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
+from design_catalog import DesignSchemaCatalog
 
 
 def main() -> None:
@@ -114,6 +115,21 @@ def main() -> None:
             pass
         else:
             raise AssertionError(f"unsupported Athena.WorkGroup path: {path}")
+    scheduler = (materials / "Scheduler_Schedule.properties").read_text(encoding="utf-8").splitlines()
+    assert len(scheduler) == 43
+    assert "Scheduler.Schedule.Arn=" not in scheduler
+    assert DesignSchemaCatalog(root).cloudformation_type("Scheduler.Schedule") == "AWS::Scheduler::Schedule"
+    assert catalog.required_properties("Scheduler.Schedule") == {
+        "FlexibleTimeWindow", "ScheduleExpression", "Target"
+    }
+    for path in (
+        "Name", "FlexibleTimeWindow.Mode", "ScheduleExpression", "ScheduleExpressionTimezone",
+        "Target.Arn", "Target.RoleArn", "Target.Input", "Target.RetryPolicy.MaximumRetryAttempts",
+    ):
+        assert f"Scheduler.Schedule.{path}=" in scheduler
+        assert catalog.property_schema("Scheduler.Schedule", path)
+    assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "OFF") == []
+    assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "WRONG")
     print("cloudformation-schema: PASS")
 
 
