@@ -93,6 +93,27 @@ def main() -> None:
     assert "SNS.Topic.TopicArn" not in (
         materials / "SNS_Topic.properties"
     ).read_text(encoding="utf-8")
+    for resource_type, paths in {
+        "Glue.Connection": "ConnectionInput ConnectionInput.AuthenticationConfiguration ConnectionInput.PhysicalConnectionRequirements ConnectionInput.AthenaProperties",
+        "Glue.Catalog": "FederatedCatalog",
+        "Athena.WorkGroup": "WorkGroupConfiguration WorkGroupConfiguration.EngineVersion WorkGroupConfiguration.ResultConfiguration WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration",
+        "LakeFormation.PrincipalPermissions": "Catalog Permissions PermissionsWithGrantOption Principal Resource Principal.DataLakePrincipalIdentifier Resource.Catalog Resource.Database Resource.Table Resource.TableWithColumns Resource.Database.CatalogId Resource.Database.Name Resource.Table.CatalogId Resource.Table.DatabaseName Resource.Table.Name Resource.Table.TableWildcard Resource.TableWithColumns.CatalogId Resource.TableWithColumns.DatabaseName Resource.TableWithColumns.Name Resource.TableWithColumns.ColumnNames Resource.TableWithColumns.ColumnWildcard Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames",
+        "QuickSight.DataSource": "Credentials.KeyPairCredentials Credentials.KeyPairCredentials.KeyPairUsername Credentials.KeyPairCredentials.PrivateKey Credentials.KeyPairCredentials.PrivateKeyPassphrase",
+    }.items():
+        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
+        for path in paths.split():
+            assert f"{resource_type}.{path}=" in lines, path
+            assert catalog.property_schema(resource_type, path)
+    lake = (materials / "LakeFormation_PrincipalPermissions.properties").read_text()
+    assert "LakeFormation.PrincipalPermissions.PrincipalIdentifier=IDENTIFIER_OUTPUT" in lake
+    assert "LakeFormation.PrincipalPermissions.ResourceIdentifier=IDENTIFIER_OUTPUT" in lake
+    for path in ("DataCatalog.DatabaseName", "DataCatalog.TableName"):
+        try:
+            catalog.property_schema("Athena.WorkGroup", path)
+        except KeyError:
+            pass
+        else:
+            raise AssertionError(f"unsupported Athena.WorkGroup path: {path}")
     print("cloudformation-schema: PASS")
 
 

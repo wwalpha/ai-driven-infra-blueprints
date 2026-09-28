@@ -123,6 +123,7 @@
   },
   "KMS.Key": "independent",
   "KinesisFirehose.DeliveryStream": "independent",
+  "LakeFormation.PrincipalPermissions": "independent",
   "Lambda.EventInvokeConfig": "independent",
   "Lambda.EventSourceMapping": "independent",
   "Lambda.Function": "independent",
