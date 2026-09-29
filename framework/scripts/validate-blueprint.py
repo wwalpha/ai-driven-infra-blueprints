@@ -24,6 +24,7 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
+    CLOUDTRAIL_DATA_RESOURCE,
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
     GROUPED,
@@ -1584,6 +1585,21 @@ class Validator:
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
             source_lines = source.read_text(encoding="utf-8").splitlines()
+            for line in source_lines:
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
+                if len(cells) != 4 or not (match := CLOUDTRAIL_DATA_RESOURCE.fullmatch(cells[1])):
+                    continue
+                link = RESOURCE_LINK_PATTERN.fullmatch(cells[2])
+                if not link:
+                    continue  # The display-row parser reports the missing resource link.
+                _, target_text, fragment = link.groups()
+                target = (source if not target_text else source.parent / target_text).resolve()
+                resource = resources.get((target, fragment))
+                expected = {"S3": "S3.Bucket", "Lambda": "Lambda.Function"}[match.group(2)]
+                self.check(
+                    bool(resource and resource[0] == expected and target.parent == source.parent.resolve()),
+                    f"CloudTrail DataResources must link to a {expected} in the same target: {self.relative(source)}: {cells[2]}",
+                )
             try:
                 source_lines = expanded_display_rows(security_group_table_lines(source_lines))
             except ValueError as error:

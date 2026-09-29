@@ -34,6 +34,9 @@ CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
 CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
 GUARDDUTY_FEATURE = "GuardDuty.Detector.Features."
 GUARDDUTY_FORMAL_FEATURE = "GuardDuty.Detector.Features[]."
+CLOUDTRAIL_DATA_RESOURCE = re.compile(r"^EventSelectors\.DataResources\[([1-9]\d*)\]\.(S3|Lambda)$")
+CLOUDTRAIL_RESOURCE_TYPES = {"S3": "AWS::S3::Object", "Lambda": "AWS::Lambda::Function"}
+CLOUDTRAIL_FORMAL_DATA_RESOURCE = "CloudTrail.Trail.EventSelectors[].DataResources[]."
 STACK_DESIGN = "cloudformation-stacks.md"
 STACK_HEADER = "| No. | StackName | Template | Parameters | Comment |"
 
@@ -173,6 +176,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
         row_numbers = []
         codebuild_names = set()
         guardduty_names = set()
+        cloudtrail_count = 0
         changed = False
         normalized = False
         kind = ""
@@ -181,6 +185,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
             row_numbers.append(cells[0])
+            display_property = cells[1]
             prop = formal_property(cells[1], resource_type)
             if prop != cells[1]:
                 normalized = True
@@ -189,6 +194,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
             if prop in {GUARDDUTY_FORMAL_FEATURE + "Name", GUARDDUTY_FORMAL_FEATURE + "Status"}:
                 raise ValueError("GuardDuty Features Name/Status must use Features.<Name> display rows")
+            if resource_type == "CloudTrail.Trail" and prop.startswith(CLOUDTRAIL_FORMAL_DATA_RESOURCE):
+                raise ValueError("CloudTrail DataResources Type/Values must use one linked resource per display row")
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
@@ -216,6 +223,17 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                     status = status[1:-1]
                 for field, field_value in (("Name", name), ("Status", status)):
                     rows.append([cells[0], GUARDDUTY_FORMAL_FEATURE + field, f"`{field_value}`", cells[3]])
+            elif resource_type == "CloudTrail.Trail" and display_property.startswith("EventSelectors.DataResources["):
+                match = CLOUDTRAIL_DATA_RESOURCE.fullmatch(display_property)
+                if not match or int(match.group(1)) != cloudtrail_count + 1:
+                    raise ValueError("CloudTrail DataResources display indexes must start at 1 and be sequential")
+                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                    raise ValueError("CloudTrail DataResources value must be a resource link")
+                cloudtrail_count += 1
+                changed = True
+                kind = "CloudTrail DataResources"
+                for field, value in (("Type", f"`{CLOUDTRAIL_RESOURCE_TYPES[match.group(2)]}`"), ("Values", cells[2])):
+                    rows.append([cells[0], CLOUDTRAIL_FORMAL_DATA_RESOURCE + field, value, cells[3]])
             else:
                 rows.append(cells)
             index += 1

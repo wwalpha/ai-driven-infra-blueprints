@@ -1,37 +1,35 @@
-# CloudFormation Stack一覧の番号と説明を必須化
+# CloudTrail data event対象の1リソース1行表示
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CloudFormation Stack一覧
-- Goal: Stack一覧にNo.とCommentを必須化し、番号と説明をlocal checkで検証する。
+- Target: framework共通 / CloudTrail.Trail詳細設計
+- Goal: CloudTrail DataResourcesの対象を1リソース1行、1からの連番、短いType名、resource linkで表示できるFW契約にする。
 
 ## Required changes
 
-- [R1] Stack一覧の5列形式、連番、CommentのFWルールと例を定義する。
-- [R2] 共通parserとvalidatorで5列形式、連番、Commentを検証する。
-- [R3] 正常系と欠落・不正行、modelへの表示情報非保存をfocused checkで検証する。
+- [R1] CloudTrail DataResourcesの表示、正式propertyへの対応、modelへの反映をFWルールに定義する。
+- [R2] 共通parserとvalidatorで表示行を正式propertyへ展開し、連番・Type・resource linkを検証する。
+- [R3] 展開と不正形式のfocused checkを追加する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `changed:framework/rules/detailed-design-samples.md`
 - [R1] `changed:framework/rules/model-information.md`
+- [R1] `changed:framework/prompts/chatbot/service-design.md`
 - [R2] `changed:framework/scripts/design_layout.py`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
-- [R3] `changed:framework/scripts/sync-model.checks.py`
+- [R3] `changed:framework/scripts/design_layout.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/detailed-design.md`
-- `framework/rules/detailed-design-samples.md`
 - `framework/rules/model-information.md`
+- `framework/prompts/chatbot/service-design.md`
 - `framework/scripts/design_layout.py`
 - `framework/scripts/validate-blueprint.py`
-- `framework/scripts/validate-blueprint.checks.py`
-- `framework/scripts/sync-model.checks.py`
+- `framework/scripts/design_layout.checks.py`
 
 ## Out of scope
 

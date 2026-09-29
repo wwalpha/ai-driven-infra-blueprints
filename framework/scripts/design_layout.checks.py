@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from design_layout import LAYOUTS, expanded_design, layout_errors
+from design_layout import LAYOUTS, expanded_design, expanded_display_rows, layout_errors
 from policy_tables import resources_in
 
 
@@ -193,6 +193,88 @@ def check_guardduty_feature_display() -> None:
 
 
 
+def check_cloudtrail_data_resources() -> None:
+    trail = """# AWS CloudTrail 詳細設計
+
+- Design service ID: `cloudtrail`
+- Owned catalog resource types: `CloudTrail.Trail`
+
+## リソース詳細
+
+<a id="cloudtrail-trail"></a>
+
+### CloudTrail.Trail: Trail
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | TrailName | `trail` | 証跡の名前 |
+| 2 | EventSelectors.DataResources[1].S3 | [data-bucket](s3.md#s3-data-bucket) | S3 objectの記録対象 |
+| 3 | EventSelectors.DataResources[2].Lambda | [function-one](lambda.md#lambda-function-one) | Lambda functionの記録対象 |
+| 4 | IsLogging | `true` | event記録の有効化 |
+| 5 | S3BucketName | [data-bucket](s3.md#s3-data-bucket) | ログの配信先bucket |
+"""
+    s3 = """# Amazon S3 詳細設計
+
+<a id="s3-data-bucket"></a>
+
+### S3.Bucket: data-bucket
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | BucketName | `data-bucket` | bucketの名前 |
+| 2 | Region | `ap-northeast-1` | bucketの配置region |
+"""
+    lambda_design = """# AWS Lambda 詳細設計
+
+<a id="lambda-function-one"></a>
+
+### Lambda.Function: function-one
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | FunctionName | `function-one` | functionの名前 |
+| 2 | Role | `arn:aws:iam::123456789012:role/function-one` | 実行用role |
+"""
+    expanded = "\n".join(expanded_display_rows(trail.splitlines()))
+    assert expanded.count("CloudTrail.Trail.EventSelectors[].DataResources[].Type") == 2
+    assert "`AWS::S3::Object`" in expanded and "`AWS::Lambda::Function`" in expanded
+    assert expanded.count("CloudTrail.Trail.EventSelectors[].DataResources[].Values") == 2
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs/designs/dev/123456789012"
+        design.mkdir(parents=True)
+        path = design / "cloudtrail.md"
+        path.write_text(trail, encoding="utf-8")
+        (design / "s3.md").write_text(s3, encoding="utf-8")
+        (design / "lambda.md").write_text(lambda_design, encoding="utf-8")
+        model = MODEL.model_for(path, REPOSITORY)
+        assert "desired.row.001-002.property=CloudTrail.Trail.EventSelectors[].DataResources[].Type" in model
+        assert "desired.row.001-003.value=[data-bucket](s3.md#s3-data-bucket)" in model
+        assert "desired.row.001-004.value=`AWS::Lambda::Function`" in model
+        assert "DataResources[1]" not in model
+        catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+
+        def errors(content: str) -> list[str]:
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({path: ("cloudtrail", ("CloudTrail.Trail",))}, *catalog)
+            validator.check_design_links(catalog[2])
+            return validator.errors
+
+        assert not errors(trail), errors(trail)
+        for bad in (
+            trail.replace("DataResources[1]", "DataResources[0]"),
+            trail.replace("DataResources[2]", "DataResources[3]"),
+            trail.replace("DataResources[2]", "DataResources[1]"),
+            trail.replace("DataResources[1].S3", "DataResources[1].Object"),
+            trail.replace("[data-bucket](s3.md#s3-data-bucket) | S3 object", "`data-bucket` | S3 object"),
+            trail.replace("DataResources[1].S3", "EventSelectors[].DataResources[].Type"),
+            trail.replace("[data-bucket](s3.md#s3-data-bucket) | S3 object", "[function-one](lambda.md#lambda-function-one) | S3 object"),
+        ):
+            assert errors(bad), bad
+
+
 def main() -> None:
     assert not layout_errors(REPOSITORY)
     policy_rows = [
@@ -205,6 +287,7 @@ def main() -> None:
     assert resources_in(policy_rows)[0].policies[0].property_name == "IAM.Role.AssumeRolePolicyDocument"
     check_codebuild_variable_display()
     check_guardduty_feature_display()
+    check_cloudtrail_data_resources()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

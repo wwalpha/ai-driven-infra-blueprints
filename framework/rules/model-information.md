@@ -28,6 +28,8 @@ Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.Bucke
 
 `GuardDuty.Detector.Features.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
 
+`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1リソース1行表示は、model生成時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、`Values`には対象resource linkを保持する。表示専用の`N`と短いType名はmodelのpropertyへ保存しない。
+
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 
 ```properties
