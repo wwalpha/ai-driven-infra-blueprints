@@ -172,6 +172,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
         codebuild_names = set()
         guardduty_names = set()
         changed = False
+        normalized = False
         kind = ""
         while index < len(lines) and lines[index].startswith("|"):
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
@@ -180,7 +181,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             row_numbers.append(cells[0])
             prop = formal_property(cells[1], resource_type)
             if prop != cells[1]:
-                changed = True
+                normalized = True
                 cells[1] = prop
             if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
                 raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
@@ -221,6 +222,9 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 raise ValueError(f"{kind} table numbering error")
             result.extend((HEADER, ALIGNMENT))
             result.extend("| " + " | ".join([str(number), *cells[1:]]) + " |" for number, cells in enumerate(rows, 1))
+        elif normalized:
+            result.extend((HEADER, ALIGNMENT))
+            result.extend("| " + " | ".join(cells) + " |" for cells in rows)
         else:
             result.extend(lines[start:index])
     return result

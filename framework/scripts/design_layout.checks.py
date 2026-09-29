@@ -45,8 +45,8 @@ KMS = """# KMS 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
-| 2 | KMS.Key.EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
+| 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
+| 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
 | 3 | KMS.Alias.AliasName | `alias/one` | <a id="kms-aliasone"></a><!-- logical-id: AliasOne --> KMS keyを識別するalias |
 | 4 | KMS.Alias.AliasName | `alias/two` | <a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> KMS keyを識別するalias |
 
@@ -56,7 +56,7 @@ KMS = """# KMS 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | `PENDING_DEPLOY` | KMS keyを識別するID |
+| 1 | KeyId | `PENDING_DEPLOY` | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | `alias/three` | <a id="kms-aliasthree"></a><!-- logical-id: AliasThree --> KMS keyを識別するalias |
 """
 S3 = """# S3 詳細設計
@@ -80,10 +80,10 @@ S3 = """# S3 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | S3.Bucket.BucketName | `app-data` | bucketの名前 |
-| 2 | S3.Bucket.Region | `us-east-1` | bucketを配置するregion |
-| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
-| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
+| 1 | BucketName | `app-data` | bucketの名前 |
+| 2 | Region | `us-east-1` | bucketを配置するregion |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
+| 4 | BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
 """
 CODEBUILD = """# CodeBuild 詳細設計
 
@@ -98,16 +98,16 @@ CODEBUILD = """# CodeBuild 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | CodeBuild.Project.Name | `build-project` | projectの名前 |
-| 2 | CodeBuild.Project.Id | `PENDING_DEPLOY` | projectのID |
-| 3 | CodeBuild.Project.Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
-| 4 | CodeBuild.Project.Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
-| 5 | CodeBuild.Project.Environment.Variables.FIRST | `PLAINTEXT:hello:world` | 環境変数の値 |
-| 6 | CodeBuild.Project.Environment.Variables.SECOND | `PARAMETER_STORE:/app/token` | 環境変数の参照先 |
-| 7 | CodeBuild.Project.Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
-| 8 | CodeBuild.Project.Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
-| 9 | CodeBuild.Project.ServiceRole | `role-name` | 使用するrole |
-| 10 | CodeBuild.Project.Source.Type | `NO_SOURCE` | sourceの種類 |
+| 1 | Name | `build-project` | projectの名前 |
+| 2 | Id | `PENDING_DEPLOY` | projectのID |
+| 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+| 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+| 5 | Environment.Variables.FIRST | `PLAINTEXT:hello:world` | 環境変数の値 |
+| 6 | Environment.Variables.SECOND | `PARAMETER_STORE:/app/token` | 環境変数の参照先 |
+| 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+| 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+| 9 | ServiceRole | `role-name` | 使用するrole |
+| 10 | Source.Type | `NO_SOURCE` | sourceの種類 |
 """
 GUARDDUTY = """# GuardDuty 詳細設計
 
@@ -122,10 +122,10 @@ GUARDDUTY = """# GuardDuty 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | GuardDuty.Detector.Id | `PENDING_DEPLOY` | detectorのID |
-| 2 | GuardDuty.Detector.Enable | `true` | detectorを有効化する設定 |
-| 3 | GuardDuty.Detector.Features.S3_DATA_EVENTS | `ENABLED` | S3の監視 |
-| 4 | GuardDuty.Detector.Features.EKS_AUDIT_LOGS | `DISABLED` | EKSの監視 |
+| 1 | Id | `PENDING_DEPLOY` | detectorのID |
+| 2 | Enable | `true` | detectorを有効化する設定 |
+| 3 | Features.S3_DATA_EVENTS | `ENABLED` | S3の監視 |
+| 4 | Features.EKS_AUDIT_LOGS | `DISABLED` | EKSの監視 |
 """
 
 
@@ -151,10 +151,11 @@ def check_codebuild_variable_display() -> None:
         assert "desired.row.001-007.value=`hello:world`" in model
         assert "desired.row.001-008.value=`SECOND`" in model
         assert "Environment.Variables." not in model
-        short = CODEBUILD.replace("| CodeBuild.Project.", "| ")
+        short = CODEBUILD
         assert "| Artifacts.Type |" in short
         assert not errors(short), errors(short)
         assert MODEL.model_for(path, REPOSITORY) == model
+        assert any("must omit heading resource type" in error for error in errors(short.replace("| 2 | Id |", "| 2 | CodeBuild.Project.Id |")))
         assert errors(short.replace("Artifacts.Type", "Artifacts.Unknown"))
         assert errors(CODEBUILD.replace("Variables.SECOND", "Variables.FIRST"))
         assert errors(CODEBUILD.replace("PLAINTEXT:hello:world", "hello"))
@@ -270,7 +271,7 @@ def main() -> None:
         for reference in ("[alias/one](kms.md#kms-aliastwo)", "[alias/two](kms.md#kms-keyone)", "[alias/two](kms.md#kms-missing)"):
             assert errors(KMS, S3.replace("[alias/two](kms.md#kms-aliastwo)", reference))
         formal_kms = "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID"
-        assert any("must use its Markdown display alias" in error for error in errors(KMS, S3.replace("S3.Bucket.BucketEncryption[].KMSMasterKeyID", formal_kms)))
+        assert any("must omit heading resource type" in error for error in errors(KMS, S3.replace("BucketEncryption[].KMSMasterKeyID", formal_kms)))
 
         # Moving an identified child updates only its parent relationship, not its identity.
         alias_line = next(line for line in KMS.splitlines() if marker in line)

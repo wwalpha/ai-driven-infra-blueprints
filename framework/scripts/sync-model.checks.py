@@ -65,9 +65,9 @@ def main() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
-| 2 | EC2.VPC.CidrBlock | 10.1.0.0/16 | VPCで使用するIPv4アドレス範囲 |
-| 3 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 1 | VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
+| 2 | CidrBlock | 10.1.0.0/16 | VPCで使用するIPv4アドレス範囲 |
+| 3 | Name | vpc-app-dev | VPCを識別するNameタグの値 |
 | 4 | PolicyDocument | [policy](vpc/vpc01-policy.json) | VPCに適用するpolicy文書 |
 
 <a id="vpc-sbnt-app-dev-private-01"></a>
@@ -76,9 +76,9 @@ def main() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 2 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
-| 3 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
+| 1 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 3 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
 """,
             encoding="utf-8",
         )
@@ -117,7 +117,7 @@ def main() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | 1234abcd-12ab-34cd-56ef-1234567890ab | KMS keyを識別するID |
+| 1 | KeyId | 1234abcd-12ab-34cd-56ef-1234567890ab | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | alias/app-data | <a id="kms-appdatakeyalias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
 """,
             encoding="utf-8",
@@ -144,11 +144,11 @@ def main() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | S3.Bucket.BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
-| 2 | S3.Bucket.Region | us-east-1 | bucketを配置するAWS region |
-| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
-| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | aws:kms | 暗号化方式 |
-| 5 | S3.Bucket.VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
+| 1 | BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
+| 2 | Region | us-east-1 | bucketを配置するAWS region |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | BucketEncryption[].SSEAlgorithm | aws:kms | 暗号化方式 |
+| 5 | VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
 | 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """,
             encoding="utf-8",
@@ -189,9 +189,9 @@ def main() -> None:
         )
         design.write_text(
             design.read_text(encoding="utf-8")
-            .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
+            .replace("VpcId | PENDING_DEPLOY", "VpcId | vpc-0123456789abcdef0")
             .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
-            .replace("EC2.Subnet.SubnetId | PENDING_DEPLOY", "EC2.Subnet.SubnetId | subnet-0123456789abcdef0"),
+            .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"),
             encoding="utf-8",
         )
         deployed = MODULE.model_for(design, root)

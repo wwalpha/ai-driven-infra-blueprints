@@ -43,10 +43,10 @@ DESIGN = """# Security Group 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.SecurityGroup.Id | `sg-00000001` | 一意に識別するID |
-| 2 | EC2.SecurityGroup.GroupDescription | `Application access` | 用途の説明 |
-| 3 | EC2.SecurityGroup.GroupName | `group-one` | 名前 |
-| 4 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
+| 1 | Id | `sg-00000001` | 一意に識別するID |
+| 2 | GroupDescription | `Application access` | 用途の説明 |
+| 3 | GroupName | `group-one` | 名前 |
+| 4 | VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
 
 | Direction | IpProtocol | Port | CidrIp | CidrIpv6 | SourcePrefixListId | SourceSecurityGroupOwnerId | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -66,9 +66,9 @@ DESIGN = """# Security Group 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.SecurityGroup.Id | `PENDING_DEPLOY` | 一意に識別するID |
-| 2 | EC2.SecurityGroup.GroupDescription | `No selected rules` | 用途の説明 |
-| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
+| 1 | Id | `PENDING_DEPLOY` | 一意に識別するID |
+| 2 | GroupDescription | `No selected rules` | 用途の説明 |
+| 3 | VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
 
 """
 VPC_DESIGN = """# Amazon VPC 詳細設計
@@ -92,9 +92,9 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.Name | vpc-app-dev | VPCを識別する名前 |
-| 2 | EC2.VPC.VpcId | `vpc-00000001` | VPCを一意に識別するID |
-| 3 | EC2.VPC.CidrBlock | `10.0.0.0/16` | VPCで使用するIPv4アドレス範囲 |
+| 1 | Name | vpc-app-dev | VPCを識別する名前 |
+| 2 | VpcId | `vpc-00000001` | VPCを一意に識別するID |
+| 3 | CidrBlock | `10.0.0.0/16` | VPCで使用するIPv4アドレス範囲 |
 """
 
 
@@ -238,7 +238,7 @@ def main():
         assert "security-group-tags" not in generated
         bad = [
             (DESIGN.replace(tag_line, tag_line + "\n" + tag_line, 1), "at most one tags metadata line"),
-            (DESIGN.replace(tag_line + "\n\n", "", 1).replace("| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |", "| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |\n" + tag_line, 1), "tags metadata must follow its detail heading"),
+            (DESIGN.replace(tag_line + "\n\n", "", 1).replace("| 3 | VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |", "| 3 | VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |\n" + tag_line, 1), "tags metadata must follow its detail heading"),
             (DESIGN.replace(tag_line, tag_line[:-3], 1), "invalid Security Group tags metadata"),
             (DESIGN.replace(tag_line, "<!-- security-group-tags: [] -->", 1), "Tags must be a JSON array"),
             (DESIGN.replace(tag_line, "", 1).replace("## リソース一覧", tag_line + "\n\n## リソース一覧", 1), "tags metadata must belong to EC2.SecurityGroup"),

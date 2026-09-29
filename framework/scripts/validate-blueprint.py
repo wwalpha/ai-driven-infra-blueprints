@@ -1066,6 +1066,20 @@ class Validator:
     ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
+            resource_type = ""
+            for index, line in enumerate(lines):
+                if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    resource_type = heading.group(1)
+                elif line.startswith("#"):
+                    resource_type = ""
+                if line != TABLE_HEADER or not resource_type:
+                    continue
+                cursor = index + 2
+                while cursor < len(lines) and lines[cursor].startswith("|"):
+                    cells = [cell.strip() for cell in lines[cursor].strip("|").split("|")]
+                    if len(cells) == 4 and cells[1].startswith(resource_type + "."):
+                        self.check(False, f"resource table Property must omit heading resource type: {self.relative(path)}:{cursor + 1}: {cells[1]}")
+                    cursor += 1
             try:
                 lines = security_group_table_lines(lines)
                 _, children = expanded_design(lines, normalized=True)

@@ -93,7 +93,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 [Resource-detail tableのheader例](detailed-design-samples.md#resource-detail-table)
 
 - 各 table の row は 1 から連番にする。
-- Property列では、所属する`### <catalog-resource-type>: <logical-id>`の`<catalog-resource-type>.`を省く。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Name`は`Name`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。既存の正式property表示も読み取り可能だが、新規・変更行は短縮表示とする。
+- Property列では、所属する`### <catalog-resource-type>: <logical-id>`の`<catalog-resource-type>.`を省く。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。特別な表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。
 - grouped childは所属する設定範囲内、配列は各要素内でcatalog順を適用する。複数要素のrowをproperty単位で横断sortしない。親子の所属、identity marker、IAM PolicyNameとPolicyDocumentの対応を保つ。Security Groupの横書き一覧／rule table、JSONから生成するpolicy表は既存形式を維持する。

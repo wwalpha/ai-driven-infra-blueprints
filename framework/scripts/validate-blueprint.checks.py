@@ -356,8 +356,8 @@ def check_schema_backed_design_rows() -> None:
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
                 "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
-                "| 3 | Logs.LogGroup.Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
-                "| 4 | Logs.LogGroup.Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
+                "| 3 | Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
+                "| 4 | Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
             ),
             encoding="utf-8",
         )
@@ -390,8 +390,8 @@ def check_identifier_propagation() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.Name | vpc-app-dev | VPCを識別するNameタグの値 |
-| 2 | EC2.VPC.VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
+| 1 | Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 2 | VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
 
 <a id="vpc-sbnt-app-dev-private-01"></a>
 
@@ -399,9 +399,9 @@ def check_identifier_propagation() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.Subnet.Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
-| 2 | EC2.Subnet.SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 3 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 1 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
+| 2 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 3 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
 """,
             encoding="utf-8",
         )
@@ -414,9 +414,9 @@ def check_identifier_propagation() -> None:
 
         design.write_text(
             design.read_text(encoding="utf-8")
-            .replace("EC2.VPC.VpcId | PENDING_DEPLOY", "EC2.VPC.VpcId | vpc-0123456789abcdef0")
+            .replace("VpcId | PENDING_DEPLOY", "VpcId | vpc-0123456789abcdef0")
             .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
-            .replace("EC2.Subnet.SubnetId | PENDING_DEPLOY", "EC2.Subnet.SubnetId | subnet-0123456789abcdef0"),
+            .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"),
             encoding="utf-8",
         )
         validator = MODULE.Validator(root)
@@ -583,9 +583,9 @@ def check_cidr_pending_deploy() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.VPC.Name | `vpc-app-staging` | VPCの名前 |
-| 2 | EC2.VPC.VpcId | `PENDING_DEPLOY` | VPCのID |
-| 3 | EC2.VPC.CidrBlock | `10.0.0.0/16` | VPCのIPv4アドレス範囲 |
+| 1 | Name | `vpc-app-staging` | VPCの名前 |
+| 2 | VpcId | `PENDING_DEPLOY` | VPCのID |
+| 3 | CidrBlock | `10.0.0.0/16` | VPCのIPv4アドレス範囲 |
 """
 
         def errors(text):
@@ -600,7 +600,7 @@ def check_cidr_pending_deploy() -> None:
         for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-vpc-app-staging)"):
             # Reject either table independently, not merely when both agree.
             assert any("CIDR must not use" in error for error in errors(valid.replace("`10.0.0.0/16`", pending, 1)))
-            assert any("CIDR must not use" in error for error in errors(valid.replace("EC2.VPC.CidrBlock | `10.0.0.0/16`", "EC2.VPC.CidrBlock | " + pending)))
+            assert any("CIDR must not use" in error for error in errors(valid.replace("CidrBlock | `10.0.0.0/16`", "CidrBlock | " + pending)))
         for prop in ("EC2.Subnet.CidrBlock", "EC2.Route.CidrBlock", "EC2.Route.DestinationCidrBlock", "EC2.SecurityGroupIngress.CidrIp", "EC2.TransitGateway.TransitGatewayCidrBlocks"):
             validator = MODULE.Validator(root)
             validator.check_cidr_value(path, prop, '["10.0.0.0/16","PENDING_DEPLOY"]')
@@ -663,7 +663,7 @@ def check_event_rule_row_order() -> None:
 
         def errors(selected):
             design.write_text(header + "".join(
-                f"| {number} | Events.Rule.{prop} | `{value}` | ルールの設定 |\n"
+                f"| {number} | {prop} | `{value}` | ルールの設定 |\n"
                 for number, (prop, value) in enumerate(selected, 1)
             ), encoding="utf-8")
             validator = MODULE.Validator(root)
@@ -710,7 +710,7 @@ def check_s3_bucket_policy_grouping() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
+| 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="kms-appdatakeyalias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
 """,
             encoding="utf-8",
@@ -728,11 +728,11 @@ def check_s3_bucket_policy_grouping() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
-| 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |
-| 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
-| 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
-| 5 | S3.Bucket.VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
+| 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
+| 2 | Region | `ap-northeast-1` | bucketを配置するAWS region |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
+| 5 | VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
 | 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
 """
         metadata = {
@@ -752,10 +752,10 @@ def check_s3_bucket_policy_grouping() -> None:
 
         assert not errors(valid)
         wrong_order = valid.replace(
-            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n"
-            "| 2 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |",
-            "| 1 | S3.Bucket.Region | `ap-northeast-1` | bucketを配置するAWS region |\n"
-            "| 2 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
+            "| 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n"
+            "| 2 | Region | `ap-northeast-1` | bucketを配置するAWS region |",
+            "| 1 | Region | `ap-northeast-1` | bucketを配置するAWS region |\n"
+            "| 2 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
         )
         assert any("BucketName must be the first row" in error for error in errors(wrong_order))
         other_region = valid.replace("`ap-northeast-1`", "`us-east-1`")
@@ -816,7 +816,7 @@ def check_resource_overview() -> None:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
+| 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 """
 
         def errors(markdown: str) -> list[str]:

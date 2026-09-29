@@ -43,10 +43,10 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | Glue.Catalog.CatalogId | PENDING_DEPLOY | federated catalogを識別するID |
-| 2 | Glue.Catalog.FederatedCatalog.ConnectionName | snowflake-connection | Snowflake接続に使用するGlue connection名 |
-| 3 | Glue.Catalog.FederatedCatalog.Identifier | snowflake-catalog | Snowflake側のcatalog名 |
-| 4 | Glue.Catalog.Name | federated-catalog | Glue federated catalog名 |
+| 1 | CatalogId | PENDING_DEPLOY | federated catalogを識別するID |
+| 2 | FederatedCatalog.ConnectionName | snowflake-connection | Snowflake接続に使用するGlue connection名 |
+| 3 | FederatedCatalog.Identifier | snowflake-catalog | Snowflake側のcatalog名 |
+| 4 | Name | federated-catalog | Glue federated catalog名 |
 """,
         encoding="utf-8",
     )
@@ -65,9 +65,9 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | DataZone.Domain.Id | PENDING_DEPLOY | DataZone domainを識別するID |
-| 2 | DataZone.Domain.DomainVersion | V2 | DataZone domainのversion |
-| 3 | DataZone.Domain.Name | catalog-domain | DataZone domain名 |
+| 1 | Id | PENDING_DEPLOY | DataZone domainを識別するID |
+| 2 | DomainVersion | V2 | DataZone domainのversion |
+| 3 | Name | catalog-domain | DataZone domain名 |
 
 <a id="datazone-project"></a>
 
@@ -75,10 +75,10 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | DataZone.Project.DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
-| 2 | DataZone.Project.Id | PENDING_DEPLOY | DataZone projectを識別するID |
-| 3 | DataZone.Project.DomainIdentifier | [PENDING_DEPLOY](#datazone-domain) | projectが所属するdomain |
-| 4 | DataZone.Project.Name | catalog-project | DataZone project名 |
+| 1 | DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
+| 2 | Id | PENDING_DEPLOY | DataZone projectを識別するID |
+| 3 | DomainIdentifier | [PENDING_DEPLOY](#datazone-domain) | projectが所属するdomain |
+| 4 | Name | catalog-project | DataZone project名 |
 
 <a id="datazone-datasource"></a>
 
@@ -86,13 +86,13 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | DataZone.DataSource.DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
-| 2 | DataZone.DataSource.Id | PENDING_DEPLOY | DataZone data sourceを識別するID |
-| 3 | DataZone.DataSource.Configuration.GlueRunConfiguration.CatalogName | [federated-catalog](glue.md#glue-federatedcatalog) | 参照するGlue catalog名 |
-| 4 | DataZone.DataSource.DomainIdentifier | [PENDING_DEPLOY](#datazone-domain) | data sourceが所属するdomain |
-| 5 | DataZone.DataSource.Name | glue-data-source | DataZone data source名 |
-| 6 | DataZone.DataSource.ProjectIdentifier | [PENDING_DEPLOY](#datazone-project) | data sourceが所属するproject |
-| 7 | DataZone.DataSource.Type | GLUE | data sourceの種別 |
+| 1 | DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
+| 2 | Id | PENDING_DEPLOY | DataZone data sourceを識別するID |
+| 3 | Configuration.GlueRunConfiguration.CatalogName | [federated-catalog](glue.md#glue-federatedcatalog) | 参照するGlue catalog名 |
+| 4 | DomainIdentifier | [PENDING_DEPLOY](#datazone-domain) | data sourceが所属するdomain |
+| 5 | Name | glue-data-source | DataZone data source名 |
+| 6 | ProjectIdentifier | [PENDING_DEPLOY](#datazone-project) | data sourceが所属するproject |
+| 7 | Type | GLUE | data sourceの種別 |
 """,
         encoding="utf-8",
     )

@@ -66,8 +66,8 @@ def markdown(values):
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | Macie.Session.AwsAccountId | `123456789012` | Macieを使用するAWS accountのID |
-| 2 | Macie.Session.Status | `ENABLED` | Macieの有効状態 |
+| 1 | AwsAccountId | `123456789012` | Macieを使用するAWS accountのID |
+| 2 | Status | `ENABLED` | Macieの有効状態 |
 
 <a id="macie-job"></a>
 
@@ -81,7 +81,7 @@ def markdown(values):
         value = values[key]
         raw = value if isinstance(value, str) else json.dumps(value)
         cell = "[対象条件](macie/job-scope.json)" if key == "s3JobDefinition" and isinstance(value, dict) and value.get("bucketDefinitions") else f"`{raw}`"
-        text += f"| {number} | {MACIE_JOB}.{key} | {cell} | Jobの{key}を設定する項目 |\n"
+        text += f"| {number} | {key} | {cell} | Jobの{key}を設定する項目 |\n"
     scope = values.get("s3JobDefinition", {})
     if isinstance(scope, dict) and scope.get("bucketDefinitions"):
         text += "\n#### 対象S3 bucket\n\n| Job | AWS account ID | Bucket |\n| --- | --- | --- |\n"
@@ -184,7 +184,7 @@ def main():
         ]
         for values in bad_values:
             assert check(values), values
-        original_row = next(line for line in markdown(VALUES).splitlines() if f"{MACIE_JOB}.name |" in line)
+        original_row = next(line for line in markdown(VALUES).splitlines() if "| name |" in line)
         duplicate = markdown(VALUES).replace(original_row, original_row + "\n" + original_row, 1)
         assert any("duplicate API" in error for error in check(text=duplicate))
         assert any("unknown catalog" in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, "Macie.Unknown")))

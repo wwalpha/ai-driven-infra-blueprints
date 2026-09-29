@@ -75,12 +75,12 @@ def main():
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | IAM.Role.RoleName | `role-{logical_id.lower()}` | ロールの名前 |
-| 2 | IAM.Role.AssumeRolePolicyDocument | [FlowLogsTrust](iam/{file_id}-trust-policy.json) | 信頼ポリシー |
-| 3 | IAM.Role.Policies[].PolicyName | `Logging` | ポリシーの名前 |
-| 4 | IAM.Role.Policies[].PolicyDocument | [Logging](iam/{file_id}-logging.json) | 権限ポリシー |
-| 5 | IAM.Role.Policies[].PolicyName | `Extra` | ポリシーの名前 |
-| 6 | IAM.Role.Policies[].PolicyDocument | [Extra](iam/{file_id}-extra.json) | 追加の権限ポリシー |
+| 1 | RoleName | `role-{logical_id.lower()}` | ロールの名前 |
+| 2 | AssumeRolePolicyDocument | [FlowLogsTrust](iam/{file_id}-trust-policy.json) | 信頼ポリシー |
+| 3 | Policies[].PolicyName | `Logging` | ポリシーの名前 |
+| 4 | Policies[].PolicyDocument | [Logging](iam/{file_id}-logging.json) | 権限ポリシー |
+| 5 | Policies[].PolicyName | `Extra` | ポリシーの名前 |
+| 6 | Policies[].PolicyDocument | [Extra](iam/{file_id}-extra.json) | 追加の権限ポリシー |
 
 '''
         text += '''<a id="iam-profile"></a>
@@ -89,7 +89,7 @@ def main():
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | IAM.InstanceProfile.InstanceProfileName | `example` | インスタンスプロファイルの名前 |
+| 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
 '''
         path.write_text(text, encoding="utf-8")
         baseline_model = MODEL.model_for(path)
@@ -200,7 +200,7 @@ def main():
 
         # Optional RoleName and inline policies are not invented by the renderer.
         minimal = text[:text.index('<a id="iam-roleb"')]
-        minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("IAM.Role.RoleName", "IAM.Role.Policies[]"))) + "\n"
+        minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("| RoleName |", "| Policies[]"))) + "\n"
         path.write_text(minimal, encoding="utf-8")
         view = rendered_design(path)
         assert "[RoleA](#iam-rolea)" in view
@@ -359,7 +359,7 @@ def grouping_and_settings_checks():
         artifact = artifacts / "access.json"
         document = {"Statement": {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::123456789012:root"}, "Action": "kms:*", "Resource": "*"}}
         artifact.write_text(json.dumps(document), encoding="utf-8")
-        original = layout_fixture.KMS.replace('| 4 | KMS.Alias.AliasName', '| 5 | KMS.Alias.AliasName').replace('| 3 | KMS.Alias.AliasName', '| 3 | KMS.Key.KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n| 4 | KMS.Alias.AliasName')
+        original = layout_fixture.KMS.replace('| 4 | KMS.Alias.AliasName', '| 5 | KMS.Alias.AliasName').replace('| 3 | KMS.Alias.AliasName', '| 3 | KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n| 4 | KMS.Alias.AliasName')
         path.write_text(original, encoding="utf-8")
         baseline_model = MODEL.model_for(path)
         rendered = rendered_design(path)
@@ -378,7 +378,7 @@ def grouping_and_settings_checks():
         validator.check_design_artifacts()
         assert not validator.errors, validator.errors
         # Removing a selected policy removes only its derived view.
-        removed = rendered.replace('| 3 | KMS.Key.KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n', '')
+        removed = rendered.replace('| 3 | KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n', '')
         path.write_text(removed, encoding="utf-8")
         assert 'Policies' not in rendered_design(path) and START not in rendered_design(path)
         assert 'logical-id: AliasTwo' in rendered_design(path)
@@ -411,9 +411,9 @@ def grouping_and_settings_checks():
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | ECR.Repository.RepositoryName | `example` | リポジトリの名前 |
-| 2 | ECR.Repository.RepositoryPolicyText | [Policy](ecr/access.json) | アクセス権限 |
-| 3 | ECR.Repository.LifecyclePolicy | [Policy](ecr/lifecycle.json) | 保持するイメージの条件 |
+| 1 | RepositoryName | `example` | リポジトリの名前 |
+| 2 | RepositoryPolicyText | [Policy](ecr/access.json) | アクセス権限 |
+| 3 | LifecyclePolicy | [Policy](ecr/lifecycle.json) | 保持するイメージの条件 |
 """
         path.write_text(original, encoding="utf-8")
         baseline_model = MODEL.model_for(path)
