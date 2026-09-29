@@ -81,7 +81,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 各詳細設計fileはservice metadataの直後に`## リソース一覧`を正確に1件置く。一覧の範囲は次の`## リソース詳細`直前までとし、resourceのanchor・詳細table・policy表を含めない。
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
-- tableは`No. | ResourceName | Comment`の3列とし、1 resourceを1 rowで表示する。`No.`はresource typeごとのtable内で1からの連番とする。`ResourceName`には対応するdetail headingのidentifierをsame-file linkで表示し、`Comment`には用途や役割を日本語で短く説明する。全detail blockを重複なく一覧へ載せる。
+- tableは`No. | ResourceName | Comment`の3列とし、1 resourceを1 rowで表示する。`No.`はresource typeごとのtable内で1からの連番とする。`ResourceName`には対応するdetail headingのidentifierをsame-file linkで表示し、`Comment`にはそのresourceの機能・用途・役割を日本語で短く説明する。同型のresourceが複数ある場合は各行の用途を区別する。resource typeやResourceNameを繰り返しただけの`セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定`のような文はCommentとしない。Security Groupは詳細のGroupDescription、通信rule、利用先から用途を確認し、不明なら推測しない。全detail blockを重複なく一覧へ載せる。
 - 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、generated service modelへ重複保持しない。
 
 S3の例: [S3リソース一覧の例](detailed-design-samples.md#resource-overview)

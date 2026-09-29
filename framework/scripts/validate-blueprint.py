@@ -1497,6 +1497,14 @@ class Validator:
                     if not link or link.group(2):
                         continue
                     label, _, anchor = link.groups()
+                    self.check(
+                        not re.fullmatch(
+                            rf".*[（(]\s*{re.escape(label)}\s*[）)]\s*の(?:設定|説明|用途|役割)",
+                            cells[-1],
+                        )
+                        and cells[-1] not in {f"{label}の設定", f"{current_type}の設定", "セキュリティグループの設定"},
+                        f"resource overview Comment must state a distinct purpose or role: {self.relative(path)}: {current_type}: {label}",
+                    )
                     resource = resources.get(anchor)
                     self.check(
                         bool(
