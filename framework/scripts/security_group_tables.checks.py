@@ -30,16 +30,23 @@ DESIGN = """# Security Group 詳細設計
 
 ### EC2.SecurityGroup
 
-| No. | SecurityGroup | GroupName | Id | VpcId | Description | Comment |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | [GroupOne](#ec2-groupone) | `group-one` | `sg-00000001` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `Application access` | アプリケーションの通信を制御するSG |
-| 2 | [GroupTwo](#ec2-grouptwo) | — | `PENDING_DEPLOY` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `No selected rules` | アプリケーションの通信を制御するSG |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [GroupOne](#ec2-groupone) | アプリケーションの通信を制御するSG |
+| 2 | [GroupTwo](#ec2-grouptwo) | アプリケーションの通信を制御するSG |
 
 ## リソース詳細
 
 <a id="ec2-groupone"></a>
 
 ### EC2.SecurityGroup: GroupOne
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.SecurityGroup.Id | `sg-00000001` | 一意に識別するID |
+| 2 | EC2.SecurityGroup.GroupDescription | `Application access` | 用途の説明 |
+| 3 | EC2.SecurityGroup.GroupName | `group-one` | 名前 |
+| 4 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
 
 | Direction | IpProtocol | Port | CidrIp | CidrIpv6 | SourcePrefixListId | SourceSecurityGroupOwnerId | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -53,7 +60,16 @@ DESIGN = """# Security Group 詳細設計
 
 <a id="ec2-grouptwo"></a>
 
+### EC2.SecurityGroup: GroupTwo
+
 <!-- security-group-tags: [{"Key":"Project","Value":"app"},{"Key":"Environment","Value":"dev"}] -->
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.SecurityGroup.Id | `PENDING_DEPLOY` | 一意に識別するID |
+| 2 | EC2.SecurityGroup.GroupDescription | `No selected rules` | 用途の説明 |
+| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |
+
 """
 VPC_DESIGN = """# Amazon VPC 詳細設計
 
@@ -64,9 +80,9 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 
 ### EC2.VPC
 
-| No. | VPC | CidrBlock | Comment |
-| ---: | --- | --- | --- |
-| 1 | [vpc-app-dev](#vpc-vpc-app-dev) | `10.0.0.0/16` | アプリケーションのネットワーク |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [vpc-app-dev](#vpc-vpc-app-dev) | アプリケーションのネットワーク |
 
 ## リソース詳細
 
@@ -155,10 +171,10 @@ def main():
             ["EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol", "`-1`"],
             ["EC2.SecurityGroup.SecurityGroupEgress[].CidrIp", "`10.1.0.0/16`"],
         ]
-        # A single direction and a ruleless group need no extra table or visible title.
+        # A single direction and a ruleless group need no rule table.
         inbound_only = "\n".join(line for line in DESIGN.splitlines() if not line.startswith("| Outbound")) + "\n"
         assert not errors(inbound_only), errors(inbound_only)
-        assert "### EC2.SecurityGroup: GroupTwo" not in DESIGN
+        assert "### EC2.SecurityGroup: GroupTwo" in DESIGN
         tag_line = next(line for line in DESIGN.splitlines() if line.startswith("<!-- security-group-tags:"))
         no_tags = DESIGN.replace(tag_line + "\n", "")
         assert not errors(no_tags), errors(no_tags)
@@ -172,10 +188,9 @@ def main():
             "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId | [PENDING_DEPLOY](#ec2-grouptwo)" in line
             for line in security_group_table_lines(inline_peer.splitlines())
         )
-        # No rule tables or titles must still retain both SGs and the ruleless tags.
+        # No rule tables must still retain both SGs and the ruleless tags.
         rule_lines = [line for line in DESIGN.splitlines() if line.startswith(("| Direction |", "| Inbound", "| Outbound", "| --- | --- | --- | --- | --- | --- | --- | --- |"))]
         no_rules = "\n".join(line for line in DESIGN.splitlines() if line not in rule_lines) + "\n"
-        no_rules = no_rules.replace("### EC2.SecurityGroup: GroupOne\n", "")
         for text in (no_rules, no_rules.replace(tag_line + "\n", "")):
             assert not errors(text), errors(text)
             source = path.read_bytes()
@@ -190,10 +205,6 @@ def main():
         # Moving a standalone row changes its owner, not its logical or current ID.
         rule = next(line for line in DESIGN.splitlines() if 'id="ec2-egressone"' in line)
         moved = DESIGN.replace(rule + "\n", "").rstrip()
-        moved = moved.replace(
-            '<a id="ec2-grouptwo"></a>\n\n' + tag_line,
-            '<a id="ec2-grouptwo"></a>\n\n### EC2.SecurityGroup: GroupTwo\n\n' + tag_line,
-        )
         columns = "\n".join(next(line for line in DESIGN.splitlines() if line.startswith(prefix)) for prefix in ("| Direction |", "| --- | --- | --- | --- | --- | --- | --- | --- |"))
         moved += "\n\n" + columns + "\n" + rule + "\n"
         assert not errors(moved), errors(moved)
@@ -221,13 +232,9 @@ def main():
         assert "アプリケーションの通信を制御するSG" not in generated
         assert "| Tags |" not in DESIGN
         assert "security-group-tags" not in generated
-        group_two_heading = DESIGN.replace(
-            '<a id="ec2-grouptwo"></a>\n\n' + tag_line,
-            '<a id="ec2-grouptwo"></a>\n\n### EC2.SecurityGroup: GroupTwo\n\n' + tag_line,
-        )
         bad = [
-            (DESIGN.replace("| GroupName |", "| Tags |", 1), "omit Tags column"),
             (DESIGN.replace(tag_line, tag_line + "\n" + tag_line, 1), "at most one tags metadata line"),
+            (DESIGN.replace(tag_line + "\n\n", "", 1).replace("| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |", "| 3 | EC2.SecurityGroup.VpcId | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | 所属するVPCのID |\n" + tag_line, 1), "tags metadata must follow its detail heading"),
             (DESIGN.replace(tag_line, tag_line[:-3], 1), "invalid Security Group tags metadata"),
             (DESIGN.replace(tag_line, "<!-- security-group-tags: [] -->", 1), "Tags must be a JSON array"),
             (DESIGN.replace(tag_line, "", 1).replace("## リソース一覧", tag_line + "\n\n## リソース一覧", 1), "tags metadata must belong to EC2.SecurityGroup"),
@@ -242,7 +249,6 @@ def main():
             (DESIGN.replace("`Type=128, Code=0`", "`128-0`", 1), "invalid Port"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=256, Code=0`", 1), "outside the protocol range"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=-1, Code=0`", 1), "invalid Port range"),
-            (group_two_heading + "\n| Direction | SecurityGroupRuleId | IpProtocol | Port |\n| --- | --- | --- | --- |\n", "invalid Security Group Direction rule table columns"),
             (DESIGN.replace("<!-- rule-id: `sgr-00000001` -->", "", 1), "requires complete anchor/logical-id/rule-id markers"),
             (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) -->", "<!-- security-group-id: -->", 1), "invalid Security Group reference metadata"),
             (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) -->", "<!-- security-group-id: — -->", 1), "invalid Security Group reference metadata"),
@@ -258,25 +264,19 @@ def main():
             (DESIGN.replace('| Inbound <', '| Outbound <', 1), "do not match Direction"),
             (DESIGN.replace('| SourcePrefixListId |', '| DestinationPrefixListId |', 1), "do not match Direction"),
             (DESIGN.replace('| IpProtocol |', '| Type |', 1), "invalid Security Group Direction rule table columns"),
-            (DESIGN.replace('| VpcId |', '| Region |', 1), "overview requires No., SecurityGroup"),
-            (DESIGN.replace('| Description |', '| GroupDescription |', 1), "overview requires No., SecurityGroup"),
-            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '—', 1), "requires Id, VpcId and Description values"),
-            (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, VpcId and Description values"),
+            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '—', 1), "requires Id, GroupDescription and VpcId detail values"),
+            (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, GroupDescription and VpcId detail values"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[vpc-wrong](vpc.md#vpc-vpc-app-dev)', 1), "identifier reference does not match"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '`vpc-00000001`', 1), "VpcId must link to its VPC"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#ec2-groupone)', 1), "VpcId must link to a VPC in the same target"),
             (DESIGN.replace('[GroupOne](#ec2-groupone)', '[GroupOne](#ec2-grouptwo)', 1), "overview link must match"),
             (DESIGN.replace('[GroupTwo](#ec2-grouptwo)', '[GroupOne](#ec2-grouptwo)', 1), "unique logical ID link"),
             (DESIGN.replace('"Value":"app"', '"Wrong":"app"', 1), "Tags must be a JSON array"),
-            (DESIGN.replace('<a id="ec2-grouptwo"></a>', '<a id="ec2-grouptwo"></a>\n\n### EC2.SecurityGroup: GroupTwo'), "omit Security Group detail heading"),
-            (group_two_heading + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n", "omit empty Security Group rule table"),
-            (DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n", "rules require a detail heading"),
             (DESIGN.replace(' | `443` |', ' | `invalid` |', 1), "invalid Port"),
             (DESIGN.replace(' | `tcp` |', ' | — |', 1), "requires IpProtocol"),
             (DESIGN.replace(' | `tcp` | `443` | — | — | — | `123456789012` |', ' | `tcp` | `443` | `10.0.0.0/24` | — | — | `123456789012` |', 1), "exactly one address"),
             (DESIGN.replace('[PENDING_DEPLOY](#ec2-grouptwo)', '[sg-wrong](#ec2-grouptwo)', 1), "identifier reference does not match"),
             (DESIGN.replace('### EC2.SecurityGroup: GroupOne', '### EC2.Instance: GroupOne'), "rule table must belong to EC2.SecurityGroup"),
-            (DESIGN.replace('\n<a id="ec2-grouptwo"></a>', '\n| No. | Property | Value | Source / Comment |\n| --- | --- | --- | --- |\n\n<a id="ec2-grouptwo"></a>'), "one Direction rule table"),
             (DESIGN + '\n<a id="ec2-oldrule"></a>\n### EC2.SecurityGroupIngress: OldRule\n', "must use a horizontal Direction"),
         ]
         for text, message in bad:
@@ -290,7 +290,7 @@ def main():
                 pass
             else:
                 raise AssertionError("invalid horizontal rule must not generate a model")
-    print("security-group-tables: PASS (overview attributes, Direction/Port rules, inline boundaries, identities, ownership, schema, references)")
+    print("security-group-tables: PASS (detail attributes, Direction/Port rules, inline boundaries, identities, ownership, schema, references)")
 
 
 if __name__ == "__main__":

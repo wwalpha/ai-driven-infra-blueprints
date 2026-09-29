@@ -81,13 +81,8 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 各詳細設計fileはservice metadataの直後に`## リソース一覧`を正確に1件置く。一覧の範囲は次の`## リソース詳細`直前までとし、resourceのanchor・詳細table・policy表を含めない。
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
-- tableは1 resourceを1 rowで表示し、先頭に`No.`、末尾に`Comment`を置く。`No.`はresource typeごとのtable内で1からの連番とし、最初のresource columnはdetail blockへのsame-file linkにする。`Comment`には各resourceの用途や役割を日本語で短く説明する。全detail blockを重複なく一覧へ載せる。
-- `No.`と`Comment`を除くresource columnは識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
-- column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
-- IAM.Roleの一覧だけは後述の固定3 resource列を使用し、最初のresource columnにRoleNameを表示する。日本語のpolicy列名を許可する。S3.Bucketの一覧には`Policies`を置かず、`SSEAlgorithm`を表示する。その他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6 resource列の後、`Comment`の直前に生成専用の`Policies`列を追加する。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
-- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、`No.`と`Comment`も含めgenerated service modelへ重複保持しない。ただしSecurity Group一覧のSG属性は後述のとおり設計入力の正本とし、基本設定の詳細tableを作らない。
-
-`EC2.Subnet`一覧に`RouteTableId`を含める場合は、同じSubnet詳細tableの`EC2.RouteTableId`とValueを一致させる。Association未設計のSubnetは表示だけを`—`とし、Main Route Tableなどの値を補完しない。`AssociationId`列は記載しない。
+- tableは`No. | ResourceName | Comment`の3列とし、1 resourceを1 rowで表示する。`No.`はresource typeごとのtable内で1からの連番とする。`ResourceName`には対応するdetail headingのidentifierをsame-file linkで表示し、`Comment`には用途や役割を日本語で短く説明する。全detail blockを重複なく一覧へ載せる。
+- 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、generated service modelへ重複保持しない。
 
 S3の例: [S3リソース一覧の例](detailed-design-samples.md#resource-overview)
 
@@ -171,20 +166,19 @@ S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#k
 
 ## Security Group rules tables
 
-Security Groupは、リソース一覧の`### EC2.SecurityGroup`にSGの属性を集約する。`## リソース詳細`にはSGごとのanchorを置き、ruleが1件以上あるSGだけ`### EC2.SecurityGroup: <logical-id>`と、その直下にInbound／Outboundをまとめた一つの横書きrule tableを記載する。ruleが0件のSGはanchorと選択済みタグmetadataだけを置き、表示内容のないheadingを作らない。SGの基本設定表、方向別の分割表、Ingress/Egressの全体一覧、ruleごとの縦書き4列表は作らない。
+Security Groupも一覧は3列とし、SGのId、GroupDescription、選択済みGroupName、VpcIdを各resourceの4列詳細表に置く。ruleが0件でもanchor、heading、基本設定表を置く。ruleが1件以上あるSGだけ、基本設定表の後にInbound／Outboundをまとめた一つの横書きrule tableを置く。方向別の分割表、Ingress/Egressの全体一覧、ruleごとの縦書き4列表は作らない。
 
-- SG一覧のcolumnは`No. | SecurityGroup | GroupName | Id | VpcId | Description | Comment`の7列に固定し、`Tags`列を追加しない。最初のresource cellは確定済みlogical IDを表示するSGのanchorへのsame-file linkとする。`Description`はAWSの`GroupDescription`、`Comment`は一覧で伝えるSGの用途説明として区別する。SGごとに一覧rowとanchorを一つずつ対応させる。
-- `Id`はSGのcurrent IDまたは`PENDING_DEPLOY`、`VpcId`は所属VPCのidentifier参照、`Description`は正式property `EC2.SecurityGroup.GroupDescription`の値とし、いずれも省略しない。`VpcId`のlinkは同じtargetのVPC設計を指し、表示textにVPCのcurrent IDまたは`PENDING_DEPLOY`を使う。所属VPCが未確定なら確認し、default VPCを推測しない。未選択の`GroupName`だけは`—`とする。
-- 選択済みタグは所属SGのH3 headingの直後、ruleが0件ならanchorの直後に`<!-- security-group-tags: [{"Key":"...","Value":"..."}] -->`を1行だけ置いて保持する。表へのTags列追加や別のタグ表は作らない。未選択ならmetadata自体を省略する。JSONの各要素は文字列のKeyとValueだけを持ち、modelの`Tags[].Key`／`Tags[].Value`へ配列順を保って展開する。commentの区切りになる文字列はJSONのUnicode escapeで表す。metadataを一覧・別resource配下へ置かず、タグ値を推測・追加・削除しない。
+- 詳細表の`Id`はSGのcurrent IDまたは`PENDING_DEPLOY`、`VpcId`は所属VPCのidentifier参照、`GroupDescription`は正式property値とし、いずれも省略しない。`VpcId`のlinkは同じtargetのVPC設計を指し、表示textにVPCのcurrent IDまたは`PENDING_DEPLOY`を使う。所属VPCが未確定なら確認し、default VPCを推測しない。未選択の`GroupName`行は省略する。
+- 選択済みタグは所属SGのH3 headingの直後に`<!-- security-group-tags: [{"Key":"...","Value":"..."}] -->`を1行だけ置いて保持する。表へのTags列追加や別のタグ表は作らない。未選択ならmetadata自体を省略する。JSONの各要素は文字列のKeyとValueだけを持ち、modelの`Tags[].Key`／`Tags[].Value`へ配列順を保って展開する。commentの区切りになる文字列はJSONのUnicode escapeで表す。metadataを一覧・別resource配下へ置かず、タグ値を推測・追加・削除しない。
 - rule tableは1 ruleを1 rowとし、先頭columnを`Direction`とする。表示値は頭文字を大文字にした`Inbound`または`Outbound`だけを使用し、正式resource typeのIngress／Egressへ対応させる。`SecurityGroupRuleId`や`Id`のcolumnは作らない。
-- 続くcolumnは`IpProtocol`と`Port`を必須とし、`CidrIp`、`CidrIpv6`、`Description`、`SourcePrefixListId`、`SourceSecurityGroupOwnerId`、`DestinationPrefixListId`から選択済みのpropertyを載せる。`SourceSecurityGroupId`と`DestinationSecurityGroupId`のcolumnは作らない。Inbound rowのDestination系、Outbound rowのSource系cellは`—`とする。`GroupId`や未登録columnは追加せず、一覧の6列上限をrule tableへ適用しない。
+- 続くcolumnは`IpProtocol`と`Port`を必須とし、`CidrIp`、`CidrIpv6`、`Description`、`SourcePrefixListId`、`SourceSecurityGroupOwnerId`、`DestinationPrefixListId`から選択済みのpropertyを載せる。`SourceSecurityGroupId`と`DestinationSecurityGroupId`のcolumnは作らない。Inbound rowのDestination系、Outbound rowのSource系cellは`—`とする。`GroupId`や未登録columnは追加しない。
 - Security Groupを送信元／宛先に選択したruleは、Direction cellの末尾へ`<!-- security-group-id: <SourceSecurityGroupIdまたはDestinationSecurityGroupIdのValue> -->`を置く。DirectionがInboundなら`SourceSecurityGroupId`、Outboundなら`DestinationSecurityGroupId`へ展開し、参照linkを含むValueをlosslessに保持する。表示columnや別の説明文へ値を重複させない。
 - port表示は`Port`の1列にまとめ、`FromPort`／`ToPort`のcolumnを作らない。単一portは`443`、範囲は`1000-2000`の形式にし、正式propertyのFromPort／ToPortへ同値／開始・終了値として展開する。ICMP／ICMPv6（protocol番号1／58を含む）は同じPort cellに`Type=8, Code=0`の形式でtype/codeを保持し、port範囲として解釈しない。TCP／UDPは0〜65535の範囲、ICMP type/codeは-1〜255とし、type=-1ではcodeも-1とする。FromPort／ToPortの両方を未選択なら`—`とし、値を補完しない。`All`や複数の離れたportを一つの範囲へ読み替えない。Portは表示上のcolumn名であり、catalog propertyを追加しない。
-- SG一覧の`No.`だけを`---:`、他の一覧columnとrule tableの全columnを`---`で揃える。未選択のoptional propertyは表示だけの`—`とし、modelへsentinelを生成しない。片方向だけでも同じtableを使い、両方向のruleが0件ならrule tableとSG headingを省略する。SGのanchorは一覧や他resourceからの参照先として維持する。未設計をdeny設定やAWSのdefault ruleと読み替えず、ruleを自動補完しない。
+- SG一覧と基本設定表の`No.`だけを`---:`、他のcolumnとrule tableの全columnを`---`で揃える。rule tableでは未選択のoptional propertyを表示だけの`—`とし、modelへsentinelを生成しない。片方向だけでも同じtableを使い、両方向のruleが0件ならrule tableだけを省略する。SGのanchorは一覧や他resourceからの参照先として維持する。未設計をdeny設定やAWSのdefault ruleと読み替えず、ruleを自動補完しない。
 - 各ruleはIPv4 CIDR、IPv6 CIDR、Prefix List、Security Groupのいずれか一つを送信元／宛先に持つ。`SourceSecurityGroupOwnerId`は`SourceSecurityGroupId`に付随させる。値、参照先、`-1`、Port内の範囲・ICMP type/codeを保持し、`All`や推測したservice名へ書き換えない。RegionやHTTP/HTTPSなどのTypeを表示目的で追加しない。
 - 独立した`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`のDirection cellは`Inbound <a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> --><!-- rule-id: <IdのValue> -->`とし、Egressでは先頭を`Outbound`とする。Security Group参照を持つ場合だけ、その後へ上記`security-group-id` markerを続ける。表にはDirectionだけを表示し、logical ID・anchor・取得済みcurrent IDまたは`PENDING_DEPLOY`を非表示の構造情報として保持する。Idを画面上のcolumnや説明文へ重複表示せず、modelの正式property `Id`は維持する。`GroupId`は包含するSGから解決し、他SGへの所属を出現順やphysical IDで推測しない。外部SGだけを参照して包含するSGの設計がない場合は停止する。
 - SG自身の`SecurityGroupIngress[]`／`SecurityGroupEgress[]`として設計したinline ruleは、Direction cellを`Inbound`または`Outbound`だけとし、identityやrule-idのmarkerを付けない。Security Group参照を持つ場合だけ上記`security-group-id` markerを続ける。catalogに存在しないinline rule IDを作らず、独立ruleへの変換もしない。inlineと独立ruleは同じtable内でも区別を保持する。
-- SG一覧とrule tableのcolumnとValue、およびDirection／所属SGの非表示metadataを設計の正本とする。共通parserは検証・model生成時だけ正式catalog propertyへ展開し、SG属性・inline rule・独立ruleを保持する。元Markdownを書き換えたり、基本設定や縦書き詳細表を重複保存したりしない。
+- SG基本設定表とrule tableのcolumnとValue、およびDirection／所属SGの非表示metadataを設計の正本とする。共通parserは検証・model生成時だけ正式catalog propertyへ展開し、SG属性・inline rule・独立ruleを保持する。元Markdownを書き換えたり、設定値を一覧へ重複保存したりしない。
 
 ## JSON design artifacts
 
@@ -239,16 +233,16 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 
 ### 所属と派生表示
 
-- IAM Roleは下記の既存一覧・表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
+- IAM Roleは下記の表・markerを維持する。それ以外は所有resourceの設定表直後を`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、所有するpolicyを設定行の順に生成する。
 - S3 BucketPolicyは引き続きBucketの設定表内へ置き、派生policy表もBucketに所属させる。KMSのAliasはKeyと同じ設定表内の既存groupingを維持する。SQS/SNSなど複数resourceを対象とする独立policyを、一つの対象へ勝手に統合しない。
 - IAM Role以外の表示名はJSONリンクの表示text、anchorは`<resource-anchor>-policy-<artifact-id>`とする。artifact IDは既存のlower-kebab-case filename stemを使用する。同一resource内の複数policyには異なるartifactを使用し、anchor衝突は停止する。配列の各対象へ設定するpolicyも各JSONリンクから識別できるようにする。
 - 見出しは`#### ポリシー：<表示名>`または`#### ポリシー設定：<表示名>`とし、全serviceで設定rowにある正式な`Property`と元の`JSON`リンクを派生表示へ再表示しない。派生表示はanchor、見出し、Statement表または設定表で構成する。IAM信頼ポリシーでは下記のVersion表も含める。表示名を架空のresource propertyとして追加しない。
-- IAM RoleとS3.Bucket以外の一覧の`Policies`列には、その行のresourceが所有するpolicy表へのsame-file linkを`<br>`区切りで生成する。元の比較列と行順を維持する。同じtypeの全resourceからpolicyがなくなった場合は生成列を除去する。S3.Bucketの`SSEAlgorithm`は詳細rowのValueと一致させ、未選択のbucketは一覧だけ`—`とする。
+- policy表は所有resourceの詳細block内に生成し、一覧にはpolicy列を追加しない。
 - Statement表の連番、列、Principal展開、Condition、escape、省略禁止、未知要素の拒否は下記のIAMと同じ方式を使用する。IAMを含む全serviceで独立metadata行の`Version：`と`Id：`を省略し、JSON本文のVersion/Idは保持する。権限policy以外のJSONをStatement形式と推測しない。
 - 設定表は`Property | Type | Value`とし、PropertyはJSON Pointer、Typeは`object`／`array`／`string`／`number`／`boolean`／`null`を表示する。root pointerは空文字列、object keyは文字列順、配列は0始まりのindexと元の順序を保持する。`~`と`/`はpointer内で`~0`と`~1`へescapeする。子を持つcontainerのValueは表示だけを`—`、空object／arrayは`{}`／`[]`とする。全要素を表示し、構造や型を変換しない。設定表のProperty列やJSON内のVersion/Idというkeyは独立metadata行ではないため省略しない。
 - `ECR.Repository.LifecyclePolicy`はwrapperの全設定を表示したうえで、`LifecyclePolicyText`がある場合はJSON文字列をparseした内容も設定表で表示する。JSON文字列以外や不正なJSONは停止する。表示からJSON本文を書き戻さない。
 - 全形式で重複JSON key、不正なJSON定数、JSON object以外のartifact、他service配下のartifact参照を拒否する。marker欠落・重複・不正な所属、表や一覧リンクと正本との不一致をlocal loopでFAILとする。
-- 生成は指定したMarkdown一件の派生範囲とpolicy一覧列だけを更新する。modelには派生表示を重複保持せず、既存のJSONリンクとcanonical hashを維持する。
+- 生成は指定したMarkdown一件の派生policy表だけを更新する。modelには派生表示を重複保持せず、既存のJSONリンクとcanonical hashを維持する。
 
 policyを含む設計を保存・変更した後、model生成前に実行する。`--write`なしはread-onlyの一致検証になる。
 
@@ -260,7 +254,7 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はMarkdownのproperty row、policy本文はそこから参照するJSON artifactを正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
 
-- `## リソース一覧`内の`### IAM.Role`は`No. | RoleName | 信頼ポリシー | インラインポリシー | Comment`の5列にする。RoleNameは対応するresource anchorへのsame-file link、policy名はそのRoleのpolicy anchorへのsame-file linkとする。複数inline policyは同じcellで`<br>`区切りにする。`Comment`はRoleの用途説明を保持し、policy表の再生成でも変更しない。設定表にRoleNameがない場合は表示だけを`（RoleName未指定）`、inline policyがない場合は表示だけを`—`とし、propertyや名前を生成・推測しない。
+- `## リソース一覧`内の`### IAM.Role`も共通の3列形式とし、ResourceNameにはRole詳細headingのidentifierを表示する。RoleNameとpolicy名・linkは詳細blockに保持し、一覧へ複製しない。`Comment`はRoleの用途説明を保持する。
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
 - 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
 - policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。
@@ -271,7 +265,7 @@ IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し
 - 複数Action・Resource・Principal値はcell内で`<br>`区切りにする。Conditionは演算子、context key、値を省略せず、演算子とkeyの文字列順で同じcellへ表示する。複数の条件値はJSON配列として表示し、条件の演算子や配列構造を変えない。Conditionを理由にStatementを分割・統合しない。
 - JSON object key順やindentだけの変更では表を変えない。文字列内のMarkdown/HTML特殊文字をescapeし、表示上のescapeをJSON値へ書き戻さない。空配列も省略せず表示する。未知のpolicy/Statement要素、重複JSON key、解釈できない構造は黙って省略せず停止する。
 - Roleごとの生成範囲は`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲む。marker内にはそのRoleのpolicy anchor、見出し、信頼ポリシーのVersion表、Statement表だけを置く。設定表や手動のimplementation noteを入れない。markerの欠落・重複・不正な所属も検証対象とする。
-- 生成処理は明示したMarkdown一件だけのIAM一覧とmarker内を更新する。policy JSON、Role設定、他のresource一覧・表を変更しない。表の内容やJSONを自動的に正しい権限へ修正しない。
+- 生成処理は明示したMarkdown一件のmarker内だけを更新する。policy JSON、Role設定、resource一覧を変更しない。表の内容やJSONを自動的に正しい権限へ修正しない。
 
 IAMを含む設計を保存・変更した後、model生成前に実行する。`--write`を省略するとread-onlyの一致検証になる。
 

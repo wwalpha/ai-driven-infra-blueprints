@@ -16,10 +16,9 @@
 ## Policy derived views
 
 - 各serviceのresource設定表とそこから参照するpolicy JSONがmodelの入力であり、JSONリンクとcanonical hashの既存形式を維持する。
-- リソース一覧のpolicyリンク列、IAMのRoleName一覧、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
+- リソース一覧のResourceNameとComment、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
 - 全serviceで派生表示のProperty/JSON/Version/Idの独立metadata行を省略する。元の設定rowのpropertyとJSONリンク、およびVersion/Idを含むJSON全体のcanonical hashは引き続きmodelへ保持する。
 - policy JSON変更時は`framework/scripts/policy_tables.py <対象service Markdown> --write`で派生表示を更新してからmodelを生成する。model生成はMarkdownやJSONを修正しない。local loopはJSONと表示の不一致も拒否する。
-- `S3.Bucket`一覧の`SSEAlgorithm`は詳細rowからの派生表示とし、policy一覧link列は生成しない。policy JSONと詳細rowは従来どおりmodelに保持する。
 
 ## Format
 
@@ -54,7 +53,7 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、SG属性の正本となるSecurity Group一覧を除き、人間向けの派生summaryとしてmodel生成対象から除外する。Markdownのproperty rowはmaterialsのproperties行順に従い、未選択・非表示項目を省略する。modelはMarkdown順を保持し、名前やidentifierを先頭へ並べ戻さない。design-only `.Name`と`S3.Bucket.Region`は既存の特殊表示位置を保持する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と、Markdownで`EC2.RouteTableId`と表示する正式property `EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へ正式Property名で反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
+resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、全serviceで人間向けの案内としてmodel生成対象から除外する。Markdownのproperty rowはmaterialsのproperties行順に従い、未選択・非表示項目を省略する。modelはMarkdown順を保持し、名前やidentifierを先頭へ並べ戻さない。design-only `.Name`と`S3.Bucket.Region`は既存の特殊表示位置を保持する。`S3.Bucket`のheading identifierと`desired.resource.*.logicalId`はBucketNameと一致させる。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と、Markdownで`EC2.RouteTableId`と表示する正式property `EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へ正式Property名で反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 
@@ -81,8 +80,8 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - 子の`desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId`と`parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`を生成する。省略した親propertyはこのlogical referenceから復元し、physical KeyIdや先頭Aliasによる補完をしない。これはdesiredの所属関係であり、observed値を追加しない。
 - Alias参照は子のanchorとAliasNameをそのまま保持し、KeyIdへの変換やobserved namespaceへの分離をしない。子の移動時はparentReferenceだけが新しい所属親を指し、確定済みlogical IDとanchorは維持する。
 
-- Security Group一覧のId、GroupName、VpcId、Descriptionと、所属SGの非表示security-group-tags metadataをSG自身の設計入力として一度だけ読む。Descriptionは`EC2.SecurityGroup.GroupDescription`へ、Tagsの各要素は`Tags[].Key`、`Tags[].Value`へ順序を保って対応させる。Id、GroupDescription、選択済みGroupName、VpcId、Tagsの順に生成し、VPC参照も既存のdesired logical reference／observed current identifierの分離を使う。Tags列やSG基本設定表を重複保存せず、タグmetadataのcommentをdesired.noteへ生成しない。
-- ルール未設定のSecurity Groupはrule tableとH3 headingがなくても、anchorに対応する一覧属性・識別・VPC参照・選択済みタグを同じSG modelへ生成する。ruleや空のrule resourceを補完せず、次のSGのanchorや所属を変えない。
+- Security Group詳細表のId、GroupDescription、選択済みGroupName、VpcIdと、所属SGの非表示security-group-tags metadataをSG自身の設計入力として一度だけ読む。Tagsの各要素は`Tags[].Key`、`Tags[].Value`へ順序を保って対応させる。Id、GroupDescription、選択済みGroupName、VpcId、Tagsの順に生成し、VPC参照も既存のdesired logical reference／observed current identifierの分離を使う。タグmetadataのcommentをdesired.noteへ生成しない。
+- ルール未設定のSecurity GroupもH3 headingと基本設定表を持ち、識別・VPC参照・選択済みタグを同じSG modelへ生成する。ruleや空のrule resourceを補完せず、次のSGのanchorや所属を変えない。
 - Security Groupの単一rule tableを設計入力として読み、Directionの`Inbound`／`Outbound`をIngress／Egressへ対応させる。独立ruleは既存のgrouped resource形式へ展開し、`parentProperty=EC2.SecurityGroupIngress.GroupId`または`EC2.SecurityGroupEgress.GroupId`と包含SGへの`parentReference`を生成する。Direction cellの非表示`rule-id` markerを正式propertyの`Id`へ、`security-group-id` markerをInboundでは`SourceSecurityGroupId`、Outboundでは`DestinationSecurityGroupId`へ対応させる。参照値をlosslessに保持し、visible columnやmodel上のmetadata propertyを追加しない。ruleのdesiredは自身へのlogical reference、observedはcurrent ID／`PENDING_DEPLOY`とし、複数の未作成ruleはlogical IDとanchorで区別する。
 - inline ruleはSG自身の`EC2.SecurityGroup.SecurityGroupIngress[].<property>`／`SecurityGroupEgress[].<property>`へ保持し、独立resourceやIdを生成しない。SG属性の後にInbound、Outboundの順、各方向では表のrow順に並べる。独立ruleはその後に表のrow順で並べる。一つのinline ruleのpropertyを連続させ、必ず`IpProtocol`を先頭に置く。同じ配列の次の`IpProtocol`が次要素の開始を表し、optional propertyの有無から所属を推測しない。
 - `Port`は単一値ならFromPort／ToPortの両方へ同値、範囲なら開始／終了値、ICMPの`Type=n, Code=n`ならtype／codeとして展開する。`—`なら両propertyを省略する。展開後は独立rule自身またはinline rule配下の正式catalog propertyへ保持し、modelにPortというpropertyを追加しない。

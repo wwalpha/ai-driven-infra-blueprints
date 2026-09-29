@@ -34,9 +34,9 @@
 
 ### S3.Bucket
 
-| No. | BucketName | Region | KMSAlias | Versioning | SSEAlgorithm | Comment |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | `aws:kms` | アプリケーションのデータを保管するbucket |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | アプリケーションのデータを保管するbucket |
 ```
 
 <a id="resource-detail-table"></a>

@@ -47,7 +47,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - resource tableの`Source / Comment`が日本語で記載されている
 - resource tableがproperties選択リスト外の設定項目を含まず、literal値が対応するCFn provider schemaまたはAPI設計schemaの型、enum、pattern、長さ、範囲に適合する
 - JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
-- 各serviceのpolicy一覧リンク、anchorと所有resource、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMを含む全policyでProperty、JSON、Version、Idの独立metadata行を省略する。信頼ポリシーのVersionはJSONに存在する場合だけ1列表へ表示し、JSONと照合する。元の設定rowの正式propertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名key、IAMの既存一覧を維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
+- 各serviceのpolicy anchorと所有resource、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMを含む全policyでProperty、JSON、Version、Idの独立metadata行を省略する。信頼ポリシーのVersionはJSONに存在する場合だけ1列表へ表示し、JSONと照合する。元の設定rowの正式propertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名key、全serviceの3列一覧を維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
 - IAM inline policyのStatement内のSidが存在する場合は文字列かつ16文字以内であり、超過を自動修正していない
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
@@ -74,7 +74,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 1. active promptで指定された`docs/designs/**`を更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
 2. 既存resource取得では必要な非ARN current identifierだけをgenerated identifier rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONから一覧とpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。`bucketDefinitions`型Macie Jobでは同commandがMarkdown対応表からJSON artifactのbucketDefinitionsを更新してからmodelを生成する。
+3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONからpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。`bucketDefinitions`型Macie Jobでは同commandがMarkdown対応表からJSON artifactのbucketDefinitionsを更新してからmodelを生成する。
 4. local loopを実行する。
 5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 

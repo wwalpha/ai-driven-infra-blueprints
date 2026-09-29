@@ -1,4 +1,4 @@
-"""Expand SG overview attributes and horizontal rules into catalog rows in memory."""
+"""Expand SG detail properties and horizontal rules into catalog rows in memory."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ SECURITY_GROUP = "EC2.SecurityGroup"
 DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
 TAGS_PREFIX = "<!-- security-group-tags:"
 SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
-OVERVIEW_COLUMNS = ["No.", "SecurityGroup", "GroupName", "Id", "VpcId", "Description", "Comment"]
+OVERVIEW_COLUMNS = ["No.", "ResourceName", "Comment"]
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
 HEADER = "| No. | Property | Value | Source / Comment |"
@@ -95,7 +95,7 @@ def table_at(lines: list[str], start: int) -> tuple[list[str], list[list[str]], 
     return headers, rows, cursor
 
 
-def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
+def overview_groups(lines: list[str]) -> dict[str, str]:
     title = "### EC2.SecurityGroup"
     if title not in lines:
         return {}
@@ -115,66 +115,19 @@ def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
             raise ValueError("Security Group requires exactly one overview table")
         end += 1
     if headers != OVERVIEW_COLUMNS or not rows:
-        raise ValueError("Security Group overview requires No., SecurityGroup, GroupName, Id, VpcId, Description, Comment only; omit Tags column")
+        raise ValueError("Security Group overview requires No., ResourceName, Comment only")
     groups = {}
     for number, row in enumerate(rows, 1):
         link = re.fullmatch(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]\(#([a-z0-9_.-]+)\)", row[1])
         if row[0] != str(number) or not link or link.group(1) in groups:
             raise ValueError("Security Group overview requires a unique logical ID link")
-        values = dict(zip(headers, row))
-        if any(values[prop].strip("`").strip() in {"", "—"} for prop in ("Id", "VpcId", "Description")):
-            raise ValueError("Security Group overview requires Id, VpcId and Description values")
-        basic = []
-        for prop in ("Id", "GroupDescription", "GroupName", "VpcId"):
-            value = values["Description" if prop == "GroupDescription" else prop]
-            if value != "—":
-                basic.append([f"{SECURITY_GROUP}.{prop}", value, GROUP_COMMENTS[prop]])
-        groups[link.group(1)] = (link.group(2), basic)
+        groups[link.group(1)] = link.group(2)
     return groups
 
 
-def with_ruleless_headings(
-    lines: list[str], groups: dict[str, tuple[str, list[list[str]]]]
-) -> tuple[list[str], set[str]]:
-    """Add model-only headings where the source intentionally omits an empty title."""
-    lines = list(lines)
-    detailed = lines.index("## リソース詳細")
-    visible = {
-        heading.group(2)
-        for line in lines
-        if (heading := RESOURCE.fullmatch(line)) and heading.group(1) == SECURITY_GROUP
-    }
-    group_anchors = {f'<a id="{anchor}"></a>' for anchor, _ in groups.values()}
-    additions = []
-    for logical_id, (anchor, _) in groups.items():
-        if logical_id in visible:
-            continue
-        anchor_line = f'<a id="{anchor}"></a>'
-        positions = [
-            index for index, line in enumerate(lines) if index > detailed and line == anchor_line
-        ]
-        if len(positions) != 1:
-            continue
-        start = positions[0]
-        end = start + 1
-        while (
-            end < len(lines)
-            and not re.match(r"^#{1,3} ", lines[end])
-            and lines[end] not in group_anchors
-        ):
-            end += 1
-        if any(line.startswith("|") for line in lines[start + 1 : end]):
-            raise ValueError("Security Group rules require a detail heading")
-        additions.append((start + 1, logical_id))
-    for index, logical_id in sorted(additions, reverse=True):
-        lines.insert(index, f"### {SECURITY_GROUP}: {logical_id}")
-    return lines, {logical_id for _, logical_id in additions}
-
-
 def security_group_table_lines(lines: list[str]) -> list[str]:
-    """Keep one source for SG attributes and preserve rule identities/ownership."""
+    """Expand SG detail tables while preserving rule identities and ownership."""
     groups = overview_groups(lines)
-    lines, ruleless = with_ruleless_headings(lines, groups) if groups else (lines, set())
     seen = set()
     result: list[str] = []
     index = 0
@@ -193,10 +146,10 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         logical_id = heading.group(2)
         if logical_id not in groups or logical_id in seen:
             raise ValueError("Security Group requires exactly one matching overview row and rule block")
-        anchor, basic_rows = groups[logical_id]
+        anchor = groups[logical_id]
         previous = next((line for line in reversed(lines[:index]) if line.strip()), "")
         if previous != f'<a id="{anchor}"></a>':
-            raise ValueError("Security Group overview link must match its rule block anchor")
+            raise ValueError("Security Group overview link must match its detail block anchor")
         seen.add(logical_id)
         end = index + 1
         while end < len(lines) and not re.match(r"^#{1,3} ", lines[end]):
@@ -205,6 +158,9 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         tag_lines = [line for line in block if TAGS_PREFIX in line]
         if len(tag_lines) > 1:
             raise ValueError("Security Group requires at most one tags metadata line")
+        if tag_lines and next((line for line in block[1:] if line.strip()), "") != tag_lines[0]:
+            raise ValueError("Security Group tags metadata must follow its detail heading")
+        tag_rows = []
         if tag_lines:
             marker = re.fullmatch(r"<!-- security-group-tags: (.+) -->", tag_lines[0])
             if not marker or "-->" in marker.group(1) or "<!--" in marker.group(1):
@@ -221,18 +177,30 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
             for tag in tags:
                 for prop in ("Key", "Value"):
                     value = json.dumps(tag[prop], ensure_ascii=False)
-                    basic_rows.append([f"{SECURITY_GROUP}.Tags[].{prop}", value, GROUP_COMMENTS[f"Tags[].{prop}"]])
+                    tag_rows.append([f"{SECURITY_GROUP}.Tags[].{prop}", value, GROUP_COMMENTS[f"Tags[].{prop}"]])
             block = [line for line in block if line not in tag_lines]
 
         start = next((position for position, line in enumerate(block) if line.startswith("|")), -1)
         if start == -1:
-            if logical_id not in ruleless:
-                raise ValueError("omit Security Group detail heading when it has no rules")
-            # Insert the model-only property table below the source's hidden anchor.
-            start = cursor = 1
-            headers, rules = [], []
+            raise ValueError("Security Group requires a basic property table")
+        basic_headers, basic, basic_end = table_at(block, start)
+        if basic_headers != ["No.", "Property", "Value", "Source / Comment"]:
+            raise ValueError("Security Group requires a basic property table before rules")
+        basic_rows = [row[1:] for row in basic]
+        if [row[0] for row in basic] != [str(number) for number in range(1, len(basic) + 1)]:
+            raise ValueError("Security Group basic property numbering error")
+        expected = [f"{SECURITY_GROUP}.{prop}" for prop in ("Id", "GroupDescription", "GroupName", "VpcId")]
+        names = [row[0] for row in basic_rows]
+        if names not in ([expected[0], expected[1], expected[3]], expected) or any(
+            row[1].strip("`").strip() in {"", "—"} or not row[2] for row in basic_rows
+        ):
+            raise ValueError("Security Group requires Id, GroupDescription and VpcId detail values")
+        basic_rows.extend(tag_rows)
+        rule_start = next((position for position in range(basic_end, len(block)) if block[position].startswith("|")), -1)
+        if rule_start == -1:
+            headers, rules, cursor = [], [], basic_end
         else:
-            headers, rules, cursor = table_at(block, start)
+            headers, rules, cursor = table_at(block, rule_start)
             allowed = (
                 COMMENTS.keys()
                 - {
@@ -252,7 +220,7 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
                 raise ValueError("omit empty Security Group rule table")
         properties = [prop for header in headers[1:] for prop in (("FromPort", "ToPort") if header == "Port" else (header,))]
         if any(line.startswith("|") for line in block[cursor:]):
-            raise ValueError("Security Group requires one Direction rule table and no basic property table")
+            raise ValueError("Security Group requires at most one Direction rule table")
         inline_rows = {direction: [] for direction in DIRECTIONS.values()}
         child_rows = []
         for row in rules:

@@ -14,11 +14,9 @@ from pathlib import Path
 
 from policy_tables import (
     POLICY_FORMATS,
-    OVERVIEW_HEADERS as IAM_OVERVIEW_HEADERS,
     artifact_id,
     iam_role_policy_artifact_filename,
     rendered_design as rendered_policy_design,
-    resources_in as policy_resources_in,
     without_policy_tables,
 )
 
@@ -77,7 +75,6 @@ OVERVIEW_HEADING = "## リソース一覧"
 OVERVIEW_TYPE_HEADING_PATTERN = re.compile(
     r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+)$"
 )
-OVERVIEW_COLUMN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 FORBIDDEN_DESIGN_METADATA_PATTERN = re.compile(
     r"^\s*-\s*(Environment|AWS account ID|AWS region|Purpose|Deployment state)\s*:",
     re.IGNORECASE,
@@ -1397,15 +1394,6 @@ class Validator:
                 lines = security_group_table_lines(lines)
             except ValueError:
                 pass
-            try:
-                iam_names = {
-                    role.anchor: role.name
-                    for role in policy_resources_in(without_policy_tables(lines))
-                    if role.resource_type == "IAM.Role"
-                }
-            except ValueError as error:
-                self.check(False, f"invalid IAM overview source: {self.relative(path)}: {error}")
-                iam_names = {}
             overview_indices = [
                 index for index, line in enumerate(lines) if line == OVERVIEW_HEADING
             ]
@@ -1419,9 +1407,8 @@ class Validator:
                 f"resource details heading must appear exactly once: {self.relative(path)}",
             )
             resources: dict[str, tuple[str, str]] = {}
-            properties: dict[str, dict[str, str]] = {}
             resource_indices: list[int] = []
-            previous = current_anchor = ""
+            previous = ""
             for index, line in enumerate(lines):
                 if re.match(r"^#{1,6} [A-Za-z0-9]+\.[A-Za-z0-9]+: ", line):
                     self.check(
@@ -1430,17 +1417,9 @@ class Validator:
                     )
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     anchor = ANCHOR_PATTERN.fullmatch(previous)
-                    current_anchor = anchor.group(1) if anchor else ""
                     if anchor:
-                        resources[current_anchor] = heading.groups()
-                        properties[current_anchor] = {}
+                        resources[anchor.group(1)] = heading.groups()
                     resource_indices.append(index)
-                elif line.startswith("#"):
-                    current_anchor = ""
-                elif current_anchor and line.startswith("|"):
-                    cells = [cell.strip() for cell in line.strip("|").split("|")]
-                    if len(cells) == 4 and cells[0].isdigit():
-                        properties[current_anchor][cells[1]] = cells[2]
                 if line.strip():
                     previous = line.strip()
             if len(overview_indices) != 1 or len(details_indices) != 1 or not resource_indices:
@@ -1463,13 +1442,6 @@ class Validator:
                 not any(ANCHOR_PATTERN.fullmatch(line) for line in lines[overview_index:details_index]),
                 f"resource anchors must be inside resource details: {self.relative(path)}",
             )
-
-            association_route_table = "EC2.RouteTableId"
-            subnet_route_tables = {
-                anchor: properties[anchor][association_route_table]
-                for anchor, (resource_type, _) in resources.items()
-                if resource_type == "EC2.Subnet" and association_route_table in properties[anchor]
-            }
 
             listed: list[str] = []
             overview_types: list[str] = []
@@ -1495,40 +1467,15 @@ class Validator:
                     continue
                 headers = [cell.strip() for cell in table[0].strip("|").split("|")]
                 alignment = [cell.strip() for cell in table[1].strip("|").split("|")]
-                columns = headers[1:-1]
-                has_policies = current_type != "IAM.Role" and columns[-1:] == ["Policies"]
                 self.check(
-                    headers[:1] == ["No."] and headers[-1:] == ["Comment"]
-                    and 2 <= len(columns) - has_policies <= 6,
-                    f"resource overview must use No., 2 to 6 resource columns, optional Policies, Comment: {self.relative(path)}: {current_type}",
-                )
-                self.check(
-                    len(headers) == len(set(headers))
-                    and (
-                        headers == IAM_OVERVIEW_HEADERS if current_type == "IAM.Role"
-                        else all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in columns)
-                    ),
-                    f"resource overview column names must be short and unique: {self.relative(path)}: {current_type}",
-                )
-                self.check(
-                    "Policies" not in columns or has_policies,
-                    f"resource overview Policies must precede Comment: {self.relative(path)}: {current_type}",
+                    headers == ["No.", "ResourceName", "Comment"],
+                    f"resource overview must use No., ResourceName, Comment: {self.relative(path)}: {current_type}",
                 )
                 self.check(
                     len(alignment) == len(headers)
                     and all(re.fullmatch(r":?---+:?", cell) for cell in alignment),
                     f"invalid resource overview table alignment: {self.relative(path)}: {current_type}",
                 )
-                if current_type == "EC2.Subnet":
-                    self.check(
-                        "AssociationId" not in headers,
-                        f"Subnet overview must omit AssociationId: {self.relative(path)}",
-                    )
-                if current_type == "S3.Bucket":
-                    self.check(
-                        "Policies" not in headers and "SSEAlgorithm" in headers,
-                        f"S3 Bucket overview must show SSEAlgorithm instead of Policies: {self.relative(path)}",
-                    )
                 for number, row in enumerate(table[2:], 1):
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(
@@ -1542,8 +1489,6 @@ class Validator:
                         JAPANESE_TEXT_PATTERN.search(cells[-1]) is not None,
                         f"resource overview Comment must describe the resource in Japanese: {self.relative(path)}: {current_type}",
                     )
-                    for header, value in zip(headers, cells):
-                        self.check_cidr_value(path, header, value)
                     link = RESOURCE_LINK_PATTERN.fullmatch(cells[1])
                     self.check(
                         bool(link and not link.group(2)),
@@ -1556,28 +1501,11 @@ class Validator:
                     self.check(
                         bool(
                             resource and resource[0] == current_type
-                            and label == (iam_names.get(anchor) if current_type == "IAM.Role" else resource[1])
+                            and label == resource[1]
                         ),
                         f"resource overview link must match its detail block: {self.relative(path)}: {current_type}: {label}",
                     )
                     listed.append(anchor)
-                    if current_type == "EC2.Subnet" and (subnet_route_tables or "RouteTableId" in headers):
-                        values = dict(zip(headers, cells))
-                        self.check(
-                            "RouteTableId" in values,
-                            f"Subnet overview requires RouteTableId column: {self.relative(path)}",
-                        )
-                        expected_route = subnet_route_tables.get(anchor, "—")
-                        self.check(
-                            values.get("RouteTableId") == expected_route,
-                            f"Subnet overview RouteTableId must match its detail table: {self.relative(path)}: {anchor}",
-                        )
-                    if current_type == "S3.Bucket" and "SSEAlgorithm" in headers:
-                        expected_algorithm = properties.get(anchor, {}).get("S3.Bucket.BucketEncryption[].SSEAlgorithm", "—")
-                        self.check(
-                            dict(zip(headers, cells))["SSEAlgorithm"] == expected_algorithm,
-                            f"S3 Bucket overview SSEAlgorithm must match its detail table: {self.relative(path)}: {anchor}",
-                        )
 
             detail_types = [resource_type for resource_type, _ in resources.values()]
             self.check(

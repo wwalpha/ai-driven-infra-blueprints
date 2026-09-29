@@ -11,13 +11,12 @@ from pathlib import Path
 import re
 import sys
 
-from design_layout import ANCHOR, DETAILS_HEADING, HEADER, RESOURCE
+from design_layout import ANCHOR, HEADER, RESOURCE
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
 IAM_START = "<!-- iam-policy-tables:start -->"
 IAM_END = "<!-- iam-policy-tables:end -->"
-OVERVIEW_HEADERS = ["No.", "RoleName", "信頼ポリシー", "インラインポリシー", "Comment"]
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.
 POLICY_FORMATS = {
@@ -141,7 +140,6 @@ class Resource:
     resource_type: str
     logical_id: str
     anchor: str
-    name: str
     policies: list[Policy]
     table_end: int
 
@@ -201,7 +199,7 @@ def resources_in(lines: list[str]) -> list[Resource]:
             raise ValueError(f"IAM Role must have exactly one trust policy: {logical_id}")
         if len({policy.anchor for policy in policies}) != len(policies):
             raise ValueError(f"duplicate policy anchor; use distinct artifacts for policies in one resource: {logical_id}")
-        resources.append(Resource(current_type, logical_id, anchor, names[0] if names else "（RoleName未指定）", policies, index))
+        resources.append(Resource(current_type, logical_id, anchor, policies, index))
     if len({resource.anchor for resource in resources}) != len(resources):
         raise ValueError("duplicate resource detail table or anchor")
     return resources
@@ -311,57 +309,6 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     return result
 
 
-def render_policy_overviews(text: str, resources: list[Resource]) -> str:
-    """Refresh derived Policies columns, except for S3 Bucket summaries."""
-    details_heading = re.search(r"^" + re.escape(DETAILS_HEADING) + r"$", text, re.MULTILINE)
-    if not details_heading:
-        raise ValueError("resource details are missing")
-    overview, details = text[:details_heading.start()], text[details_heading.start():]
-    for resource_type in sorted({resource.resource_type for resource in resources} - {"IAM.Role"}):
-        owned = {resource.anchor: resource for resource in resources if resource.resource_type == resource_type}
-        required = resource_type != "S3.Bucket" and any(resource.policies for resource in owned.values())
-        pattern = re.compile(r"^### " + re.escape(resource_type) + r"\n(?:\n|\|[^\n]*\n)*", re.MULTILINE)
-        matches = list(pattern.finditer(overview))
-        if len(matches) != 1:
-            if required:
-                raise ValueError(f"policy resource overview must appear exactly once: {resource_type}")
-            continue
-        match = matches[0]
-        rows = [[part.strip() for part in line.strip("|").split("|")] for line in match.group().splitlines() if line.startswith("|")]
-        if not rows or (not required and "Policies" not in rows[0]):
-            continue
-        if len(rows) < 3 or rows[0].count("Policies") > 1:
-            raise ValueError(f"invalid policy resource overview: {resource_type}")
-        headers, alignment, *entries = rows
-        if headers[:1] != ["No."] or headers[-1:] != ["Comment"] or not 2 <= len(headers) - 2 - ("Policies" in headers) <= 6 or any(len(row) != len(headers) for row in rows):
-            raise ValueError(f"invalid policy resource overview width: {resource_type}")
-        column = headers.index("Policies") if "Policies" in headers else None
-        if column is not None and column != len(headers) - 2:
-            raise ValueError("Policies must precede Comment")
-        seen = []
-        for row in entries:
-            link = re.fullmatch(r"\[([^\]]+)\]\(#([^)]+)\)", row[1])
-            if not link or link.group(2) not in owned or link.group(1) != owned[link.group(2)].logical_id:
-                raise ValueError(f"invalid policy overview resource link: {resource_type}")
-            resource = owned[link.group(2)]
-            seen.append(resource.anchor)
-            if column is not None:
-                row.pop(column)
-            if required:
-                row.insert(-1, "<br>".join(f"[{policy.label}](#{policy.anchor})" for policy in resource.policies) or "—")
-        if len(seen) != len(set(seen)) or set(seen) != set(owned):
-            raise ValueError(f"policy overview must list every owning resource once: {resource_type}")
-        if column is not None:
-            headers.pop(column)
-            alignment.pop(column)
-        if required:
-            headers.insert(-1, "Policies")
-            alignment.insert(-1, "---")
-        replacement = f"### {resource_type}\n\n" + "\n".join("| " + " | ".join(row) + " |" for row in [headers, alignment, *entries]) + "\n\n"
-        overview = overview[:match.start()] + replacement + overview[match.end():]
-    return overview + details
-
-
 def rendered_design(path: Path) -> str:
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
@@ -379,41 +326,7 @@ def rendered_design(path: Path) -> str:
             generated.extend(["", *policy_lines(path, policy)])
         generated.extend(["", end])
         lines[resource.table_end:resource.table_end] = generated
-    text = "\n".join(lines) + "\n"
-    text = render_policy_overviews(text, resources)
-    roles = [resource for resource in resources if resource.resource_type == "IAM.Role"]
-    if not roles:
-        return text
-    pattern = re.compile(r"^### IAM\.Role\n(?:\n|\|[^\n]*\n)*", re.MULTILINE)
-    matches = list(pattern.finditer(text))
-    details_heading = re.search(r"^" + re.escape(DETAILS_HEADING) + r"$", text, re.MULTILINE)
-    if len(matches) != 1 or not details_heading or matches[0].start() > details_heading.start():
-        raise ValueError("IAM Role overview must appear exactly once before resource details")
-    old_rows = [[part.strip() for part in line.strip("|").split("|")] for line in matches[0].group().splitlines() if line.startswith("|")]
-    if len(old_rows) < 3 or old_rows[0] != OVERVIEW_HEADERS or any(len(row) != len(OVERVIEW_HEADERS) for row in old_rows):
-        raise ValueError("IAM Role overview requires No., RoleName, policy columns, Comment")
-    comments = {}
-    for row in old_rows[2:]:
-        link = re.fullmatch(r"\[[^\]]+\]\(#([^)]+)\)", row[1])
-        if not link or link.group(1) in comments:
-            raise ValueError("IAM Role overview requires unique RoleName links")
-        if not row[-1]:
-            raise ValueError("IAM Role overview Comment is missing")
-        comments[link.group(1)] = row[-1]
-    overview_rows = []
-    for number, role in enumerate(roles, 1):
-        if role.anchor not in comments:
-            raise ValueError(f"IAM Role overview Comment is missing: {role.logical_id}")
-        overview_rows.append([
-            str(number),
-            f"[{role.name}](#{role.anchor})",
-            "<br>".join(f"[{p.label}](#{p.anchor})" for p in role.policies if p.kind == "信頼ポリシー"),
-            "<br>".join(f"[{p.label}](#{p.anchor})" for p in role.policies if p.kind == "インラインポリシー") or "—",
-            comments[role.anchor],
-        ])
-    overview = "### IAM.Role\n\n" + "\n".join(table(OVERVIEW_HEADERS, overview_rows, numbered=True)) + "\n\n"
-    return pattern.sub(lambda _: overview, text)
-
+    return "\n".join(lines) + "\n"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)

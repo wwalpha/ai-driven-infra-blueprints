@@ -571,9 +571,9 @@ def check_cidr_pending_deploy() -> None:
 
 ### EC2.VPC
 
-| No. | Name | VpcId | CidrBlock | Comment |
-| ---: | --- | --- | --- | --- |
-| 1 | [vpc-app-staging](#vpc-vpc-app-staging) | `PENDING_DEPLOY` | `10.0.0.0/16` | アプリケーションのネットワーク |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [vpc-app-staging](#vpc-vpc-app-staging) | アプリケーションのネットワーク |
 
 ## リソース詳細
 
@@ -804,9 +804,9 @@ def check_resource_overview() -> None:
 
 ### S3.Bucket
 
-| No. | BucketName | Region | KMSAlias | Versioning | SSEAlgorithm | Comment |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | — | アプリケーションのデータを保管するbucket |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | アプリケーションのデータを保管するbucket |
 
 ## リソース詳細
 
@@ -828,15 +828,9 @@ def check_resource_overview() -> None:
         assert not errors(valid)
         assert any("resource overview numbering error" in error for error in errors(valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)))
         assert any("Comment must describe the resource in Japanese" in error for error in errors(valid.replace("アプリケーションのデータを保管するbucket |", "resource |", 1)))
-        assert any("resource overview must use No." in error for error in errors(valid.replace("| No. | BucketName |", "| BucketName |", 1)))
-        with_policies = valid.replace("| Versioning | SSEAlgorithm |", "| Versioning | Policies |", 1)
-        assert any("must show SSEAlgorithm instead of Policies" in error for error in errors(with_policies))
-        with_algorithm = valid.replace("| — |", "| `aws:kms` |", 1).replace(
-            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
-            "| 1 | S3.Bucket.BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n| 2 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |",
-        )
-        assert not errors(with_algorithm)
-        assert any("SSEAlgorithm must match its detail table" in error for error in errors(with_algorithm.replace("| `aws:kms` | アプリケーションのデータを保管するbucket |", "| `AES256` | アプリケーションのデータを保管するbucket |", 1)))
+        assert any("resource overview must use No." in error for error in errors(valid.replace("| No. | ResourceName |", "| ResourceName |", 1)))
+        extra = valid.replace("| ResourceName | Comment |", "| ResourceName | SSEAlgorithm | Comment |", 1)
+        assert any("resource overview must use No." in error for error in errors(extra))
         details_heading = "## リソース詳細\n\n"
         invalid_sections = [
             (valid.replace(details_heading, "", 1), "details heading must appear exactly once"),
@@ -851,10 +845,9 @@ def check_resource_overview() -> None:
         for markdown, message in invalid_sections:
             failures = errors(markdown)
             assert any(message in failure for failure in failures), (message, failures)
-        long_header = valid.replace("| BucketName | Region |", "| S3.Bucket.BucketName | Region |")
-        assert any("column names must be short and unique" in error for error in errors(long_header))
+        assert any("resource overview must use No." in error for error in errors(valid.replace("| ResourceName |", "| BucketName |", 1)))
         missing_row = valid.replace(
-            "| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | — | アプリケーションのデータを保管するbucket |\n",
+            "| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | アプリケーションのデータを保管するbucket |\n",
             "",
         )
         assert any("must list every detail resource exactly once" in error for error in errors(missing_row))
@@ -881,17 +874,13 @@ def check_subnet_association_overview() -> None:
         "# VPC 詳細設計\n\n- Design service ID: `vpc`\n"
         f"- Owned catalog resource types: `EC2.Subnet`, `EC2.RouteTable`, `{association_type}`\n\n"
     )
-    subnet_header = "| No. | Name | SubnetId | AvailabilityZone | CidrBlock | RouteTableId | Comment |"
-    subnet_rows = [
-        f"| {number} | [subnet-{number}](#vpc-subnet-{number}) | `subnet-{number:08d}` | `ap-northeast-1a` | `10.0.{number}.0/24` | "
-        + ("[rtb-00000001](#vpc-route)" if number < 3 else "—") + " | Subnetの用途 |"
-        for number in range(1, 4)
-    ]
+    subnet_header = "| No. | ResourceName | Comment |"
+    subnet_rows = [f"| {number} | [subnet-{number}](#vpc-subnet-{number}) | Subnetの用途 |" for number in range(1, 4)]
     overview = "\n".join([
         "## リソース一覧", "", "### EC2.Subnet", "", subnet_header,
-        "| ---: | --- | --- | --- | --- | --- | --- |", *subnet_rows, "",
-        "### EC2.RouteTable", "", "| No. | Name | RouteTableId | Comment |", "| ---: | --- | --- | --- |",
-        "| 1 | [route](#vpc-route) | `rtb-00000001` | Subnetの経路を管理するtable |", "", "",
+        "| ---: | --- | --- |", *subnet_rows, "",
+        "### EC2.RouteTable", "", subnet_header, "| ---: | --- | --- |",
+        "| 1 | [route](#vpc-route) | Subnetの経路を管理するtable |", "", "",
     ])
     details = "## リソース詳細\n\n"
     for number in range(1, 4):
@@ -919,12 +908,11 @@ def check_subnet_association_overview() -> None:
         f"| 3 | {association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1) | 関連付けるSubnet |\n\n"
     )
     valid = metadata + overview + details
-    legacy_overview = overview.replace("| RouteTableId | Comment |", "| RouteTableId | AssociationId | Comment |", 1).replace(
-        "| ---: | --- | --- | --- | --- | --- | --- |", "| ---: | --- | --- | --- | --- | --- | --- | --- |", 1
+    legacy_overview = overview.replace("| ResourceName | Comment |", "| ResourceName | RouteTableId | Comment |", 1).replace(
+        "| ---: | --- | --- |", "| ---: | --- | --- | --- |", 1
     )
-    for number, row in enumerate(subnet_rows, 1):
-        association_cell = f"[rtbassoc-{number:08d}](#vpc-assoc-{number})" if number < 3 else "—"
-        legacy_overview = legacy_overview.replace(row, row.replace("| Subnetの用途 |", f"| {association_cell} | Subnetの用途 |"), 1)
+    for row in subnet_rows:
+        legacy_overview = legacy_overview.replace(row, row.replace("| Subnetの用途 |", "| [rtb-00000001](#vpc-route) | Subnetの用途 |"), 1)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         design = root / "docs/designs/dev/123456789012/vpc.md"
@@ -976,11 +964,7 @@ def check_subnet_association_overview() -> None:
 
         bad_designs = [
             (valid + independent, "types must match"),
-            (metadata + legacy_overview + details, "must omit AssociationId"),
-            (valid.replace(" | RouteTableId |", " | RouteTable |", 1), "requires RouteTableId column"),
-            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-00000001](#vpc-wrong)", 1), "must match its detail table"),
-            (valid.replace("[rtb-00000001](#vpc-route)", "[rtb-other](#vpc-route)", 1), "must match its detail table"),
-            (valid.replace(" | — |", " | `rtb-main` |", 1), "must match its detail table"),
+            (metadata + legacy_overview + details, "resource overview must use No."),
             (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
         ]
         for markdown, message in bad_designs:

@@ -51,16 +51,16 @@ def main():
 
 ### IAM.Role
 
-| No. | RoleName | 信頼ポリシー | インラインポリシー | Comment |
-| ---: | --- | --- | --- | --- |
-| 1 | [role-rolea](#iam-rolea) | — | — | Flow Logsに使用するRole |
-| 2 | [role-roleb](#iam-roleb) | — | — | 追加ログを記録するRole |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [RoleA](#iam-rolea) | Flow Logsに使用するRole |
+| 2 | [RoleB](#iam-roleb) | 追加ログを記録するRole |
 
 ### IAM.InstanceProfile
 
-| No. | LogicalId | InstanceProfileName | Comment |
-| ---: | --- | --- | --- |
-| 1 | [Profile](#iam-profile) | `example` | EC2へroleを渡すprofile |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [Profile](#iam-profile) | EC2へroleを渡すprofile |
 
 ## リソース詳細
 
@@ -102,9 +102,9 @@ def main():
         assert rendered.count(START) == 2
         assert rendered.count("\n#### ") == 6
         assert rendered.count("\n## リソース詳細\n") == 1
-        assert "[role-rolea](#iam-rolea)" in rendered
+        assert "[RoleA](#iam-rolea)" in rendered
         assert "Flow Logsに使用するRole" in rendered and "追加ログを記録するRole" in rendered
-        assert "#iam-rolea-inline-logging" in rendered and "#iam-roleb-inline-logging" in rendered
+        assert 'id="iam-rolea-inline-logging"' in rendered and 'id="iam-roleb-inline-logging"' in rendered
         assert "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
         assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
         condition_row = next(line for line in rendered.splitlines() if line.startswith("| 1 | Allow |"))
@@ -129,8 +129,8 @@ def main():
             assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
         assert errors(rendered.replace("| `2012-10-17` |", "| `2008-10-17` |", 1)), "wrong trust Version must fail"
         assert errors(text), "missing views must fail"
-        assert errors(rendered.replace("[role-rolea](#iam-rolea)", "[Wrong](#iam-rolea)"))
-        assert errors(rendered.replace("[Extra](#iam-roleb-inline-extra)", "[Extra](#iam-rolea-inline-extra)"))
+        assert errors(rendered.replace("[RoleA](#iam-rolea)", "[Wrong](#iam-rolea)"))
+        assert errors(rendered.replace('id="iam-roleb-inline-extra"', 'id="iam-rolea-inline-extra"'))
         assert errors(rendered.replace("`logs:CreateLogStream`<br>`logs:PutLogEvents`", "`logs:CreateLogStream`", 1))
         assert errors(rendered.replace(START, "", 1))
         assert errors(rendered.replace(END, "", 1))
@@ -203,7 +203,7 @@ def main():
         minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("IAM.Role.RoleName", "IAM.Role.Policies[]"))) + "\n"
         path.write_text(minimal, encoding="utf-8")
         view = rendered_design(path)
-        assert "[（RoleName未指定）](#iam-rolea)" in view
+        assert "[RoleA](#iam-rolea)" in view
         assert "#### インラインポリシー" not in view
         other_service = "# 他サービスの設計\n\n実装注記を維持する。\n"
         path.write_text(other_service, encoding="utf-8")
@@ -259,7 +259,7 @@ def service_policy_checks():
             artifact.write_text(json.dumps(document), encoding="utf-8")
             types = list(dict.fromkeys([owner_type, resource_type]))
             metadata = ", ".join(f"`{rt}`" for rt in types)
-            summary = "| No. | LogicalId | Label | SSEAlgorithm | Comment |\n| ---: | --- | --- | --- | --- |\n| 1 | [sample-a](#s3-sample-a) | `一つ目` | — | 一つ目のbucket |\n| 2 | [sample-b](#s3-sample-b) | `二つ目` | — | 二つ目のbucket |" if owner_type == "S3.Bucket" else f"| No. | LogicalId | Label | Comment |\n| ---: | --- | --- | --- |\n| 1 | [sample-a](#{service}-sample-a) | `一つ目` | 一つ目のresource |\n| 2 | [sample-b](#{service}-sample-b) | `二つ目` | 二つ目のresource |"
+            summary = f"| No. | ResourceName | Comment |\n| ---: | --- | --- |\n| 1 | [sample-a](#{service}-sample-a) | 一つ目のresource |\n| 2 | [sample-b](#{service}-sample-b) | 二つ目のresource |"
             original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n{summary}\n\n## リソース詳細\n\n"
             for name in ("sample-a", "sample-b"):
                 original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
@@ -283,21 +283,12 @@ def service_policy_checks():
             if owner_type == "S3.Bucket":
                 assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
             else:
-                assert f"#{service}-sample-a-{suffix}" in rendered and f"#{service}-sample-b-{suffix}" in rendered
+                assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
             for duplicate in ("Property：", "JSON：", "Version：", "Id："):
                 assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
-            if owner_type == "S3.Bucket":
-                assert "| No. | LogicalId | Label | SSEAlgorithm | Comment |" in rendered and "Policies" not in rendered
-                stale = rendered.replace("| SSEAlgorithm | Comment |", "| SSEAlgorithm | Policies | Comment |", 1)
-                stale = stale.replace("| ---: | --- | --- | --- | --- |", "| ---: | --- | --- | --- | --- | --- |", 1)
-                stale = stale.replace(" | — | 一つ目のbucket |", " | — | — | 一つ目のbucket |", 1)
-                stale = stale.replace(" | — | 二つ目のbucket |", " | — | — | 二つ目のbucket |", 1)
-                path.write_text(stale, encoding="utf-8")
-                assert rendered_design(path) == rendered, "S3 Policies column must be removed"
-                path.write_text(rendered, encoding="utf-8")
-            else:
-                assert "| No. | LogicalId | Label | Policies | Comment |" in rendered
+            assert "| No. | ResourceName | Comment |" in rendered
+            assert "| Policies |" not in rendered
             if style == "settings":
                 assert "| Property | Type | Value |" in rendered and "| No. | Sid |" not in rendered
                 if prop == "ECR.Repository.LifecyclePolicy":
@@ -329,10 +320,7 @@ def service_policy_checks():
             assert errors(original), "missing views must fail"
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"
-            if owner_type == "S3.Bucket":
-                assert errors(rendered.replace(f'id="{service}-sample-b-{suffix}"', f'id="{service}-sample-a-{suffix}"', 1)), "duplicate policy anchor must fail"
-            else:
-                assert errors(rendered.replace(f"[Access](#{service}-sample-b-{suffix})", f"[Access](#{service}-sample-a-{suffix})", 1)), "wrong owner link must fail"
+            assert errors(rendered.replace(f'id="{service}-sample-b-{suffix}"', f'id="{service}-sample-a-{suffix}"', 1)), "duplicate policy anchor must fail"
             for metadata in (f"Property：`{prop}`", f"JSON：[Access]({service}/access.json)", "Version：`2012-10-17`", "Id：`access-policy`"):
                 assert errors(rendered.replace(START, START + "\n\n" + metadata, 1)), (prop, metadata)
             assert errors(rendered.replace(START, START + "\n" + START, 1)), "nested markers must fail"
@@ -379,7 +367,7 @@ def grouping_and_settings_checks():
         assert rendered_design(path) == rendered
         assert MODEL.model_for(path) == baseline_model
         assert rendered.count(START) == 1
-        assert '| [KeyTwo](#kms-keytwo) | alias/three | — |' in rendered
+        assert '| 2 | [KeyTwo](#kms-keytwo) | データの暗号化に使うkey |' in rendered
         validator = VALIDATOR.Validator(root)
         validator.accounts = {("dev", "123456789012"): {}}
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(SCRIPTS.parents[1])
@@ -389,7 +377,7 @@ def grouping_and_settings_checks():
         validator.check_design_links({})
         validator.check_design_artifacts()
         assert not validator.errors, validator.errors
-        # Removing a selected policy removes only its derived view and column.
+        # Removing a selected policy removes only its derived view.
         removed = rendered.replace('| 3 | KMS.Key.KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n', '')
         path.write_text(removed, encoding="utf-8")
         assert 'Policies' not in rendered_design(path) and START not in rendered_design(path)
@@ -411,9 +399,9 @@ def grouping_and_settings_checks():
 
 ### ECR.Repository
 
-| No. | LogicalId | Name | Encryption | Mutable | Scan | EmptyOnDelete | Comment |
-| ---: | --- | --- | --- | --- | --- | --- | --- |
-| 1 | [Example](#ecr-example) | example | AES256 | MUTABLE | false | false | コンテナimageを保管するrepository |
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [Example](#ecr-example) | コンテナimageを保管するrepository |
 
 ## リソース詳細
 
@@ -433,7 +421,7 @@ def grouping_and_settings_checks():
         path.write_text(rendered, encoding="utf-8")
         assert rendered_design(path) == rendered
         assert MODEL.model_for(path) == baseline_model
-        assert '[Policy](#ecr-example-policy-access)<br>[Policy](#ecr-example-policy-lifecycle)' in rendered
+        assert 'id="ecr-example-policy-access"' in rendered and 'id="ecr-example-policy-lifecycle"' in rendered
         validator = VALIDATOR.Validator(root)
         validator.check_design_overviews()
         assert not validator.errors, validator.errors
