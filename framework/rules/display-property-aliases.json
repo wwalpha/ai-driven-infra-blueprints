@@ -1,5 +1,7 @@
 {
   "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
+  "S3.Bucket.BucketEncryption.BucketKeyEnabled": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled",
   "S3.Bucket.BucketEncryption[].KMSMasterKeyID": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",
-  "S3.Bucket.BucketEncryption[].SSEAlgorithm": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm"
+  "S3.Bucket.BucketEncryption[].SSEAlgorithm": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm",
+  "S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays": "S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays"
 }

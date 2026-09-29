@@ -249,6 +249,25 @@ def main() -> None:
         short_s3 = S3.replace("| S3.Bucket.", "| ")
         assert not errors(KMS, short_s3), errors(KMS, short_s3)
         assert MODEL.model_for(s3, REPOSITORY) == s3_model
+        s3_with_shortened_properties = (
+            S3.replace(
+                "| 3 | BucketEncryption[].KMSMasterKeyID",
+                "| 3 | BucketEncryption.BucketKeyEnabled | `true` | S3 Bucket Keyを有効化 |\n"
+                "| 4 | BucketEncryption[].KMSMasterKeyID",
+            )
+            .replace("| 4 | BucketEncryption[].SSEAlgorithm", "| 5 | BucketEncryption[].SSEAlgorithm")
+            .rstrip()
+            + "\n| 6 | LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays | `30` | 旧versionの保存日数 |\n"
+        )
+        assert not errors(KMS, s3_with_shortened_properties), errors(KMS, s3_with_shortened_properties)
+        shortened_model = MODEL.model_for(s3, REPOSITORY)
+        assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled" in shortened_model
+        assert "desired.row.001-006.property=S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays" in shortened_model
+        for display, formal in (
+            ("BucketEncryption.BucketKeyEnabled", "BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled"),
+            ("LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays", "LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays"),
+        ):
+            assert any("formal property must use its Markdown display alias" in error for error in errors(KMS, s3_with_shortened_properties.replace(display, formal)))
 
         marker = '<a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> '
         bad_designs = [

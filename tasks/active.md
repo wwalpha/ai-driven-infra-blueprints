@@ -1,34 +1,29 @@
-# リソース詳細Propertyの短縮表示を検証
+# S3 Propertyの短縮表示を追加
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / リソース詳細のProperty列
-- Goal: 見出しで分かるresource type接頭辞がProperty列に残る場合をlocal validatorで検出する。
+- Target: framework共通 / S3.BucketのProperty列
+- Goal: BucketKeyEnabledとNoncurrentDaysの表示名を指定の短縮形へ変更し、正式propertyをmodelに維持する。
 
 ## Required changes
 
-- [R1] 共通設計ルールから正式表示の許容を削除する。
-- [R2] 元のMarkdown行で見出しと同じresource type接頭辞を拒否し、統合された別resource typeを維持する。
-- [R3] 短縮表示と拒否対象をfocused checksで検証し、既存fixtureを規則に合わせる。
+- [R1] 指定された二つのS3表示名を正式catalog propertyへ対応付ける。
+- [R2] 表示名とmodel上の正式propertyの関係を文書化する。
+- [R3] 短縮表示の検証とmodel生成をfocused checkで確認する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/detailed-design.md`
-- [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R2] `changed:framework/scripts/macie_bucket_tables.py`
-- [R2] `changed:framework/scripts/design_layout.py`
+- [R1] `changed:framework/rules/display-property-aliases.json`
+- [R2] `changed:framework/rules/model-information.md`
 - [R3] `changed:framework/scripts/design_layout.checks.py`
-- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/rules/detailed-design.md`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/macie_bucket_tables.py`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/*.checks.py`
+- `framework/rules/display-property-aliases.json`
+- `framework/rules/model-information.md`
+- `framework/scripts/design_layout.checks.py`
 
 ## Out of scope
 
