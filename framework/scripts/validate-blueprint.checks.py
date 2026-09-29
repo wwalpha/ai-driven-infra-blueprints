@@ -1163,16 +1163,10 @@ def check_cloudformation_stack_design() -> None:
             """# CloudFormation stack 詳細設計
 
 ## Stack一覧
-| StackName | Template | Parameters | DependsOn |
-| --- | --- | --- | --- |
-| stack-job-01 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-01.json | — |
-| stack-job-02 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-02.json | stack-job-01 |
-
-## Resource ownership
-| StackName | LogicalId | Design resource |
+| StackName | Template | Parameters |
 | --- | --- | --- |
-| stack-job-01 | Job | [Job01](glue.md#glue-job01) |
-| stack-job-02 | Job | [Job02](glue.md#glue-job02) |
+| stack-job-01 | job.yaml | job-01.json |
+| stack-job-02 | job.yaml | job-02.json |
 """,
             encoding="utf-8",
         )
@@ -1200,20 +1194,20 @@ def check_cloudformation_stack_design() -> None:
 
         assert not errors(), errors()
         original = stack_file.read_text(encoding="utf-8")
-        stack_file.write_text(original.replace("| stack-job-02 | infra", "| stack-job-01 | infra"), encoding="utf-8")
+        stack_file.write_text(original.replace("| stack-job-02 | job.yaml", "| stack-job-01 | job.yaml"), encoding="utf-8")
         assert any("duplicate stack name" in error for error in errors())
-        stack_file.write_text(original.replace("[Job02](glue.md#glue-job02)", "[Job01](glue.md#glue-job01)"), encoding="utf-8")
-        assert any("multiple stacks" in error for error in errors())
-        stack_file.write_text(original.replace("job-01.json | —", "job-01.json | stack-job-02"), encoding="utf-8")
-        assert any("dependency cycle" in error for error in errors())
+        stack_file.write_text(original.replace("job-02.json", "job-01.json"), encoding="utf-8")
+        assert any("parameter file belongs to multiple stacks" in error for error in errors())
+        stack_file.write_text(original.replace("| job.yaml |", "| ../job.yaml |", 1), encoding="utf-8")
+        assert any("invalid stack template filename" in error for error in errors())
+        stack_file.write_text(original.replace("| StackName | Template | Parameters |", "| StackName | Template | Parameters | DependsOn |", 1), encoding="utf-8")
+        assert any("invalid CloudFormation stack design header" in error for error in errors())
         stack_file.write_text(original, encoding="utf-8")
         (parameter_dir / "job-02.json").write_text("[]\n", encoding="utf-8")
         assert any("must equal target environment" in error for error in errors())
         (parameter_dir / "job-02.json").write_text(
             '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n', encoding="utf-8"
         )
-        template.write_text(template.read_text(encoding="utf-8") + "  Role:\n    Type: AWS::IAM::Role\n", encoding="utf-8")
-        assert any("ownership differs from template" in error for error in errors())
 
 
 def main() -> None:

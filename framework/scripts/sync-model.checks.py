@@ -227,23 +227,18 @@ def main() -> None:
             """# CloudFormation stack 詳細設計
 
 ## Stack一覧
-| StackName | Template | Parameters | DependsOn |
-| --- | --- | --- | --- |
-| stack-job-01 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-01.json | — |
-| stack-job-02 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-02.json | stack-job-01 |
-
-## Resource ownership
-| StackName | LogicalId | Design resource |
+| StackName | Template | Parameters |
 | --- | --- | --- |
-| stack-job-01 | Job | [VPC](vpc.md#vpc-vpc-app-dev) |
-| stack-job-02 | Job | [Subnet](vpc.md#vpc-sbnt-app-dev-private-01) |
+| stack-job-01 | job.yaml | job-01.json |
+| stack-job-02 | job.yaml | job-02.json |
 """,
             encoding="utf-8",
         )
         stack_model = MODULE.model_for(stacks, root)
-        assert "desired.stack.001.template=infra/cloudformation/templates/job.yaml" in stack_model
-        assert "desired.stack.002.template=infra/cloudformation/templates/job.yaml" in stack_model
-        assert "desired.stack.002.resource.001.design=[Subnet](vpc.md#vpc-sbnt-app-dev-private-01)" in stack_model
+        assert "desired.stack.001.template=job.yaml" in stack_model
+        assert "desired.stack.002.template=job.yaml" in stack_model
+        assert "desired.stack.002.parameters=job-02.json" in stack_model
+        assert "dependsOn" not in stack_model and ".resource." not in stack_model
         with redirect_stdout(io.StringIO()):
             assert MODULE.sync(root, True, "dev", "123456789012") == 0
         assert (root / "model" / "dev" / "123456789012" / "cloudformation-stacks.properties").read_text(encoding="utf-8") == stack_model

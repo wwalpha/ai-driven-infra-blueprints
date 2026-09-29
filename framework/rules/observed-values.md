@@ -21,7 +21,7 @@
 
 ## Collection and propagation
 
-- CloudFormationはstack詳細設計のStackNameとLogicalIdで所有する設計resourceを特定し、必要なnon-ARN identifierをそのstackの`Outputs`から取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用し、同じlogical resourceについて両方が取得できる場合は一致を確認する。複数stackで同じtemplate/LogicalIdを使う場合も、別の設計resource rowへ反映する。
+- CloudFormationはstack詳細設計のStackNameと実行したtemplateのLogicalIdで対象resourceを特定し、service詳細設計と照合する。対応が曖昧なら推測せず停止する。必要なnon-ARN identifierをそのstackの`Outputs`から取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用し、同じlogical resourceについて両方が取得できる場合は一致を確認する。複数stackで同じtemplate/LogicalIdを使う場合も、別の設計resource rowへ反映する。
 - Terraformは必要なnon-sensitive identifierをroot module `output`から取得する。対象outputがない場合だけstateのresource attributeをread-onlyで参照し、同じresourceについて両方が取得できる場合は一致を確認する。
 - IaCに必要なoutputが不足する場合、`deploy` phaseではIaCを変更せず停止する。`implement`または`update` phaseは必要なoutputだけを追加し、CloudFormationはlogical resource参照、Terraformはresource attribute参照を維持する。
 - 取得したidentifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyへ対応付ける。対応が一意でなければ推測せず停止する。

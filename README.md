@@ -29,7 +29,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
-- `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、template、個別parameter、依存先、設計resource対応の詳細設計
+- `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
 
@@ -216,7 +216,7 @@ tests/
 ## Design information
 
 - `docs/designs/<environment>/<target-directory>/`はhuman-readable current designの正本。
-- CloudFormation targetでstackをdeployする場合は同directoryの`cloudformation-stacks.md`をstack管理の正本とする。同じtemplateを複数StackNameへ適用でき、各stackに個別parameter fileとservice設計resourceの所有対応を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
+- CloudFormation targetでstackをdeployする場合は同directoryの`cloudformation-stacks.md`をstack管理の正本とする。同じtemplateを複数StackNameへ適用でき、各stackに個別parameterのファイル名を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
 - `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
 - service用の一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。stack詳細設計pairはtarget内のdeployment unitを所有する。
 - service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。

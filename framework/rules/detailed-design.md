@@ -51,32 +51,13 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 ## CloudFormation stack詳細設計
 
-CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用template、stack固有parameter file、依存先、各stackが所有する設計resourceをここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
+CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名をここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
 
-```md
-# CloudFormation stack 詳細設計
-
-## Stack一覧
-| StackName | Template | Parameters | DependsOn |
-| --- | --- | --- | --- |
-| cfn-stack-app-dev-job-01 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-01.json | — |
-| cfn-stack-app-dev-job-02 | infra/cloudformation/templates/job.yaml | infra/cloudformation/parameters/dev/123456789012/job-02.json | cfn-stack-app-dev-job-01 |
-
-## Resource ownership
-| StackName | LogicalId | Design resource |
-| --- | --- | --- |
-| cfn-stack-app-dev-job-01 | Job | [Job01](glue.md#glue-job01) |
-| cfn-stack-app-dev-job-02 | Job | [Job02](glue.md#glue-job02) |
-```
-
-`DependsOn`は依存がなければ`—`、あれば同じtargetのStackNameをcomma区切りで記載する。`LogicalId`はtemplateの`Resources` key、Design resourceは同じtargetのservice詳細設計resource anchorへの相対linkとする。templateの全`Resources`をstackごとに対応付ける。同じtemplateを複数行で使えるが、各stackのStackName、parameter file、所有する設計resourceは一意にする。stackごとのparameter、resource名、Export名が衝突しない設計値をhumanが確定する。既存stack名と既存exportを命名形式だけで変更しない。対応する`model/<environment>/<target-directory>/cloudformation-stacks.properties`は`sync-model.py`で生成し、手動編集しない。IaC pathは設計時に予定pathを記載でき、implement phaseで実fileを作成する。
+[CloudFormation stack詳細設計の例](detailed-design-samples.md#cloudformation-stack)
 
 generic validatorがservice ownershipを判断するため、各Markdownには次のmachine-readable service metadataだけを正確に1件ずつ記載する。
 
-```md
-- Design service ID: `vpc`
-- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`, `EC2.FlowLog`
-```
+[Service metadataの例](detailed-design-samples.md#service-metadata)
 
 - Owned catalog resource typesには`framework/materials/aws/*.properties`または`framework/materials/api/*.properties`に存在し、このservice fileが所有するresource typeだけを記載する。
 - 同じenvironment/target directory内で同じcatalog resource typeを複数service fileが所有してはいけない。
@@ -108,26 +89,13 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 `EC2.Subnet`一覧に`RouteTableId`を含める場合は、同じSubnet詳細tableの`EC2.RouteTableId`とValueを一致させる。Association未設計のSubnetは表示だけを`—`とし、Main Route Tableなどの値を補完しない。`AssociationId`列は記載しない。
 
-S3の例:
-
-```md
-## リソース一覧
-
-### S3.Bucket
-
-| No. | BucketName | Region | KMSAlias | Versioning | SSEAlgorithm | Comment |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | `aws:kms` | アプリケーションのデータを保管するbucket |
-```
+S3の例: [S3リソース一覧の例](detailed-design-samples.md#resource-overview)
 
 ## Resource-detail table
 
-resource-detail tableは、後述のSecurity Group rules表を除き、次のheaderとalignment rowを正確に使う。
+resource-detail tableは、後述のSecurity Group rules表を除き、サンプルのheaderとalignment rowを正確に使う。
 
-```md
-| No. | Property | Value | Source / Comment |
-| ---: | --- | --- | --- |
-```
+[Resource-detail tableのheader例](detailed-design-samples.md#resource-detail-table)
 
 - 各 table の row は 1 から連番にする。
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。短い表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
@@ -169,13 +137,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
 - 固定bucketを列挙する`bucketDefinitions`型Jobでは、`s3JobDefinition` rowを同service配下JSON artifactへのlinkとし、そのJobの設定表の後に`#### 対象S3 bucket`と3列の対応表を置く。この表をJob・AWS account ID・bucketの正本とする。1 bucketを1行とし、Job cellはそのJobへのsame-file link、account cellは確定済み12桁ID、Bucket cellは同targetのS3設計へのrelative linkまたは外部bucket名のliteralとする。S3 linkの表示名はlink先BucketNameに一致させ、同じaccountの行を連続させる。重複bucket、別Jobへのlink、空表を拒否する。
 
-```md
-#### 対象S3 bucket
-
-| Job | AWS account ID | Bucket |
-| --- | --- | --- |
-| [CdeSadJob](#macie-cdesadjob) | `123456789012` | [example-bucket](s3.md#s3-example-bucket) |
-```
+[Macie bucket対応表の例](detailed-design-samples.md#macie-bucket-mapping)
 
 - `framework/scripts/sync-model.py --write`は対応表の行順からJSON artifactの`bucketDefinitions`をaccountごとに生成し、JSON内の選択済み`scoping`は保持する。local validationは表とJSONのaccount、bucket、順序を照合する。`bucketCriteria`型Jobには固定bucket対応表を置かず、従来どおりJSON objectを正本とする。
 - `name`、`jobType`、`s3JobDefinition`を必須とし、未知のproperty、型、enum、長さ、範囲、nested object/arrayも検証する。未使用のoptional配列は空配列でなくrowを省略する。
@@ -199,17 +161,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、次のhea
 
 KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alias.TargetKeyId` rowは省略する。KeyId、Keyの設定、AliasNameの順とし、複数AliasではAliasName rowと識別markerをそれぞれ保持する。Key一覧の`AliasNames`列には対応するalias名を表示できる。
 
-```md
-<a id="kms-s3filetransferkey01"></a>
-
-### KMS.Key: S3FILETRANSFERKEY01
-
-| No. | Property | Value | Source / Comment |
-| ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | `PENDING_DEPLOY` | 一意に識別するID |
-| 2 | KMS.Key.EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
-| 3 | KMS.Alias.AliasName | `alias/venus-dev-s3-file-transfer` | <a id="kms-s3filetransferkeyalias01"></a><!-- logical-id: S3FILETRANSFERKEYALIAS01 --> KMS keyを識別するalias |
-```
+[KMS Aliasの例](detailed-design-samples.md#kms-alias)
 
 S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#kms-s3filetransferkeyalias01)`とし、AliasNameを表示する。
 
@@ -327,25 +279,7 @@ IAMを含む設計を保存・変更した後、model生成前に実行する。
 python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write
 ```
 
-生成される信頼ポリシー表の形式例（値は対象設計のJSONに従う）:
-
-```md
-<!-- iam-policy-tables:start -->
-
-<a id="iam-vpcflowlogsrole-trust"></a>
-
-#### 信頼ポリシー：FlowLogsTrust
-
-| Version |
-| --- |
-| `2012-10-17` |
-
-| No. | Effect | Principal.Service | Action | Condition |
-| ---: | --- | --- | --- | --- |
-| 1 | Allow | `vpc-flow-logs.amazonaws.com` | `sts:AssumeRole` | `ArnLike`：`aws:SourceArn` = `arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*`<br>`StringEquals`：`aws:SourceAccount` = `123456789012` |
-
-<!-- iam-policy-tables:end -->
-```
+生成される信頼ポリシー表の形式例（値は対象設計のJSONに従う）: [IAM信頼ポリシー表の例](detailed-design-samples.md#iam-trust-policy)
 
 local loopは同じ生成処理で期待する一覧と表を計算し、保存済みMarkdownとの不一致をFAILにする。policy JSONの構造・表示整合性の検証であり、AWSの実効権限判定やActionごとのResource適合性を検証したという意味ではない。設計入力のResource ARN/ARNパターンは保持し、generated ARNの永続化禁止を緩和しない。
 
@@ -374,20 +308,8 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
 - `model/**`はidentifier output rowとidentifier参照rowの同じrow keyに、anchorから解決したlogical referenceを`desired.*`、Markdownの表示textまたはidentifier output valueを`observed.*`として保持する。
 
-deploy前の参照例:
+[Deploy前の参照例](detailed-design-samples.md#pending-reference)
 
-```md
-| 4 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
-```
+[Deploy後の参照例](detailed-design-samples.md#deployed-reference)
 
-deploy後の参照例:
-
-```md
-| 4 | EC2.Subnet.VpcId | [vpc-0123456789abcdef0](#vpc-vpc-app-dev) | Subnetが所属するVPC |
-```
-
-resource自身のidentifier output例:
-
-```md
-| 1 | EC2.VPC.VpcId | vpc-0123456789abcdef0 | 一意に識別するID |
-```
+[Resource自身のidentifier output例](detailed-design-samples.md#identifier-output)

@@ -10,7 +10,7 @@
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
 - `1 template = 1 deploy responsibility`をdefaultとするが、同じtemplateを複数stack instanceで使用できる。deploy/updateの実行単位はtemplate pathではなく`cloudformation-stacks.md`のStackNameとする。
-- CloudFormation targetのstack作成・更新には`framework/rules/detailed-design.md`のstack詳細設計を必須とする。各stack instanceのtemplate、個別parameter file、依存先、template logical IDとservice設計resourceの対応をここから解決する。template pathやparameter file名だけからstack名・所有resourceを推測しない。
+- CloudFormation targetのstack作成・更新には`framework/rules/detailed-design.md`のstack詳細設計を必須とする。各stack instanceのStackName、templateのファイル名、個別parameterのファイル名をここから解決する。templateとparameterの配置先はこのruleのpath規約に従う。templateやparameterのファイル名だけからStackNameを推測しない。
 - deploy前に対象account/regionのstackをread-onlyで照合し、設計済みstackの現存・状態・parameter・resource所有を確認する。設計外stack、同名だが設計と異なるstack、設計済みでAWSに存在しないstackを区別し、設計外stackを自動採用・変更・削除しない。stackのcurrent statusはAWSから都度取得し、Gitへstatus snapshotを保存しない。
 - 設計からStackNameが消えたり別名へ変わったりしても、既存stackのdeleteまたはrenameとして解釈しない。既存stackの管理終了・削除は対象と影響が明示された別の許可scopeで判断し、現在のdeploy/updateへ暗黙に含めない。
 - CloudWatch Logs resource（`AWS::Logs::*`）とSecurity Group（`AWS::EC2::SecurityGroup*`）だけを所有する単独template/stackは作らず、利用するresourceのtemplateに含める。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含める。直接利用するresourceがないRole（cross-account switch roleなど）は、同targetの設計resourceからRoleへの直接参照がないこととRoleのtrust policyのPrincipalを確認し、用途とAssumeRole元を設計に記録してから、Roleと付随するIAM Policy/ManagedPolicyだけを所有する専用template/stackに置く。このtemplateには`Metadata`直下の`RolePlacement: standalone`を宣言する。宣言は設計判断を表し、AWS上の未利用を証明しない。InstanceProfileを加えてRole専用templateとはみなさない。

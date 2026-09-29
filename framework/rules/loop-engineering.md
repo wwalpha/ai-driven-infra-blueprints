@@ -53,7 +53,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
 - cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
-- CloudFormation stack詳細設計がある場合は、stack名・template・parameter file・依存関係・LogicalIdとservice設計resourceの対応を検証し、generated stack modelとの一致を確認する
+- CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
 - generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効
 - formatting/static checkが成功する
