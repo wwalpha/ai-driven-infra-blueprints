@@ -131,6 +131,10 @@ def main():
         original = path.read_bytes()
         generated = MODEL.model_for(path, REPOSITORY)
         assert path.read_bytes() == original
+        short_design = DESIGN.replace("| EC2.SecurityGroup.", "| ")
+        assert not errors(short_design), errors(short_design)
+        assert MODEL.model_for(path, REPOSITORY) == generated
+        assert not errors(DESIGN)
         assert "observed.row.002-001.comment=一意に識別するID\n" in generated
         assert "desired.row.001-004.comment=所属するVPCのID\n" in generated
         assert "desired.row.002-005.comment=通信元として許可するSecurity GroupのID\n" in generated

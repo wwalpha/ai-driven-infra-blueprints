@@ -1559,7 +1559,7 @@ class Validator:
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
             source_lines = source.read_text(encoding="utf-8").splitlines()
             try:
-                source_lines = security_group_table_lines(source_lines)
+                source_lines = expanded_display_rows(security_group_table_lines(source_lines))
             except ValueError as error:
                 self.check(False, f"invalid Security Group tables: {self.relative(source)}: {error}")
             for line in source_lines:

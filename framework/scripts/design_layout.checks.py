@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from design_layout import LAYOUTS, expanded_design, layout_errors
+from policy_tables import resources_in
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -150,6 +151,11 @@ def check_codebuild_variable_display() -> None:
         assert "desired.row.001-007.value=`hello:world`" in model
         assert "desired.row.001-008.value=`SECOND`" in model
         assert "Environment.Variables." not in model
+        short = CODEBUILD.replace("| CodeBuild.Project.", "| ")
+        assert "| Artifacts.Type |" in short
+        assert not errors(short), errors(short)
+        assert MODEL.model_for(path, REPOSITORY) == model
+        assert errors(short.replace("Artifacts.Type", "Artifacts.Unknown"))
         assert errors(CODEBUILD.replace("Variables.SECOND", "Variables.FIRST"))
         assert errors(CODEBUILD.replace("PLAINTEXT:hello:world", "hello"))
         assert errors(CODEBUILD.replace("Variables.FIRST | `PLAINTEXT:hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
@@ -177,6 +183,9 @@ def check_guardduty_feature_display() -> None:
         assert "desired.row.001-004.value=`ENABLED`" in model
         assert "desired.row.001-005.value=`EKS_AUDIT_LOGS`" in model
         assert "Features.S3_DATA_EVENTS" not in model
+        short = GUARDDUTY.replace("| GuardDuty.Detector.", "| ")
+        assert not errors(short), errors(short)
+        assert MODEL.model_for(path, REPOSITORY) == model
         assert errors(GUARDDUTY.replace("Features.EKS_AUDIT_LOGS", "Features.S3_DATA_EVENTS"))
         assert errors(GUARDDUTY.replace("`ENABLED`", "`INVALID`"))
         assert errors(GUARDDUTY.replace("Features.S3_DATA_EVENTS | `ENABLED`", "Features[].Name | `S3_DATA_EVENTS`"))
@@ -185,6 +194,14 @@ def check_guardduty_feature_display() -> None:
 
 def main() -> None:
     assert not layout_errors(REPOSITORY)
+    policy_rows = [
+        '<a id="iam-role"></a>', '### IAM.Role: Role',
+        '| No. | Property | Value | Source / Comment |',
+        '| ---: | --- | --- | --- |',
+        '| 1 | RoleName | `role` | roleの名前 |',
+        '| 2 | AssumeRolePolicyDocument | [trust](trust.json) | 信頼policy |',
+    ]
+    assert resources_in(policy_rows)[0].policies[0].property_name == "IAM.Role.AssumeRolePolicyDocument"
     check_codebuild_variable_display()
     check_guardduty_feature_display()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
@@ -228,6 +245,9 @@ def main() -> None:
         assert "desired.row.001-004.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm" in s3_model
         assert "desired.row.001-004.value=`aws:kms`" in s3_model
         assert "observed.row.001-003" not in s3_model
+        short_s3 = S3.replace("| S3.Bucket.", "| ")
+        assert not errors(KMS, short_s3), errors(KMS, short_s3)
+        assert MODEL.model_for(s3, REPOSITORY) == s3_model
 
         marker = '<a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> '
         bad_designs = [

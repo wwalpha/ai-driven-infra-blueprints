@@ -142,12 +142,26 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     return []
 
 
+def formal_property(display: str, resource_type: str) -> str:
+    """Restore the resource type omitted from a detail table's Property column."""
+    if display in DISPLAY_PROPERTY_ALIASES or any(
+        display.startswith(name + ".") for name in LAYOUTS
+    ):
+        return display
+    return resource_type + "." + display if resource_type else display
+
+
 def expanded_display_rows(lines: list[str]) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     result = []
     index = 0
+    resource_type = ""
     while index < len(lines):
         if lines[index] != HEADER or index + 1 >= len(lines) or lines[index + 1] != ALIGNMENT:
+            if heading := RESOURCE.fullmatch(lines[index]):
+                resource_type = heading.group(1)
+            elif lines[index].startswith("#"):
+                resource_type = ""
             result.append(lines[index])
             index += 1
             continue
@@ -164,7 +178,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
             row_numbers.append(cells[0])
-            prop = cells[1]
+            prop = formal_property(cells[1], resource_type)
+            if prop != cells[1]:
+                changed = True
+                cells[1] = prop
             if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
                 raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
             if prop in {GUARDDUTY_FORMAL_FEATURE + "Name", GUARDDUTY_FORMAL_FEATURE + "Status"}:

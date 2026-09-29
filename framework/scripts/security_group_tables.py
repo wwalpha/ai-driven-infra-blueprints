@@ -187,6 +187,10 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         if basic_headers != ["No.", "Property", "Value", "Source / Comment"]:
             raise ValueError("Security Group requires a basic property table before rules")
         basic_rows = [row[1:] for row in basic]
+        basic_rows = [
+            [prop if prop.startswith(SECURITY_GROUP + ".") else f"{SECURITY_GROUP}.{prop}", value, comment]
+            for prop, value, comment in basic_rows
+        ]
         if [row[0] for row in basic] != [str(number) for number in range(1, len(basic) + 1)]:
             raise ValueError("Security Group basic property numbering error")
         expected = [f"{SECURITY_GROUP}.{prop}" for prop in ("Id", "GroupDescription", "GroupName", "VpcId")]

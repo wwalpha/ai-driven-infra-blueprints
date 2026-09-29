@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 
-from design_layout import ANCHOR, HEADER, RESOURCE
+from design_layout import ANCHOR, HEADER, RESOURCE, formal_property
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
@@ -168,6 +168,7 @@ def resources_in(lines: list[str]) -> list[Resource]:
             cells = [part.strip() for part in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError(f"invalid resource property row: {logical_id}")
+            cells[1] = formal_property(cells[1], current_type)
             rows.append(cells)
             index += 1
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]

@@ -71,8 +71,8 @@
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | KMS.Key.KeyId | `PENDING_DEPLOY` | 一意に識別するID |
-| 2 | KMS.Key.EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
+| 1 | KeyId | `PENDING_DEPLOY` | 一意に識別するID |
+| 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
 | 3 | KMS.Alias.AliasName | `alias/venus-dev-s3-file-transfer` | <a id="kms-s3filetransferkeyalias01"></a><!-- logical-id: S3FILETRANSFERKEYALIAS01 --> KMS keyを識別するalias |
 ```
 
