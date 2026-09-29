@@ -84,10 +84,63 @@ S3 = """# S3 詳細設計
 | 3 | S3.Bucket.BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
 | 4 | S3.Bucket.BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
 """
+CODEBUILD = """# CodeBuild 詳細設計
+
+- Design service ID: `codebuild`
+- Owned catalog resource types: `CodeBuild.Project`
+
+## リソース詳細
+
+<a id="codebuild-buildproject"></a>
+
+### CodeBuild.Project: BuildProject
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | CodeBuild.Project.Name | `build-project` | projectの名前 |
+| 2 | CodeBuild.Project.Id | `PENDING_DEPLOY` | projectのID |
+| 3 | CodeBuild.Project.Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+| 4 | CodeBuild.Project.Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+| 5 | CodeBuild.Project.Environment.Variables.FIRST | `PLAINTEXT:hello:world` | 環境変数の値 |
+| 6 | CodeBuild.Project.Environment.Variables.SECOND | `PARAMETER_STORE:/app/token` | 環境変数の参照先 |
+| 7 | CodeBuild.Project.Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+| 8 | CodeBuild.Project.Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+| 9 | CodeBuild.Project.ServiceRole | `role-name` | 使用するrole |
+| 10 | CodeBuild.Project.Source.Type | `NO_SOURCE` | sourceの種類 |
+"""
+
+
+def check_codebuild_variable_display() -> None:
+    catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/codebuild.md"
+        path.parent.mkdir(parents=True)
+
+        def errors(content: str) -> list[str]:
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
+            return validator.errors
+
+        assert not errors(CODEBUILD), errors(CODEBUILD)
+        model = MODEL.model_for(path, REPOSITORY)
+        assert "desired.row.001-005.property=CodeBuild.Project.Environment.EnvironmentVariables[].Name" in model
+        assert "desired.row.001-005.value=`FIRST`" in model
+        assert "desired.row.001-006.property=CodeBuild.Project.Environment.EnvironmentVariables[].Type" in model
+        assert "desired.row.001-007.value=`hello:world`" in model
+        assert "desired.row.001-008.value=`SECOND`" in model
+        assert "Environment.Variables." not in model
+        assert errors(CODEBUILD.replace("Variables.SECOND", "Variables.FIRST"))
+        assert errors(CODEBUILD.replace("PLAINTEXT:hello:world", "hello"))
+        assert errors(CODEBUILD.replace("Variables.FIRST | `PLAINTEXT:hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
+
 
 
 def main() -> None:
     assert not layout_errors(REPOSITORY)
+    check_codebuild_variable_display()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

@@ -30,6 +30,8 @@ CHILD = re.compile(
 )
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
+CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
+CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
 STACK_DESIGN = "cloudformation-stacks.md"
 STACK_HEADER = "| StackName | Template | Parameters | DependsOn |"
 STACK_RESOURCE_HEADER = "| StackName | LogicalId | Design resource |"
@@ -152,6 +154,56 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     return []
 
 
+def expanded_codebuild_variables(lines: list[str]) -> list[str]:
+    """Restore one visible CodeBuild variable row to its catalog properties."""
+    result = []
+    index = 0
+    while index < len(lines):
+        if lines[index] != HEADER or index + 1 >= len(lines) or lines[index + 1] != ALIGNMENT:
+            result.append(lines[index])
+            index += 1
+            continue
+        start = index
+        index += 2
+        rows = []
+        row_numbers = []
+        names = set()
+        changed = False
+        while index < len(lines) and lines[index].startswith("|"):
+            cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
+            if len(cells) != 4:
+                raise ValueError("resource table row must have four cells")
+            row_numbers.append(cells[0])
+            prop = cells[1]
+            if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
+                raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
+            if prop.startswith(CODEBUILD_VARIABLE):
+                changed = True
+                name = prop.removeprefix(CODEBUILD_VARIABLE)
+                if not re.fullmatch(r"[^.\s|]+", name) or name in names:
+                    raise ValueError(f"invalid or duplicate CodeBuild environment variable name: {name}")
+                names.add(name)
+                raw = cells[2]
+                if len(raw) >= 2 and raw[0] == raw[-1] == "`":
+                    raw = raw[1:-1]
+                variable_type, separator, value = raw.partition(":")
+                if not separator or not variable_type or variable_type != variable_type.strip():
+                    raise ValueError(f"CodeBuild environment variable must be Type:Value: {name}")
+                for field, field_value in (("Name", name), ("Type", variable_type), ("Value", value)):
+                    rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, f"`{field_value}`", cells[3]])
+            else:
+                rows.append(cells)
+            index += 1
+        if changed:
+            if row_numbers != [str(number) for number in range(1, len(row_numbers) + 1)]:
+                raise ValueError("CodeBuild environment variable table numbering error")
+            result.extend((HEADER, ALIGNMENT))
+            result.extend("| " + " | ".join([str(number), *cells[1:]]) + " |" for number, cells in enumerate(rows, 1))
+        else:
+            result.extend(lines[start:index])
+    return result
+
+
 def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
@@ -160,6 +212,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
     """
     if not normalized:
         lines = security_group_table_lines(lines)
+    lines = expanded_codebuild_variables(lines)
     result: list[str] = []
     children: dict[str, dict] = {}
     parent_type = parent_id = parent_anchor = pending_anchor = service_id = ""
