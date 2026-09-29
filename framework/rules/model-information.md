@@ -3,7 +3,7 @@
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - human-readable current designは`docs/designs/<environment>/<target-directory>/`に置く。
 - machine-readable service modelは`model/<environment>/<target-directory>/`に置く。
-- CloudFormation stack詳細設計`cloudformation-stacks.md`から、同じstemの`.properties`へ`desired.stack.*`を生成する。各stackの名前、templateのファイル名、parameterのファイル名を保持する。stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
+- CloudFormation stack詳細設計`cloudformation-stacks.md`から、同じstemの`.properties`へ`desired.stack.*`を生成する。各stackの名前、templateのファイル名、parameterのファイル名を保持する。一覧の`No.`と`Comment`、stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
 - Markdown designをdesired valueとobserved valueのsource of truthとする。
 - `model/`は`framework/scripts/sync-model.py`が生成し、手動編集しない。
 - Markdownとgenerated modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。

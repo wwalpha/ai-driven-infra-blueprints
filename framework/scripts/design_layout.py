@@ -35,7 +35,7 @@ CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[
 GUARDDUTY_FEATURE = "GuardDuty.Detector.Features."
 GUARDDUTY_FORMAL_FEATURE = "GuardDuty.Detector.Features[]."
 STACK_DESIGN = "cloudformation-stacks.md"
-STACK_HEADER = "| StackName | Template | Parameters |"
+STACK_HEADER = "| No. | StackName | Template | Parameters | Comment |"
 
 
 def stack_design(path: Path) -> list[dict[str, str]]:
@@ -43,15 +43,17 @@ def stack_design(path: Path) -> list[dict[str, str]]:
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
     if lines[:4] != [
         "# CloudFormation stack 詳細設計", "## Stack一覧", STACK_HEADER,
-        "| --- | --- | --- |",
+        "| ---: | --- | --- | --- | --- |",
     ]:
         raise ValueError("invalid CloudFormation stack design header")
     result = []
     for line in lines[4:]:
         cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if not line.startswith("|") or not line.endswith("|") or len(cells) != 3 or not all(cells):
+        if not line.startswith("|") or not line.endswith("|") or len(cells) != 5 or not all(cells):
             raise ValueError(f"invalid CloudFormation stack design row: {line}")
-        result.append(dict(zip(("name", "template", "parameters"), cells)))
+        if cells[0] != str(len(result) + 1):
+            raise ValueError(f"CloudFormation stack design No. must be sequential: {line}")
+        result.append(dict(zip(("name", "template", "parameters", "comment"), cells[1:])))
     if not result:
         raise ValueError("CloudFormation stack design table must not be empty")
     return result

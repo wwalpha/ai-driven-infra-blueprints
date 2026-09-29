@@ -1152,10 +1152,10 @@ def check_cloudformation_stack_design() -> None:
             """# CloudFormation stack 詳細設計
 
 ## Stack一覧
-| StackName | Template | Parameters |
-| --- | --- | --- |
-| stack-job-01 | job.yaml | job-01.json |
-| stack-job-02 | job.yaml | job-02.json |
+| No. | StackName | Template | Parameters | Comment |
+| ---: | --- | --- | --- | --- |
+| 1 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
+| 2 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
 """,
             encoding="utf-8",
         )
@@ -1183,14 +1183,20 @@ def check_cloudformation_stack_design() -> None:
 
         assert not errors(), errors()
         original = stack_file.read_text(encoding="utf-8")
-        stack_file.write_text(original.replace("| stack-job-02 | job.yaml", "| stack-job-01 | job.yaml"), encoding="utf-8")
+        stack_file.write_text(original.replace("| 2 | stack-job-02 | job.yaml", "| 2 | stack-job-01 | job.yaml"), encoding="utf-8")
         assert any("duplicate stack name" in error for error in errors())
         stack_file.write_text(original.replace("job-02.json", "job-01.json"), encoding="utf-8")
         assert any("parameter file belongs to multiple stacks" in error for error in errors())
         stack_file.write_text(original.replace("| job.yaml |", "| ../job.yaml |", 1), encoding="utf-8")
         assert any("invalid stack template filename" in error for error in errors())
-        stack_file.write_text(original.replace("| StackName | Template | Parameters |", "| StackName | Template | Parameters | DependsOn |", 1), encoding="utf-8")
+        stack_file.write_text(original.replace("| No. | StackName | Template | Parameters | Comment |", "| StackName | Template | Parameters |", 1), encoding="utf-8")
         assert any("invalid CloudFormation stack design header" in error for error in errors())
+        stack_file.write_text(original.replace("| 2 | stack-job-02", "| 3 | stack-job-02"), encoding="utf-8")
+        assert any("No. must be sequential" in error for error in errors())
+        stack_file.write_text(original.replace("| 月次jobを配置するstack |", "| |"), encoding="utf-8")
+        assert any("invalid CloudFormation stack design row" in error for error in errors())
+        stack_file.write_text(original.replace("月次jobを配置するstack", "monthly job"), encoding="utf-8")
+        assert any("stack Comment must describe its purpose in Japanese" in error for error in errors())
         stack_file.write_text(original, encoding="utf-8")
         (parameter_dir / "job-02.json").write_text("[]\n", encoding="utf-8")
         assert any("must equal target environment" in error for error in errors())

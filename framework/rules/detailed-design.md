@@ -53,6 +53,8 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名をここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
 
+`## Stack一覧`は`No. | StackName | Template | Parameters | Comment`の5列とする。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`をmodelのstack propertyとして保存しない。
+
 [CloudFormation stack詳細設計の例](detailed-design-samples.md#cloudformation-stack)
 
 generic validatorがservice ownershipを判断するため、各Markdownには次のmachine-readable service metadataだけを正確に1件ずつ記載する。

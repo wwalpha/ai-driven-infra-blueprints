@@ -1,29 +1,37 @@
-# S3 Propertyの短縮表示を追加
+# CloudFormation Stack一覧の番号と説明を必須化
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / S3.BucketのProperty列
-- Goal: BucketKeyEnabledとNoncurrentDaysの表示名を指定の短縮形へ変更し、正式propertyをmodelに維持する。
+- Target: framework共通 / CloudFormation Stack一覧
+- Goal: Stack一覧にNo.とCommentを必須化し、番号と説明をlocal checkで検証する。
 
 ## Required changes
 
-- [R1] 指定された二つのS3表示名を正式catalog propertyへ対応付ける。
-- [R2] 表示名とmodel上の正式propertyの関係を文書化する。
-- [R3] 短縮表示の検証とmodel生成をfocused checkで確認する。
+- [R1] Stack一覧の5列形式、連番、CommentのFWルールと例を定義する。
+- [R2] 共通parserとvalidatorで5列形式、連番、Commentを検証する。
+- [R3] 正常系と欠落・不正行、modelへの表示情報非保存をfocused checkで検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/display-property-aliases.json`
-- [R2] `changed:framework/rules/model-information.md`
-- [R3] `changed:framework/scripts/design_layout.checks.py`
+- [R1] `changed:framework/rules/detailed-design.md`
+- [R1] `changed:framework/rules/detailed-design-samples.md`
+- [R1] `changed:framework/rules/model-information.md`
+- [R2] `changed:framework/scripts/design_layout.py`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R3] `changed:framework/scripts/sync-model.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/rules/display-property-aliases.json`
+- `framework/rules/detailed-design.md`
+- `framework/rules/detailed-design-samples.md`
 - `framework/rules/model-information.md`
-- `framework/scripts/design_layout.checks.py`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
+- `framework/scripts/sync-model.checks.py`
 
 ## Out of scope
 

@@ -786,6 +786,10 @@ class Validator:
             parameter_files: set[str] = set()
             for stack in stacks:
                 name = stack["name"]
+                self.check(
+                    JAPANESE_TEXT_PATTERN.search(stack["comment"]) is not None,
+                    f"stack Comment must describe its purpose in Japanese: {self.relative(path)}: {name}",
+                )
                 self.check(re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", name) is not None, f"invalid stack name: {name}")
                 identity = (self.accounts[target]["account"], self.accounts[target]["region"], name)
                 self.check(identity not in names, f"duplicate stack in AWS account/region: {name}")

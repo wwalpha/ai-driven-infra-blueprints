@@ -10,10 +10,10 @@
 # CloudFormation stack 詳細設計
 
 ## Stack一覧
-| StackName | Template | Parameters |
-| --- | --- | --- |
-| cfn-stack-app-dev-job-01 | job.yaml | job-01.json |
-| cfn-stack-app-dev-job-02 | job.yaml | job-02.json |
+| No. | StackName | Template | Parameters | Comment |
+| ---: | --- | --- | --- | --- |
+| 1 | cfn-stack-app-dev-job-01 | job.yaml | job-01.json | 日次集計jobを配置するstack |
+| 2 | cfn-stack-app-dev-job-02 | job.yaml | job-02.json | 月次集計jobを配置するstack |
 ```
 
 <a id="service-metadata"></a>
