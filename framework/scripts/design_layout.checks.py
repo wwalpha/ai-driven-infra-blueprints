@@ -162,6 +162,94 @@ def check_codebuild_variable_display() -> None:
         assert errors(CODEBUILD.replace("Variables.FIRST | `PLAINTEXT:hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
 
 
+def check_codebuild_vpc_display() -> None:
+    vpc_rows = """| 11 | VpcConfig.Subnets[1] | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |
+| 12 | VpcConfig.Subnets[2] | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |
+| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](ec2.md#ec2-codebuild-sg) | buildに適用するSecurity Group |
+"""
+    design_text = CODEBUILD + vpc_rows
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        design = root / "docs/designs/dev/123456789012"
+        design.mkdir(parents=True)
+        path = design / "codebuild.md"
+        (design / "vpc.md").write_text("""# VPC 詳細設計
+
+<a id="vpc-main"></a>
+### EC2.VPC: main
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | VpcId | `vpc-00000000000000001` | VPCのID |
+
+<a id="vpc-sbnt-one"></a>
+### EC2.Subnet: sbnt-one
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `sbnt-one` | subnetのName |
+| 2 | SubnetId | `subnet-00000000000000001` | subnetのID |
+
+<a id="vpc-sbnt-two"></a>
+### EC2.Subnet: sbnt-two
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `sbnt-two` | subnetのName |
+| 2 | SubnetId | `subnet-00000000000000002` | subnetのID |
+""", encoding="utf-8")
+        (design / "ec2.md").write_text("""# EC2 詳細設計
+
+## リソース一覧
+
+### EC2.SecurityGroup
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [CodeBuildSG](#ec2-codebuild-sg) | buildの通信を制御するSecurity Group |
+
+## リソース詳細
+
+<a id="ec2-codebuild-sg"></a>
+### EC2.SecurityGroup: CodeBuildSG
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Id | `PENDING_DEPLOY` | Security GroupのID |
+| 2 | GroupDescription | `Build access` | 用途の説明 |
+| 3 | VpcId | [vpc-00000000000000001](vpc.md#vpc-main) | 所属するVPC |
+""", encoding="utf-8")
+        catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+
+        def errors(content: str) -> list[str]:
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.design_files = lambda: [path]
+            validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
+            validator.design_files = lambda: sorted(design.glob("*.md"))
+            validator.check_design_links(catalog[2])
+            return validator.errors
+
+        assert not errors(design_text), errors(design_text)
+        model = MODEL.model_for(path, REPOSITORY)
+        assert model.count("property=CodeBuild.Project.VpcConfig.Subnets") == 4  # desired and observed, twice each
+        assert "desired.row.001-015.property=CodeBuild.Project.VpcConfig.Subnets" in model
+        assert "desired.row.001-015.value=[sbnt-one](vpc.md#vpc-sbnt-one)" in model
+        assert "observed.row.001-015.value=subnet-00000000000000001" in model
+        assert "desired.row.001-017.property=CodeBuild.Project.VpcConfig.SecurityGroupIds" in model
+        assert "desired.row.001-017.value=[CodeBuildSG](ec2.md#ec2-codebuild-sg)" in model
+        assert "observed.row.001-017.value=PENDING_DEPLOY" in model
+        assert "VpcConfig.Subnets[1]" not in model
+        for bad in (
+            design_text.replace("Subnets[1]", "Subnets[0]"),
+            design_text.replace("Subnets[2]", "Subnets[3]"),
+            design_text.replace("Subnets[2]", "Subnets[1]"),
+            design_text.replace("SecurityGroupIds[1]", "SecurityGroupIds[2]"),
+            design_text.replace("VpcConfig.Subnets[1]", "VpcConfig.Subnets"),
+            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "`[subnet-00000000000000001](vpc.md#vpc-sbnt-one)`"),
+            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", '`["[subnet-00000000000000001](vpc.md#vpc-sbnt-one)"]`'),
+            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](ec2.md#ec2-codebuild-sg)"),
+        ):
+            assert errors(bad), bad
+
+
 def check_guardduty_feature_display() -> None:
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
@@ -286,6 +374,7 @@ def main() -> None:
     ]
     assert resources_in(policy_rows)[0].policies[0].property_name == "IAM.Role.AssumeRolePolicyDocument"
     check_codebuild_variable_display()
+    check_codebuild_vpc_display()
     check_guardduty_feature_display()
     check_cloudtrail_data_resources()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()

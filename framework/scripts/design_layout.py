@@ -32,6 +32,8 @@ HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
 CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
+CODEBUILD_VPC_ITEM = re.compile(r"^VpcConfig\.(Subnets|SecurityGroupIds)\[([1-9][0-9]*)\]$")
+CODEBUILD_VPC_PROPERTIES = {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}
 GUARDDUTY_FEATURE = "GuardDuty.Detector.Features."
 GUARDDUTY_FORMAL_FEATURE = "GuardDuty.Detector.Features[]."
 CLOUDTRAIL_DATA_RESOURCE = re.compile(r"^EventSelectors\.DataResources\[([1-9]\d*)\]\.(S3|Lambda)$")
@@ -127,6 +129,9 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     if material is None:
         return [f"display order catalog is missing: {resource_type}"]
     order = {line.partition("=")[0]: number for number, line in enumerate(material.read_text(encoding="utf-8").splitlines())}
+    if resource_type == "CodeBuild.Project":
+        subnets, groups = "CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"
+        order[subnets], order[groups] = order[groups], order[subnets]
     previous = -1
     seen: set[str] = set()
     previous_property = ""
@@ -175,6 +180,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
         rows = []
         row_numbers = []
         codebuild_names = set()
+        codebuild_vpc_counts = {"Subnets": 0, "SecurityGroupIds": 0}
         guardduty_names = set()
         cloudtrail_count = 0
         changed = False
@@ -192,6 +198,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 cells[1] = prop
             if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
                 raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
+            if resource_type == "CodeBuild.Project" and prop in CODEBUILD_VPC_PROPERTIES:
+                raise ValueError("CodeBuild VpcConfig Subnets/SecurityGroupIds must use one linked resource per display row")
             if prop in {GUARDDUTY_FORMAL_FEATURE + "Name", GUARDDUTY_FORMAL_FEATURE + "Status"}:
                 raise ValueError("GuardDuty Features Name/Status must use Features.<Name> display rows")
             if resource_type == "CloudTrail.Trail" and prop.startswith(CLOUDTRAIL_FORMAL_DATA_RESOURCE):
@@ -211,6 +219,17 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                     raise ValueError(f"CodeBuild environment variable must be Type:Value: {name}")
                 for field, field_value in (("Name", name), ("Type", variable_type), ("Value", value)):
                     rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, f"`{field_value}`", cells[3]])
+            elif resource_type == "CodeBuild.Project" and display_property.startswith(("VpcConfig.Subnets[", "VpcConfig.SecurityGroupIds[")):
+                match = CODEBUILD_VPC_ITEM.fullmatch(display_property)
+                if not match or int(match.group(2)) != codebuild_vpc_counts[match.group(1)] + 1:
+                    raise ValueError("CodeBuild VpcConfig display indexes must start at 1 and be sequential per property")
+                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                    raise ValueError("CodeBuild VpcConfig value must be a resource link")
+                codebuild_vpc_counts[match.group(1)] += 1
+                changed = True
+                kind = "CodeBuild VpcConfig"
+                cells[1] = "CodeBuild.Project.VpcConfig." + match.group(1)
+                rows.append(cells)
             elif prop.startswith(GUARDDUTY_FEATURE):
                 changed = True
                 kind = "GuardDuty Feature"

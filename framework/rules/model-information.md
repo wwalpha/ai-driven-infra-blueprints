@@ -26,6 +26,8 @@ Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.Bucke
 
 `CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。`<Type>:<Value>`は最初の`:`で分割し、Value内の`:`を保持する。表示専用の`Variables.<Name>`はmodelへ保存しない。
 
+`CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、model生成時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
+
 `GuardDuty.Detector.Features.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
 
 `CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1リソース1行表示は、model生成時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、`Values`には対象resource linkを保持する。表示専用の`N`と短いType名はmodelのpropertyへ保存しない。
