@@ -1555,17 +1555,24 @@ class Validator:
                     continue
                 headers = [cell.strip() for cell in table[0].strip("|").split("|")]
                 alignment = [cell.strip() for cell in table[1].strip("|").split("|")]
+                columns = headers[1:-1]
+                has_policies = current_type != "IAM.Role" and columns[-1:] == ["Policies"]
                 self.check(
-                    2 <= len(headers) <= (7 if current_type != "IAM.Role" and headers[-1:] == ["Policies"] else 6),
-                    f"resource overview must use 2 to 6 columns plus optional Policies: {self.relative(path)}: {current_type}",
+                    headers[:1] == ["No."] and headers[-1:] == ["Comment"]
+                    and 2 <= len(columns) - has_policies <= 6,
+                    f"resource overview must use No., 2 to 6 resource columns, optional Policies, Comment: {self.relative(path)}: {current_type}",
                 )
                 self.check(
                     len(headers) == len(set(headers))
                     and (
                         headers == IAM_OVERVIEW_HEADERS if current_type == "IAM.Role"
-                        else all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in headers)
+                        else all(OVERVIEW_COLUMN_PATTERN.fullmatch(header) for header in columns)
                     ),
                     f"resource overview column names must be short and unique: {self.relative(path)}: {current_type}",
+                )
+                self.check(
+                    "Policies" not in columns or has_policies,
+                    f"resource overview Policies must precede Comment: {self.relative(path)}: {current_type}",
                 )
                 self.check(
                     len(alignment) == len(headers)
@@ -1582,7 +1589,7 @@ class Validator:
                         "Policies" not in headers and "SSEAlgorithm" in headers,
                         f"S3 Bucket overview must show SSEAlgorithm instead of Policies: {self.relative(path)}",
                     )
-                for row in table[2:]:
+                for number, row in enumerate(table[2:], 1):
                     cells = [cell.strip() for cell in row.strip("|").split("|")]
                     self.check(
                         len(cells) == len(headers),
@@ -1590,12 +1597,17 @@ class Validator:
                     )
                     if len(cells) != len(headers):
                         continue
+                    self.check(cells[0] == str(number), f"resource overview numbering error: {self.relative(path)}: {current_type}")
+                    self.check(
+                        JAPANESE_TEXT_PATTERN.search(cells[-1]) is not None,
+                        f"resource overview Comment must describe the resource in Japanese: {self.relative(path)}: {current_type}",
+                    )
                     for header, value in zip(headers, cells):
                         self.check_cidr_value(path, header, value)
-                    link = RESOURCE_LINK_PATTERN.fullmatch(cells[0])
+                    link = RESOURCE_LINK_PATTERN.fullmatch(cells[1])
                     self.check(
                         bool(link and not link.group(2)),
-                        f"resource overview first column must link to a same-file detail block: {self.relative(path)}: {current_type}",
+                        f"resource overview resource column must link to a same-file detail block: {self.relative(path)}: {current_type}",
                     )
                     if not link or link.group(2):
                         continue

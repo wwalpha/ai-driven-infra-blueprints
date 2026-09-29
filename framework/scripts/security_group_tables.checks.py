@@ -30,10 +30,10 @@ DESIGN = """# Security Group 詳細設計
 
 ### EC2.SecurityGroup
 
-| SecurityGroup | GroupName | Id | VpcId | Description |
-| --- | --- | --- | --- | --- |
-| [GroupOne](#ec2-groupone) | `group-one` | `sg-00000001` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `Application access` |
-| [GroupTwo](#ec2-grouptwo) | — | `PENDING_DEPLOY` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `No selected rules` |
+| No. | SecurityGroup | GroupName | Id | VpcId | Description | Comment |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 1 | [GroupOne](#ec2-groupone) | `group-one` | `sg-00000001` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `Application access` | アプリケーションの通信を制御するSG |
+| 2 | [GroupTwo](#ec2-grouptwo) | — | `PENDING_DEPLOY` | [vpc-00000001](vpc.md#vpc-vpc-app-dev) | `No selected rules` | アプリケーションの通信を制御するSG |
 
 ## リソース詳細
 
@@ -64,9 +64,9 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 
 ### EC2.VPC
 
-| VPC | CidrBlock |
-| --- | --- |
-| [vpc-app-dev](#vpc-vpc-app-dev) | `10.0.0.0/16` |
+| No. | VPC | CidrBlock | Comment |
+| ---: | --- | --- | --- |
+| 1 | [vpc-app-dev](#vpc-vpc-app-dev) | `10.0.0.0/16` | アプリケーションのネットワーク |
 
 ## リソース詳細
 
@@ -218,6 +218,7 @@ def main():
         assert ".property=EC2.SecurityGroupIngress.SourceSecurityGroupId\n" in generated
         assert ".property=EC2.SecurityGroupEgress.DestinationSecurityGroupId\n" in generated
         assert "rule-id:" not in generated
+        assert "アプリケーションの通信を制御するSG" not in generated
         assert "| Tags |" not in DESIGN
         assert "security-group-tags" not in generated
         group_two_heading = DESIGN.replace(
@@ -257,8 +258,8 @@ def main():
             (DESIGN.replace('| Inbound <', '| Outbound <', 1), "do not match Direction"),
             (DESIGN.replace('| SourcePrefixListId |', '| DestinationPrefixListId |', 1), "do not match Direction"),
             (DESIGN.replace('| IpProtocol |', '| Type |', 1), "invalid Security Group Direction rule table columns"),
-            (DESIGN.replace('| VpcId |', '| Region |', 1), "overview requires SecurityGroup"),
-            (DESIGN.replace('| Description |', '| GroupDescription |', 1), "overview requires SecurityGroup"),
+            (DESIGN.replace('| VpcId |', '| Region |', 1), "overview requires No., SecurityGroup"),
+            (DESIGN.replace('| Description |', '| GroupDescription |', 1), "overview requires No., SecurityGroup"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '—', 1), "requires Id, VpcId and Description values"),
             (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, VpcId and Description values"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[vpc-wrong](vpc.md#vpc-vpc-app-dev)', 1), "identifier reference does not match"),

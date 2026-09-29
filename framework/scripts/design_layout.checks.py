@@ -31,10 +31,10 @@ KMS = """# KMS 詳細設計
 
 ### KMS.Key
 
-| Key | AliasNames |
-| --- | --- |
-| [KeyOne](#kms-keyone) | alias/one, alias/two |
-| [KeyTwo](#kms-keytwo) | alias/three |
+| No. | Key | AliasNames | Comment |
+| ---: | --- | --- | --- |
+| 1 | [KeyOne](#kms-keyone) | alias/one, alias/two | データの暗号化に使うkey |
+| 2 | [KeyTwo](#kms-keytwo) | alias/three | データの暗号化に使うkey |
 
 ## リソース詳細
 
@@ -67,9 +67,9 @@ S3 = """# S3 詳細設計
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | SSEAlgorithm |
-| --- | --- | --- | --- |
-| [app-data](#s3-app-data) | us-east-1 | alias/two | `aws:kms` |
+| No. | BucketName | Region | KMSAlias | SSEAlgorithm | Comment |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | [app-data](#s3-app-data) | us-east-1 | alias/two | `aws:kms` | アプリケーションのデータを保管するbucket |
 
 ## リソース詳細
 

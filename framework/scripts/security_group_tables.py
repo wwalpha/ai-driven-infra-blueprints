@@ -10,7 +10,7 @@ SECURITY_GROUP = "EC2.SecurityGroup"
 DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
 TAGS_PREFIX = "<!-- security-group-tags:"
 SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
-OVERVIEW_COLUMNS = ["SecurityGroup", "GroupName", "Id", "VpcId", "Description"]
+OVERVIEW_COLUMNS = ["No.", "SecurityGroup", "GroupName", "Id", "VpcId", "Description", "Comment"]
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
 HEADER = "| No. | Property | Value | Source / Comment |"
@@ -81,7 +81,8 @@ def direction_metadata(value: str) -> tuple[str, str | None]:
 def table_at(lines: list[str], start: int) -> tuple[list[str], list[list[str]], int]:
     headers = cells(lines[start])
     alignment = cells(lines[start + 1]) if start + 1 < len(lines) else []
-    if len(headers) != len(set(headers)) or alignment != ["---"] * len(headers):
+    expected_alignment = ["---:", *(["---"] * (len(headers) - 1))] if headers[:1] == ["No."] else ["---"] * len(headers)
+    if len(headers) != len(set(headers)) or alignment != expected_alignment:
         raise ValueError("invalid Security Group table columns or alignment")
     cursor = start + 2
     rows = []
@@ -114,11 +115,11 @@ def overview_groups(lines: list[str]) -> dict[str, tuple[str, list[list[str]]]]:
             raise ValueError("Security Group requires exactly one overview table")
         end += 1
     if headers != OVERVIEW_COLUMNS or not rows:
-        raise ValueError("Security Group overview requires SecurityGroup, GroupName, Id, VpcId, Description only; omit Tags column")
+        raise ValueError("Security Group overview requires No., SecurityGroup, GroupName, Id, VpcId, Description, Comment only; omit Tags column")
     groups = {}
-    for row in rows:
-        link = re.fullmatch(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]\(#([a-z0-9_.-]+)\)", row[0])
-        if not link or link.group(1) in groups:
+    for number, row in enumerate(rows, 1):
+        link = re.fullmatch(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]\(#([a-z0-9_.-]+)\)", row[1])
+        if row[0] != str(number) or not link or link.group(1) in groups:
             raise ValueError("Security Group overview requires a unique logical ID link")
         values = dict(zip(headers, row))
         if any(values[prop].strip("`").strip() in {"", "—"} for prop in ("Id", "VpcId", "Description")):

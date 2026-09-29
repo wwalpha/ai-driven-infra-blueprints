@@ -48,15 +48,15 @@ def markdown(values):
 
 ### Macie.Session
 
-| Session | Status |
-| --- | --- |
-| [Session](#macie-session) | ENABLED |
+| No. | Session | Status | Comment |
+| ---: | --- | --- | --- |
+| 1 | [Session](#macie-session) | ENABLED | 機密データ検出を有効にするsession |
 
 ### Macie.ClassificationJob
 
-| Job | Type |
-| --- | --- |
-| [Job](#macie-job) | SCHEDULED |
+| No. | Job | Type | Comment |
+| ---: | --- | --- | --- |
+| 1 | [Job](#macie-job) | SCHEDULED | 対象データを検査するjob |
 
 ## リソース詳細
 

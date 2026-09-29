@@ -132,9 +132,9 @@ def main() -> None:
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | Versioning | SSEAlgorithm |
-| --- | --- | --- | --- | --- |
-| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled | aws:kms |
+| No. | BucketName | Region | KMSAlias | Versioning | SSEAlgorithm | Comment |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | us-east-1 | alias/app-data | Enabled | aws:kms | アプリケーションのデータを保管するbucket |
 
 ## リソース詳細
 

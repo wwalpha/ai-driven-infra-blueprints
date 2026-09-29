@@ -100,11 +100,11 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 各詳細設計fileはservice metadataの直後に`## リソース一覧`を正確に1件置く。一覧の範囲は次の`## リソース詳細`直前までとし、resourceのanchor・詳細table・policy表を含めない。
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
-- tableは1 resourceを1 rowで表示し、最初のcolumnはdetail blockへのsame-file linkにする。全detail blockを重複なく一覧へ載せる。
-- columnはresource識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
+- tableは1 resourceを1 rowで表示し、先頭に`No.`、末尾に`Comment`を置く。`No.`はresource typeごとのtable内で1からの連番とし、最初のresource columnはdetail blockへのsame-file linkにする。`Comment`には各resourceの用途や役割を日本語で短く説明する。全detail blockを重複なく一覧へ載せる。
+- `No.`と`Comment`を除くresource columnは識別子を含めて2〜6個に絞る。識別・配置・security・可用性・保持期間など、resource間の比較に重要な確定済みparameterをdetail tableから選ぶ。
 - column名は`BucketName`、`Region`、`SSEAlgorithm`、`KMSAlias`、`Versioning`、`RetentionDays`のような短く一意な名前とし、`S3.Bucket.BucketName`のようなcatalog prefix付きproperty pathを使用しない。
-- IAM.Roleの一覧だけは後述の固定3列を使用し、最初のcolumnにRoleNameを表示する。日本語のpolicy列名を許可する。S3.Bucketの一覧には`Policies`を置かず、`SSEAlgorithm`を表示する。その他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6列に生成専用の`Policies`列を末尾へ追加する（合計最大7列）。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
-- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、generated service modelへ重複保持しない。ただしSecurity Group一覧は後述のとおりSG属性の正本とし、基本設定の詳細tableを作らない。
+- IAM.Roleの一覧だけは後述の固定3 resource列を使用し、最初のresource columnにRoleNameを表示する。日本語のpolicy列名を許可する。S3.Bucketの一覧には`Policies`を置かず、`SSEAlgorithm`を表示する。その他のresource typeでpolicy JSONが選択されている場合は、選択済みの2〜6 resource列の後、`Comment`の直前に生成専用の`Policies`列を追加する。同じtypeのpolicy未設定resourceは表示だけを`—`とする。
+- 一覧は人間向けの派生summaryであり、intended designの正本ではない。値はdetail tableと一致させ、`No.`と`Comment`も含めgenerated service modelへ重複保持しない。ただしSecurity Group一覧のSG属性は後述のとおり設計入力の正本とし、基本設定の詳細tableを作らない。
 
 `EC2.Subnet`一覧に`RouteTableId`を含める場合は、同じSubnet詳細tableの`EC2.RouteTableId`とValueを一致させる。Association未設計のSubnetは表示だけを`—`とし、Main Route Tableなどの値を補完しない。`AssociationId`列は記載しない。
 
@@ -115,9 +115,9 @@ S3の例:
 
 ### S3.Bucket
 
-| BucketName | Region | KMSAlias | Versioning | SSEAlgorithm |
-| --- | --- | --- | --- | --- |
-| [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | `aws:kms` |
+| No. | BucketName | Region | KMSAlias | Versioning | SSEAlgorithm | Comment |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | `us-east-1` | `alias/app-data` | `Enabled` | `aws:kms` | アプリケーションのデータを保管するbucket |
 ```
 
 ## Resource-detail table
@@ -220,14 +220,14 @@ S3の`KMSMasterKeyID`は引き続き`[alias/venus-dev-s3-file-transfer](kms.md#k
 
 Security Groupは、リソース一覧の`### EC2.SecurityGroup`にSGの属性を集約する。`## リソース詳細`にはSGごとのanchorを置き、ruleが1件以上あるSGだけ`### EC2.SecurityGroup: <logical-id>`と、その直下にInbound／Outboundをまとめた一つの横書きrule tableを記載する。ruleが0件のSGはanchorと選択済みタグmetadataだけを置き、表示内容のないheadingを作らない。SGの基本設定表、方向別の分割表、Ingress/Egressの全体一覧、ruleごとの縦書き4列表は作らない。
 
-- SG一覧のcolumnは`SecurityGroup | GroupName | Id | VpcId | Description`の5列に固定し、`Tags`列を追加しない。最初のcellは確定済みlogical IDを表示するSGのanchorへのsame-file linkとする。SGごとに一覧rowとanchorを一つずつ対応させる。
+- SG一覧のcolumnは`No. | SecurityGroup | GroupName | Id | VpcId | Description | Comment`の7列に固定し、`Tags`列を追加しない。最初のresource cellは確定済みlogical IDを表示するSGのanchorへのsame-file linkとする。`Description`はAWSの`GroupDescription`、`Comment`は一覧で伝えるSGの用途説明として区別する。SGごとに一覧rowとanchorを一つずつ対応させる。
 - `Id`はSGのcurrent IDまたは`PENDING_DEPLOY`、`VpcId`は所属VPCのidentifier参照、`Description`は正式property `EC2.SecurityGroup.GroupDescription`の値とし、いずれも省略しない。`VpcId`のlinkは同じtargetのVPC設計を指し、表示textにVPCのcurrent IDまたは`PENDING_DEPLOY`を使う。所属VPCが未確定なら確認し、default VPCを推測しない。未選択の`GroupName`だけは`—`とする。
 - 選択済みタグは所属SGのH3 headingの直後、ruleが0件ならanchorの直後に`<!-- security-group-tags: [{"Key":"...","Value":"..."}] -->`を1行だけ置いて保持する。表へのTags列追加や別のタグ表は作らない。未選択ならmetadata自体を省略する。JSONの各要素は文字列のKeyとValueだけを持ち、modelの`Tags[].Key`／`Tags[].Value`へ配列順を保って展開する。commentの区切りになる文字列はJSONのUnicode escapeで表す。metadataを一覧・別resource配下へ置かず、タグ値を推測・追加・削除しない。
 - rule tableは1 ruleを1 rowとし、先頭columnを`Direction`とする。表示値は頭文字を大文字にした`Inbound`または`Outbound`だけを使用し、正式resource typeのIngress／Egressへ対応させる。`SecurityGroupRuleId`や`Id`のcolumnは作らない。
 - 続くcolumnは`IpProtocol`と`Port`を必須とし、`CidrIp`、`CidrIpv6`、`Description`、`SourcePrefixListId`、`SourceSecurityGroupOwnerId`、`DestinationPrefixListId`から選択済みのpropertyを載せる。`SourceSecurityGroupId`と`DestinationSecurityGroupId`のcolumnは作らない。Inbound rowのDestination系、Outbound rowのSource系cellは`—`とする。`GroupId`や未登録columnは追加せず、一覧の6列上限をrule tableへ適用しない。
 - Security Groupを送信元／宛先に選択したruleは、Direction cellの末尾へ`<!-- security-group-id: <SourceSecurityGroupIdまたはDestinationSecurityGroupIdのValue> -->`を置く。DirectionがInboundなら`SourceSecurityGroupId`、Outboundなら`DestinationSecurityGroupId`へ展開し、参照linkを含むValueをlosslessに保持する。表示columnや別の説明文へ値を重複させない。
 - port表示は`Port`の1列にまとめ、`FromPort`／`ToPort`のcolumnを作らない。単一portは`443`、範囲は`1000-2000`の形式にし、正式propertyのFromPort／ToPortへ同値／開始・終了値として展開する。ICMP／ICMPv6（protocol番号1／58を含む）は同じPort cellに`Type=8, Code=0`の形式でtype/codeを保持し、port範囲として解釈しない。TCP／UDPは0〜65535の範囲、ICMP type/codeは-1〜255とし、type=-1ではcodeも-1とする。FromPort／ToPortの両方を未選択なら`—`とし、値を補完しない。`All`や複数の離れたportを一つの範囲へ読み替えない。Portは表示上のcolumn名であり、catalog propertyを追加しない。
-- 一覧とrule tableのalignmentは全columnを`---`とする。未選択のoptional propertyは表示だけの`—`とし、modelへsentinelを生成しない。片方向だけでも同じtableを使い、両方向のruleが0件ならrule tableとSG headingを省略する。SGのanchorは一覧や他resourceからの参照先として維持する。未設計をdeny設定やAWSのdefault ruleと読み替えず、ruleを自動補完しない。
+- SG一覧の`No.`だけを`---:`、他の一覧columnとrule tableの全columnを`---`で揃える。未選択のoptional propertyは表示だけの`—`とし、modelへsentinelを生成しない。片方向だけでも同じtableを使い、両方向のruleが0件ならrule tableとSG headingを省略する。SGのanchorは一覧や他resourceからの参照先として維持する。未設計をdeny設定やAWSのdefault ruleと読み替えず、ruleを自動補完しない。
 - 各ruleはIPv4 CIDR、IPv6 CIDR、Prefix List、Security Groupのいずれか一つを送信元／宛先に持つ。`SourceSecurityGroupOwnerId`は`SourceSecurityGroupId`に付随させる。値、参照先、`-1`、Port内の範囲・ICMP type/codeを保持し、`All`や推測したservice名へ書き換えない。RegionやHTTP/HTTPSなどのTypeを表示目的で追加しない。
 - 独立した`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`のDirection cellは`Inbound <a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> --><!-- rule-id: <IdのValue> -->`とし、Egressでは先頭を`Outbound`とする。Security Group参照を持つ場合だけ、その後へ上記`security-group-id` markerを続ける。表にはDirectionだけを表示し、logical ID・anchor・取得済みcurrent IDまたは`PENDING_DEPLOY`を非表示の構造情報として保持する。Idを画面上のcolumnや説明文へ重複表示せず、modelの正式property `Id`は維持する。`GroupId`は包含するSGから解決し、他SGへの所属を出現順やphysical IDで推測しない。外部SGだけを参照して包含するSGの設計がない場合は停止する。
 - SG自身の`SecurityGroupIngress[]`／`SecurityGroupEgress[]`として設計したinline ruleは、Direction cellを`Inbound`または`Outbound`だけとし、identityやrule-idのmarkerを付けない。Security Group参照を持つ場合だけ上記`security-group-id` markerを続ける。catalogに存在しないinline rule IDを作らず、独立ruleへの変換もしない。inlineと独立ruleは同じtable内でも区別を保持する。
@@ -307,7 +307,7 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はMarkdownのproperty row、policy本文はそこから参照するJSON artifactを正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
 
-- `## リソース一覧`内の`### IAM.Role`は`RoleName | 信頼ポリシー | インラインポリシー`の3列にする。RoleNameは対応するresource anchorへのsame-file link、policy名はそのRoleのpolicy anchorへのsame-file linkとする。複数inline policyは同じcellで`<br>`区切りにする。設定表にRoleNameがない場合は表示だけを`（RoleName未指定）`、inline policyがない場合は表示だけを`—`とし、propertyや名前を生成・推測しない。
+- `## リソース一覧`内の`### IAM.Role`は`No. | RoleName | 信頼ポリシー | インラインポリシー | Comment`の5列にする。RoleNameは対応するresource anchorへのsame-file link、policy名はそのRoleのpolicy anchorへのsame-file linkとする。複数inline policyは同じcellで`<br>`区切りにする。`Comment`はRoleの用途説明を保持し、policy表の再生成でも変更しない。設定表にRoleNameがない場合は表示だけを`（RoleName未指定）`、inline policyがない場合は表示だけを`—`とし、propertyや名前を生成・推測しない。
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
 - 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
 - policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。

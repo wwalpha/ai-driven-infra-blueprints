@@ -51,14 +51,16 @@ def main():
 
 ### IAM.Role
 
-| RoleName | 信頼ポリシー | インラインポリシー |
-| --- | --- | --- |
+| No. | RoleName | 信頼ポリシー | インラインポリシー | Comment |
+| ---: | --- | --- | --- | --- |
+| 1 | [role-rolea](#iam-rolea) | — | — | Flow Logsに使用するRole |
+| 2 | [role-roleb](#iam-roleb) | — | — | 追加ログを記録するRole |
 
 ### IAM.InstanceProfile
 
-| LogicalId | InstanceProfileName |
-| --- | --- |
-| [Profile](#iam-profile) | `example` |
+| No. | LogicalId | InstanceProfileName | Comment |
+| ---: | --- | --- | --- |
+| 1 | [Profile](#iam-profile) | `example` | EC2へroleを渡すprofile |
 
 ## リソース詳細
 
@@ -101,6 +103,7 @@ def main():
         assert rendered.count("\n#### ") == 6
         assert rendered.count("\n## リソース詳細\n") == 1
         assert "[role-rolea](#iam-rolea)" in rendered
+        assert "Flow Logsに使用するRole" in rendered and "追加ログを記録するRole" in rendered
         assert "#iam-rolea-inline-logging" in rendered and "#iam-roleb-inline-logging" in rendered
         assert "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
         assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
@@ -256,7 +259,7 @@ def service_policy_checks():
             artifact.write_text(json.dumps(document), encoding="utf-8")
             types = list(dict.fromkeys([owner_type, resource_type]))
             metadata = ", ".join(f"`{rt}`" for rt in types)
-            summary = "| LogicalId | Label | SSEAlgorithm |\n| --- | --- | --- |\n| [sample-a](#s3-sample-a) | `一つ目` | — |\n| [sample-b](#s3-sample-b) | `二つ目` | — |" if owner_type == "S3.Bucket" else f"| LogicalId | Label |\n| --- | --- |\n| [sample-a](#{service}-sample-a) | `一つ目` |\n| [sample-b](#{service}-sample-b) | `二つ目` |"
+            summary = "| No. | LogicalId | Label | SSEAlgorithm | Comment |\n| ---: | --- | --- | --- | --- |\n| 1 | [sample-a](#s3-sample-a) | `一つ目` | — | 一つ目のbucket |\n| 2 | [sample-b](#s3-sample-b) | `二つ目` | — | 二つ目のbucket |" if owner_type == "S3.Bucket" else f"| No. | LogicalId | Label | Comment |\n| ---: | --- | --- | --- |\n| 1 | [sample-a](#{service}-sample-a) | `一つ目` | 一つ目のresource |\n| 2 | [sample-b](#{service}-sample-b) | `二つ目` | 二つ目のresource |"
             original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n{summary}\n\n## リソース詳細\n\n"
             for name in ("sample-a", "sample-b"):
                 original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
@@ -285,15 +288,16 @@ def service_policy_checks():
                 assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
             if owner_type == "S3.Bucket":
-                assert "| LogicalId | Label | SSEAlgorithm |" in rendered and "Policies" not in rendered
-                stale = rendered.replace("| LogicalId | Label | SSEAlgorithm |", "| LogicalId | Label | SSEAlgorithm | Policies |", 1)
-                stale = stale.replace("| --- | --- | --- |", "| --- | --- | --- | --- |", 1)
-                stale = stale.replace(" | — |\n", " | — | — |\n", 2)
+                assert "| No. | LogicalId | Label | SSEAlgorithm | Comment |" in rendered and "Policies" not in rendered
+                stale = rendered.replace("| SSEAlgorithm | Comment |", "| SSEAlgorithm | Policies | Comment |", 1)
+                stale = stale.replace("| ---: | --- | --- | --- | --- |", "| ---: | --- | --- | --- | --- | --- |", 1)
+                stale = stale.replace(" | — | 一つ目のbucket |", " | — | — | 一つ目のbucket |", 1)
+                stale = stale.replace(" | — | 二つ目のbucket |", " | — | — | 二つ目のbucket |", 1)
                 path.write_text(stale, encoding="utf-8")
                 assert rendered_design(path) == rendered, "S3 Policies column must be removed"
                 path.write_text(rendered, encoding="utf-8")
             else:
-                assert "| LogicalId | Label | Policies |" in rendered
+                assert "| No. | LogicalId | Label | Policies | Comment |" in rendered
             if style == "settings":
                 assert "| Property | Type | Value |" in rendered and "| No. | Sid |" not in rendered
                 if prop == "ECR.Repository.LifecyclePolicy":
@@ -407,9 +411,9 @@ def grouping_and_settings_checks():
 
 ### ECR.Repository
 
-| LogicalId | Name | Encryption | Mutable | Scan | EmptyOnDelete |
-| --- | --- | --- | --- | --- | --- |
-| [Example](#ecr-example) | example | AES256 | MUTABLE | false | false |
+| No. | LogicalId | Name | Encryption | Mutable | Scan | EmptyOnDelete | Comment |
+| ---: | --- | --- | --- | --- | --- | --- | --- |
+| 1 | [Example](#ecr-example) | example | AES256 | MUTABLE | false | false | コンテナimageを保管するrepository |
 
 ## リソース詳細
 
