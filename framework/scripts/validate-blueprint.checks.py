@@ -1064,11 +1064,25 @@ def check_cloudformation_yaml_rules() -> None:
 
         consumer = "\n  Consumer:\n    Type: AWS::EC2::Instance\n"
         boundary_error = "must share the consuming resource template"
-        assert any(boundary_error in error for error in errors(valid.replace(consumer, "")))
+        marker = "Metadata:\n  RolePlacement: standalone\n"
+        role_only = "Resources:\n  Role:\n    Type: AWS::IAM::Role\n"
+        assert any("Role-only template requires" in error for error in errors(valid.replace(consumer, "")))
+        assert any("Role-only template requires" in error for error in errors(role_only))
+        assert not errors(marker + role_only)
+        assert not errors(
+            marker + role_only + "\n  Policy:\n    Type: AWS::IAM::Policy\n"
+        )
+        assert not errors(
+            marker + role_only + "\n  Policy:\n    Type: AWS::IAM::ManagedPolicy\n"
+        )
+        assert any("requires a Role-only template" in error for error in errors(marker + valid))
         assert any(boundary_error in error for error in errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n"))
+        assert any(boundary_error in error for error in errors(
+            "Resources:\n  Role:\n    Type: AWS::IAM::Role\n\n  Logs:\n    Type: AWS::Logs::LogGroup\n"
+        ))
         assert any(boundary_error in error for error in errors("Resources:\n  Filter:\n    Type: AWS::Logs::SubscriptionFilter\n"))
         assert any(boundary_error in error for error in errors(
-            "Resources:\n  Role:\n    Type: AWS::IAM::Role\n  Policy:\n    Type: AWS::IAM::Policy\n"
+            "Resources:\n  Role:\n    Type: AWS::IAM::Role\n\n  Profile:\n    Type: AWS::IAM::InstanceProfile\n"
         ))
         assert any(boundary_error in error for error in errors(
             "Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n  Ingress:\n    Type: AWS::EC2::SecurityGroupIngress\n"

@@ -1860,6 +1860,8 @@ class Validator:
                     continue
 
             resource_types: set[str] = set()
+            in_metadata = False
+            standalone_marker = False
             in_resources = False
             resource_indent: int | None = None
             property_indent: int | None = None
@@ -1870,9 +1872,12 @@ class Validator:
                     continue
                 indent = len(code) - len(code.lstrip(" "))
                 if indent == 0:
+                    in_metadata = code.strip() == "Metadata:"
                     in_resources = code.startswith("Resources:")
                     resource_indent = property_indent = None
                     continue
+                if in_metadata and indent == 2 and code.strip() == "RolePlacement: standalone":
+                    standalone_marker = True
                 if not in_resources:
                     continue
                 resource = re.fullmatch(r"( +)[A-Za-z0-9]+:\s*", code)
@@ -1901,7 +1906,14 @@ class Validator:
                 or any(kind.startswith("AWS::Logs::") for kind in resource_types)
                 or any(is_security_group(kind) for kind in resource_types)
             )
-            if requires_consumer:
+            role_only = "AWS::IAM::Role" in resource_types and resource_types <= {
+                "AWS::IAM::Role", "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy",
+            }
+            if role_only:
+                self.check(standalone_marker, f"Role-only template requires Metadata.RolePlacement: standalone: {self.relative(path)}")
+            elif standalone_marker:
+                self.check(False, f"Metadata.RolePlacement: standalone requires a Role-only template: {self.relative(path)}")
+            if requires_consumer and not role_only:
                 self.check(
                     any(
                         not kind.startswith("AWS::Logs::")

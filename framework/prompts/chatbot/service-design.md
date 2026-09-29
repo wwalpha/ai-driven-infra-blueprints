@@ -121,7 +121,7 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 
 密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`framework/rules/detailed-design.md`に従いAWS service ownership boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
 
-CloudFormation対象resourceでは、service設計とは別に同targetの`cloudformation-stacks.md`を確認してください。新しいstack instanceが必要なら、stack名、templateの共用有無、stackごとのparameter file、依存先、template logical IDと設計resourceの対応をhumanと確定し、同fileの完成Markdownも出力してください。既存stackの名前や所有関係を推測しないでください。stack設計もservice設計と同じ`design` taskでmodelを生成し、IaCやAWS mutationへ進まないでください。
+CloudFormation対象resourceでは、service設計とは別に同targetの`cloudformation-stacks.md`を確認してください。新しいstack instanceが必要なら、stack名、templateの共用有無、stackごとのparameter file、依存先、template logical IDと設計resourceの対応をhumanと確定し、同fileの完成Markdownも出力してください。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含めてください。直接利用するresourceがない場合は、同targetの設計resourceからRoleへの直接参照がないこととtrust policyのPrincipalを確認し、Roleの用途とAssumeRole元をRole詳細設計の`Source / Comment`に記録してから、Role専用template/stackを設計してください。既存stackの名前や所有関係を推測しないでください。stack設計もservice設計と同じ`design` taskでmodelを生成し、IaCやAWS mutationへ進まないでください。
 
 ## Question style
 
