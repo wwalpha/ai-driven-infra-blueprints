@@ -33,7 +33,7 @@ from design_layout import (
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
     RESOURCE as RESOURCE_HEADING_PATTERN,
-    expanded_codebuild_variables,
+    expanded_display_rows,
     expanded_design,
     STACK_DESIGN,
     stack_design,
@@ -1132,7 +1132,7 @@ class Validator:
             try:
                 lines = security_group_table_lines(lines)
                 _, children = expanded_design(lines, normalized=True)
-                lines = expanded_codebuild_variables(lines)
+                lines = expanded_display_rows(lines)
             except ValueError as error:
                 self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
                 children = {}

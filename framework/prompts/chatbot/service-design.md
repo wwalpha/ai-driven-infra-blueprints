@@ -231,6 +231,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - 4列のresource-detail tableのrow番号はtableごとに1から開始する
 - 全serviceのresource設定表はmaterialsのproperties行順とし、未選択・非表示項目は飛ばす。名前先頭・生成ID先頭などの再配置をしない。配列の各要素とgrouped childごとの設定範囲を保持し、design-only .Name、S3.Region、SG横書き表の特殊ルールは維持する。
 - `CodeBuild.Project.Environment.EnvironmentVariables[]`は1変数を1行にまとめ、Propertyを`CodeBuild.Project.Environment.Variables.<Name>`、Valueを`<Type>:<Value>`とする。最初の`:`だけを区切りとし、Value内の`:`を保持する。同名変数を重複させず、正式propertyのName／Type／Valueを別行で表示しない。
+- `GuardDuty.Detector.Features[]`は1 Featureを1行にまとめ、Propertyを`GuardDuty.Detector.Features.<Name>`、Valueを`<Status>`とする。同名Featureを重複させず、正式propertyのName／Statusを別行で表示しない。`Features[].AdditionalConfiguration[]`は正式propertyの行を維持する。
 - `S3.Bucket`のheading identifierとanchorのidentifier部分はBucketNameと一致させる。`S3.Bucket.BucketName`をtableの先頭row、bucketごとにhumanが確定したdesign-only `S3.Bucket.Region`を2行目に置く。target `awsRegion`を自動転記せず、異なるregionを許可する。暗号化のKMSMasterKeyIDとSSEAlgorithmは`framework/rules/display-property-aliases.json`の短いProperty名で表示し、正式propertyへ対応させる。SSE-KMSの`KMSMasterKeyID`は同じtargetの`KMS.Alias`へlinkし、表示textを`KMS.Alias.AliasName`と一致させ、generated `KMS.Key.KeyId`を表示しない。対応する`S3.BucketPolicy`は`S3.BucketPolicy.PolicyDocument`だけを同じtableの`S3.Bucket` rowの後へ置く。対象bucketは包含するblockから暗黙に特定し、`S3.BucketPolicy.Bucket` row、独立anchor、heading、tableを出力しない
 - 関連resourceは相対linkで参照する。identifier outputを使用するpropertyは、deploy前に`[PENDING_DEPLOY](<relative-path>#<anchor>)`とし、physical IDをIaCのdesign inputとして直書きしない
 - 必要なpropertyだけを記載する

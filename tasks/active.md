@@ -1,26 +1,25 @@
-# 詳細設計のリソース一覧に番号と説明を追加
+# GuardDuty Detector Featureの1行表示
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / resource overview
-- Goal: 詳細設計の各リソース一覧表へ連番の`No.`列とリソース説明の`Comment`列を追加する。
+- Target: framework共通 / GuardDuty.Detector詳細設計
+- Goal: GuardDuty DetectorのFeatureをNameごとの1行とStatus値で表示し、正式propertyをmodelへ保持する。
 
 ## Required changes
 
-- [R1] 全resource overviewのNo.とCommentの表示契約を設計ルールとchatbot手順に明記する。
-- [R2] 通常一覧、IAM Role、Security Groupの解析・生成・検証を新しい列順へ対応させ、Commentをmodelへ重複保存しない。
-- [R3] 一覧形式、連番、説明、policy再生成、Security Group modelのfocused checkを更新する。
+- [R1] GuardDuty Featureの表示形式とmodelへの対応を設計ルールとchatbot手順に明記する。
+- [R2] 表示行を正式なFeatures[].Name/Statusへ復元し、構造・値・順序を検証する。
+- [R3] 複数Feature、重複名、不正Status、正式propertyの個別表示をfocused checkで確認する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/detailed-design.md`
 - [R1] `changed:framework/rules/model-information.md`
 - [R1] `changed:framework/prompts/chatbot/service-design.md`
+- [R2] `changed:framework/scripts/design_layout.py`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R2] `changed:framework/scripts/policy_tables.py`
-- [R2] `changed:framework/scripts/security_group_tables.py`
-- [R3] `changed:framework/scripts/*.checks.py`
+- [R3] `changed:framework/scripts/design_layout.checks.py`
 
 ## Allowed paths
 
@@ -28,10 +27,9 @@
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
 - `framework/prompts/chatbot/service-design.md`
+- `framework/scripts/design_layout.py`
 - `framework/scripts/validate-blueprint.py`
-- `framework/scripts/policy_tables.py`
-- `framework/scripts/security_group_tables.py`
-- `framework/scripts/*.checks.py`
+- `framework/scripts/design_layout.checks.py`
 
 ## Out of scope
 

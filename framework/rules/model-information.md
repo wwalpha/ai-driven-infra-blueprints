@@ -27,6 +27,8 @@ Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption[].KMS
 
 `CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。`<Type>:<Value>`は最初の`:`で分割し、Value内の`:`を保持する。表示専用の`Variables.<Name>`はmodelへ保存しない。
 
+`GuardDuty.Detector.Features.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
+
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 
 ```properties

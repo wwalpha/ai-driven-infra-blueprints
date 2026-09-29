@@ -108,6 +108,24 @@ CODEBUILD = """# CodeBuild 詳細設計
 | 9 | CodeBuild.Project.ServiceRole | `role-name` | 使用するrole |
 | 10 | CodeBuild.Project.Source.Type | `NO_SOURCE` | sourceの種類 |
 """
+GUARDDUTY = """# GuardDuty 詳細設計
+
+- Design service ID: `guardduty`
+- Owned catalog resource types: `GuardDuty.Detector`
+
+## リソース詳細
+
+<a id="guardduty-main"></a>
+
+### GuardDuty.Detector: Main
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | GuardDuty.Detector.Id | `PENDING_DEPLOY` | detectorのID |
+| 2 | GuardDuty.Detector.Enable | `true` | detectorを有効化する設定 |
+| 3 | GuardDuty.Detector.Features.S3_DATA_EVENTS | `ENABLED` | S3の監視 |
+| 4 | GuardDuty.Detector.Features.EKS_AUDIT_LOGS | `DISABLED` | EKSの監視 |
+"""
 
 
 def check_codebuild_variable_display() -> None:
@@ -137,10 +155,38 @@ def check_codebuild_variable_display() -> None:
         assert errors(CODEBUILD.replace("Variables.FIRST | `PLAINTEXT:hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
 
 
+def check_guardduty_feature_display() -> None:
+    catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/guardduty.md"
+        path.parent.mkdir(parents=True)
+
+        def errors(content: str) -> list[str]:
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({path: ("guardduty", ("GuardDuty.Detector",))}, *catalog)
+            return validator.errors
+
+        assert not errors(GUARDDUTY), errors(GUARDDUTY)
+        model = MODEL.model_for(path, REPOSITORY)
+        assert "desired.row.001-003.property=GuardDuty.Detector.Features[].Name" in model
+        assert "desired.row.001-003.value=`S3_DATA_EVENTS`" in model
+        assert "desired.row.001-004.property=GuardDuty.Detector.Features[].Status" in model
+        assert "desired.row.001-004.value=`ENABLED`" in model
+        assert "desired.row.001-005.value=`EKS_AUDIT_LOGS`" in model
+        assert "Features.S3_DATA_EVENTS" not in model
+        assert errors(GUARDDUTY.replace("Features.EKS_AUDIT_LOGS", "Features.S3_DATA_EVENTS"))
+        assert errors(GUARDDUTY.replace("`ENABLED`", "`INVALID`"))
+        assert errors(GUARDDUTY.replace("Features.S3_DATA_EVENTS | `ENABLED`", "Features[].Name | `S3_DATA_EVENTS`"))
+
+
 
 def main() -> None:
     assert not layout_errors(REPOSITORY)
     check_codebuild_variable_display()
+    check_guardduty_feature_display()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
