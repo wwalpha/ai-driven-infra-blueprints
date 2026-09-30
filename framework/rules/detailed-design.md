@@ -2,7 +2,7 @@
 
 ## 正本と更新順
 
-catalog propertiesを項目の正本、model propertiesを設計値の正本とする。Markdownに表示される全項目・値・名称・説明はmodelから生成し、service固有表現はこのruleに従う。JSON artifactもmodelの`document`から生成する。model propertiesの更新に失敗したらMarkdownを更新しない。全対象の生成と検証が成功した後だけ生成物を保存する。詳細は`framework/rules/model-information.md`に従う。
+catalog propertiesを項目の正本、model propertiesを設計値の正本とする。Markdownに表示される全項目・値・名称・説明はmodelから生成し、service固有表現はこのruleに従う。JSON artifactもmodelの`document`から生成する。model propertiesの更新に失敗したらMarkdownを更新しない。service単位で生成・検証し、成功したserviceの生成物を保存する。失敗serviceの保存済み生成物を維持し、他serviceの処理を続ける。詳細は`framework/rules/model-information.md`に従う。
 
 ## Task boundary
 

@@ -29,8 +29,8 @@
 
 1. 保存前に作成対象resourceの命名ルール有無、catalog選択項目、型・制約、未確定値を確認する。
 2. 確定済みの全service model propertiesを先に更新する。通常は`desired.service.*`、`desired.resource.*`、正式propertyの`desired.row.*`と必要な`observed.row.*`を使用する。
-3. 全対象のMarkdownとJSON artifactを一時領域で生成し、既存のservice表示parser・schema・参照検証で照合する。一件でも失敗したら保存済みMarkdown／JSONを一切変更せず、修正済みmodelとエラーを保持する。Markdownからmodelを復元しない。
-4. 全件成功後だけ生成物を保存する。書き込み失敗時はこのbatchで変更した生成物を元へ戻し、modelを正本として再実行できる状態を保つ。
+3. service単位でMarkdownとJSON artifactを一時生成し、既存のservice表示parser・schema・参照検証で照合する。失敗serviceの保存済みMarkdown／JSONと修正済みmodelを保持し、他serviceの処理を続ける。参照先が失敗した場合は保存済み表示に戻して参照を再検証する。Markdownからmodelを復元しない。
+4. 成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時は同serviceの生成物だけ元へ戻す。成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
 5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
 
 `display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型だけ`display.resource.<番号>.label`にhuman-confirmedな表示名を保持する。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。

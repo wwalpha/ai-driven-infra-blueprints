@@ -781,9 +781,9 @@ class Validator:
         self.check_design_links(identifier_outputs)
         self.check_design_artifacts()
 
-    def check_stack_designs(self) -> None:
+    def check_stack_designs(self, paths: list[Path] | None = None) -> None:
         names: set[tuple[str, str, str]] = set()
-        for path in self.stack_design_files():
+        for path in self.stack_design_files() if paths is None else paths:
             target = self.check_target_file(path, self.root / "docs" / "designs")
             if target is None or target not in self.accounts:
                 continue
@@ -1090,8 +1090,8 @@ class Validator:
         errors = layout_errors(self.root)
         self.check(not errors, "; ".join(errors) or "resource layout decisions are invalid")
 
-    def check_resource_names(self, service_metadata: dict[Path, tuple[str, tuple[str, ...]]]) -> None:
-        for path in self.design_files():
+    def check_resource_names(self, service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None) -> None:
+        for path in self.design_files() if paths is None else paths:
             lines = without_policy_tables(path.read_text(encoding="utf-8").splitlines())
             try:
                 identities = resource_logical_ids(lines)
@@ -1147,8 +1147,9 @@ class Validator:
         catalog_types: set[str],
         catalog_property_owners: dict[str, set[str]],
         identifier_outputs: dict[str, set[str]],
+        paths: list[Path] | None = None,
     ) -> None:
-        for path in self.design_files():
+        for path in self.design_files() if paths is None else paths:
             lines = path.read_text(encoding="utf-8").splitlines()
             try:
                 identities = resource_logical_ids(lines)
@@ -1494,8 +1495,8 @@ class Validator:
             except (OSError, ValueError) as error:
                 self.check(False, f"invalid policy tables: {self.relative(path)}: {error}")
 
-    def check_design_overviews(self) -> None:
-        for path in self.design_files():
+    def check_design_overviews(self, paths: list[Path] | None = None) -> None:
+        for path in self.design_files() if paths is None else paths:
             lines = path.read_text(encoding="utf-8").splitlines()
             try:
                 lines = security_group_table_lines(lines)
@@ -1633,7 +1634,7 @@ class Validator:
                 f"resource overview must list every detail resource exactly once: {self.relative(path)}",
             )
 
-    def check_design_links(self, identifier_outputs: dict[str, set[str]]) -> None:
+    def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None) -> None:
         anchors = {
             path.resolve(): set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
             for path in self.design_files()
@@ -1671,7 +1672,8 @@ class Validator:
                         if value != child["logicalId"]:
                             hidden_ids[path.resolve(), anchor] = child["logicalId"]
             except ValueError as error:
-                self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
+                if paths is None or path in paths:
+                    self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
             for line in lines:
                 if anchor := ANCHOR_PATTERN.fullmatch(line):
                     pending_anchor = anchor.group(1)
@@ -1691,7 +1693,7 @@ class Validator:
                         or cells[1] == "SecretsManager.Secret.Name"
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
-        for source in self.design_files():
+        for source in self.design_files() if paths is None else paths:
             for line in source.read_text(encoding="utf-8").splitlines():
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
@@ -1848,9 +1850,11 @@ class Validator:
                     f"identifier reference does not match observed target: {self.relative(source)}: {cells[1]}: {label}",
                 )
 
-    def check_design_artifacts(self) -> None:
+    def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
         base = self.root / "docs" / "designs"
-        artifacts = {path.resolve() for path in base.rglob("*.json")}
+        artifacts = {path.resolve() for path in base.rglob("*.json")} if paths is None else {
+            artifact.resolve() for path in paths for artifact in path.with_suffix("").rglob("*.json")
+        }
         for artifact in sorted(artifacts):
             relative = artifact.relative_to(base)
             self.check(len(relative.parts) == 4, f"design JSON artifact must be <environment>/<target-directory>/<service-id>/<file>: {self.relative(artifact)}")
@@ -1869,8 +1873,8 @@ class Validator:
             self.check(isinstance(content, dict), f"design JSON artifact root must be an object: {self.relative(artifact)}")
         self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
 
-    def check_observed_values(self) -> None:
-        for path in (self.root / "model").rglob("*.properties"):
+    def check_observed_values(self, paths: list[Path] | None = None) -> None:
+        for path in (self.root / "model").rglob("*.properties") if paths is None else paths:
             for line in path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("observed."):
                     self.check(

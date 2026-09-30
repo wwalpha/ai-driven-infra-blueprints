@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Checks for authoritative properties, service displays and batch failure protection."""
+"""Checks for authoritative properties, service displays and service failure protection."""
 
 import importlib.util
 import json
 import tempfile
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -67,7 +69,7 @@ def check_endpoint_name_tag():
     invalid_tags += [[tags[0], ("Tags[].Value", value, "未確定の名前")]
                      for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#vpc-{name})")]
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         path = root / "docs/designs/dev/123456789012/vpc.md"
@@ -147,14 +149,14 @@ def check_endpoint_name_tag():
             validator.check_resource_names(metadata)
             assert validator.errors, bad_tags
         path.write_bytes(saved)
-        # A missing tag aborts the actual batch generator before saved Markdown changes.
+        # A missing tag rejects this service before saved Markdown changes.
         source.write_text(text(model("vpc", kind, name, rows[:2] + rows[-2:], logical_id, name)))
         try:
             SYNC.sync(root, True, "dev", "123456789012")
         except ValueError as error:
             assert "Tags[].Key=Name" in str(error)
         else:
-            raise AssertionError("batch generation accepted a display label without Name tag")
+            raise AssertionError("service generation accepted a display label without Name tag")
         assert path.read_bytes() == saved
         pending = {**values, "observed.row.001-001.value": "`PENDING_DEPLOY`"}
         roundtrip(path, pending, root)
@@ -189,7 +191,7 @@ def main():
         else:
             raise AssertionError("invalid model accepted")
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         base = root / "model/dev/123456789012"
@@ -220,8 +222,10 @@ def main():
         except ValueError as error:
             assert "duplicate model property" in str(error)
         else:
-            raise AssertionError("invalid second model did not abort the whole batch")
-        assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+            raise AssertionError("invalid service was not reported")
+        assert "`14`" in (docs / "logs.md").read_text()
+        assert (docs / "vpc.md").read_bytes() == old_docs[docs / "vpc.md"]
+        assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
         (base / "vpc.properties").write_text(text(vpc))
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert "`14`" in (docs / "logs.md").read_text()
@@ -235,6 +239,102 @@ def main():
         else:
             raise AssertionError("invalid property value bypassed validation")
         assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        def fails_with(message, write=True):
+            try:
+                SYNC.sync(root, write, "dev", "123456789012")
+            except ValueError as error:
+                assert message in str(error), error
+            else:
+                raise AssertionError(f"service failure was not reported: {message}")
+
+        # Missing JSON input preserves this service's Markdown and JSON; others save.
+        logs["desired.row.001-002.value"] = "`7`"
+        (base / "logs.properties").write_text(text(logs))
+        without_document = {key: value for key, value in iam.items() if not key.endswith(".document")}
+        (base / "iam.properties").write_text(text(without_document))
+        fails_with("authoritative JSON document missing")
+        assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
+        assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == old_docs[docs / "iam/flow-role-trust-policy.json"]
+        assert "`7`" in (docs / "logs.md").read_text()
+        assert (base / "iam.properties").read_text() == text(without_document)
+        # Read-only checks report stale successes without modifying any view.
+        logs["desired.row.001-002.value"] = "`14`"
+        (base / "logs.properties").write_text(text(logs))
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        fails_with("generated Markdown is stale or missing", write=False)
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        (base / "iam.properties").write_text(text(iam))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+
+        # Failed targets use saved anchors; dependents must not publish broken links.
+        renamed_logs = {**logs, "desired.resource.001.anchor": "logs-cwlogs-new-dev-flow",
+                        "desired.row.001-001.value": "`cwlogs-new-dev-flow`",
+                        "desired.row.001-002.value": "`not-a-number`"}
+        (base / "logs.properties").write_text(text(renamed_logs))
+        vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
+        (base / "vpc.properties").write_text(text(vpc))
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        fails_with("missing design anchor")
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        renamed_logs["desired.row.001-002.value"] = "`14`"
+        (base / "logs.properties").write_text(text(renamed_logs))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text()
+        del vpc["desired.note.001.text"]
+        (base / "vpc.properties").write_text(text(vpc))
+        (base / "logs.properties").write_text(text(logs))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+
+        # A JSON write followed by a Markdown write failure rolls back only IAM.
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        document = json.loads(iam["desired.row.001-002.document"])
+        document["Statement"][0]["Sid"] = "Trust"
+        iam["desired.row.001-002.document"] = json.dumps(document)
+        iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
+        (base / "iam.properties").write_text(text(iam))
+        logs["desired.row.001-002.value"] = "`7`"
+        (base / "logs.properties").write_text(text(logs))
+        original_write = Path.write_text
+        def fail_iam(path, *args, **kwargs):
+            if path == docs / "iam.md":
+                raise OSError("test IAM write failure")
+            return original_write(path, *args, **kwargs)
+        with patch.object(Path, "write_text", fail_iam):
+            fails_with("test IAM write failure")
+        assert (docs / "iam.md").read_bytes() == snapshot[docs / "iam.md"]
+        assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
+        assert "`7`" in (docs / "logs.md").read_text()
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text()) == document
+        assert {path: path.read_bytes() for path in sources} == {
+            base / "vpc.properties": text(vpc).encode(), base / "logs.properties": text(logs).encode(), base / "iam.properties": text(iam).encode()}
+        # If saving a target fails, roll back views that reference its new anchor.
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        (base / "logs.properties").write_text(text(renamed_logs))
+        vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
+        (base / "vpc.properties").write_text(text(vpc))
+        iam["desired.row.001-002.comment"] = "引受元に許可する権限と条件を定義する設定"
+        (base / "iam.properties").write_text(text(iam))
+        def fail_logs(path, *args, **kwargs):
+            if path == docs / "logs.md":
+                raise OSError("test target write failure")
+            return original_write(path, *args, **kwargs)
+        with patch.object(Path, "write_text", fail_logs):
+            fails_with("missing design anchor")
+        assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
+        assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
+        assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
+        # The CLI returns failure while persisting an unrelated successful service.
+        (base / "iam.properties").write_text(text(without_document))
+        result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
+                                 "--repository-root", str(root), "--write", "--environment", "dev",
+                                 "--aws-account-id", "123456789012"], capture_output=True, text=True)
+        assert result.returncode == 1 and "authoritative JSON document missing" in result.stderr
+        assert "logs.md" in result.stdout and "iam.md" not in result.stdout
+        assert "cwlogs-new-dev-flow" in (docs / "logs.md").read_text()
+        (base / "iam.properties").write_text(text(iam))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         # A late filesystem failure restores every previously changed generated file.
         first, last = docs / "logs.md", docs / "vpc.md"
         original_write = Path.write_text
@@ -293,7 +393,7 @@ def main():
         assert "| Direction | IpProtocol | Port |" in output
         assert "<!-- security-group-id:" in output and "<!-- rule-id:" in output
         assert "### EC2.SecurityGroupIngress" not in output
-    print("model_design: PASS (authoritative updates, batch rollback, naming coverage and service displays)")
+    print("model_design: PASS (authoritative updates, service rollback, naming coverage and service displays)")
 
 
 if __name__ == "__main__":

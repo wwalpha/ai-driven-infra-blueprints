@@ -296,12 +296,16 @@ def sync(
         save_files(expected_models)
         print(f"Service model import: PASS ({len(expected_models)} files); verify and generate Markdown next")
         return 0
-    destinations = {(docs / path.relative_to(models)).with_suffix(".md"): properties(path.read_text(encoding="utf-8")) for path in model_paths}
-    if missing := set(markdown_paths) - destinations.keys():
-        raise ValueError("authoritative model missing; explicit migration required: " + ", ".join(str(path.relative_to(root)) for path in sorted(missing)))
-    if not destinations:
-        print("Design Markdown sync: PASS (0 files)")
-        return 0
+    destinations = {}
+    failures = []
+    for path in model_paths:
+        destination = (docs / path.relative_to(models)).with_suffix(".md")
+        try:
+            destinations[destination] = properties(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            failures.append(f"{path.relative_to(root)}: {error}")
+    for path in sorted(set(markdown_paths) - {(docs / path.relative_to(models)).with_suffix(".md") for path in model_paths}):
+        failures.append(f"authoritative model missing; explicit migration required: {path.relative_to(root)}")
     with tempfile.TemporaryDirectory() as directory:
         stage = Path(directory).resolve()
         shutil.copytree(root / "framework", stage / "framework")
@@ -312,50 +316,108 @@ def sync(
                     shutil.copytree(base / target, stage / base.relative_to(root) / target)
         if (root / "project.json").is_file():
             shutil.copyfile(root / "project.json", stage / "project.json")
-        artifacts = {}
+        generated = {}
+        # Render all valid base views before resolving cross-service links.
         for path, values in destinations.items():
             staged = stage / path.relative_to(root)
-            for identity, row in entries(values, "desired.row."):
-                match = JSON_LINK.fullmatch(row.get("value", ""))
-                if not match:
-                    if "document" in row:
-                        raise ValueError(f"JSON document requires an artifact link: {identity}")
-                    continue
-                if "document" not in row:
-                    raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
-                document = json.loads(row["document"], object_pairs_hook=unique_object, parse_constant=invalid_constant)
-                if not isinstance(document, dict):
-                    raise ValueError(f"JSON document must be an object: {identity}")
-                artifact = (staged.parent / match.group(1)).resolve()
-                if artifact.parent != staged.with_suffix("").resolve():
-                    raise ValueError(f"JSON artifact must belong to owning service: {identity}")
-                content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-                if artifact in artifacts and artifacts[artifact] != content:
-                    raise ValueError(f"conflicting authoritative JSON documents: {artifact.name}")
-                artifacts[artifact] = content
-        for artifact, content in artifacts.items():
-            artifact.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text(content, encoding="utf-8")
-        # Render all base views first, so cross-service links see the same new state.
-        staged_paths = []
-        for path, values in destinations.items():
-            staged = stage / path.relative_to(root)
-            staged.parent.mkdir(parents=True, exist_ok=True)
-            staged.write_text(markdown_for(staged, values, stage), encoding="utf-8")
-            staged_paths.append(staged)
-        for path in staged_paths:
-            if path.name != STACK_DESIGN:
-                path.write_text(rendered_design(path), encoding="utf-8")
-        validate_views(stage, root, staged_paths, destinations)
-        expected = {root / path.relative_to(stage): path.read_text(encoding="utf-8") for path in [*artifacts, *staged_paths]}
-    if write:
-        save_files(expected)
-    failures = [f"generated Markdown is stale or missing: {path.relative_to(root)}" for path, content in expected.items()
-                if not path.is_file() or path.read_text(encoding="utf-8") != content]
+            artifacts = {}
+            try:
+                for identity, row in entries(values, "desired.row."):
+                    match = JSON_LINK.fullmatch(row.get("value", ""))
+                    if not match:
+                        if "document" in row:
+                            raise ValueError(f"JSON document requires an artifact link: {identity}")
+                        continue
+                    if "document" not in row:
+                        raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
+                    document = json.loads(row["document"], object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                    if not isinstance(document, dict):
+                        raise ValueError(f"JSON document must be an object: {identity}")
+                    artifact = (staged.parent / match.group(1)).resolve()
+                    if artifact.parent != staged.with_suffix("").resolve():
+                        raise ValueError(f"JSON artifact must belong to owning service: {identity}")
+                    content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+                    if artifact in artifacts and artifacts[artifact] != content:
+                        raise ValueError(f"conflicting authoritative JSON documents: {artifact.name}")
+                    artifacts[artifact] = content
+                save_files(artifacts)
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                staged.write_text(markdown_for(staged, values, stage), encoding="utf-8")
+                generated[path] = [*artifacts, staged]
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                failures.append(f"{path.relative_to(root)}: {error}")
+                restore_view(stage, root, path)
+        for path in list(generated):
+            try:
+                staged = stage / path.relative_to(root)
+                if path.name != STACK_DESIGN:
+                    staged.write_text(rendered_design(staged), encoding="utf-8")
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                failures.append(f"{path.relative_to(root)}: {error}")
+                del generated[path]
+                restore_view(stage, root, path)
+        # A rejected view falls back to its saved state; recheck dependent services.
+        while generated:
+            rejected = []
+            for path in generated:
+                try:
+                    validate_views(stage, root, [stage / path.relative_to(root)], destinations)
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    failures.append(f"{path.relative_to(root)}: {error}")
+                    rejected.append(path)
+            if not rejected:
+                break
+            for path in rejected:
+                del generated[path]
+                restore_view(stage, root, path)
+        saved = {}
+        save_failed = False
+        for path, files in generated.items():
+            try:
+                expected = {root / file.relative_to(stage): file.read_text(encoding="utf-8") for file in files}
+                if write:
+                    originals = {file: file.read_bytes() if file.is_file() else None for file in expected}
+                    save_files(expected)
+                    saved[path] = originals
+                else:
+                    stale = [str(file.relative_to(root)) for file, content in expected.items()
+                             if not file.is_file() or file.read_text(encoding="utf-8") != content]
+                    if stale:
+                        raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
+                saved.setdefault(path, {})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                failures.append(f"{path.relative_to(root)}: {error}")
+                save_failed = True
+        # Filesystem failures can invalidate newly saved references, too.
+        while write and save_failed and saved:
+            rejected = []
+            for path in saved:
+                try:
+                    validate_views(root, root, [path], destinations)
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    failures.append(f"{path.relative_to(root)}: {error}")
+                    rejected.append(path)
+            if not rejected:
+                break
+            for path in rejected:
+                restore_files(saved.pop(path))
+        for path in saved:
+            print(f"Design Markdown sync: PASS ({path.relative_to(root)})")
     if failures:
-        raise ValueError("\n- ".join(failures))
-    print(f"Design Markdown sync: PASS ({len(expected)} files)")
+        raise ValueError(f"{len(saved)} services succeeded; {len(failures)} services failed\n- " + "\n- ".join(failures))
+    print(f"Design Markdown sync: PASS ({len(saved)} services)")
     return 0
+
+
+def restore_view(stage: Path, root: Path, path: Path) -> None:
+    """Discard a failed service's temporary view and retain its saved reference state."""
+    staged = stage / path.relative_to(root)
+    staged.unlink(missing_ok=True)
+    if path.is_file():
+        shutil.copyfile(path, staged)
+    shutil.rmtree(staged.with_suffix(""), ignore_errors=True)
+    if path.with_suffix("").is_dir():
+        shutil.copytree(path.with_suffix(""), staged.with_suffix(""))
 
 
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]]) -> None:
@@ -379,21 +441,21 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     for path in paths:
         validator.check_target_file(path, stage / "docs/designs")
         validator.check_target_file((stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties"), stage / "model")
-    validator.check_stack_designs()
+    validator.check_stack_designs([path for path in paths if path.name == STACK_DESIGN])
     services = [path for path in paths if path.name != STACK_DESIGN]
     metadata, types, owners, outputs = validator.check_design_service_ownership(services)
-    validator.check_resource_names(metadata)
-    validator.check_design_tables(metadata, types, owners, outputs)
-    validator.check_design_overviews()
-    validator.check_design_links(outputs)
-    validator.check_design_artifacts()
-    validator.check_observed_values()
+    validator.check_resource_names(metadata, services)
+    validator.check_design_tables(metadata, types, owners, outputs, services)
+    validator.check_design_overviews(services)
+    validator.check_design_links(outputs, services)
+    validator.check_design_artifacts(services)
+    validator.check_observed_values([(stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties") for path in paths])
     if validator.errors:
         raise ValueError("\n- ".join(validator.errors))
 
 
 def save_files(expected: dict[Path, str]) -> None:
-    """Rollback the batch if a filesystem write fails after successful generation."""
+    """Rollback this service if a filesystem write fails after successful generation."""
     originals = {path: path.read_bytes() if path.is_file() else None for path in expected}
     written = []
     try:
@@ -404,18 +466,25 @@ def save_files(expected: dict[Path, str]) -> None:
             written.append(path)
             path.write_text(content, encoding="utf-8")
     except OSError as error:
-        rollback_errors = []
-        for path in reversed(written):
-            try:
-                if originals[path] is None:
-                    path.unlink(missing_ok=True)
-                elif path.read_bytes() != originals[path]:
-                    path.write_bytes(originals[path])
-            except OSError as rollback_error:
-                rollback_errors.append(f"{path}: {rollback_error}")
-        if rollback_errors:
-            raise OSError(f"{error}; generated-file rollback failed: {'; '.join(rollback_errors)}") from error
+        try:
+            restore_files({path: originals[path] for path in reversed(written)})
+        except OSError as rollback_error:
+            raise OSError(f"{error}; generated-file rollback failed: {rollback_error}") from error
         raise
+
+
+def restore_files(originals: dict[Path, bytes | None]) -> None:
+    errors = []
+    for path, content in originals.items():
+        try:
+            if content is None:
+                path.unlink(missing_ok=True)
+            elif not path.is_file() or path.read_bytes() != content:
+                path.write_bytes(content)
+        except OSError as error:
+            errors.append(f"{path}: {error}")
+    if errors:
+        raise OSError("; ".join(errors))
 
 
 def main() -> int:

@@ -75,7 +75,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 1. active promptで指定された`model/**`の正本propertiesを更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
 2. 既存resource取得では必要な非ARN current identifierだけをmodelのobserved rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. 確定済み設計を対応する`model/**`へ先に保存する。`framework/scripts/sync-model.py --write`で全対象のMarkdown／JSON artifactとpolicy表を一時生成・検証し、全件成功後に同じcoherent changeへ保存する。`bucketDefinitions`型Macie Jobの対応表もmodelのdocumentから生成する。失敗時は保存済みMarkdown／JSONを維持し、正本propertiesから修正・再実行する。
+3. 確定済み設計を対応する`model/**`へ先に保存する。`framework/scripts/sync-model.py --write`でservice単位にMarkdown／JSON artifactとpolicy表を一時生成・検証し、成功したserviceを同じcoherent changeへ保存する。`bucketDefinitions`型Macie Jobの対応表もmodelのdocumentから生成する。失敗serviceの保存済みMarkdown／JSONを維持し、他serviceの処理を続ける。失敗が残る場合は完了扱いにせず、正本propertiesから修正・再実行する。
 4. local loopを実行する。
 5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 
