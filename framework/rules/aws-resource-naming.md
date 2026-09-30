@@ -6,7 +6,8 @@
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
-- `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`だけとし、詳細設計ではそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
+- `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`と`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
+- `EC2.VPCEndpoint`は正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`で必須tagを保持する。設計専用`.Name`を追加せず、一覧・heading・通常の参照linkにはこのValueを使用する。display labelで欠落を代替しない。
 - その他のresourceでは、humanが`Name` tagを明示した場合だけ設計する。taggableであることを理由に質問、追加、blocker判定をしない。
 - 上記4種類の`.Name`は詳細設計専用propertyとし、IaCではcase-sensitiveな`Name` keyを持つtagへ変換する。`Tags[].Key`と`Tags[].Value`の2 rowでは表さない。
 - その他のresourceでhuman-selectedな`Name` tagを使用する場合は、array形式では`Tags[].Key`と直後の`Tags[].Value`、object形式では`Tags` JSON objectで表す。
@@ -41,8 +42,8 @@
 
 | Policy | AWS resource | Rule |
 | --- | --- | --- |
-| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`)、Flow Log (`EC2.FlowLog.Name`) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
-| Conditional | 長期運用するEC2 Instance、VPC peering connection、VPC endpoint、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
+| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`)、Flow Log (`EC2.FlowLog.Name`)、VPC endpoint (`EC2.VPCEndpoint`のName tag) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
+| Conditional | 長期運用するEC2 Instance、VPC peering connection、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
 | Optional by default | Internet gateway、Elastic IP address、Security group、固有のname／identifier propertyを持つresource | 関連先または正式なname／identifierで識別できるため、自動追加しない |
 
 Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tagを必須化しない。Security groupは必須の`GroupName`を使用し、`Name` tagを重複要求しない。

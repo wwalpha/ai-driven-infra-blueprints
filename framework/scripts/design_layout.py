@@ -109,6 +109,21 @@ def resource_name_fields(resource_type: str) -> list[str]:
 def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
     fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
+    if resource_type == "EC2.VPCEndpoint":
+        keys = [index for index, row in enumerate(rows)
+                if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
+                and row[2].strip("`\"") == "Name"]
+        if "Name" in fields or len(keys) != 1:
+            raise ValueError("EC2.VPCEndpoint requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
+        index = keys[0] + 1
+        if index >= len(rows) or rows[index][1].removeprefix(resource_type + ".") != "Tags[].Value":
+            raise ValueError("EC2.VPCEndpoint Name tag requires the corresponding Tags[].Value")
+        value = rows[index][2].strip("`\"")
+        if not value.strip() or value.strip().lower() in {
+            "unset", "pending", "pending_deploy", "tbd", "n/a", "none", "not-used", "not used", "unused", "未使用", "未確定",
+        } or value.startswith("[") or "{{" in value:
+            raise ValueError("EC2.VPCEndpoint Name tag value must be confirmed and non-empty")
+        return value
     names = resource_name_fields(resource_type)
     for field in names:
         if field in fields and not fields[field].startswith("["):

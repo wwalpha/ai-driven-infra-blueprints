@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from model_design import properties, markdown_for, naming_errors
+from design_layout import resource_display_name
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
 
@@ -51,7 +52,124 @@ def roundtrip(path, values, root):
     return path.read_text(encoding="utf-8")
 
 
+def check_endpoint_name_tag():
+    spec = importlib.util.spec_from_file_location("endpoint_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    kind, name, logical_id = "EC2.VPCEndpoint", "vpce-app-dev-s3", "S3Endpoint"
+    tags = [("Tags[].Key", "`Name`", "名前を識別するタグのキー"), ("Tags[].Value", f"`{name}`", "Endpointを識別する名前")]
+    invalid_tags = [[], tags[:1], [("Tags[].Key", "`name`", "キー"), tags[1]],
+                    [("Tags[].Key", "`NAME`", "キー"), tags[1]], tags * 2,
+                    [("Name", f"`{name}`", "設計専用property")],
+                    [("Name", f"`{name}`", "設計専用property"), *tags],
+                    [("Tags", f'`{{"Name":"{name}"}}`', "正式arrayではないタグ")],
+                    [tags[0], ("VpcEndpointType", "`Gateway`", "対応Valueのないタグ"), tags[1]]]
+    invalid_tags += [[tags[0], ("Tags[].Value", value, "未確定の名前")]
+                     for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#vpc-{name})")]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        path = root / "docs/designs/dev/123456789012/vpc.md"
+        path.parent.mkdir(parents=True)
+        rows = [("Id", f"[{logical_id}](#vpc-{name})", "Endpointを識別するID"),
+                ("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先service"), *tags,
+                ("VpcEndpointType", "`Gateway`", "Endpointの接続方式"), ("VpcId", "`vpc-0123456789abcdef0`", "所属VPC")]
+        values = model("vpc", kind, name, rows, logical_id, "fallback-label")
+        values.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`vpce-0123456789abcdef0`", "observed.row.001-001.comment": rows[0][2],
+                       "desired.note.001.text": f"参照: [{name}](#vpc-{name})"})
+        output = roundtrip(path, values, root)
+        assert f"### {kind}: {name}" in output
+        assert f"[{name}](#vpc-{name})" in output and "fallback-label" not in output
+        assert f"<!-- resource-logical-id: {logical_id} -->" in output
+        assert "| 1 | Id | `vpce-0123456789abcdef0` |" in output
+        assert kind + ".Name" not in properties(SYNC.model_for(path, root)).values()
+        base = root / "model/dev/123456789012"
+        base.mkdir(parents=True)
+        source = base / "vpc.properties"
+        source.write_text(text(values))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        saved = path.read_bytes()
+        metadata = {path: ("vpc", (kind,))}
+        outputs = validator_module.Validator(root).catalog_design_properties()[2]
+        validator = validator_module.Validator(root)
+        validator.check_resource_names(metadata)
+        validator.check_design_links(outputs)
+        assert not validator.errors, validator.errors
+        # Ordinary navigation uses Name, while identifier references retain observed IDs.
+        for label in ("wrong-label", "vpce-0123456789abcdef0", logical_id):
+            path.write_text(output.replace(f"参照: [{name}]", f"参照: [{label}]"))
+            validator = validator_module.Validator(root)
+            validator.check_design_links(outputs)
+            assert any("Endpoint link must display" in error for error in validator.errors)
+        reference = path.with_name("route.md")
+        reference.write_text(f'''# Route参照検証
+- Design service ID: `route`
+- Owned catalog resource types: `EC2.RouteTable`
+<a id="vpc-route"></a>
+### EC2.RouteTable: route
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EC2.Route.VpcEndpointId | [vpce-0123456789abcdef0](vpc.md#vpc-{name}) | 宛先EndpointのID |
+''')
+        path.write_bytes(saved)
+        validator = validator_module.Validator(root)
+        validator.check_design_links(outputs)
+        assert not validator.errors, validator.errors
+        projected = properties(SYNC.model_for(reference, root))
+        assert projected["desired.row.001-001.value"] == f"[{logical_id}](vpc.md#vpc-{name})"
+        assert projected["observed.row.001-001.value"] == "vpce-0123456789abcdef0"
+        reference.unlink()
+        path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"))
+        validator = validator_module.Validator(root)
+        validator.check_resource_names(metadata)
+        assert any("heading must display resource name" in error for error in validator.errors)
+        path.write_bytes(saved)
+        for bad_tags in invalid_tags:
+            bad_rows = [rows[0], rows[1], *bad_tags, rows[-1]]
+            bad = model("vpc", kind, name, bad_rows, logical_id, name)
+            formal_rows = [[str(i), kind + "." + field, value, comment] for i, (field, value, comment) in enumerate(bad_rows, 1)]
+            validator = validator_module.Validator(root)
+            validator.check_required_name_tag(path, kind, name, formal_rows)
+            assert validator.errors, bad_tags
+            for generate in (lambda: resource_display_name(kind, formal_rows), lambda: markdown_for(path, bad, root)):
+                try:
+                    generate()
+                except ValueError as error:
+                    assert str(error) in validator.errors[0], (error, validator.errors)
+                else:
+                    raise AssertionError(f"invalid Name tag accepted: {bad_tags}")
+            # Design-name validation reports the same shared error, without crashing.
+            rendered = output[:output.index("| 1 | Id |")]
+            rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"
+            path.write_text(rendered)
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata)
+            assert validator.errors, bad_tags
+        path.write_bytes(saved)
+        # A missing tag aborts the actual batch generator before saved Markdown changes.
+        source.write_text(text(model("vpc", kind, name, rows[:2] + rows[-2:], logical_id, name)))
+        try:
+            SYNC.sync(root, True, "dev", "123456789012")
+        except ValueError as error:
+            assert "Tags[].Key=Name" in str(error)
+        else:
+            raise AssertionError("batch generation accepted a display label without Name tag")
+        assert path.read_bytes() == saved
+        pending = {**values, "observed.row.001-001.value": "`PENDING_DEPLOY`"}
+        roundtrip(path, pending, root)
+        wrong_anchor = {**values, "desired.resource.001.anchor": "vpc-s3endpoint"}
+        try:
+            markdown_for(path, wrong_anchor, root)
+        except ValueError as error:
+            assert "anchor" in str(error)
+        else:
+            raise AssertionError("logical-ID-derived anchor accepted")
+    print(f"Endpoint Name tag checks: PASS ({len(invalid_tags)} rejected cases; design, generation, IDs and references)")
+
+
 def main():
+    check_endpoint_name_tag()
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("IAM.ManagedPolicy", "PolicyName"), ("EC2.VPC", "Name")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "IAM.User", [["1", "UserName", "`example`", "名前"]]) == ["naming rule missing: IAM.User: UserName"]

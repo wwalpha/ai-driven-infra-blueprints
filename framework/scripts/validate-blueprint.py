@@ -1000,6 +1000,14 @@ class Validator:
         logical_id: str,
         rows: list[list[str]],
     ) -> None:
+        if resource_type == "EC2.VPCEndpoint":
+            try:
+                name = resource_display_name(resource_type, rows)
+            except ValueError as error:
+                self.check(False, f"{self.relative(path)}: {error}")
+                return
+            self.check(logical_id == name, f"resource heading identifier must match Name tag value: {self.relative(path)}: {resource_type}")
+            return
         property_name = REQUIRED_NAME_PROPERTIES.get(resource_type)
         if property_name is None:
             return
@@ -1099,7 +1107,11 @@ class Validator:
                 if current is None:
                     return
                 resource_type, display = current
-                name = resource_display_name(resource_type, rows)
+                try:
+                    name = resource_display_name(resource_type, rows)
+                except ValueError as error:
+                    self.check(False, f"{self.relative(path)}: {error}")
+                    return
                 for error in naming_errors(self.root, resource_type, rows):
                     self.check(False, f"{self.relative(path)}: {error}")
                 self.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {self.relative(path)}: {resource_type}")
@@ -1629,6 +1641,7 @@ class Validator:
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
         hidden_ids: dict[tuple[Path, str], str] = {}
+        endpoint_names: dict[tuple[Path, str], str] = {}
         name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
         for path in self.design_files():
@@ -1642,6 +1655,8 @@ class Validator:
                 if match := ANCHOR_PATTERN.fullmatch(line):
                     pending_anchor = match.group(1)
                 elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    if heading.group(1) == "EC2.VPCEndpoint":
+                        endpoint_names[path.resolve(), pending_anchor] = heading.group(2)
                     if heading.groups() in identities and identities[heading.groups()] != heading.group(2):
                         hidden_ids[path.resolve(), pending_anchor] = identities[heading.groups()]
             pending_anchor = ""
@@ -1677,10 +1692,16 @@ class Validator:
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in self.design_files():
-            for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", source.read_text(encoding="utf-8")):
-                label, target_text, fragment = link.groups()
-                target = (source if not target_text else source.parent / target_text).resolve()
-                self.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {self.relative(source)}: {label}")
+            for line in source.read_text(encoding="utf-8").splitlines():
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
+                for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
+                    label, target_text, fragment = link.groups()
+                    target = (source if not target_text else source.parent / target_text).resolve()
+                    self.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {self.relative(source)}: {label}")
+                    if name := endpoint_names.get((target, fragment)):
+                        observed = resources.get((target, fragment), ("", {}))[1].values()
+                        identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
+                        self.check(label == name or identifier_reference, f"Endpoint link must display Name tag value or observed identifier: {self.relative(source)}: {label}")
             for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
                 if raw.startswith(("http://", "https://", "mailto:")):
                     continue

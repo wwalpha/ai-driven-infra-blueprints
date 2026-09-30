@@ -56,6 +56,40 @@
 
 一覧・参照linkは`[ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455](#scheduler-ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455)`とする。内部IDのmarkerは表示されない。
 
+<a id="vpc-endpoint-name-tag"></a>
+
+## VPC Endpointの必須Name tag
+
+以下の名称componentは例示値であり、実設計ではhuman-confirmedな値と既存patternを使う。
+
+```md
+## リソース一覧
+
+### EC2.VPCEndpoint
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [vpce-app-dev-s3](#vpc-vpce-app-dev-s3) | VPCからS3へ接続するGateway Endpoint |
+
+## リソース詳細
+
+<!-- resource-logical-id: S3Endpoint -->
+<a id="vpc-vpce-app-dev-s3"></a>
+
+### EC2.VPCEndpoint: vpce-app-dev-s3
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Id | `PENDING_DEPLOY` | Endpointを識別するID |
+| 2 | ServiceName | `com.amazonaws.ap-northeast-1.s3` | 接続先のS3 service |
+| 3 | Tags[].Key | `Name` | 名前を識別するタグのキー |
+| 4 | Tags[].Value | `vpce-app-dev-s3` | Endpointを識別する名前 |
+| 5 | VpcEndpointType | `Gateway` | Endpointの接続方式 |
+| 6 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Endpointが所属するVPC |
+```
+
+通常の参照は`[vpce-app-dev-s3](vpc.md#vpc-vpce-app-dev-s3)`を表示する。IdやId参照は既存規則どおりcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesiredには非表示内部IDのlogical reference、observedにはcurrent IDを分離する。Endpointの設計専用.Nameは作らず、必須tag不足を表示labelで代替しない。
+
 <a id="resource-detail-table"></a>
 
 ## Resource-detail table

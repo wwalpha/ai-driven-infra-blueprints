@@ -52,6 +52,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
+- `EC2.VPCEndpoint`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する
 - cross-service relative linkとexplicit anchorが解決でき、正本modelから同じreferenceが生成されている
 - CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
 - generated ARNが`model/`に存在しない

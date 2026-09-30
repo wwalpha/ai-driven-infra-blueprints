@@ -15,11 +15,11 @@ catalog propertiesを項目の正本、model propertiesを設計値の正本と�
 
 chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Codexの`design` taskは次を実行できる。
 
-- 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では詳細設計専用の`.Name` propertyを含め、それ以外の別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
+- 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では詳細設計専用の`.Name` propertyを含め、`EC2.VPCEndpoint`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含め、それ以外の別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
 - repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
-- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を`.Name`へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型ではhuman-confirmedな表示名を確認し、名前を発明せずservice metadata、anchor、heading、tableを作成する。
+- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を直接差分反映する。前4種類は`.Name`へ、`EC2.VPCEndpoint`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型ではhuman-confirmedな表示名を確認し、名前を発明せずservice metadata、anchor、heading、tableを作成する。
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
@@ -28,12 +28,13 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 ## AWS resource naming
 
 - human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用する。
-- root-levelの`Tags`または`HostedZoneTags`があっても`Name` tagを自動的に必須化しない。mandatory対象は`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`だけとし、詳細設計ではそれぞれ`.Name`の1 rowで表す。
+- root-levelの`Tags`または`HostedZoneTags`があっても`Name` tagを自動的に必須化しない。mandatory対象は`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`、`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`.Name`の1 rowで表す。
 - 上記4種類の`.Name`は詳細設計専用propertyであり、provider schemaのresource propertyではない。IaC実装時にcase-sensitiveな`Name` keyを持つtagへ変換し、詳細設計へ`Tags[].Key=Name`と`Tags[].Value`の2 rowを作らない。
+- `EC2.VPCEndpoint`の必須Name tagは正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`で保持する。case違いのkey、Valueの欠落・空値・未確定値を拒否し、display labelで代替しない。設計専用`.Name`を作らず、一覧・heading・通常の参照linkへValueを表示し、その表示名からanchorを生成する。内部logical IDは非表示metadataへ保持し、identifier参照のdesired logical reference／observed IDは既存契約を維持する。
 - その他のresourceではhumanが`Name` tagを明示した場合だけ設計する。array形式では`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnon-empty nameを記載する。object形式では`Tags`に`Name` keyとnon-empty valueを持つJSON objectを記載する。
 - naming componentがすべて確定済みならpatternから一意に導出し、未確定componentがあれば値を推測せずhumanへ確認する。
 - 既存resourceから取得した名称と既存詳細設計の確定済み名称は、conventionと異なっても自動変更しない。
-- 既存resourceに必須の`Name` tagが存在しない場合は`.Name` valueを発明せず、blockerとして停止する。
+- 既存resourceに必須の`Name` tagが存在しない場合はtag valueを発明せず、blockerとして停止する。
 - final nameはprovider schemaとservice固有制約へ適合することを確認し、自動truncate、hash付与、略語化で補正しない。
 
 ## AWS service ownership boundary
@@ -128,7 +129,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - 上記5種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
-- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`とS3 Bucketの`S3.Bucket.Region`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
+- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`とS3 Bucketの`S3.Bucket.Region`、`EC2.VPCEndpoint`の必須Name tagの`Tags[].Key`／`Tags[].Value`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
 - schemaの`required`に指定され、かつproperties選択リストにあるroot propertyは省略しない。
 
 `Source / Comment`は、そのrowの`Property`が何を設定、識別、制御する属性なのかを日本語で短く説明する。見出し・`Property`から分かる対象resource名の繰り返しは省き、属性の意味だけを記載する。ただし、参照先・通信元・通信先を区別する名称は残す。grouped resourceのrowも、そのrowの`Property`が属するresourceを対象に判断する。次の内容は記載しない。
