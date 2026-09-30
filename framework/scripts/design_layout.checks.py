@@ -396,6 +396,31 @@ def check_cloudtrail_data_resources() -> None:
             return validator.errors
 
         assert not errors(trail), errors(trail)
+        all_buckets = trail.replace(
+            "[data-bucket](s3.md#s3-data-bucket) | S3 object",
+            "`All current and future S3 buckets` | S3 object",
+        )
+        assert not errors(all_buckets), errors(all_buckets)
+        original = path.read_bytes()
+        all_model = MODEL.model_for(path, REPOSITORY)
+        assert path.read_bytes() == original
+        assert all_model == model.replace(
+            "desired.row.001-003.value=[data-bucket](s3.md#s3-data-bucket)",
+            'desired.row.001-003.value=`["arn:aws:s3"]`',
+        )
+        assert "All current and future S3 buckets" not in all_model
+        for bad_value in (
+            "All current and future S3 buckets",
+            "`All current and future S3 bucket`",
+            "`arn:aws:s3`",
+            '`["arn:aws:s3"]`',
+            '`[data-bucket](s3.md#s3-data-bucket)`',
+        ):
+            assert errors(all_buckets.replace("`All current and future S3 buckets`", bad_value)), bad_value
+        assert errors(trail.replace(
+            "[function-one](lambda.md#lambda-function-one)",
+            "`All current and future S3 buckets`",
+        ))
         for bad in (
             trail.replace("DataResources[1]", "DataResources[0]"),
             trail.replace("DataResources[2]", "DataResources[3]"),

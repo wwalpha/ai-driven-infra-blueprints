@@ -30,7 +30,7 @@ Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.Bucke
 
 `GuardDuty.Detector.Features.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
 
-`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1リソース1行表示は、model生成時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、`Values`には対象resource linkを保持する。表示専用の`N`と短いType名はmodelのpropertyへ保存しない。
+`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、model生成時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。
 
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 

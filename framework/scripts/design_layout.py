@@ -204,7 +204,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             if prop in {GUARDDUTY_FORMAL_FEATURE + "Name", GUARDDUTY_FORMAL_FEATURE + "Status"}:
                 raise ValueError("GuardDuty Features Name/Status must use Features.<Name> display rows")
             if resource_type == "CloudTrail.Trail" and prop.startswith(CLOUDTRAIL_FORMAL_DATA_RESOURCE):
-                raise ValueError("CloudTrail DataResources Type/Values must use one linked resource per display row")
+                raise ValueError("CloudTrail DataResources Type/Values must use one target per display row")
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
@@ -257,12 +257,15 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 match = CLOUDTRAIL_DATA_RESOURCE.fullmatch(display_property)
                 if not match or int(match.group(1)) != cloudtrail_count + 1:
                     raise ValueError("CloudTrail DataResources display indexes must start at 1 and be sequential")
-                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
-                    raise ValueError("CloudTrail DataResources value must be a resource link")
+                resource_value = cells[2]
+                if match.group(2) == "S3" and resource_value == "`All current and future S3 buckets`":
+                    resource_value = '`["arn:aws:s3"]`'
+                elif not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value):
+                    raise ValueError("CloudTrail DataResources value must be a resource link or, for S3, `All current and future S3 buckets`")
                 cloudtrail_count += 1
                 changed = True
                 kind = "CloudTrail DataResources"
-                for field, value in (("Type", f"`{CLOUDTRAIL_RESOURCE_TYPES[match.group(2)]}`"), ("Values", cells[2])):
+                for field, value in (("Type", f"`{CLOUDTRAIL_RESOURCE_TYPES[match.group(2)]}`"), ("Values", resource_value)):
                     rows.append([cells[0], CLOUDTRAIL_FORMAL_DATA_RESOURCE + field, value, cells[3]])
             else:
                 rows.append(cells)
