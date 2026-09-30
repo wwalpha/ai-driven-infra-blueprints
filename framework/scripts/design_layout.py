@@ -217,6 +217,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                     raw = raw[1:-1]
                 marker = CODEBUILD_VARIABLE_TYPE.match(cells[3])
                 linked = re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2])
+                if cells[2].startswith("[") and "](" in cells[2] and not linked:
+                    raise ValueError(f"CodeBuild resource variable must use a single resource anchor link: {name}")
                 if "<!-- codebuild-variable-type:" in cells[3] and not marker:
                     raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
                 if bool(marker) != bool(linked):

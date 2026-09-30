@@ -102,8 +102,8 @@ CODEBUILD = """# CodeBuild 詳細設計
 | 2 | Id | `PENDING_DEPLOY` | projectのID |
 | 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
 | 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
-| 5 | Environment.Variables.FIRST | `PLAINTEXT:hello:world` | 環境変数の値 |
-| 6 | Environment.Variables.SECOND | `PARAMETER_STORE:/app/token` | 環境変数の参照先 |
+| 5 | Environment.Variables.FIRST | `hello:world` | 環境変数の値 |
+| 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
 | 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
 | 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
 | 9 | ServiceRole | `role-name` | 使用するrole |
@@ -130,36 +130,81 @@ GUARDDUTY = """# GuardDuty 詳細設計
 
 
 def check_codebuild_variable_display() -> None:
+    codebuild = CODEBUILD.replace('| 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |', '| 6 | Environment.Variables.SECOND | [venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey) | <!-- codebuild-variable-type: SECRETS_MANAGER --> 環境変数の参照先 |')
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         path = root / "docs/designs/dev/123456789012/codebuild.md"
         path.parent.mkdir(parents=True)
+        secret = path.with_name("secretsmanager.md")
+        secret.write_text("""# Secrets Manager 詳細設計
+<a id="secretsmanager-snowflakekey"></a>
+### SecretsManager.Secret: SnowflakeKey
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `venus-dev-snowflake-cicd-keypair-cde` | secretの名前 |
+| 2 | Id | `PENDING_DEPLOY` | secretのID |
+""", encoding="utf-8")
 
         def errors(content: str) -> list[str]:
             path.write_text(content, encoding="utf-8")
             validator = VALIDATOR.Validator(root)
             validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
             validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
+            validator.check_design_links(catalog[2])
             return validator.errors
 
-        assert not errors(CODEBUILD), errors(CODEBUILD)
+        assert not errors(codebuild), errors(codebuild)
         model = MODEL.model_for(path, REPOSITORY)
         assert "desired.row.001-005.property=CodeBuild.Project.Environment.EnvironmentVariables[].Name" in model
         assert "desired.row.001-005.value=`FIRST`" in model
         assert "desired.row.001-006.property=CodeBuild.Project.Environment.EnvironmentVariables[].Type" in model
         assert "desired.row.001-007.value=`hello:world`" in model
         assert "desired.row.001-008.value=`SECOND`" in model
+        assert "desired.row.001-006.value=`PLAINTEXT`" in model
+        assert "desired.row.001-009.value=`SECRETS_MANAGER`" in model
+        secret_link = "[venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey)"
+        assert f"desired.row.001-010.value={secret_link}" in model
+        assert "observed.row.001-010" not in model
+        assert "codebuild-variable-type" not in model
         assert "Environment.Variables." not in model
-        short = CODEBUILD
+        short = codebuild
         assert "| Artifacts.Type |" in short
         assert not errors(short), errors(short)
         assert MODEL.model_for(path, REPOSITORY) == model
         assert any("must omit heading resource type" in error for error in errors(short.replace("| 2 | Id |", "| 2 | CodeBuild.Project.Id |")))
         assert errors(short.replace("Artifacts.Type", "Artifacts.Unknown"))
-        assert errors(CODEBUILD.replace("Variables.SECOND", "Variables.FIRST"))
-        assert errors(CODEBUILD.replace("PLAINTEXT:hello:world", "hello"))
-        assert errors(CODEBUILD.replace("Variables.FIRST | `PLAINTEXT:hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
+        assert errors(codebuild.replace("Variables.SECOND", "Variables.FIRST"))
+        assert not errors(codebuild.replace("hello:world", "cde"))
+        assert errors(codebuild.replace("Variables.FIRST | `hello:world`", "EnvironmentVariables[].Name | `FIRST`"))
+        for bad in (
+            codebuild.replace("`hello:world`", "`PLAINTEXT:cde`"),
+            codebuild.replace("<!-- codebuild-variable-type: SECRETS_MANAGER --> ", ""),
+            codebuild.replace("SECRETS_MANAGER -->", "UNKNOWN -->"),
+            codebuild.replace("SECRETS_MANAGER -->", "PARAMETER_STORE -->"),
+            codebuild.replace(secret_link, "`venus-dev-snowflake-cicd-keypair-cde`"),
+            codebuild.replace(secret_link, f"`{secret_link}`"),
+            codebuild.replace(secret_link, "[secret](secretsmanager.md)"),
+            codebuild.replace("#secretsmanager-snowflakekey", "#missing"),
+            codebuild.replace("(secretsmanager.md#", "(missing.md#"),
+            codebuild.replace("[venus-dev-snowflake-cicd-keypair-cde]", "[wrong-name]"),
+        ):
+            assert errors(bad), bad
+        selector = codebuild.replace("[venus-dev-snowflake-cicd-keypair-cde]", "[venus-dev-snowflake-cicd-keypair-cde:private-key:AWSCURRENT]")
+        assert not errors(selector), errors(selector)
+        assert "[venus-dev-snowflake-cicd-keypair-cde:private-key:AWSCURRENT](secretsmanager.md#secretsmanager-snowflakekey)" in MODEL.model_for(path, REPOSITORY)
+        literal_link = codebuild.replace("SECRETS_MANAGER -->", "PLAINTEXT -->")
+        assert not errors(literal_link), errors(literal_link)
+        assert "desired.row.001-009.value=`PLAINTEXT`" in MODEL.model_for(path, REPOSITORY)
+        parameter_link = codebuild.replace("SECRETS_MANAGER -->", "PARAMETER_STORE -->")
+        expanded = "\n".join(expanded_display_rows(parameter_link.splitlines()))
+        assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `PARAMETER_STORE` |" in expanded
+        other_target = path.parent.parent / "987654321098"
+        other_target.mkdir()
+        shutil.copy(secret, other_target / secret.name)
+        assert errors(codebuild.replace("(secretsmanager.md#", "(../987654321098/secretsmanager.md#"))
+        secret.write_text(secret.read_text().replace("SecretsManager.Secret:", "S3.Bucket:"), encoding="utf-8")
+        assert errors(codebuild)
 
 
 def check_codebuild_vpc_display() -> None:
