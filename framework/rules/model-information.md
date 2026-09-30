@@ -24,7 +24,7 @@
 
 Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 
-`CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。`<Type>:<Value>`は最初の`:`で分割し、Value内の`:`を保持する。表示専用の`Variables.<Name>`はmodelへ保存しない。
+`CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
 
 `CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、model生成時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
 

@@ -29,12 +29,12 @@ def main() -> None:
         root = Path(directory)
         base = root / "docs" / "designs"
         cde = base / "dev" / "cde"
-        staging = base / "staging" / "non-cde"
+        stg = base / "stg" / "non-cde"
         cde.mkdir(parents=True)
-        staging.mkdir(parents=True)
+        stg.mkdir(parents=True)
         iam = cde / "iam.md"
         vpc = cde / "vpc.md"
-        other = staging / "vpc.md"
+        other = stg / "vpc.md"
         artifact = cde / "vpc" / "policy.json"
         artifact.parent.mkdir()
         artifact.write_text('{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8")
@@ -71,20 +71,20 @@ def main() -> None:
             "dev-cde-iam-role-two": 1,
             "dev-cde-iam-policy": 1,
             "appendix-dev-cde-vpc-policy": 2,
-            "staging-non-cde-vpc-a": 2,
+            "stg-non-cde-vpc-a": 2,
         }, expected
         assert '[Role](#dev-cde-iam-role)' in merged
         assert '[A](#dev-cde-vpc-a)' in merged
-        assert '[A](#staging-non-cde-vpc-a)' in merged
+        assert '[A](#stg-non-cde-vpc-a)' in merged
         assert merged.count('{#appendix-dev-cde-vpc-policy}') == 1
         assert merged.count('](#appendix-dev-cde-vpc-policy)') == 2
         assert '[example](missing.md#example)' in merged
         assert '# 詳細設計書' not in merged
         assert '# dev / cde {#target-dev-cde .target-title .first-target}' in merged
-        assert '# staging / non-cde {#target-staging-non-cde .target-title}' in merged
+        assert '# stg / non-cde {#target-stg-non-cde .target-title}' in merged
         assert '## IAM 詳細設計 {#service-dev-cde-iam .service-title .first-service}' in merged
         assert '## VPC 詳細設計 {#service-dev-cde-vpc .service-title}' in merged
-        assert '## VPC 詳細設計 {#service-staging-non-cde-vpc .service-title .first-service}' in merged
+        assert '## VPC 詳細設計 {#service-stg-non-cde-vpc .service-title .first-service}' in merged
         assert '| No. | Role |\n| ---: | --- |\n| 1 | [Role](#dev-cde-iam-role) |\n| 2 | [RoleTwo](#dev-cde-iam-role-two) |' in merged
         assert '| No. | Policy |\n| ---: | --- |\n| 1 | [Policy](#dev-cde-iam-policy) |' in merged
         assert '| No. | Property |\n| ---: | --- |\n| 1 | RoleName |' in merged

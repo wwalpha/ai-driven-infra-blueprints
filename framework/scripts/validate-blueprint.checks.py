@@ -21,7 +21,7 @@ def errors_for(rows: list[list[str]]) -> list[str]:
     root = SCRIPT.parents[2]
     validator = MODULE.Validator(root)
     validator.check_markdown_iam_policy_artifacts(
-        root / "docs" / "designs" / "staging" / "123456789012" / "iam.md",
+        root / "docs" / "designs" / "stg" / "123456789012" / "iam.md",
         "VPCFLOWLOGROLE01",
         rows,
     )
@@ -324,7 +324,7 @@ def check_schema_backed_design_rows() -> None:
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        design = root / "docs" / "designs" / "staging" / "123456789012" / "logs.md"
+        design = root / "docs" / "designs" / "stg" / "123456789012" / "logs.md"
         design.parent.mkdir(parents=True)
         invalid = """# CloudWatch Logs
 
@@ -357,7 +357,7 @@ def check_schema_backed_design_rows() -> None:
                 "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
                 "| 3 | Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
-                "| 4 | Tags[].Value | `cwlogs-app-staging-flow-logs` | ロググループを識別するNameタグの値 |",
+                "| 4 | Tags[].Value | `cwlogs-app-stg-flow-logs` | ロググループを識別するNameタグの値 |",
             ),
             encoding="utf-8",
         )
@@ -501,8 +501,8 @@ def check_name_tag_and_identifier_order_contract() -> None:
     validator.check_required_name_tag(
         path,
         "EC2.FlowLog",
-        "flowlog-venus-staging-non-cde",
-        [["1", "EC2.FlowLog.Name", "flowlog-venus-staging-non-cde", "Nameタグの値"]],
+        "flowlog-venus-stg-non-cde",
+        [["1", "EC2.FlowLog.Name", "flowlog-venus-stg-non-cde", "Nameタグの値"]],
     )
     assert not validator.errors, validator.errors
 
@@ -510,10 +510,10 @@ def check_name_tag_and_identifier_order_contract() -> None:
     validator.check_required_name_tag(
         path,
         "EC2.FlowLog",
-        "flowlog-venus-staging-non-cde",
+        "flowlog-venus-stg-non-cde",
         [
             ["1", "EC2.FlowLog.Tags[].Key", "Name", "Nameタグのキー"],
-            ["2", "EC2.FlowLog.Tags[].Value", "flowlog-venus-staging-non-cde", "Nameタグの値"],
+            ["2", "EC2.FlowLog.Tags[].Value", "flowlog-venus-stg-non-cde", "Nameタグの値"],
         ],
     )
     assert any("one-row property" in error for error in validator.errors)
@@ -560,7 +560,7 @@ def check_cidr_pending_deploy() -> None:
     schema = MODULE.DesignSchemaCatalog(repository)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        path = root / "docs/designs/staging/123456789012/vpc.md"
+        path = root / "docs/designs/stg/123456789012/vpc.md"
         path.parent.mkdir(parents=True)
         valid = """# VPC 詳細設計
 
@@ -573,17 +573,17 @@ def check_cidr_pending_deploy() -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [vpc-app-staging](#vpc-vpc-app-staging) | アプリケーションのネットワーク |
+| 1 | [vpc-app-stg](#vpc-vpc-app-stg) | アプリケーションのネットワーク |
 
 ## リソース詳細
 
-<a id="vpc-vpc-app-staging"></a>
+<a id="vpc-vpc-app-stg"></a>
 
-### EC2.VPC: vpc-app-staging
+### EC2.VPC: vpc-app-stg
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | Name | `vpc-app-staging` | VPCの名前 |
+| 1 | Name | `vpc-app-stg` | VPCの名前 |
 | 2 | VpcId | `PENDING_DEPLOY` | VPCのID |
 | 3 | CidrBlock | `10.0.0.0/16` | VPCのIPv4アドレス範囲 |
 """
@@ -597,7 +597,7 @@ def check_cidr_pending_deploy() -> None:
             return validator.errors
 
         assert not errors(valid), errors(valid)
-        for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-vpc-app-staging)"):
+        for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-vpc-app-stg)"):
             # Reject either table independently, not merely when both agree.
             assert any("CIDR must not use" in error for error in errors(valid.replace("`10.0.0.0/16`", pending, 1)))
             assert any("CIDR must not use" in error for error in errors(valid.replace("CidrBlock | `10.0.0.0/16`", "CidrBlock | " + pending)))

@@ -1,24 +1,28 @@
-# CodeBuild・CodePipeline・CodeCommitの命名規則
+# 検証用環境名をstgへ変更
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / AWS resource naming rules
-- Goal: humanが採用した4文字prefixによるCodeBuild、CodePipeline、CodeCommitの命名規則を追加する。
+- Target: framework共通 / focused check scripts
+- Goal: 検証用の環境名と対応する参照をstgへ変更する。
 
 ## Required changes
 
-- [R1] CodeBuild Projectの`Name`を`cbld-{{application}}-{{environment}}-{{purpose}}`、CodePipeline Pipelineの`Name`を`cpln-{{application}}-{{environment}}-{{purpose}}`、CodeCommit Repositoryの`RepositoryName`を`ccmt-{{application}}[-{{environment}}]-{{purpose}}`として命名表へ追加する。CodeCommitのenvironmentは環境共有repositoryでは省略し、環境別repositoryでは含める。
+- [R1] 3つのfocused check scriptsの環境名、パス、リソース名、リンク、期待値をstgへ統一する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/aws-resource-naming.md`
+- [R1] `changed:framework/scripts/check-deploy-context.checks.py`
+- [R1] `changed:framework/scripts/export-design-pdf.checks.py`
+- [R1] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/rules/aws-resource-naming.md`
+- `framework/scripts/check-deploy-context.checks.py`
+- `framework/scripts/export-design-pdf.checks.py`
+- `framework/scripts/validate-blueprint.checks.py`
 
 ## Out of scope
 
-- 既存名称の変更、target設計、model、IaC、AWS操作、scenario、catalog、validatorの変更は行わない。
+- 検証ロジック、catalog、project設定、target設計、model、IaC、AWS操作、scenarioは変更しない。

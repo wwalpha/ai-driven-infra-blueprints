@@ -25,6 +25,7 @@ from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_mate
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
     CLOUDTRAIL_DATA_RESOURCE,
+    CODEBUILD_FORMAL_VARIABLE,
     CODEBUILD_VPC_ITEM,
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
@@ -1573,6 +1574,7 @@ class Validator:
                         cells[1]
                         in identifier_outputs.get(resources[current][0], set())
                         or cells[1] == "KMS.Alias.AliasName"
+                        or cells[1] == "SecretsManager.Secret.Name"
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in self.design_files():
@@ -1613,16 +1615,32 @@ class Validator:
                 source_lines = expanded_display_rows(security_group_table_lines(source_lines))
             except ValueError as error:
                 self.check(False, f"invalid Security Group tables: {self.relative(source)}: {error}")
+            variable_type = ""
             for line in source_lines:
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 if len(cells) == 4:
                     cells[1] = DISPLAY_PROPERTY_ALIASES.get(cells[1], cells[1])
+                    if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
+                        variable_type = self.unquoted(cells[2])
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
                 if not link:
                     continue
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
                 resource = resources.get((target, fragment))
+                if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Value":
+                    expected_type = {"SECRETS_MANAGER": "SecretsManager.Secret", "PARAMETER_STORE": "SSM.Parameter"}.get(variable_type)
+                    self.check(
+                        bool(resource and target.parent == source.parent.resolve() and (not expected_type or resource[0] == expected_type)),
+                        f"CodeBuild environment variable must link to a {expected_type or 'resource'} in the same target: {self.relative(source)}: {label}",
+                    )
+                    if variable_type == "SECRETS_MANAGER" and resource:
+                        secret_name = resource[1].get("SecretsManager.Secret.Name", "")
+                        self.check(
+                            bool(secret_name and (label == secret_name or label.startswith(secret_name + ":"))),
+                            f"CodeBuild secret reference must display its configured name and optional selector: {self.relative(source)}: {label}",
+                        )
+                    continue
                 if cells[1] == "EC2.SecurityGroup.VpcId":
                     self.check(
                         bool(resource and resource[0] == "EC2.VPC" and target.parent == source.parent.resolve()),

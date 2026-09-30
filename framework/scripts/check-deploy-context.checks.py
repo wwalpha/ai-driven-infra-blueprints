@@ -34,14 +34,14 @@ def main() -> None:
                         },
                         {
                             "alias": "cde",
-                            "environment": "staging",
+                            "environment": "stg",
                             "awsAccountId": "123456789012",
                             "awsRegion": "ap-northeast-1",
                             "iacEngine": "terraform",
                         },
                         {
                             "alias": "non-cde",
-                            "environment": "staging",
+                            "environment": "stg",
                             "awsAccountId": "123456789012",
                             "awsRegion": "ap-northeast-1",
                             "iacEngine": "terraform",
@@ -59,7 +59,7 @@ def main() -> None:
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', ""),
         ) as run:
             target = MODULE.check_deploy_context(
-                root, "staging", alias="cde", profile="deploy"
+                root, "stg", alias="cde", profile="deploy"
             )
             assert target == {
                 "alias": "cde",
@@ -104,14 +104,14 @@ def main() -> None:
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"999999999999"}', ""),
         ):
             try:
-                MODULE.check_deploy_context(root, "staging", alias="non-cde")
+                MODULE.check_deploy_context(root, "stg", alias="non-cde")
             except MODULE.DeployContextError as error:
                 assert "AWS account mismatch" in str(error)
             else:
                 raise AssertionError("account mismatch was accepted")
 
         try:
-            MODULE.load_target(root, "staging", account_id="123456789012")
+            MODULE.load_target(root, "stg", account_id="123456789012")
         except MODULE.DeployContextError as error:
             assert "topology target must exist exactly once" in str(error)
         else:

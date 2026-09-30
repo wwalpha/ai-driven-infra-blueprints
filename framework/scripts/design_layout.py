@@ -32,6 +32,7 @@ HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
 CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
+CODEBUILD_VARIABLE_TYPE = re.compile(r"^<!-- codebuild-variable-type: (PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER) -->\s*")
 CODEBUILD_VPC_ITEM = re.compile(r"^VpcConfig\.(Subnets|SecurityGroupIds)\[([1-9][0-9]*)\]$")
 CODEBUILD_VPC_PROPERTIES = {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}
 GUARDDUTY_FEATURE = "GuardDuty.Detector.Features."
@@ -214,11 +215,19 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 raw = cells[2]
                 if len(raw) >= 2 and raw[0] == raw[-1] == "`":
                     raw = raw[1:-1]
-                variable_type, separator, value = raw.partition(":")
-                if not separator or not variable_type or variable_type != variable_type.strip():
-                    raise ValueError(f"CodeBuild environment variable must be Type:Value: {name}")
-                for field, field_value in (("Name", name), ("Type", variable_type), ("Value", value)):
-                    rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, f"`{field_value}`", cells[3]])
+                marker = CODEBUILD_VARIABLE_TYPE.match(cells[3])
+                linked = re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2])
+                if "<!-- codebuild-variable-type:" in cells[3] and not marker:
+                    raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
+                if bool(marker) != bool(linked):
+                    raise ValueError(f"CodeBuild resource variable requires a link and Type marker: {name}")
+                if re.match(r"^(PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER):", raw):
+                    raise ValueError(f"CodeBuild environment variable must omit the Type prefix: {name}")
+                variable_type = marker.group(1) if marker else "PLAINTEXT"
+                comment = cells[3][marker.end():] if marker else cells[3]
+                value = cells[2] if linked else f"`{raw}`"
+                for field, field_value in (("Name", f"`{name}`"), ("Type", f"`{variable_type}`"), ("Value", value)):
+                    rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, field_value, comment])
             elif resource_type == "CodeBuild.Project" and display_property.startswith(("VpcConfig.Subnets[", "VpcConfig.SecurityGroupIds[")):
                 match = CODEBUILD_VPC_ITEM.fullmatch(display_property)
                 if not match or int(match.group(2)) != codebuild_vpc_counts[match.group(1)] + 1:

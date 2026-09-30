@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from design_catalog import design_material_files
-from design_layout import RESOURCE, STACK_DESIGN, expanded_design, stack_design
+from design_layout import CODEBUILD_FORMAL_VARIABLE, RESOURCE, STACK_DESIGN, expanded_design, stack_design
 from macie_bucket_tables import write_job_bucket_definitions
 from policy_tables import without_policy_tables
 
@@ -156,6 +156,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
                 is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
                 is_identifier_reference = bool(
                     linked and catalog_outputs.get(linked[0])
+                    and cells[1] != CODEBUILD_FORMAL_VARIABLE + "Value"
                 )
                 desired_value = cells[2]
                 if is_identifier_output:
