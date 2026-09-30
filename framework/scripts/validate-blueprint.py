@@ -32,6 +32,8 @@ from design_layout import (
     DISPLAY_PROPERTY_ALIASES,
     GROUPED,
     HIDDEN_PROPERTIES,
+    RESOURCE_REFERENCE_PROPERTIES,
+    SECURITY_GROUP_TYPES,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
     RESOURCE as RESOURCE_HEADING_PATTERN,
@@ -839,6 +841,15 @@ class Validator:
                 property_owners.setdefault(property_name, set()).add(resource_type)
         return resource_types, property_owners, identifier_outputs
 
+    def check_service_file(self, path: Path, service_id: str, owned_types: tuple[str, ...]) -> None:
+        self.check(service_id == "security_group" or LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid service ID: {self.relative(path)}: {service_id}")
+        self.check(service_id == path.stem, f"service ID does not match file stem: {self.relative(path)}")
+        for resource_type in owned_types:
+            self.check(
+                (resource_type in SECURITY_GROUP_TYPES) == (service_id == "security_group"),
+                f"Security Group resources must belong only to security_group: {self.relative(path)}: {resource_type}",
+            )
+
     def markdown_service_metadata(
         self, path: Path, catalog_types: set[str]
     ) -> tuple[str, tuple[str, ...]] | None:
@@ -859,8 +870,7 @@ class Validator:
 
         service_id = service_match.group(1)
         owned_types = tuple(re.findall(r"`([^`]+)`", owned_match.group(1)))
-        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid Design service ID: {self.relative(path)}: {service_id}")
-        self.check(service_id == path.stem, f"Design service ID does not match file stem: {self.relative(path)}")
+        self.check_service_file(path, service_id, owned_types)
         self.check(bool(owned_types), f"Owned catalog resource types must not be empty: {self.relative(path)}")
         self.check(len(owned_types) == len(set(owned_types)), f"duplicate owned catalog resource type: {self.relative(path)}")
         for resource_type in owned_types:
@@ -881,9 +891,8 @@ class Validator:
         service_key, service_id = service_matches[0].groups()
         owned_key, owned_value = owned_matches[0].groups()
         owned_types = tuple(owned_value.split(",")) if owned_value else ()
-        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid model service ID: {self.relative(path)}: {service_id}")
+        self.check_service_file(path, service_id, owned_types)
         self.check(service_key == service_id == owned_key, f"inconsistent model service metadata key: {self.relative(path)}")
-        self.check(service_id == path.stem, f"model service ID does not match file stem: {self.relative(path)}")
         self.check(bool(owned_types), f"model owned catalog resource types must not be empty: {self.relative(path)}")
         self.check(len(owned_types) == len(set(owned_types)), f"duplicate model owned catalog resource type: {self.relative(path)}")
         for resource_type in owned_types:
@@ -1079,6 +1088,10 @@ class Validator:
             for index, line in enumerate(lines):
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     resource_type = heading.group(1)
+                    self.check(
+                        (resource_type in SECURITY_GROUP_TYPES) == (path.stem == "security_group"),
+                        f"Security Group resources must belong only to security_group: {self.relative(path)}: {resource_type}",
+                    )
                 elif line.startswith("#"):
                     resource_type = ""
                 if line != TABLE_HEADER or not resource_type:
@@ -1556,6 +1569,8 @@ class Validator:
         }
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
+        name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
+        name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
         for path in self.design_files():
             pending_anchor = ""
             current: tuple[Path, str] | None = None
@@ -1574,7 +1589,7 @@ class Validator:
                     pending_anchor = ""
                 elif current and line.startswith("|") and line not in {TABLE_HEADER, TABLE_ALIGNMENT}:
                     cells = [cell.strip() for cell in line.strip("|").split("|")]
-                    if len(cells) == 4 and cells[1] in {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}:
+                    if len(cells) == 4 and cells[1] in name_properties:
                         configured_names[current][cells[1]] = self.unquoted(cells[2])
                     if len(cells) == 4 and (
                         cells[1]
@@ -1674,6 +1689,16 @@ class Validator:
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
                 resource = resources.get((target, fragment))
+                if expected := RESOURCE_REFERENCE_PROPERTIES.get(cells[1]):
+                    self.check(
+                        bool(resource and resource[0] == expected[0] and target.parent == source.parent.resolve()),
+                        f"{cells[1]} must link to a {expected[0]} in the same target: {self.relative(source)}: {cells[2]}",
+                    )
+                    self.check(
+                        configured_names.get((target, fragment), {}).get(expected[0] + "." + expected[1]) == label,
+                        f"{cells[1]} must display the referenced {expected[0]}.{expected[1]}: {self.relative(source)}: {label}",
+                    )
+                    continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Value":
                     expected_type = {"SECRETS_MANAGER": "SecretsManager.Secret", "PARAMETER_STORE": "SSM.Parameter"}.get(variable_type)
                     self.check(

@@ -1,37 +1,41 @@
-# CodeCommit／CodePipeline詳細設計の表示見直し
+# Config／KDFの参照表示とSecurity Group設計分離
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CodeCommit・CodePipeline表示・model生成・検証
-- Goal: RepositoryIdを非表示にし、CodePipelineのstage/actionとConfigurationを読みやすく表示し、CFn import式を実resourceへのlinkへ置き換える生成ルールを整備する。
+- Target: framework共通 / Config・KinesisFirehose・Security Group表示・model生成・検証
+- Goal: ConfigurationRecorderのRoleName表示、KDFの実resource link、Security Group専用security_group.mdの出力境界を整備する。
 
 ## Required changes
 
-- [R1] RepositoryId非表示、stage/actionの番号、Configurationのkey別表示、参照先resourceへのlink解決をruleと生成promptへ反映する。
-- [R2] 共通parser、model生成とvalidatorを表示contractへ対応させ、catalogと既存の参照検証を維持する。
-- [R3] 単一／複数action、Configurationの値・link、非表示identifierと不正表示をfocused checkで確認する。
+- [R1] ConfigurationRecorderのRoleARNをRoleNameとして表示し、参照先RoleNameのみを値に表示する。正式model propertyは維持する。
+- [R2] KDFのKeyARN、BucketARN、S3DestinationConfiguration.RoleARNを実KMS Key、S3 Bucket、IAM Roleへのlinkとして検証する。
+- [R3] Security Groupと所属ruleをec2.mdから分離し、security_group.mdと対応modelへ生成するルールを整備する。
+- [R4] 正常表示、誤った値・参照先、専用file境界とmodel整合性を既存focused checkで検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `changed:framework/rules/model-information.md`
-- [R1] `changed:framework/prompts/chatbot/service-design.md`
-- [R2] `changed:framework/scripts/design_layout.py`
-- [R2] `changed:framework/scripts/sync-model.py`
+- [R1] `changed:framework/rules/display-property-aliases.json`
+- [R1] `changed:framework/scripts/design_layout.py`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/design_layout.checks.py`
+- [R3] `changed:framework/rules/detailed-design.md`
+- [R3] `changed:framework/rules/model-information.md`
+- [R3] `changed:framework/prompts/chatbot/service-design.md`
+- [R4] `changed:framework/scripts/design_layout.checks.py`
+- [R4] `changed:framework/scripts/security_group_tables.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
+- `framework/rules/display-property-aliases.json`
 - `framework/prompts/chatbot/service-design.md`
 - `framework/scripts/design_layout.py`
 - `framework/scripts/design_layout.checks.py`
 - `framework/scripts/sync-model.py`
 - `framework/scripts/validate-blueprint.py`
+- `framework/scripts/security_group_tables.checks.py`
 
 ## Out of scope
 

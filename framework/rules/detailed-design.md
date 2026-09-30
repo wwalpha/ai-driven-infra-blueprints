@@ -38,13 +38,14 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - fileは`docs/designs/<environment>/<target-directory>/<service-id>.md`に置く。
-- Service IDはlower-kebab-caseとし、file stemおよび対応する`model/<environment>/<target-directory>/<service-id>.properties`と一致させる。
+- Service IDは原則lower-kebab-case（Security Group専用の`security_group`だけ例外）とし、file stemおよび対応する`model/<environment>/<target-directory>/<service-id>.properties`と一致させる。
 - 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
 - 運用上関連するだけの別AWS serviceを同じfileへ入れない。CloudFormation resource namespaceだけでgroupingを決めない。
 - child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
 - IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
 - VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
+- `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security_group.md`だけに置く。Design service IDは`security_group`、対応modelは`security_group.properties`、anchorは`security_group-<logical-idのlowercase>`とする。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
 - service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
@@ -99,6 +100,8 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。特別な表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。
 - grouped childは所属する設定範囲内、配列は各要素内でcatalog順を適用する。複数要素のrowをproperty単位で横断sortしない。親子の所属、identity marker、IAM PolicyNameとPolicyDocumentの対応を保つ。Security Groupの横書き一覧／rule table、JSONから生成するpolicy表は既存形式を維持する。
+- `Config.ConfigurationRecorder.RoleARN`は表示専用aliasの`RoleName`とし、Valueは同一targetの`IAM.Role`へのlinkで参照先の`RoleName`だけを表示する。ARN、role path、CFn import式を表示しない。modelでは正式property `Config.ConfigurationRecorder.RoleARN`とresource linkを維持する。
+- `KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN`は同一targetの実`KMS.Key`へのlinkとし、表示textはその`KeyId`（未作成は`PENDING_DEPLOY`）とする。`S3DestinationConfiguration.BucketARN`は実`S3.Bucket`へのlinkで`BucketName`を、`S3DestinationConfiguration.RoleARN`は実`IAM.Role`へのlinkで`RoleName`を表示する。KMS Alias、別種resource、ARN literal、Export名、CFn import式を代用しない。提供templateのOutput/Exportや参照式から実resourceをたどり、参照先が未設計・不明・複数候補なら推測せず停止する。
 - `CodeCommit.Repository.RepositoryId`は表示しない。catalogは維持するがidentifier outputの必須表示・model生成から除外し、参照には確定済み`RepositoryName`とresource anchorを使用する。
 - `CodePipeline.Pipeline.Stages[]`の全rowは`Stages[N].<Property>`と表示し、`N`はpipeline内で1からの連番とする。同じstageのrowをまとめ、同じstage内のactionが1件なら`Stages[N].Actions.<Property>`、複数なら全actionを`Stages[N].Actions[M].<Property>`とする。`M`はstageごとに1からの連番とし、同じactionのrowをまとめる。stage/actionの順序と各要素内のcatalog順を維持し、`Stages[]`／`Actions[]`、欠番・重複・0始まり、単一actionの不要なindexを禁止する。
 - CodePipeline actionの`Configuration`はJSON object一行ではなく、keyごとに`Stages[N].Actions.Configuration.<Key>`または`Stages[N].Actions[M].Configuration.<Key>`のrowへ分ける。例えば`BranchName`と`PollForSourceChanges`は各literalを表示する。同じactionのkey rowは連続させ、keyを重複させず、元の文字列値（`false`も文字列）を保持する。Configuration内のkey順は入力順を維持する。これはcatalogのConfiguration objectの表示展開であり、catalogへkeyを追加しない。

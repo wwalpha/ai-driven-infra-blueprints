@@ -13,6 +13,9 @@
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
 - `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、一覧の`No.`と`Comment`もmodelへ保存しない。詳細section配下のH3 resource headingから従来どおりresourceを識別し、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
+- Security Groupと所属Ingress／Egressは`security_group.md`から`security_group.properties`へ生成し、service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
+- ConfigurationRecorderのRoleName表示とKDFのBucketARN／RoleARNは、参照先の確定済み名称を表示したresource linkをdesiredへ保持する。正式ARN propertyを名称propertyへ変更せず、ARNを生成・保存しない。KDFのKeyARNは実KMS Keyへのlogical referenceをdesiredへ、表示されたKeyId／PENDING_DEPLOYを既存identifier reference規則どおりobservedへ分離する。
+
 ## Policy derived views
 
 - 各serviceのresource設定表とそこから参照するpolicy JSONがmodelの入力であり、JSONリンクとcanonical hashの既存形式を維持する。
@@ -22,7 +25,7 @@
 
 ## Format
 
-Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
+Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 
 `CodeCommit.Repository.RepositoryId`は非表示propertyとしてmodelへ生成せず、identifier output参照判定からも除外する。RepositoryNameとresource anchorによる参照はdesiredへ保持する。catalogを変更しない。
 

@@ -210,7 +210,7 @@ def check_codebuild_variable_display() -> None:
 def check_codebuild_vpc_display() -> None:
     vpc_rows = """| 11 | VpcConfig.Subnets[1] | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |
 | 12 | VpcConfig.Subnets[2] | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |
-| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](ec2.md#ec2-codebuild-sg) | buildに適用するSecurity Group |
+| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security_group.md#security_group-codebuild-sg) | buildに適用するSecurity Group |
 """
     design_text = CODEBUILD + vpc_rows
     with tempfile.TemporaryDirectory() as directory:
@@ -240,7 +240,7 @@ def check_codebuild_vpc_display() -> None:
 | 1 | Name | `sbnt-two` | subnetのName |
 | 2 | SubnetId | `subnet-00000000000000002` | subnetのID |
 """, encoding="utf-8")
-        (design / "ec2.md").write_text("""# EC2 詳細設計
+        (design / "security_group.md").write_text("""# Security Group 詳細設計
 
 ## リソース一覧
 
@@ -248,11 +248,11 @@ def check_codebuild_vpc_display() -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [CodeBuildSG](#ec2-codebuild-sg) | buildの通信を制御するSecurity Group |
+| 1 | [CodeBuildSG](#security_group-codebuild-sg) | buildの通信を制御するSecurity Group |
 
 ## リソース詳細
 
-<a id="ec2-codebuild-sg"></a>
+<a id="security_group-codebuild-sg"></a>
 ### EC2.SecurityGroup: CodeBuildSG
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -279,7 +279,7 @@ def check_codebuild_vpc_display() -> None:
         assert "desired.row.001-015.value=[sbnt-one](vpc.md#vpc-sbnt-one)" in model
         assert "observed.row.001-015.value=subnet-00000000000000001" in model
         assert "desired.row.001-017.property=CodeBuild.Project.VpcConfig.SecurityGroupIds" in model
-        assert "desired.row.001-017.value=[CodeBuildSG](ec2.md#ec2-codebuild-sg)" in model
+        assert "desired.row.001-017.value=[CodeBuildSG](security_group.md#security_group-codebuild-sg)" in model
         assert "observed.row.001-017.value=PENDING_DEPLOY" in model
         assert "VpcConfig.Subnets[1]" not in model
         for bad in (
@@ -290,7 +290,7 @@ def check_codebuild_vpc_display() -> None:
             design_text.replace("VpcConfig.Subnets[1]", "VpcConfig.Subnets"),
             design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "`[subnet-00000000000000001](vpc.md#vpc-sbnt-one)`"),
             design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", '`["[subnet-00000000000000001](vpc.md#vpc-sbnt-one)"]`'),
-            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](ec2.md#ec2-codebuild-sg)"),
+            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](security_group.md#security_group-codebuild-sg)"),
         ):
             assert errors(bad), bad
 
@@ -544,6 +544,86 @@ def check_codepipeline_display() -> None:
             raise AssertionError("RepositoryId display was accepted")
 
 
+def check_config_firehose_references() -> None:
+    def design(service, kind, rows):
+        return "\n".join([
+            f"# {service} 詳細設計", f"- Design service ID: `{service}`",
+            f"- Owned catalog resource types: `{kind}`", "## リソース詳細",
+            f'<a id="{service}-resource"></a>', f"### {kind}: Resource",
+            "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
+            *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
+        ]) + "\n"
+
+    role_link = "[config-role](iam.md#iam-resource)"
+    config = design("config", "Config.ConfigurationRecorder", [
+        ("Name", "`recorder`"), ("Id", "`PENDING_DEPLOY`"), ("RoleName", role_link),
+    ])
+    firehose = design("kdf", "KinesisFirehose.DeliveryStream", [
+        ("DeliveryStreamName", "`delivery`"),
+        ("DeliveryStreamEncryptionConfigurationInput.KeyARN", "[1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone)"),
+        ("DeliveryStreamEncryptionConfigurationInput.KeyType", "`CUSTOMER_MANAGED_CMK`"),
+        ("S3DestinationConfiguration.BucketARN", "[app-data](s3.md#s3-app-data)"),
+        ("S3DestinationConfiguration.RoleARN", role_link),
+    ])
+    catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / "docs/designs/dev/123456789012"
+        target.mkdir(parents=True)
+        (target / "kms.md").write_text(KMS, encoding="utf-8")
+        (target / "s3.md").write_text(S3, encoding="utf-8")
+        (target / "iam").mkdir()
+        (target / "iam/resource-trust-policy.json").write_text('{"Statement":[]}', encoding="utf-8")
+        (target / "iam.md").write_text(design("iam", "IAM.Role", [
+            ("RoleName", "`config-role`"),
+            ("AssumeRolePolicyDocument", "[trust](iam/resource-trust-policy.json)"),
+        ]), encoding="utf-8")
+        config_path, kdf_path = target / "config.md", target / "kdf.md"
+
+        def errors(config_text=config, kdf_text=firehose):
+            config_path.write_text(config_text, encoding="utf-8")
+            kdf_path.write_text(kdf_text, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({}, *catalog)
+            validator.check_design_links(catalog[2])
+            return validator.errors
+
+        assert not errors(), errors()
+        model = MODEL.model_for(config_path, REPOSITORY)
+        assert "desired.row.001-003.property=Config.ConfigurationRecorder.RoleARN" in model
+        assert f"desired.row.001-003.value={role_link}" in model
+        assert "Config.ConfigurationRecorder.RoleName" not in model
+        assert "observed.row.001-003" not in model
+        kdf_model = MODEL.model_for(kdf_path, REPOSITORY)
+        assert "desired.row.001-002.value=[KeyOne](kms.md#kms-keyone)" in kdf_model
+        assert "observed.row.001-002.value=1234abcd-12ab-34cd-56ef-1234567890ab" in kdf_model
+        assert "desired.row.001-004.value=[app-data](s3.md#s3-app-data)" in kdf_model
+        assert f"desired.row.001-005.value={role_link}" in kdf_model
+        assert "arn:aws" not in model + kdf_model
+        for bad in (
+            config.replace("RoleName |", "RoleARN |"),
+            config.replace(role_link, "`config-role`"),
+            config.replace(role_link, "[wrong](iam.md#iam-resource)"),
+            config.replace(role_link, "[alias/two](kms.md#kms-aliastwo)"),
+            config.replace(role_link, "[config-role](iam.md#iam-missing)"),
+        ):
+            assert errors(config_text=bad), bad
+        for link in (
+            "[1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone)",
+            "[app-data](s3.md#s3-app-data)", role_link,
+        ):
+            for replacement in ("`!ImportValue resource-export`", "`arn:aws:s3:::app-data`", "[wrong](s3.md#s3-app-data)", "[alias/two](kms.md#kms-aliastwo)", "`" + link + "`"):
+                assert errors(kdf_text=firehose.replace(link, replacement)), replacement
+        other_target = target.with_name("987654321098")
+        other_target.mkdir()
+        (other_target / "kms.md").write_text(KMS, encoding="utf-8")
+        assert errors(kdf_text=firehose.replace("(kms.md#kms-keyone)", "(../987654321098/kms.md#kms-keyone)"))
+        pending = firehose.replace("1234abcd-12ab-34cd-56ef-1234567890ab", "PENDING_DEPLOY").replace("kms-keyone", "kms-keytwo")
+        assert not errors(kdf_text=pending), errors(kdf_text=pending)
+        assert "observed.row.001-002.value=PENDING_DEPLOY" in MODEL.model_for(kdf_path, REPOSITORY)
+
+
 def main() -> None:
     assert not layout_errors(REPOSITORY)
     policy_rows = [
@@ -559,6 +639,7 @@ def main() -> None:
     check_guardduty_feature_display()
     check_cloudtrail_data_resources()
     check_codepipeline_display()
+    check_config_firehose_references()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

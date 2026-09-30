@@ -1,4 +1,5 @@
 {
+  "Config.ConfigurationRecorder.RoleName": "Config.ConfigurationRecorder.RoleARN",
   "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
   "S3.Bucket.BucketEncryption.BucketKeyEnabled": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled",
   "S3.Bucket.BucketEncryption[].KMSMasterKeyID": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",

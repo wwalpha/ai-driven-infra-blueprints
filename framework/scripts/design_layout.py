@@ -42,6 +42,13 @@ CLOUDTRAIL_RESOURCE_TYPES = {"S3": "AWS::S3::Object", "Lambda": "AWS::Lambda::Fu
 CLOUDTRAIL_FORMAL_DATA_RESOURCE = "CloudTrail.Trail.EventSelectors[].DataResources[]."
 STACK_DESIGN = "cloudformation-stacks.md"
 STACK_HEADER = "| No. | StackName | Template | Parameters | Comment |"
+SECURITY_GROUP_TYPES = {"EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
+RESOURCE_REFERENCE_PROPERTIES = {
+    "Config.ConfigurationRecorder.RoleARN": ("IAM.Role", "RoleName"),
+    "KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN": ("KMS.Key", "KeyId"),
+    "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN": ("S3.Bucket", "BucketName"),
+    "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN": ("IAM.Role", "RoleName"),
+}
 HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
@@ -277,6 +284,11 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             row_numbers.append(cells[0])
             display_property = cells[1]
             prop = formal_property(cells[1], resource_type)
+            if prop == "Config.ConfigurationRecorder.RoleARN":
+                raise ValueError("ConfigurationRecorder RoleARN must use RoleName display")
+            if DISPLAY_PROPERTY_ALIASES.get(prop, prop) in RESOURCE_REFERENCE_PROPERTIES:
+                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                    raise ValueError(f"{prop} must be a resource link")
             if prop in HIDDEN_PROPERTIES:
                 raise ValueError(f"property must not be displayed: {prop}")
             if prop != cells[1]:

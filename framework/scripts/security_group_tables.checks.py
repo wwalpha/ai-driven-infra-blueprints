@@ -23,7 +23,7 @@ VALIDATOR = load("validate-blueprint")
 MODEL = load("sync-model")
 DESIGN = """# Security Group 詳細設計
 
-- Design service ID: `ec2`
+- Design service ID: `security_group`
 - Owned catalog resource types: `EC2.SecurityGroup`, `EC2.SecurityGroupIngress`, `EC2.SecurityGroupEgress`
 
 ## リソース一覧
@@ -32,12 +32,12 @@ DESIGN = """# Security Group 詳細設計
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [GroupOne](#ec2-groupone) | アプリケーションの通信を制御するSG |
-| 2 | [GroupTwo](#ec2-grouptwo) | アプリケーションの通信を制御するSG |
+| 1 | [GroupOne](#security_group-groupone) | アプリケーションの通信を制御するSG |
+| 2 | [GroupTwo](#security_group-grouptwo) | アプリケーションの通信を制御するSG |
 
 ## リソース詳細
 
-<a id="ec2-groupone"></a>
+<a id="security_group-groupone"></a>
 
 ### EC2.SecurityGroup: GroupOne
 
@@ -50,15 +50,15 @@ DESIGN = """# Security Group 詳細設計
 
 | Direction | IpProtocol | Port | CidrIp | CidrIpv6 | SourcePrefixListId | SourceSecurityGroupOwnerId | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Inbound <a id="ec2-ingressone"></a><!-- logical-id: IngressOne --><!-- rule-id: `sgr-00000001` --> <!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) --> | `tcp` | `443` | — | — | — | `123456789012` | `Application access` |
-| Inbound <a id="ec2-ingresstwo"></a><!-- logical-id: IngressTwo --><!-- rule-id: `PENDING_DEPLOY` --> | `icmpv6` | `Type=128, Code=0` | — | `2001:db8::/64` | — | — | — |
-| Inbound <a id="ec2-ingressthree"></a><!-- logical-id: IngressThree --><!-- rule-id: `PENDING_DEPLOY` --> | `udp` | `1000-2000` | — | — | `pl-00000001` | — | `Prefix Listからの通信` |
+| Inbound <a id="security_group-ingressone"></a><!-- logical-id: IngressOne --><!-- rule-id: `sgr-00000001` --> <!-- security-group-id: [PENDING_DEPLOY](#security_group-grouptwo) --> | `tcp` | `443` | — | — | — | `123456789012` | `Application access` |
+| Inbound <a id="security_group-ingresstwo"></a><!-- logical-id: IngressTwo --><!-- rule-id: `PENDING_DEPLOY` --> | `icmpv6` | `Type=128, Code=0` | — | `2001:db8::/64` | — | — | — |
+| Inbound <a id="security_group-ingressthree"></a><!-- logical-id: IngressThree --><!-- rule-id: `PENDING_DEPLOY` --> | `udp` | `1000-2000` | — | — | `pl-00000001` | — | `Prefix Listからの通信` |
 | Inbound | `icmp` | `Type=8, Code=0` | `10.0.0.0/24` | — | — | — | — |
-| Outbound <a id="ec2-egressone"></a><!-- logical-id: EgressOne --><!-- rule-id: `PENDING_DEPLOY` --> <!-- security-group-id: [sg-00000001](#ec2-groupone) --> | `-1` | — | — | — | — | — | `Security Group内の通信` |
+| Outbound <a id="security_group-egressone"></a><!-- logical-id: EgressOne --><!-- rule-id: `PENDING_DEPLOY` --> <!-- security-group-id: [sg-00000001](#security_group-groupone) --> | `-1` | — | — | — | — | — | `Security Group内の通信` |
 | Outbound | `-1` | — | `0.0.0.0/0` | — | — | — | `IPv4 outbound` |
 | Outbound | `-1` | — | `10.1.0.0/16` | — | — | — | — |
 
-<a id="ec2-grouptwo"></a>
+<a id="security_group-grouptwo"></a>
 
 ### EC2.SecurityGroup: GroupTwo
 
@@ -111,16 +111,17 @@ def main():
             assert "EC2.SecurityGroup" in catalog[1][f"EC2.SecurityGroup.SecurityGroup{direction}[].{prop}"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        path = root / "docs/designs/dev/123456789012/ec2.md"
+        path = root / "docs/designs/dev/123456789012/security_group.md"
         path.parent.mkdir(parents=True)
         vpc = path.with_name("vpc.md")
         vpc.write_text(VPC_DESIGN, encoding="utf-8")
-        metadata = {vpc: ("vpc", ("EC2.VPC",)), path: ("ec2", ("EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"))}
+        metadata = {vpc: ("vpc", ("EC2.VPC",)), path: ("security_group", ("EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"))}
 
         def errors(text):
             path.write_text(text, encoding="utf-8")
             validator = VALIDATOR.Validator(root)
             validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.markdown_service_metadata(path, catalog[0])
             validator.check_design_tables(metadata, *catalog)
             validator.check_design_overviews()
             validator.check_design_links(catalog[2])
@@ -131,6 +132,22 @@ def main():
         original = path.read_bytes()
         generated = MODEL.model_for(path, REPOSITORY)
         assert path.read_bytes() == original
+        validator = VALIDATOR.Validator(root)
+        model_path = root / "model/dev/123456789012/security_group.properties"
+        model_path.parent.mkdir(parents=True)
+        model_path.write_text(generated, encoding="utf-8")
+        assert validator.model_service_metadata(model_path, catalog[0]) == metadata[path]
+        assert not validator.errors, validator.errors
+        for filename, service, kinds in (
+            ("ec2.md", "ec2", ("EC2.SecurityGroup",)),
+            ("ec2.properties", "ec2", ("EC2.SecurityGroupIngress",)),
+            ("security_group.md", "security_group", ("EC2.Instance",)),
+            ("security_group.md", "security_group", ("EC2.SecurityGroup", "EC2.VPC")),
+            ("other_service.md", "other_service", ("S3.Bucket",)),
+        ):
+            invalid = VALIDATOR.Validator(root)
+            invalid.check_service_file(path.with_name(filename), service, kinds)
+            assert invalid.errors, (filename, service, kinds)
         short_design = DESIGN.replace("| EC2.SecurityGroup.", "| ")
         assert not errors(short_design), errors(short_design)
         assert MODEL.model_for(path, REPOSITORY) == generated
@@ -151,22 +168,22 @@ def main():
         assert "desired.resource.002.resourceType=EC2.SecurityGroupIngress" in generated
         assert "desired.resource.002.logicalId=IngressOne" in generated
         assert "desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId" in generated
-        assert "desired.resource.002.parentReference=[GroupOne](#ec2-groupone)" in generated
+        assert "desired.resource.002.parentReference=[GroupOne](#security_group-groupone)" in generated
         assert "desired.resource.005.parentProperty=EC2.SecurityGroupEgress.GroupId" in generated
         assert "desired.resource.006.logicalId=GroupTwo" in generated
-        assert "desired.row.002-001.value=[IngressOne](#ec2-ingressone)" in generated
+        assert "desired.row.002-001.value=[IngressOne](#security_group-ingressone)" in generated
         assert "observed.row.002-001.value=`sgr-00000001`" in generated
-        assert "desired.row.002-005.value=[GroupTwo](#ec2-grouptwo)" in generated
+        assert "desired.row.002-005.value=[GroupTwo](#security_group-grouptwo)" in generated
         assert "observed.row.002-005.value=PENDING_DEPLOY" in generated
         assert "SecurityGroupRuleId" not in generated and "<!--" not in generated
         assert "desired.note." not in generated and "=—" not in generated
-        assert MODEL.linked_resource(path, "[sgr-00000001](#ec2-ingressone)") == ("EC2.SecurityGroupIngress", "IngressOne")
+        assert MODEL.linked_resource(path, "[sgr-00000001](#security_group-ingressone)") == ("EC2.SecurityGroupIngress", "IngressOne")
         assert VALIDATOR.rendered_policy_design(path) == DESIGN
 
         normalized, children = expanded_design(DESIGN.splitlines())
         assert len(children) == 4
-        assert children["ec2-ingressthree"]["logicalId"] == "IngressThree"
-        assert [row[2] for row in children["ec2-ingresstwo"]["rows"]] == ["`PENDING_DEPLOY`", "`icmpv6`", "`128`", "`0`", "`2001:db8::/64`"]
+        assert children["security_group-ingressthree"]["logicalId"] == "IngressThree"
+        assert [row[2] for row in children["security_group-ingresstwo"]["rows"]] == ["`PENDING_DEPLOY`", "`icmpv6`", "`128`", "`0`", "`2001:db8::/64`"]
         inline = [line.split(" | ")[1:3] for line in normalized if ".SecurityGroupEgress[]." in line]
         assert inline == [
             ["EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol", "`-1`"],
@@ -185,11 +202,11 @@ def main():
         assert "EC2.SecurityGroup.Tags[]" not in "\n".join(security_group_table_lines(no_tags.splitlines()))
         inline_peer = DESIGN.replace(
             "| Inbound | `icmp` | `Type=8, Code=0` | `10.0.0.0/24` | — | — | — | — |",
-            "| Inbound <!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) --> | `tcp` | `443` | — | — | — | — | — |",
+            "| Inbound <!-- security-group-id: [PENDING_DEPLOY](#security_group-grouptwo) --> | `tcp` | `443` | — | — | — | — | — |",
         )
         assert not errors(inline_peer), errors(inline_peer)
         assert any(
-            "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId | [PENDING_DEPLOY](#ec2-grouptwo)" in line
+            "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId | [PENDING_DEPLOY](#security_group-grouptwo)" in line
             for line in security_group_table_lines(inline_peer.splitlines())
         )
         # No rule tables must still retain both SGs and the ruleless tags.
@@ -201,20 +218,20 @@ def main():
             model = MODEL.model_for(path, REPOSITORY)
             assert path.read_bytes() == source
             assert model.count(".resourceType=EC2.SecurityGroup\n") == 2
-            assert "desired.resource.002.anchor=ec2-grouptwo\n" in model
+            assert "desired.resource.002.anchor=security_group-grouptwo\n" in model
             assert ".resourceType=EC2.SecurityGroupIngress" not in model
             assert ".resourceType=EC2.SecurityGroupEgress" not in model
             assert "desired.note." not in model
             assert (".property=EC2.SecurityGroup.Tags[].Key" in model) == (tag_line in text)
         # Moving a standalone row changes its owner, not its logical or current ID.
-        rule = next(line for line in DESIGN.splitlines() if 'id="ec2-egressone"' in line)
+        rule = next(line for line in DESIGN.splitlines() if 'id="security_group-egressone"' in line)
         moved = DESIGN.replace(rule + "\n", "").rstrip()
         columns = "\n".join(next(line for line in DESIGN.splitlines() if line.startswith(prefix)) for prefix in ("| Direction |", "| --- | --- | --- | --- | --- | --- | --- | --- |"))
         moved += "\n\n" + columns + "\n" + rule + "\n"
         assert not errors(moved), errors(moved)
         _, moved_children = expanded_design(moved.splitlines())
-        assert moved_children["ec2-egressone"]["parentLogicalId"] == "GroupTwo"
-        assert moved_children["ec2-egressone"]["logicalId"] == "EgressOne"
+        assert moved_children["security_group-egressone"]["parentLogicalId"] == "GroupTwo"
+        assert moved_children["security_group-egressone"]["logicalId"] == "EgressOne"
 
         assert "| FromPort |" not in DESIGN and "| ToPort |" not in DESIGN
         assert ".property=Port\n" not in generated
@@ -254,15 +271,15 @@ def main():
             (DESIGN.replace("`Type=128, Code=0`", "`Type=256, Code=0`", 1), "outside the protocol range"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=-1, Code=0`", 1), "invalid Port range"),
             (DESIGN.replace("<!-- rule-id: `sgr-00000001` -->", "", 1), "requires complete anchor/logical-id/rule-id markers"),
-            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) -->", "<!-- security-group-id: -->", 1), "invalid Security Group reference metadata"),
-            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#ec2-grouptwo) -->", "<!-- security-group-id: — -->", 1), "invalid Security Group reference metadata"),
+            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#security_group-grouptwo) -->", "<!-- security-group-id: -->", 1), "invalid Security Group reference metadata"),
+            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#security_group-grouptwo) -->", "<!-- security-group-id: — -->", 1), "invalid Security Group reference metadata"),
             (DESIGN.replace("| Inbound <", "| inbound <", 1), "requires complete anchor/logical-id/rule-id markers"),
             (DESIGN.replace("rule-id: `sgr-00000001`", "rule-id: `—`", 1), "requires an Id"),
             (DESIGN.replace(" | `tcp` |", " | <!-- rule-id: `sgr-00000001` --> `tcp` |", 1), "identity must be in Direction"),
             (DESIGN.replace('<!-- logical-id: IngressOne -->', ''), "requires complete anchor/logical-id/rule-id markers"),
-            (DESIGN.replace('id="ec2-ingressone"', 'id="ec2-wrong"'), "logical ID/anchor"),
+            (DESIGN.replace('id="security_group-ingressone"', 'id="security_group-wrong"'), "logical ID/anchor"),
             (DESIGN.replace('<!-- logical-id: IngressTwo -->', '<!-- logical-id: IngressOne -->'), "duplicate grouped logical ID"),
-            (DESIGN.replace('id="ec2-ingresstwo"', 'id="ec2-ingressone"'), "duplicate resource anchor"),
+            (DESIGN.replace('id="security_group-ingresstwo"', 'id="security_group-ingressone"'), "duplicate resource anchor"),
             (DESIGN.replace('rule-id: `PENDING_DEPLOY` -->', 'rule-id: `sgr-00000001` -->', 1), "duplicate grouped identity value"),
             (DESIGN.replace('| Inbound |', '| inbound |', 1), "Direction must be Inbound or Outbound"),
             (DESIGN.replace('| Inbound <', '| Outbound <', 1), "do not match Direction"),
@@ -272,16 +289,16 @@ def main():
             (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, GroupDescription and VpcId detail values"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[vpc-wrong](vpc.md#vpc-vpc-app-dev)', 1), "identifier reference does not match"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '`vpc-00000001`', 1), "VpcId must link to its VPC"),
-            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#ec2-groupone)', 1), "VpcId must link to a VPC in the same target"),
-            (DESIGN.replace('[GroupOne](#ec2-groupone)', '[GroupOne](#ec2-grouptwo)', 1), "overview link must match"),
-            (DESIGN.replace('[GroupTwo](#ec2-grouptwo)', '[GroupOne](#ec2-grouptwo)', 1), "unique logical ID link"),
+            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#security_group-groupone)', 1), "VpcId must link to a VPC in the same target"),
+            (DESIGN.replace('[GroupOne](#security_group-groupone)', '[GroupOne](#security_group-grouptwo)', 1), "overview link must match"),
+            (DESIGN.replace('[GroupTwo](#security_group-grouptwo)', '[GroupOne](#security_group-grouptwo)', 1), "unique logical ID link"),
             (DESIGN.replace('"Value":"app"', '"Wrong":"app"', 1), "Tags must be a JSON array"),
             (DESIGN.replace(' | `443` |', ' | `invalid` |', 1), "invalid Port"),
             (DESIGN.replace(' | `tcp` |', ' | — |', 1), "requires IpProtocol"),
             (DESIGN.replace(' | `tcp` | `443` | — | — | — | `123456789012` |', ' | `tcp` | `443` | `10.0.0.0/24` | — | — | `123456789012` |', 1), "exactly one address"),
-            (DESIGN.replace('[PENDING_DEPLOY](#ec2-grouptwo)', '[sg-wrong](#ec2-grouptwo)', 1), "identifier reference does not match"),
+            (DESIGN.replace('[PENDING_DEPLOY](#security_group-grouptwo)', '[sg-wrong](#security_group-grouptwo)', 1), "identifier reference does not match"),
             (DESIGN.replace('### EC2.SecurityGroup: GroupOne', '### EC2.Instance: GroupOne'), "rule table must belong to EC2.SecurityGroup"),
-            (DESIGN + '\n<a id="ec2-oldrule"></a>\n### EC2.SecurityGroupIngress: OldRule\n', "must use a horizontal Direction"),
+            (DESIGN + '\n<a id="security_group-oldrule"></a>\n### EC2.SecurityGroupIngress: OldRule\n', "must use a horizontal Direction"),
         ]
         for text, message in bad:
             failures = errors(text)
