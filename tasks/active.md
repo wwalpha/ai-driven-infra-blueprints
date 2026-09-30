@@ -20,6 +20,7 @@
 - [R1] `changed:framework/prompts/chatbot/service-design.md`
 - [R2] `changed:framework/scripts/design_layout.py`
 - [R2] `changed:framework/scripts/sync-model.py`
+- [R2] `changed:framework/scripts/security_group_tables.py`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
 - [R3] `changed:framework/scripts/design_layout.checks.py`
 
@@ -32,6 +33,7 @@
 - `framework/prompts/chatbot/service-design.md`
 - `framework/scripts/design_layout.py`
 - `framework/scripts/sync-model.py`
+- `framework/scripts/security_group_tables.py`
 - `framework/scripts/validate-blueprint.py`
 - `framework/scripts/*.checks.py`
 

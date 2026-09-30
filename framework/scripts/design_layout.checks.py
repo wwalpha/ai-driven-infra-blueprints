@@ -687,6 +687,9 @@ def check_resource_name_headings() -> None:
 
         # A named parent keeps its hidden ID when children are expanded.
         named_kms = KMS.replace('<a id="kms-keyone"></a>', '<!-- resource-logical-id: KeyOne -->\n<a id="kms-transfer-key"></a>').replace('### KMS.Key: KeyOne', '### KMS.Key: transfer-key').replace('(#kms-keyone)', '(#kms-transfer-key)').replace('[KeyOne]', '[transfer-key]')
+        named_kms = named_kms.replace('<a id="kms-keytwo"></a>', '<!-- resource-logical-id: KeyTwo -->\n<a id="kms-data-key"></a>').replace('### KMS.Key: KeyTwo', '### KMS.Key: data-key').replace('(#kms-keytwo)', '(#kms-data-key)').replace('[KeyTwo]', '[data-key]')
+        for word in ("one", "two", "three"):
+            named_kms = named_kms.replace("kms-alias" + word, "kms-alias-" + word)
         kms = path.with_name("kms.md")
         kms.write_text(named_kms, encoding="utf-8")
         model = MODEL.model_for(kms, REPOSITORY)
@@ -695,8 +698,22 @@ def check_resource_name_headings() -> None:
         assert "desired.row.001-001.value=[KeyOne](#kms-transfer-key)" in model
         assert MODEL.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-transfer-key)") == ("KMS.Key", "KeyOne")
 
+        group_name = "transfer service access"
+        sg_anchor = resource_anchor("security_group", group_name)
+        sg_text = text.replace("scheduler", "security_group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
+        sg_text = sg_text.replace("security_group-" + group_name, sg_anchor)
+        sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", "| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | VpcId | `vpc-123` | 所属VPCのID |")
+        sg = path.with_name("security_group.md")
+        sg.write_text(sg_text, encoding="utf-8")
+        validator = VALIDATOR.Validator(root)
+        validator.check_resource_names({sg: ("security_group", ("EC2.SecurityGroup",)), kms: ("kms", ("KMS.Key", "KMS.Alias")), **metadata})
+        assert not validator.errors, validator.errors
+        assert "desired.resource.001.logicalId=TransferSecurityGroup" in MODEL.model_for(sg, REPOSITORY)
+
     assert resource_display_name("IAM.Role", [["1", "RoleName", "`role-app-dev`", "名前"]]) == "role-app-dev"
     assert resource_display_name("KMS.Key", [["1", "KMS.Alias.AliasName", "`alias/app`", "名前"]]) is None
+    assert resource_display_name("Scheduler.Schedule", [["1", "GroupName", "`default`", "group"]]) is None
+    assert resource_display_name("EC2.SecurityGroup", [["1", "EC2.SecurityGroup.Tags[].Key", '"Name"', "タグ"], ["2", "EC2.SecurityGroup.Tags[].Value", '"sg-app-dev"', "タグ"]]) == "sg-app-dev"
     assert resource_anchor("secretsmanager", "app/dev/key") == "secretsmanager-app-dev-key"
     assert resource_logical_ids(text.splitlines()) == {("Scheduler.Schedule", name): logical_id}
 

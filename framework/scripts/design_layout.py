@@ -23,7 +23,7 @@ IMPLICIT_GROUPED_PROPERTIES = {
 DISPLAY_ALIAS_PATH = Path(__file__).resolve().parents[1] / "rules" / "display-property-aliases.json"
 DISPLAY_PROPERTY_ALIASES = json.loads(DISPLAY_ALIAS_PATH.read_text(encoding="utf-8"))
 DETAILS_HEADING = "## リソース詳細"
-RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`]+\S|\S)$")
+RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 RESOURCE_ID = re.compile(r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->$")
 CHILD = re.compile(
@@ -88,18 +88,29 @@ def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
 
 def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
-    fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`") for row in rows if row[1].startswith(resource_type + ".") or not any(row[1].startswith(kind + ".") for kind in LAYOUTS)}
-    names = ["Name", "name", resource_type.split(".")[1] + "Name"]
-    names.extend(field for field in fields if "." not in field and field.endswith("Name") and field != "GroupName")
-    names.extend(("GroupName", "DBInstanceIdentifier", "DBClusterIdentifier"))
+    fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
+    kind = resource_type.split(".")[1]
+    names = ["Name", "name", kind + "Name", kind + "Identifier", kind + "Input.Name"]
+    if kind.endswith("Name"):
+        names.append(kind)
+    if resource_type == "EC2.SecurityGroup":
+        names.append("GroupName")
     for field in names:
         if field in fields and not fields[field].startswith("["):
             return fields[field]
-    for index, row in enumerate(rows[:-1]):
-        if row[1] in {resource_type + ".Tags[].Key", "Tags[].Key"} and row[2].strip("`") == "Name":
-            value = rows[index + 1]
-            if value[1] in {resource_type + ".Tags[].Value", "Tags[].Value"}:
-                return value[2].strip("`")
+    for tags in ("Tags", "HostedZoneTags"):
+        for index, row in enumerate(rows[:-1]):
+            if row[1].removeprefix(resource_type + ".") == tags + "[].Key" and row[2].strip("`\"") == "Name":
+                value = rows[index + 1]
+                if value[1].removeprefix(resource_type + ".") == tags + "[].Value":
+                    return value[2].strip("`\"")
+        if tags in fields:
+            try:
+                values = json.loads(fields[tags])
+            except ValueError:
+                continue  # The schema validator reports malformed JSON.
+            if isinstance(values, dict) and isinstance(values.get("Name"), str):
+                return values["Name"]
     return None
 
 

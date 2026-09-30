@@ -74,7 +74,7 @@
 
 | Job | AWS account ID | Bucket |
 | --- | --- | --- |
-| [CdeSadJob](#macie-cdesadjob) | `123456789012` | [example-bucket](s3.md#s3-example-bucket) |
+| [macie-app-dev-cde-sad](#macie-macie-app-dev-cde-sad) | `123456789012` | [example-bucket](s3.md#s3-example-bucket) |
 ```
 
 <a id="kms-alias"></a>
@@ -82,15 +82,16 @@
 ## KMS Alias
 
 ```md
-<a id="kms-s3filetransferkey01"></a>
+<!-- resource-logical-id: S3FILETRANSFERKEY01 -->
+<a id="kms-s3-file-transfer-key"></a>
 
-### KMS.Key: S3FILETRANSFERKEY01
+### KMS.Key: s3-file-transfer-key
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `PENDING_DEPLOY` | 一意に識別するID |
 | 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
-| 3 | KMS.Alias.AliasName | `alias/venus-dev-s3-file-transfer` | <a id="kms-s3filetransferkeyalias01"></a><!-- logical-id: S3FILETRANSFERKEYALIAS01 --> KMS keyを識別するalias |
+| 3 | KMS.Alias.AliasName | `alias/venus-dev-s3-file-transfer` | <a id="kms-alias-venus-dev-s3-file-transfer"></a><!-- logical-id: S3FILETRANSFERKEYALIAS01 --> KMS keyを識別するalias |
 ```
 
 <a id="iam-trust-policy"></a>
@@ -100,7 +101,7 @@
 ```md
 <!-- iam-policy-tables:start -->
 
-<a id="iam-vpcflowlogsrole-trust"></a>
+<a id="iam-role-app-dev-vpc-flow-logs-trust"></a>
 
 #### 信頼ポリシー：FlowLogsTrust
 

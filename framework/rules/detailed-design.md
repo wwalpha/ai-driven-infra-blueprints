@@ -73,7 +73,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
 - 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <resource-name>`とする。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
 - `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
-- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Schedule.Name`に相当する`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがない型はhuman-confirmedな表示名を使い、未確定なら停止する。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
+- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがない型はhuman-confirmedな表示名を使い、未確定なら停止する。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
 - 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のresource名は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
@@ -163,7 +163,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - 通常の統合では親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。`display: rule-table`では後述の単一rule tableへ1 ruleを1 rowで置く。どちらも子ごとの独立heading・table・一覧は作らない。独立resourceとして設計する子のresource typeも`Owned catalog resource types`へ含める。
 - `parentProperty`のrowは省略し、包含する親へのlogical referenceとして解決する。外部の既存親を参照する子だけの設計はこの形式では表現せず、対応する親の設計または別の表示contractが必要であることを報告する。
 - `identityProperty`がない単一の子は親のmodelへrowを保持する。既存のS3 BucketPolicyはこの形式を維持する。
-- `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。`display: rule-table`では同じmarkerとcurrent IDの非表示markerを各rule rowの`Direction` cellへ置く。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
+- `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<resource-name由来のanchor>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。`KMS.Alias`のanchorはAliasNameから共通規則で生成する。`display: rule-table`のruleには名称propertyがないため、従来の内部identity markerとcurrent IDの非表示markerを各rule rowの`Direction` cellへ維持し、表示用linkを作らない。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
 - 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。ただし未作成のSecurity Group ruleのIdは複数rowで`PENDING_DEPLOY`となるため、確定済みlogical IDとanchorで区別する。
 - 外部からの参照は子のanchorへ維持する。親へのlinkに置換したり、先頭の子を代表として選んだりしない。
 - 各子のpropertyはその子自身のprovider schemaで検証する。所属親が異なる型、独立heading、欠落した識別情報、子の個数超過、重複、参照切れをlocal loopで拒否する。

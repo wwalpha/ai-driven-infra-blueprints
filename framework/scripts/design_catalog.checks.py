@@ -50,28 +50,30 @@ def markdown(values):
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [Session](#macie-session) | 機密データ検出を有効にするsession |
+| 1 | [session](#macie-session) | 機密データ検出を有効にするsession |
 
 ### Macie.ClassificationJob
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [Job](#macie-job) | 対象データを検査するjob |
+| 1 | [daily-data-scan](#macie-daily-data-scan) | 対象データを検査するjob |
 
 ## リソース詳細
 
+<!-- resource-logical-id: Session -->
 <a id="macie-session"></a>
 
-### Macie.Session: Session
+### Macie.Session: session
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | AwsAccountId | `123456789012` | Macieを使用するAWS accountのID |
 | 2 | Status | `ENABLED` | Macieの有効状態 |
 
-<a id="macie-job"></a>
+<!-- resource-logical-id: Job -->
+<a id="macie-daily-data-scan"></a>
 
-### Macie.ClassificationJob: Job
+### Macie.ClassificationJob: daily-data-scan
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -90,8 +92,8 @@ def markdown(values):
                 continue
             for bucket in definition["buckets"]:
                 if isinstance(bucket, str):
-                    text += f"| [Job](#macie-job) | `{definition['accountId']}` | `{bucket}` |\n"
-    return text.replace("| [Job](#macie-job) | SCHEDULED |", f"| [Job](#macie-job) | {values.get('jobType', '')} |")
+                    text += f"| [daily-data-scan](#macie-daily-data-scan) | `{definition['accountId']}` | `{bucket}` |\n"
+    return text.replace("| [daily-data-scan](#macie-daily-data-scan) | SCHEDULED |", f"| [daily-data-scan](#macie-daily-data-scan) | {values.get('jobType', '')} |")
 
 
 def main():
@@ -142,13 +144,13 @@ def main():
         assert not check(), check()
         pending = model.read_text()
         assert f"desired.resource.002.resourceType={MACIE_JOB}" in pending
-        assert "desired.row.002-002.value=[Job](#macie-job)" in pending
+        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in pending
         assert "observed.row.002-002.value=`PENDING_DEPLOY`" in pending
         assert "desired.row.002-004.value=" in pending
         assert "observed.row.002-004" not in pending
         assert not check({**VALUES, "jobId": "0123456789abcdef0123456789abcdef"})
         assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in model.read_text()
-        assert "desired.row.002-002.value=[Job](#macie-job)" in model.read_text()
+        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in model.read_text()
         single = {key: value for key, value in VALUES.items() if key not in {"scheduleFrequency", "initialRun"}}
         assert not check({**single, "jobType": "ONE_TIME"})
         assert not check({**VALUES, "scheduleFrequency": {"weeklySchedule": {"dayOfWeek": "MONDAY"}}})
@@ -198,8 +200,8 @@ def main():
         assert any("bucket mapping differs from JSON artifact" in error for error in check(text=text))
         artifact.write_text(json.dumps(VALUES["s3JobDefinition"]))
         assert any("requires a Markdown mapping table" in error for error in check(text=text.split("#### 対象S3 bucket")[0]))
-        assert any("missing or duplicate Macie bucket" in error for error in check(text=text.replace("`app-data` |", "`app-data` |\n| [Job](#macie-job) | `123456789012` | `app-data` |")))
-        assert any("invalid Macie Job/account mapping row" in error for error in check(text=text.replace("[Job](#macie-job) | `123456789012`", "[Other](#macie-other) | `123456789012`")))
+        assert any("missing or duplicate Macie bucket" in error for error in check(text=text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `app-data` |")))
+        assert any("invalid Macie Job/account mapping row" in error for error in check(text=text.replace("[daily-data-scan](#macie-daily-data-scan) | `123456789012`", "[Other](#macie-other) | `123456789012`")))
         s3 = design.with_name("s3.md")
         s3.write_text('<a id="s3-app-data"></a>\n\n### S3.Bucket: app-data\n', encoding="utf-8")
         design.write_text(text.replace("`app-data` |", "[wrong](s3.md#s3-app-data) |"), encoding="utf-8")
@@ -210,7 +212,7 @@ def main():
         else:
             raise AssertionError("wrong S3 link label accepted")
         s3.unlink()
-        noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [Job](#macie-job) | `000000000000` | `other-bucket` |\n| [Job](#macie-job) | `123456789012` | `third-bucket` |")
+        noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `000000000000` | `other-bucket` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `third-bucket` |")
         assert any("account rows must be contiguous" in error for error in check(text=noncontiguous))
         changed = text.replace("`app-data` |", "`new-bucket` |")
         design.write_text(changed, encoding="utf-8")

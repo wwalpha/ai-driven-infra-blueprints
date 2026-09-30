@@ -31,6 +31,7 @@ from design_layout import (
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
     GROUPED,
+    CHILD,
     HIDDEN_PROPERTIES,
     RESOURCE_REFERENCE_PROPERTIES,
     SECURITY_GROUP_TYPES,
@@ -1119,6 +1120,10 @@ class Validator:
                     cells = [cell.strip() for cell in line.strip("|").split("|")]
                     if len(cells) == 4 and cells[0].isdigit():
                         rows.append(cells)
+                        if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
+                            marker = CHILD.match(cells[3])
+                            expected = resource_anchor(service_metadata[path][0], self.unquoted(cells[2]))
+                            self.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {self.relative(path)}: expected {expected}")
 
     def check_design_tables(
         self,
@@ -1393,7 +1398,7 @@ class Validator:
                                     f"required provider schema property missing: {self.relative(path)}: {resource_type}.{property_name}",
                                 )
                     self.check_generated_identifier(
-                        path, current_resource_type, current_logical_id, rows, identifier_outputs
+                        path, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), rows, identifier_outputs
                     )
                     self.check_required_name_tag(
                         path, current_resource_type, current_logical_id, rows
@@ -1639,7 +1644,13 @@ class Validator:
             current: tuple[Path, str] | None = None
             lines = path.read_text(encoding="utf-8").splitlines()
             try:
-                lines, _ = expanded_design(lines)
+                lines, children = expanded_design(lines)
+                for anchor, child in children.items():
+                    identity = GROUPED[child["resourceType"]]["identityProperty"]
+                    if identity != "Id":
+                        value = self.unquoted(child["rows"][0][2])
+                        if value != child["logicalId"]:
+                            hidden_ids[path.resolve(), anchor] = child["logicalId"]
             except ValueError as error:
                 self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
             for line in lines:
