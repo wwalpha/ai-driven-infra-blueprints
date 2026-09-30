@@ -86,6 +86,8 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | Amazon CloudWatch | Alarm | `CloudWatch.Alarm` | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
 | Amazon CloudWatch Logs | Log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon Athena | Workgroup | `Athena.WorkGroup` | `Name` | `athwg-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Glue | Job | `Glue.Job` | `Name` | `glue-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Glue | Security configuration | `Glue.SecurityConfiguration` | `Name` | `glsc-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon QuickSight | Data source | `QuickSight.DataSource` | `Name` | `qsds-{{application}}-{{environment}}-{{source_type}}-{{purpose}}` |
 | Amazon QuickSight | VPC connection | `QuickSight.VPCConnection` | `Name` | `qsvc-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon MWAA | Environment | `MWAA.Environment` | `Name` | `mwaa-{{application}}-{{environment}}[-{{purpose}}]` |
@@ -116,6 +118,7 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 
 ## Service-specific constraints
 
+- AWS Glue JobとSecurityConfigurationの`Name`はlower-kebab-case・1〜255文字とし、`purpose`は用途を識別するhuman-confirmedなtokenを使用する。SecurityConfigurationのprefixは`glsc`（Glue Security Configuration）とし、prefix内にhyphenを含めない。
 - Amazon QuickSight DataSourceの`source_type`は`athena`、`snowflake`などの接続種別をlowercaseで表し、`purpose`は部署・情報区分などデータソースの用途を識別するhuman-confirmedな値とする。DataSourceとVPCConnectionの`Name`は1〜128文字の表示名とし、`DataSourceId`／`VPCConnectionId`とは別に扱う。
 - Amazon MWAA Environmentの`purpose`は用途別にenvironmentを分ける場合だけ含める。`Name`は英字で開始し、英数字、hyphen、underscoreだけを使い、1〜80文字とする。この命名patternではlower-kebab-caseを使用する。
 - Amazon Macie ClassificationJobの`purpose`は検出内容を識別するhuman-confirmedな値とし、`name`はnon-emptyかつ500文字以内とする。

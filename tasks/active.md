@@ -1,35 +1,28 @@
-# QuickSight・MWAA・Macieの命名ルールを追加する
+# Glue Job・SecurityConfigurationの命名ルールを追加する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / QuickSight.DataSource.Name、QuickSight.VPCConnection.Name、MWAA.Environment.Name、Macie.ClassificationJob.name
-- Goal: 承認された4件の命名patternをtarget_aliasなしで命名表へ追加する。
+- Target: framework共通 / Glue.Job.Name、Glue.SecurityConfiguration.Name
+- Goal: 承認されたglue／glsc prefixの命名patternをtarget_aliasなしで命名表へ追加する。
 
 ## Required changes
 
-- [R1] QuickSight DataSourceはqsds-{{application}}-{{environment}}-{{source_type}}-{{purpose}}、VPCConnectionはqsvc-{{application}}-{{environment}}-{{purpose}}を登録する。
-- [R2] MWAA Environmentはmwaa-{{application}}-{{environment}}[-{{purpose}}]、Macie ClassificationJobはmacie-{{application}}-{{environment}}-{{purpose}}を登録する。
-- [R3] source_typeとpurposeの意味、MWAAのpurpose省略条件、4件の名称制約を明記する。
+- [R1] Glue.Job.Nameをglue-{{application}}-{{environment}}-{{purpose}}、Glue.SecurityConfiguration.Nameをglsc-{{application}}-{{environment}}-{{purpose}}として登録する。
+- [R2] 両名称をlower-kebab-case・1〜255文字とし、purposeはhuman-confirmedな用途識別tokenであることを明記する。
 
 ## Acceptance checks
 
 - [R1] `changed:framework/rules/aws-resource-naming.md`
 - [R2] `changed:framework/rules/aws-resource-naming.md`
-- [R3] `changed:framework/rules/aws-resource-naming.md`
 
 ## Allowed paths
 
 - `tasks/active.md`
 - `framework/rules/aws-resource-naming.md`
 
-以下は前taskの未commit差分の保持対象だけとし、今回変更しない。
-
-- `framework/scripts/model_design.py`
-- `framework/scripts/model_design.checks.py`
-
 ## Out of scope
 
-- catalog/provider schema、validator実装、consumer repository、docs/modelの設計値、IaC、AWS API、deploy/apply、scenario、別taskの作成・実行。
-- 指定4 property以外の命名ルールは変更しない。既存の未commit変更は保持し、今回の変更へ取り込まない。
+- 指定2 property以外の命名ルール、validator実装、catalog/provider schema、consumer repository、docs/modelの設計値、IaC、AWS API、deploy/apply、scenario、別taskの作成・実行。
+- 既存のresource名と詳細設計の名称は変更しない。
 - governance local loopとgit diff --checkを実行する。verification outputは完了報告だけに記載する。
