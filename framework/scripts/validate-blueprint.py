@@ -34,6 +34,7 @@ from design_layout import (
     CHILD,
     HIDDEN_PROPERTIES,
     RESOURCE_REFERENCE_PROPERTIES,
+    is_service_role_reference,
     SECURITY_GROUP_TYPES,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
@@ -1288,7 +1289,7 @@ class Validator:
                         ):
                             property_path = self.resource_property_path(schema_type, cells[1])
                             raw_value = self.unquoted(cells[2])
-                            errors = [] if (
+                            errors = [] if is_service_role_reference(cells[1], cells[2]) or (
                                 cells[1] in identifier_outputs.get(schema_type, set())
                                 and raw_value == "PENDING_DEPLOY"
                             ) else self.schema_catalog.literal_errors(schema_type, property_path, raw_value)

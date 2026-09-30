@@ -623,6 +623,52 @@ def check_config_firehose_references() -> None:
         assert not errors(kdf_text=pending), errors(kdf_text=pending)
         assert "observed.row.001-002.value=PENDING_DEPLOY" in MODEL.model_for(kdf_path, REPOSITORY)
 
+        (target / "iam.md").unlink()
+        for role in ("AWSServiceRoleForConfig", "`AWSServiceRoleForConfig`", "`AWSServiceCustom`"):
+            service_config = config.replace(role_link, role)
+            service_firehose = firehose.replace(role_link, role)
+            assert not errors(service_config, service_firehose), errors(service_config, service_firehose)
+            service_model = MODEL.model_for(config_path, REPOSITORY)
+            assert f"desired.row.001-003.value={role}" in service_model
+            assert "desired.row.001-003.property=Config.ConfigurationRecorder.RoleARN" in service_model
+            assert "observed.row.001-003" not in service_model
+        for role in (
+            "`config-role`", "`AWSService`", "`AWSServiceRoleForConfig/path`",
+            "`arn:aws:iam::123456789012:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig`",
+            "`AWSServiceRoleForConfig", "awsServiceRoleForConfig", "AWSService" + "x" * 55,
+        ):
+            assert errors(config.replace(role_link, role), service_firehose), role
+            assert errors(service_config, firehose.replace(role_link, role)), role
+        assert errors(config, service_firehose)  # Missing IAM links still fail.
+        for prop, link in (
+            ("KeyARN", "[1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone)"),
+            ("BucketARN", "[app-data](s3.md#s3-app-data)"),
+        ):
+            assert errors(service_config, service_firehose.replace(link, "`AWSServiceRoleForConfig`")), prop
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "framework").symlink_to(REPOSITORY / "framework", target_is_directory=True)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
+            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
+        }]}) + "\n", encoding="utf-8")
+        path = root / "docs/designs/dev/123456789012/config.md"
+        path.parent.mkdir(parents=True)
+        source = design("config", "Config.ConfigurationRecorder", [
+            ("Id", "`PENDING_DEPLOY`"), ("RoleName", "`AWSServiceRoleForConfig`"),
+        ]).replace('<a id="config-resource">', '<!-- resource-logical-id: ConfigRecorder -->\n<a id="config-recorder">').replace("ConfigurationRecorder: Resource", "ConfigurationRecorder: recorder")
+        path.write_text(source, encoding="utf-8")
+        values = MODEL.properties(MODEL.model_for(path, REPOSITORY))
+        values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})
+        model_path = root / "model/dev/123456789012/config.properties"
+        model_path.parent.mkdir(parents=True)
+        model_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+        path.unlink()
+        assert MODEL.sync(root, True, "dev", "123456789012") == 0
+        assert "| RoleName | `AWSServiceRoleForConfig` |" in path.read_text(encoding="utf-8")
+        assert not path.with_name("iam.md").exists()
+        assert MODEL.sync(root, False, "dev", "123456789012") == 0
+
 
 def check_resource_name_headings() -> None:
     name = "ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455"

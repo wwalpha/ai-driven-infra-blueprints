@@ -237,6 +237,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - 4列のresource-detail tableのrow番号はtableごとに1から開始する
 - 全serviceのresource設定表はmaterialsのproperties行順とし、未選択・非表示項目は飛ばす。名前先頭・生成ID先頭などの再配置をしない。配列の各要素とgrouped childごとの設定範囲を保持し、design-only .Name、S3.Region、SG横書き表の特殊ルールは維持する。
 - ConfigurationRecorderの`RoleARN`は`RoleName`へ表示名を変え、Valueは同一targetのIAM Roleへのlinkとし、参照先RoleNameだけを表示する。ARNやrole pathを出力しない。正式model propertyはRoleARNを維持する。
+- IAM Role参照のロール名が`AWSService`から始まる場合（例: `AWSServiceRoleForConfig`）はロール名literalを許可し、`iam.md`へのlinkやIAM Role設計を要求しない。ARN、role pathを出力せず、正式ARN model propertyのdesired valueへロール名を保持する。通常ロールの参照はlinkを必須とする。
 - KDFの`DeliveryStreamEncryptionConfigurationInput.KeyARN`は同一targetの実KMS Keyへのlink（表示textはKeyId、未作成はPENDING_DEPLOY）、`S3DestinationConfiguration.BucketARN`は実S3 Bucketへのlink（BucketName）、`S3DestinationConfiguration.RoleARN`は実IAM Roleへのlink（RoleName）とする。KMS Alias、別種resource、ARN literal、CFn import式、Export名を代用せず、templateの参照式やOutput/Exportから実resourceをたどる。不明・未設計・複数候補なら推測せず停止する。
 - CodeCommitのRepositoryIdは表示しない。RepositoryNameとresource anchorを使い、非表示RepositoryIdを取得・modelへ追加しない。
 - CodePipelineの全stage propertyは`Stages[N]`（pipeline内で1から連番）とする。stage内のactionが1件なら`Actions`、複数なら全actionを`Actions[M]`（stage内で1から連番）とし、stage/action単位で元の順序とcatalog順を維持する。`Stages[]`／`Actions[]`を表示しない。

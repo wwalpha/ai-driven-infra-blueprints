@@ -55,6 +55,13 @@ CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
 
 
+def is_service_role_reference(prop: str, value: str) -> bool:
+    reference = RESOURCE_REFERENCE_PROPERTIES.get(DISPLAY_PROPERTY_ALIASES.get(prop, prop))
+    return bool(reference and reference[0] == "IAM.Role" and re.fullmatch(
+        r"(`?)AWSService[A-Za-z0-9_+=,.@-]{1,54}\1", value
+    ))
+
+
 def resource_anchor(service_id: str, name: str) -> str:
     """Use the displayed resource name as the navigation identity."""
     return service_id + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
@@ -355,7 +362,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             if prop == "Config.ConfigurationRecorder.RoleARN":
                 raise ValueError("ConfigurationRecorder RoleARN must use RoleName display")
             if DISPLAY_PROPERTY_ALIASES.get(prop, prop) in RESOURCE_REFERENCE_PROPERTIES:
-                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                if not is_service_role_reference(prop, cells[2]) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ValueError(f"{prop} must be a resource link")
             if prop in HIDDEN_PROPERTIES:
                 raise ValueError(f"property must not be displayed: {prop}")
