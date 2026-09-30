@@ -433,6 +433,117 @@ def check_cloudtrail_data_resources() -> None:
             assert errors(bad), bad
 
 
+def check_codepipeline_display() -> None:
+    def design(service: str, resource_type: str, logical_id: str, rows: list[tuple[str, str]]) -> str:
+        return "\n".join([
+            f"# {service} 詳細設計", f"- Design service ID: `{service}`",
+            f"- Owned catalog resource types: `{resource_type}`", "## リソース詳細",
+            f'<a id="{service}-{logical_id.lower()}"></a>', f"### {resource_type}: {logical_id}",
+            "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
+            *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
+        ]) + "\n"
+
+    rows = [
+        ("Name", "`pipeline`"),
+        ("RoleArn", "[role](iam.md#iam-role)"),
+        ("Stages[1].Actions.ActionTypeId.Provider", "`CodeCommit`"),
+        ("Stages[1].Actions.Configuration.BranchName", "`dev`"),
+        ("Stages[1].Actions.Configuration.PollForSourceChanges", "`false`"),
+        ("Stages[1].Actions.Configuration.RepositoryName", "[repo](codecommit.md#codecommit-repo)"),
+        ("Stages[1].Actions.Name", "`Source`"),
+        ("Stages[1].Name", "`Source`"),
+        ("Stages[2].Actions[1].ActionTypeId.Provider", "`CodeBuild`"),
+        ("Stages[2].Actions[1].Configuration.ProjectName", "[build](codebuild.md#codebuild-build)"),
+        ("Stages[2].Actions[1].Name", "`Build`"),
+        ("Stages[2].Actions[2].ActionTypeId.Provider", "`CodeBuild`"),
+        ("Stages[2].Actions[2].Configuration.ProjectName", "[build](codebuild.md#codebuild-build)"),
+        ("Stages[2].Actions[2].Name", "`Test`"),
+        ("Stages[2].Name", "`BuildAndTest`"),
+    ]
+    pipeline = design("codepipeline", "CodePipeline.Pipeline", "Pipeline", rows)
+    repository = design("codecommit", "CodeCommit.Repository", "Repo", [("RepositoryName", "`repo`")])
+    catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+    assert not catalog[2].get("CodeCommit.Repository")
+    assert not MODEL.identifier_outputs(REPOSITORY).get("CodeCommit.Repository")
+    expanded = "\n".join(expanded_display_rows(pipeline.splitlines()))
+    assert expanded.count("CodePipeline.Pipeline.Stages[].Actions[].Configuration |") == 3
+    assert '`{"BranchName":"dev","PollForSourceChanges":"false","RepositoryName":"[repo](codecommit.md#codecommit-repo)"}`' in expanded
+    assert "Stages[1]" not in expanded and "Actions[2]" not in expanded
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / "docs/designs/dev/123456789012"
+        target.mkdir(parents=True)
+        path = target / "codepipeline.md"
+        repo_path = target / "codecommit.md"
+        repo_path.write_text(repository, encoding="utf-8")
+        (target / "codebuild.md").write_text(design("codebuild", "CodeBuild.Project", "Build", [
+            ("Name", "`build`"), ("Id", "`PENDING_DEPLOY`"), ("ServiceRole", "[role](iam.md#iam-role)"),
+        ]), encoding="utf-8")
+        (target / "iam").mkdir()
+        (target / "iam/role-trust-policy.json").write_text('{"Version":"2012-10-17","Statement":[]}', encoding="utf-8")
+        (target / "iam.md").write_text(design("iam", "IAM.Role", "Role", [
+            ("RoleName", "`role`"), ("AssumeRolePolicyDocument", "[trust](iam/role-trust-policy.json)"),
+        ]), encoding="utf-8")
+
+        def errors(content: str) -> list[str]:
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({path: ("codepipeline", ("CodePipeline.Pipeline",)), repo_path: ("codecommit", ("CodeCommit.Repository",))}, *catalog)
+            validator.check_design_links(catalog[2])
+            return validator.errors
+
+        assert not errors(pipeline), errors(pipeline)
+        original = path.read_bytes()
+        model = MODEL.model_for(path, REPOSITORY)
+        assert path.read_bytes() == original
+        assert '"PollForSourceChanges":"false"' in model
+        assert '"ProjectName":"[build](codebuild.md#codebuild-build)"' in model
+        assert model.count(".property=CodePipeline.Pipeline.Stages[].Actions[].Configuration") == 3
+        assert "Stages[1]" not in model and "Actions[2]" not in model
+        assert "RepositoryId" not in MODEL.model_for(repo_path, REPOSITORY)
+        assert "observed." not in model
+        for bad in (
+            pipeline.replace("Stages[1]", "Stages[]"),
+            pipeline.replace("Stages[1]", "Stages[0]"),
+            pipeline.replace("Stages[2]", "Stages[3]"),
+            pipeline.replace("Stages[2]", "Stages[1]"),
+            pipeline.replace("Stages[1].Actions.", "Stages[1].Actions[1]."),
+            pipeline.replace("Stages[1].Actions.", "Stages[1].Actions[]."),
+            pipeline.replace("Actions[2]", "Actions[3]"),
+            pipeline.replace("Actions[2]", "Actions[1]"),
+            pipeline.replace("Actions[1]", "Actions"),
+            pipeline.replace("Configuration.BranchName", "Configuration"),
+            pipeline.replace("Configuration.PollForSourceChanges", "Configuration.BranchName"),
+            pipeline.replace("`dev`", '`{"Fn::ImportValue":"branch-export"}`'),
+            pipeline.replace("`dev`", "`!ImportValue branch-export`"),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", '`{"Fn::ImportValue":"CdeDevApplicationBuildProjectName"}`'),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", "`build`"),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", "[repo](codecommit.md#codecommit-repo)"),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", "[wrong](codebuild.md#codebuild-build)"),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", "[build](codebuild.md#codebuild-missing)"),
+            pipeline.replace("[build](codebuild.md#codebuild-build)", "`[build](codebuild.md#codebuild-build)`"),
+            pipeline.replace("[repo](codecommit.md#codecommit-repo)", "[wrong](codecommit.md#codecommit-repo)"),
+        ):
+            assert errors(bad), bad
+        for duplicate in (("Stages[1].Name", "`DuplicateStage`"), ("Stages[2].Actions[2].Name", "`DuplicateAction`")):
+            assert errors(design("codepipeline", "CodePipeline.Pipeline", "Pipeline", [*rows, duplicate]))
+        reordered = rows.copy()
+        reordered[4], reordered[6] = reordered[6], reordered[4]
+        assert errors(design("codepipeline", "CodePipeline.Pipeline", "Pipeline", reordered))
+        (target.parent / "other").mkdir()
+        shutil.copy(target / "codebuild.md", target.parent / "other/codebuild.md")
+        assert errors(pipeline.replace("codebuild.md#", "../other/codebuild.md#"))
+        repo_path.write_text(repository.replace("| 1 | RepositoryName", "| 1 | RepositoryId | `PENDING_DEPLOY` | 一意に識別するID |\n| 2 | RepositoryName"), encoding="utf-8")
+        assert errors(pipeline)
+        try:
+            MODEL.model_for(repo_path, REPOSITORY)
+        except ValueError as error:
+            assert "must not be displayed" in str(error)
+        else:
+            raise AssertionError("RepositoryId display was accepted")
+
+
 def main() -> None:
     assert not layout_errors(REPOSITORY)
     policy_rows = [
@@ -447,6 +558,7 @@ def main() -> None:
     check_codebuild_vpc_display()
     check_guardduty_feature_display()
     check_cloudtrail_data_resources()
+    check_codepipeline_display()
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

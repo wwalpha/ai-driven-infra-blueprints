@@ -24,6 +24,10 @@
 
 Markdown設定表で使う`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 
+`CodeCommit.Repository.RepositoryId`は非表示propertyとしてmodelへ生成せず、identifier output参照判定からも除外する。RepositoryNameとresource anchorによる参照はdesiredへ保持する。catalogを変更しない。
+
+CodePipelineの`Stages[N]`と単一`Actions`／複数`Actions[M]`はmodelで正式な`Stages[]`／`Actions[]`へ戻し、stage/actionごとの元の行順と所属を維持する。同じactionの連続した`Configuration.<Key>` rowを一つの正式property `CodePipeline.Pipeline.Stages[].Actions[].Configuration`へまとめ、Valueを元の文字列値からなるJSON objectとして生成する。resource linkはJSON objectの該当keyの文字列値へlosslessに保持し、CFn import式やExport名へ戻さない。各keyの日本語commentはkey名付きで出現順にまとめる。表示専用indexとConfigurationのkey別propertyをmodelのpropertyとして保存しない。元Markdownを生成時に書き換えない。
+
 `CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
 
 `CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、model生成時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。

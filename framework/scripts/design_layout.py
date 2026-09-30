@@ -42,6 +42,9 @@ CLOUDTRAIL_RESOURCE_TYPES = {"S3": "AWS::S3::Object", "Lambda": "AWS::Lambda::Fu
 CLOUDTRAIL_FORMAL_DATA_RESOURCE = "CloudTrail.Trail.EventSelectors[].DataResources[]."
 STACK_DESIGN = "cloudformation-stacks.md"
 STACK_HEADER = "| No. | StackName | Template | Parameters | Comment |"
+HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
+CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
+CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
 
 
 def stack_design(path: Path) -> list[dict[str, str]]:
@@ -162,6 +165,86 @@ def formal_property(display: str, resource_type: str) -> str:
     return resource_type + "." + display if resource_type else display
 
 
+def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Restore indexed stages/actions and key rows to the selected catalog fields."""
+    stages: dict[int, dict[int, bool]] = {}
+    configurations: dict[tuple[int, int], dict[str, str]] = {}
+    configuration_rows: dict[tuple[int, int], list[str]] = {}
+    fields: set[tuple[int, int, str]] = set()
+    result = []
+    previous_stage = previous_action = 0
+    previous_configuration = None
+    for row in rows:
+        display = row[1].removeprefix("CodePipeline.Pipeline.")
+        if not display.startswith("Stages"):
+            result.append(row)
+            previous_configuration = None
+            continue
+        match = CODEPIPELINE_STAGE.fullmatch(display)
+        if not match:
+            raise ValueError("CodePipeline stages must use Stages[N], starting at 1")
+        stage = int(match.group(1))
+        if stage != previous_stage:
+            if stage != len(stages) + 1:
+                raise ValueError("CodePipeline stage indexes must be sequential and contiguous")
+            stages[stage] = {}
+            previous_stage, previous_action = stage, 0
+        is_action = display.startswith(f"Stages[{stage}].Actions")
+        action = int(match.group(2) or 1) if is_action else 0
+        field = match.group(3)
+        if is_action and field.startswith("Actions"):
+            raise ValueError("CodePipeline actions must use Actions or Actions[N], without []")
+        identity_field = stage, action, field
+        if "[]" not in field and identity_field in fields:
+            raise ValueError(f"duplicate CodePipeline stage/action field: {display}")
+        fields.add(identity_field)
+        if is_action and action != previous_action:
+            if action != len(stages[stage]) + 1:
+                raise ValueError("CodePipeline action indexes must be sequential and contiguous per stage")
+            stages[stage][action] = bool(match.group(2))
+            previous_action = action
+        elif is_action and stages[stage][action] != bool(match.group(2)):
+            raise ValueError("CodePipeline action index spelling must be consistent")
+        row = row.copy()
+        row[1] = "CodePipeline.Pipeline.Stages[]." + ("Actions[]." if is_action else "") + field
+        if not is_action or not field.startswith("Configuration"):
+            result.append(row)
+            previous_configuration = None
+            continue
+        key = field.removeprefix("Configuration.")
+        if not field.startswith("Configuration.") or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+            raise ValueError("CodePipeline Configuration must use Configuration.<Key> display rows")
+        identity = stage, action
+        if identity in configurations and previous_configuration != identity:
+            raise ValueError("CodePipeline Configuration key rows must be contiguous per action")
+        values = configurations.setdefault(identity, {})
+        if key in values:
+            raise ValueError(f"duplicate CodePipeline Configuration key: {key}")
+        value = row[2]
+        linked = re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", value)
+        if not linked:
+            if len(value) >= 2 and value[0] == value[-1] == "`":
+                value = value[1:-1]
+            if value.startswith(("{", "[", "!")) or "Fn::" in value or "](" in value or "\n" in value:
+                raise ValueError("CodePipeline Configuration value must be a literal or a resource link, without CFN intrinsics")
+        values[key] = value
+        if identity not in configuration_rows:
+            row[1] = CODEPIPELINE_CONFIGURATION
+            configuration_rows[identity] = row
+            result.append(row)
+            row[3] = f"{key}: {row[3]}"
+        else:
+            configuration_rows[identity][3] += f" / {key}: {row[3]}"
+        configuration_rows[identity][2] = "`" + json.dumps(values, ensure_ascii=False, separators=(",", ":")) + "`"
+        previous_configuration = identity
+    for actions in stages.values():
+        if len(actions) > 1 and not all(actions.values()):
+            raise ValueError("CodePipeline multiple actions must use Actions[N]")
+        if len(actions) == 1 and any(actions.values()):
+            raise ValueError("CodePipeline single action must use Actions without an index")
+    return result
+
+
 def expanded_display_rows(lines: list[str]) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     result = []
@@ -194,6 +277,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             row_numbers.append(cells[0])
             display_property = cells[1]
             prop = formal_property(cells[1], resource_type)
+            if prop in HIDDEN_PROPERTIES:
+                raise ValueError(f"property must not be displayed: {prop}")
             if prop != cells[1]:
                 normalized = True
                 cells[1] = prop
@@ -270,6 +355,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             else:
                 rows.append(cells)
             index += 1
+        if resource_type == "CodePipeline.Pipeline":
+            rows = pipeline_display_rows(rows)
+            changed = True
+            kind = "CodePipeline"
         if changed:
             if row_numbers != [str(number) for number in range(1, len(row_numbers) + 1)]:
                 raise ValueError(f"{kind} table numbering error")

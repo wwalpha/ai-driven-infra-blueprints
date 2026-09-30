@@ -27,9 +27,11 @@ from design_layout import (
     CLOUDTRAIL_DATA_RESOURCE,
     CODEBUILD_FORMAL_VARIABLE,
     CODEBUILD_VPC_ITEM,
+    CODEPIPELINE_STAGE,
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
     GROUPED,
+    HIDDEN_PROPERTIES,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
     RESOURCE as RESOURCE_HEADING_PATTERN,
@@ -827,7 +829,7 @@ class Validator:
                 property_path = property_name[len(prefix) :]
                 property_owners.setdefault(property_path, set()).add(resource_type)
                 property_owners.setdefault(property_name, set()).add(resource_type)
-                if marker == "IDENTIFIER_OUTPUT":
+                if marker == "IDENTIFIER_OUTPUT" and property_name not in HIDDEN_PROPERTIES:
                     identifier_outputs.setdefault(resource_type, set()).add(property_name)
         for resource_type, property_name in REQUIRED_NAME_PROPERTIES.items():
             if resource_type in resource_types:
@@ -1553,6 +1555,7 @@ class Validator:
             for path in self.design_files()
         }
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
+        configured_names: dict[tuple[Path, str], dict[str, str]] = {}
         for path in self.design_files():
             pending_anchor = ""
             current: tuple[Path, str] | None = None
@@ -1567,9 +1570,12 @@ class Validator:
                 elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     current = (path.resolve(), pending_anchor)
                     resources[current] = (heading.group(1), {})
+                    configured_names[current] = {}
                     pending_anchor = ""
                 elif current and line.startswith("|") and line not in {TABLE_HEADER, TABLE_ALIGNMENT}:
                     cells = [cell.strip() for cell in line.strip("|").split("|")]
+                    if len(cells) == 4 and cells[1] in {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}:
+                        configured_names[current][cells[1]] = self.unquoted(cells[2])
                     if len(cells) == 4 and (
                         cells[1]
                         in identifier_outputs.get(resources[current][0], set())
@@ -1588,6 +1594,46 @@ class Validator:
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
             source_lines = source.read_text(encoding="utf-8").splitlines()
+            pipeline_rows = []
+            pipeline_id = ""
+            providers = {}
+            for line in source_lines:
+                if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    pipeline_id = heading.group(2) if heading.group(1) == "CodePipeline.Pipeline" else ""
+                elif line.startswith("#"):
+                    pipeline_id = ""
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
+                match = CODEPIPELINE_STAGE.fullmatch(cells[1]) if pipeline_id and len(cells) == 4 else None
+                if match:
+                    identity = pipeline_id, match.group(1), match.group(2) or "1"
+                    pipeline_rows.append((identity, match.group(3), cells[2]))
+                    if match.group(3) == "ActionTypeId.Provider":
+                        providers[identity] = self.unquoted(cells[2])
+            for identity, field, value in pipeline_rows:
+                if not field.startswith("Configuration."):
+                    continue
+                key = field.removeprefix("Configuration.")
+                expected = {
+                    ("CodeCommit", "RepositoryName"): ("CodeCommit.Repository", "RepositoryName"),
+                    ("CodeBuild", "ProjectName"): ("CodeBuild.Project", "Name"),
+                }.get((providers.get(identity), key))
+                link = RESOURCE_LINK_PATTERN.fullmatch(value)
+                if expected:
+                    self.check(bool(link), f"CodePipeline Configuration.{key} must link to its resource: {self.relative(source)}")
+                if not link:
+                    continue
+                label, target_text, fragment = link.groups()
+                target = (source if not target_text else source.parent / target_text).resolve()
+                resource = resources.get((target, fragment))
+                self.check(
+                    bool(resource and target.parent == source.parent.resolve()),
+                    f"CodePipeline Configuration must link to a resource in the same target: {self.relative(source)}: {value}",
+                )
+                if expected:
+                    self.check(
+                        bool(resource and resource[0] == expected[0] and configured_names.get((target, fragment), {}).get(expected[0] + "." + expected[1]) == label),
+                        f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {self.relative(source)}: {value}",
+                    )
             for line in source_lines:
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 if len(cells) != 4:

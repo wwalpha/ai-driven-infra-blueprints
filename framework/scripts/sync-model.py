@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from design_catalog import design_material_files
-from design_layout import CODEBUILD_FORMAL_VARIABLE, RESOURCE, STACK_DESIGN, expanded_design, stack_design
+from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, expanded_design, stack_design
 from macie_bucket_tables import write_job_bucket_definitions
 from policy_tables import without_policy_tables
 
@@ -40,7 +40,7 @@ def identifier_outputs(root: Path) -> dict[str, set[str]]:
         outputs[resource_type] = {
             line.partition("=")[0]
             for line in path.read_text(encoding="utf-8").splitlines()
-            if line.endswith("=IDENTIFIER_OUTPUT")
+            if line.endswith("=IDENTIFIER_OUTPUT") and line.partition("=")[0] not in HIDDEN_PROPERTIES
         }
     return outputs
 
