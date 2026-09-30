@@ -17,6 +17,11 @@ from design_catalog import design_material_files
 
 
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
+NAMING_EXEMPT_PROPERTIES = {
+    "IAM.ManagedPolicy.ManagedPolicyName",
+    "IAM.User.UserName",
+    "IAM.InstanceProfile.InstanceProfileName",
+}
 
 
 def properties(text: str) -> dict[str, str]:
@@ -73,7 +78,8 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]]) -> list[str]:
     if resource_display_name(kind, tag_rows) is not None:
         expected.add("Name tag")
     return [f"naming rule missing: {kind}: {field}" for field in sorted(expected)
-            if field not in targets.get(kind, set()) and kind + "." + field not in targets.get(kind, set())
+            if kind + "." + field not in NAMING_EXEMPT_PROPERTIES
+            and field not in targets.get(kind, set()) and kind + "." + field not in targets.get(kind, set())
             and field.rsplit(".", 1)[-1] not in targets.get(kind, set())]
 
 

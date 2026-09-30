@@ -234,12 +234,40 @@ def check_codebuild_required_name():
     print(f"CodeBuild required Name checks: PASS ({len(invalid)} rejected cases; design, generation and saved view)")
 
 
+def check_iam_naming_exclusions():
+    spec = importlib.util.spec_from_file_location("iam_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
+        path = root / "docs/designs/dev/123456789012/iam.md"
+        for kind, field in (("IAM.ManagedPolicy", "ManagedPolicyName"), ("IAM.User", "UserName"), ("IAM.InstanceProfile", "InstanceProfileName")):
+            for prop in (field, kind + "." + field):
+                assert not naming_errors(root, kind, [["1", prop, "`example`", "名前"]])
+            values = model("iam", kind, "example", [(field, "`example`", "名前")])
+            output = roundtrip(path, values, root)
+            metadata = {path: ("iam", (kind,))}
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata)
+            assert not validator.errors, validator.errors
+            # Exemption does not bypass value checks or apply to Name tags.
+            path.write_text(output.replace("`example`", "`PENDING_DEPLOY`"))
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata)
+            assert any("resource display name must be confirmed" in error for error in validator.errors)
+            assert naming_errors(root, kind, [["1", "Tags[].Key", '"Name"', "タグ"], ["2", "Tags[].Value", '"example"', "名前"]]) == [f"naming rule missing: {kind}: Name tag"]
+    assert not naming_errors(ROOT, "IAM.Role", [["1", "RoleName", "`example`", "名前"]])
+    assert naming_errors(ROOT, "IAM.Group", [["1", "GroupName", "`example`", "名前"]]) == ["naming rule missing: IAM.Group: GroupName"]
+    print("IAM naming exclusions: PASS (3 properties; design, generation, value checks and coverage boundaries)")
+
+
 def main():
+    check_iam_naming_exclusions()
     check_codebuild_required_name()
     check_endpoint_name_tag()
-    for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("IAM.ManagedPolicy", "PolicyName"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
+    for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
-    assert naming_errors(ROOT, "IAM.User", [["1", "UserName", "`example`", "名前"]]) == ["naming rule missing: IAM.User: UserName"]
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
     assert not naming_errors(ROOT, "Glue.Connection", [["1", "Name", "`PENDING_DEPLOY`", "生成される名前"]])
     assert naming_errors(ROOT, "Glue.Connection", [["1", "ConnectionInput.Name", "`example`", "作成する接続の名前"]])

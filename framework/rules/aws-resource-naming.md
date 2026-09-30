@@ -5,6 +5,7 @@
 このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを決定するときのdefault naming conventionとする。
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
+- `IAM.ManagedPolicy.ManagedPolicyName`、`IAM.User.UserName`、`IAM.InstanceProfile.InstanceProfileName`は命名conventionと命名ルールcoverage checkの対象外とする。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は対象外にしない。
 - `CodeBuild.Project.Name`は詳細設計で必須とし、確定済みnon-empty literalをresourceごとに1 row保持する。Name tagや表示labelで代替せず、未確定なら停止する。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
 - `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`と`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
@@ -20,7 +21,7 @@
 
 ## Naming rule coverage check
 
-- 作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
+- Scopeで対象外とした3 propertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
 - 名称propertyを選択していないresourceと、名称を持たない型（例：`SecurityHub.Hub` / Security Hub CSPM）は対象外とする。表示用label、内部logical ID、AWS生成identifierに命名patternを要求しない。taggableだけでName tagを追加しない。
 - 既存resourceの確定済み名称は変更しない。このcheckはruleの有無を確認し、patternへの自動renameはしない。
 
@@ -85,6 +86,10 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | Amazon CloudWatch | Alarm | `CloudWatch.Alarm` | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
 | Amazon CloudWatch Logs | Log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon Athena | Workgroup | `Athena.WorkGroup` | `Name` | `athwg-{{application}}-{{environment}}-{{purpose}}` |
+| Amazon QuickSight | Data source | `QuickSight.DataSource` | `Name` | `qsds-{{application}}-{{environment}}-{{source_type}}-{{purpose}}` |
+| Amazon QuickSight | VPC connection | `QuickSight.VPCConnection` | `Name` | `qsvc-{{application}}-{{environment}}-{{purpose}}` |
+| Amazon MWAA | Environment | `MWAA.Environment` | `Name` | `mwaa-{{application}}-{{environment}}[-{{purpose}}]` |
+| Amazon Macie | Classification job | `Macie.ClassificationJob` | `name` | `macie-{{application}}-{{environment}}-{{purpose}}` |
 | AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}` |
 | AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
@@ -101,7 +106,6 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | Amazon SQS | Queue | `SQS.Queue` | `QueueName` | `sqs-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
 | AWS Lambda | Function | `Lambda.Function` | `FunctionName` | `lmda-{{application}}-{{environment}}-{{purpose}}` |
 | AWS IAM | Role | `IAM.Role` | `RoleName` | `{{application}}-{{environment}}-{{purpose}}-role` |
-| AWS IAM | Customer managed policy | `IAM.ManagedPolicy` | `PolicyName` | `{{application}}-{{environment}}-{{purpose}}-policy` |
 | AWS RAM | Resource share | `RAM.ResourceShare` | `Name` | `ram-{{service}}-{{application}}-{{environment}}-share-with-{{target_type}}-{{target_token}}` |
 | Amazon Route 53 Resolver | Resolver endpoint | `Route53Resolver.ResolverEndpoint` | `Name` | `rslv-{{endpoint_type}}-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon Route 53 Resolver | Resolver rule | `Route53Resolver.ResolverRule` | `Name` | `rslvr-{{application}}-{{environment}}-{{from}}-to-{{to}}-{{domain_token}}` |
@@ -112,6 +116,9 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 
 ## Service-specific constraints
 
+- Amazon QuickSight DataSourceの`source_type`は`athena`、`snowflake`などの接続種別をlowercaseで表し、`purpose`は部署・情報区分などデータソースの用途を識別するhuman-confirmedな値とする。DataSourceとVPCConnectionの`Name`は1〜128文字の表示名とし、`DataSourceId`／`VPCConnectionId`とは別に扱う。
+- Amazon MWAA Environmentの`purpose`は用途別にenvironmentを分ける場合だけ含める。`Name`は英字で開始し、英数字、hyphen、underscoreだけを使い、1〜80文字とする。この命名patternではlower-kebab-caseを使用する。
+- Amazon Macie ClassificationJobの`purpose`は検出内容を識別するhuman-confirmedな値とし、`name`はnon-emptyかつ500文字以内とする。
 - AWS CodeCommit repositoryの`environment`は、環境間で同じrepositoryを共有する場合は省略し、環境ごとにrepositoryを分ける場合は含める。
 - Amazon S3 bucket nameはlowercaseの3〜63文字とし、partition内でglobalに一意にする。patternの全componentを含めたfinal nameを検証する。
 - Elastic Load Balancingのload balancerとtarget groupは32文字以内とする。
