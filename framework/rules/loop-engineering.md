@@ -35,7 +35,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `tasks/`が存在する場合は`active.md`だけがある。idle状態では`tasks/`ごと省略してよい
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
-- API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須とgenerated modelを検証し、CFn型解決で拒否する
+- API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須と正本modelを検証し、CFn型解決で拒否する
 - `bucketDefinitions`型Macie JobのMarkdown対応表が同JobのJSON artifactのaccount・bucket・順序と一致し、欠落・重複・別Jobへの所属を拒否する。`bucketCriteria`型には固定bucket対応表を置かない
 - `framework/rules/resource-layout.json`がCFn/APIの全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
 - grouped childの識別、親への所属、schema、参照を検証し、KMSの複数AliasとS3からのAlias参照を失わない
@@ -52,7 +52,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
-- cross-service relative linkとexplicit anchorが解決でき、generated modelへ同じreferenceが反映されている
+- cross-service relative linkとexplicit anchorが解決でき、正本modelから同じreferenceが生成されている
 - CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
 - generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効
@@ -61,8 +61,8 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 task type固有checkはactive taskから省略できず、少なくとも次を確認する。
 
 - `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
-- `design`: 対象Markdownとgenerated service modelが同じ変更に含まれ、内容が決定的生成結果と一致
-- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更。`update` phaseではhuman-changed intended design、generated model、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
+- `design`: 対象の正本model propertiesを先に変更し、Markdown／JSON artifactがその決定的生成結果と一致
+- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更。`update` phaseではhuman-changed model properties、生成Markdown、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
@@ -72,9 +72,9 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 ## Design task completion
 
-1. active promptで指定された`docs/designs/**`を更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
-2. 既存resource取得では必要な非ARN current identifierだけをgenerated identifier rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. policyを含む設計では`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`でJSONからpolicy表を生成する。その後`framework/scripts/sync-model.py --write`で対応する`model/**`を同じcoherent changeに生成する。`bucketDefinitions`型Macie Jobでは同commandがMarkdown対応表からJSON artifactのbucketDefinitionsを更新してからmodelを生成する。
+1. active promptで指定された`model/**`の正本propertiesを更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
+2. 既存resource取得では必要な非ARN current identifierだけをmodelのobserved rowへ反映する。secret、generated ARN、resource出自を保存しない。
+3. 確定済み設計を対応する`model/**`へ先に保存する。`framework/scripts/sync-model.py --write`で全対象のMarkdown／JSON artifactとpolicy表を一時生成・検証し、全件成功後に同じcoherent changeへ保存する。`bucketDefinitions`型Macie Jobの対応表もmodelのdocumentから生成する。失敗時は保存済みMarkdown／JSONを維持し、正本propertiesから修正・再実行する。
 4. local loopを実行する。
 5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
 
@@ -94,15 +94,15 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 1. 作成・検証済みIaCを変更せず、deterministic preflightを実行する。
 2. CloudFormationは`cfn-lint`、`aws cloudformation validate-template`、change set、Terraformはvalidationと保存済みplanでscopeを確認する。
 3. 未承認のdelete/replacementがなければactive promptが許可した対象だけをdeploy/applyする。未承認のdelete/replacementがあれば、対象、理由、影響、現在の実行状態を説明してhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで再開する。
-4. 成功したAWS mutationがある場合だけ詳細設計のgenerated current valueを更新し、同じservice modelを再生成する。
+4. 成功したAWS mutationがある場合だけmodelのobserved valueを更新し、Markdownを再生成する。
 5. local loopを実行し、scenario testへ進まず終了する。
 
 `update` phase:
 
-1. humanがtask開始前に手動修正した未commitの詳細設計だけをimmutable intended-design inputとして確定する。
-2. service modelを同期し、対象IaCを作成・変更してlocal static validationする。
+1. humanがtask開始前に手動修正した未commitのmodel propertiesだけをimmutable intended-design inputとして確定する。
+2. propertiesからMarkdownを生成し、対象IaCを作成・変更してlocal static validationする。
 3. deterministic preflight、change setまたはplanのscope確認を行う。未承認のdelete/replacementは説明付きhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで許可されたdeploy/applyを再開する。
-4. 成功したAWS mutation後だけgenerated current valueを更新し、service modelを再生成する。
+4. 成功したAWS mutation後だけmodelのobserved valueを更新し、Markdownを再生成する。
 5. humanのintended-design diffをCodexが変更していないことを確認し、local loop後にscenario testへ進まず終了する。
 
 ## Scenario-test task completion

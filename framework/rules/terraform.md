@@ -17,7 +17,7 @@
 
 - `implement` phaseは`terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行し、plan、apply、AWS APIを実行しない。
 - `deploy` phaseはIaCを変更せず、`terraform fmt -check`、`terraform validate`、repository外へ保存する`terraform plan`を実行する。
-- `update` phaseはhumanがtask開始前に手動修正した詳細設計を変更せずmodelを同期し、implement phaseのlocal validation後、repository外へ保存するplanを確認してapplyする。このphase内で生成した対象IaCのuncommitted diffだけをapply対象として許可する。
+- `update` phaseはhumanがtask開始前に手動修正したmodel propertiesを変更せずMarkdownを生成し、implement phaseのlocal validation後、repository外へ保存するplanを確認してapplyする。このphase内で生成した対象IaCのuncommitted diffだけをapply対象として許可する。
 - deploy phaseでIaC修正が必要な場合は変更せず停止する。
 - 全planを一律停止するhuman reviewは設けない。保存済みplanに未承認のdestroy/replacementがある場合だけ`framework/prompts/codex/04_deploy.md`に従って説明付きhuman確認待ちにする。
 - applyはdeployまたはupdate phaseのactive promptが明示的に許可し、plan scopeがpromptと一致するときだけ保存済みplanを実行する。
@@ -31,4 +31,4 @@
 - secretを出力せず、generated ARNをobserved valueとして保存しない。
 - existing environmentのCloudFormation/Terraform切替はdedicated migration/import taskとし、normal updateで行わない。
 
-apply後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをTerraform output、必要な場合だけstateから取得し、詳細設計の正式なidentifier output rowと全参照元を更新してservice modelを再生成する。local loop後にinfrastructure taskを終了し、次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。
+apply後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをTerraform output、必要な場合だけstateから取得し、詳細設計のmodelのidentifier output／全参照元のobserved valueを先に更新してMarkdownを再生成する。local loop後にinfrastructure taskを終了し、次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。

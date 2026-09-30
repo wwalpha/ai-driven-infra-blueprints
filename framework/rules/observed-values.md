@@ -1,8 +1,8 @@
 # Observed Values Rules
 
 - observed valueはcurrent deploymentから取得した必要最小限のmachine-readable valueであり、scenario evidenceではない。
-- observed valueは詳細設計のcatalog `IDENTIFIER_OUTPUT` rowとそのidentifierを参照する全property、および同じservice modelの`observed.*`へ保持する。
-- 成功した`infrastructure` taskのAWS mutation後、または`design` taskでhumanが選択した既存resourceをread-only取得した場合だけ詳細設計を更新し、`framework/scripts/sync-model.py`でmodelを再生成する。
+- observed valueはservice modelの`observed.*`を正本とし、詳細設計のcatalog `IDENTIFIER_OUTPUT` rowと全参照元を生成する。
+- 成功した`infrastructure` taskのAWS mutation後、または`design` taskでhumanが選択した既存resourceをread-only取得した場合だけmodelのobserved valueを先に更新し、`framework/scripts/sync-model.py`でMarkdownを再生成する。
 - `scenario-test` taskは`model/**`を読み取れるが変更しない。
 - follow-up configuration、link、connection、operation、future task inputに必要なvalueだけを収集する。
 - valid exampleは、実際に必要なVPC ID、Subnet ID、Route Table ID、Security Group ID、EC2 Instance ID、private/public IP、DNS name、endpoint address、hosted zone IDなど。
@@ -14,7 +14,7 @@
 - `CidrBlock`、`DestinationCidrBlock`、`CidrIp`等のCIDR項目は、詳細表・リソース一覧とも`PENDING_DEPLOY`を禁止する。deploy前でも確定済みCIDRを表示し、未確定ならhumanへ確認する。参照linkの表示値や配列内も同じとし、catalogでidentifier outputとされるCIDRでも例外にしない。`VpcId`等の生成IDのPENDING_DEPLOY許容は維持する。
 - 既存resource取得ではchatbotが選択したpropertyだけを詳細設計のdesired valueへ直接差分反映し、必要な非ARN generated identifierをobserved valueへ反映する。未選択propertyと未選択resourceは変更しない。
 - current physical valueはresourceが現在存在する間だけ保持する。replacementでは新しい値だけをidentifier output rowと全参照元へ反映する。
-- destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻し、modelを再生成する。
+- destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻し、Markdownを再生成する。
 - obsoleteなphysical IDと過去valueはGit履歴、CloudFormation/Terraform、AWS側のdeployment historyで追跡する。
 - 過去valueをscenario evidenceへ転記しない。
 - old result fileだけを根拠にold IDがcurrentであると仮定しない。
@@ -25,5 +25,5 @@
 - Terraformは必要なnon-sensitive identifierをroot module `output`から取得する。対象outputがない場合だけstateのresource attributeをread-onlyで参照し、同じresourceについて両方が取得できる場合は一致を確認する。
 - IaCに必要なoutputが不足する場合、`deploy` phaseではIaCを変更せず停止する。`implement`または`update` phaseは必要なoutputだけを追加し、CloudFormationはlogical resource参照、Terraformはresource attribute参照を維持する。
 - 取得したidentifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyへ対応付ける。対応が一意でなければ推測せず停止する。
-- identifier output rowを更新した後、同じanchorを参照する全propertyのMarkdown link表示textを同じ値へ更新する。参照元の`Source / Comment`、link先path、anchorは変更しない。
-- 更新後にservice modelを再生成し、validatorでidentifier outputと全参照元の一致を確認する。generated ARN、secret、old physical IDは保存しない。
+- modelのidentifier outputに対応するobserved rowを更新した後、同じidentifierを参照する全model rowのobserved valueを同じ値へ更新する。Markdown link表示textは生成処理で更新する。参照元の`Source / Comment`、link先path、anchorは変更しない。
+- 更新後にMarkdownを再生成し、validatorでidentifier outputと全参照元の一致を確認する。generated ARN、secret、old physical IDは保存しない。

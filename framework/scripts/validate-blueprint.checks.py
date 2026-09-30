@@ -354,8 +354,8 @@ def check_schema_backed_design_rows() -> None:
             invalid.replace(
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
-                "| 1 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 1 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 2 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 3 | Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
                 "| 4 | Tags[].Value | `cwlogs-app-stg-flow-logs` | ロググループを識別するNameタグの値 |",
             ),

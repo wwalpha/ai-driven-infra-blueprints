@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy this repository's reusable framework and .agents into a target repository."""
+"""Copy reusable framework, skills, and root entrypoints into a target repository."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DEFAULT_TARGET_ROOT = REPOSITORY_ROOT.parent / "viewcard-code"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Copy the reusable framework and .agents directories from ai-driven-infra-blueprints "
+            "Copy framework, .agents, AGENTS.md, and README.md from ai-driven-infra-blueprints "
             "to a target repository."
         )
     )
@@ -54,7 +54,8 @@ def main() -> int:
         unchanged = 0
 
         for source_file in chain(
-            FRAMEWORK_ROOT.rglob("*"), (REPOSITORY_ROOT / ".agents").rglob("*")
+            FRAMEWORK_ROOT.rglob("*"), (REPOSITORY_ROOT / ".agents").rglob("*"),
+            (REPOSITORY_ROOT / name for name in ("AGENTS.md", "README.md")),
         ):
             relative = source_file.relative_to(REPOSITORY_ROOT)
             if (
@@ -98,7 +99,8 @@ def main() -> int:
             f"Summary: copied={0 if args.dry_run else copied} "
             f"added={0 if args.dry_run else added} "
             f"pending={len(changed) if args.dry_run else 0} unchanged={unchanged} "
-            "scope=framework,.agents"
+            "scope=framework,.agents,AGENTS.md,README.md "
+            "excluded=project.json,docs,infra,model,tasks,tests"
         )
         return 0
     except (OSError, ValueError) as exc:

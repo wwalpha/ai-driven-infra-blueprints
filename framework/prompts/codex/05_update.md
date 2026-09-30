@@ -1,6 +1,6 @@
 # Manual Design Update and Deployment Prompt
 
-このpromptは、人間が既存の詳細設計Markdownを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、service model同期、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
+このpromptは、人間が既存のmodel propertiesを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、Markdown生成、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
 
 ## Optional user input
 
@@ -13,11 +13,11 @@
 
 fileを変更する前に、次の順序でtargetとscopeを特定する。
 
-1. `git status --short`と`git diff --name-only HEAD -- docs/designs/`を確認する。
-2. humanが変更した既存詳細設計Markdownのpathが`docs/designs/<environment>/<target-directory>/<service-id>.md`に一致することを確認し、pathからenvironmentとtarget directoryを取得する。
+1. `git status --short`と`git diff --name-only HEAD -- model/`を確認する。
+2. humanが変更した既存model propertiesのpathが`model/<environment>/<target-directory>/<service-id>.properties`に一致することを確認し、pathからenvironmentとtarget directoryを取得する。
 3. 取得したenvironment／target directoryの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認し、aliasがある場合はalias、常に実際のAWS account IDを取得する。変更済み詳細設計がない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
-4. 同じtargetでhumanが変更した既存詳細設計MarkdownをすべてDesign scopeとする。変更されたMarkdownから参照される同じservice配下のJSON artifactにhumanのdiffがある場合は、それもscopeへ含める。
-5. 対応するservice modelと、CloudFormationでは同じtargetの`cloudformation-stacks.md`と生成modelを確認し、`03_implement.md`のimplementation unit解決に従って変更が必要なStackName、template／parameter fileまたはTerraform root／resourceを特定する。CloudFormationの変更済みdesignが同じaccount・regionの別stack所有resourceを参照する場合は、そのproducer stackも必要なOutput/Export追加の候補とする。
+4. 同じtargetでhumanが変更した既存model propertiesをすべてDesign scopeとする。policy／設定JSON本文はmodel rowのdocumentをinputとし、Markdown／JSON artifactの手動diffを設計値として採用しない。
+5. 対応する正本service modelと、CloudFormationでは同じtargetの`cloudformation-stacks.properties`と生成済み`cloudformation-stacks.md`を確認し、`03_implement.md`のimplementation unit解決に従って変更が必要なStackName、template／parameter fileまたはTerraform root／resourceを特定する。CloudFormationの変更済みdesignが同じaccount・regionの別stack所有resourceを参照する場合は、そのproducer stackも必要なOutput/Export追加の候補とする。
 6. `04_deploy.md`のdeployment unit解決に従い、stack詳細設計からStackName、parameter file、Terraform root、resource、dependency順を特定し、Deployment scopeとする。同じtemplateを使う別StackNameは別unitとし、変更された設計resourceを所有するstackだけをscopeへ含める。cross-stack exportが必要なproducerとconsumerを同じtaskで扱う場合は両stackをscopeへ含める。
 
 scope外のuncommitted changeがある場合は取り込まず停止する。repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるtarget、file path、scope全体をuserへ再入力させず、値を推測しない。
@@ -46,10 +46,10 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 
 ## Validate human design diff
 
-- 特定したDesign scopeは、対象environment／target directory配下でhumanが変更した既存詳細設計Markdownと関連JSON artifactだけとする。
-- Design scopeのMarkdownにhumanが作成したuncommitted diffが存在しなければ停止する。
+- 特定したDesign scopeは、対象environment／target directory配下でhumanが変更した既存model propertiesだけとする。
+- Design scopeのmodel propertiesにhumanが作成したuncommitted diffが存在しなければ停止する。
 - 特定したDesign scope外のuncommitted changeがある場合は、今回のtaskへ取り込まず停止する。
-- 対応するmodelまたはIaCにtask開始前からuncommitted changeがある場合は停止する。
+- IaCまたは生成物Markdown／JSONにtask開始前からuncommitted changeがある場合は停止する。正本model propertiesのhuman diffは許可する。
 - humanが変更したintended designをこのtaskで修正、補完、巻き戻ししない。
 - 詳細設計の不足、矛盾、placeholder、schema violation、未確定のhuman decisionがあれば停止する。
 - 変更対象にCFn非対応の`Macie.ClassificationJob`が含まれる場合は、`03_implement.md`の実装対応確認に従い、Jobの未反映を報告する。Jobを黙って除外してupdate完了とせず、CFnへの誤変換、API実行、Custom Resource追加、旧Jobのキャンセルを行わない。
@@ -65,14 +65,14 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 - goalにtarget environment、aliasがある場合はalias、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
 - AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
 - Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
-- `Required changes`は一意なRequirement ID付きで、human design diffの検証、service model同期、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
+- `Required changes`は一意なRequirement ID付きで、human design diffの検証、Markdown生成、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
 - `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsはDesign scope、対応するJSON artifactとmodel、対象IaC、`tasks/active.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
+- Allowed pathsはDesign scopeのmodel properties、生成先Markdown／JSON artifact、対象IaC、`tasks/active.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
 
-## Sync model and implement IaC
+## Generate Markdown and implement IaC
 
-1. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを対応するservice modelへ反映する。
-2. model生成失敗またはMarkdown validation failureではdesignを修正せず停止する。
+1. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を実行し、human design diffを入力としてMarkdown／JSON artifactを生成する。modelのintended designを変更しない。
+2. Markdown／JSON生成失敗またはvalidation failureではdesignを修正せず停止する。
 3. `03_implement.md`のimplementation unit解決とengine別local static validationに従い、自動特定したDeployment scopeに必要なIaCだけを最小変更する。CloudFormationのcross-stack参照はpreflight後にdeploy済みexportを調べるまでproducer Output/Exportとconsumer `!ImportValue`の変更を保留する。
 4. IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。human decisionまたはdesign変更が必要なら停止する。
 
@@ -103,7 +103,7 @@ CloudFormationのcross-stack参照を同じtaskで扱う場合は、preflight後
 deploy/applyが成功した場合:
 
 1. terminal successとresource存在を確認する。
-2. 必要な非ARN generated current valueだけを詳細設計へ反映し、humanが変更したintended designは変更しない。
+2. 必要な非ARN generated current valueだけをmodelのobserved namespaceへ反映し、humanが変更したintended designは変更しない。
 3. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`を再実行する。
 
 deploy完了status、resource存在、observed value収集をapplication behaviorの検証またはscenario PASSとして扱わない。
@@ -115,6 +115,6 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 3. `python framework/scripts/blueprint-loop.py --mode local`
 4. `git diff --check`
 
-target、Design scope、model同期、IaC変更、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
+target、Design scope、表示生成、IaC変更、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
 scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証が必要な場合は、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。

@@ -142,9 +142,16 @@ def main() -> None:
             output = root / "model" / design.relative_to(root / "docs/designs").with_suffix(".properties")
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(contents, encoding="utf-8")
+        original = {path: path.read_bytes() for path in (glue, datazone)}
         with redirect_stdout(io.StringIO()):
-            assert model.sync(root, False) == 0
-    print("glue-datazone-catalog: PASS (schema and deterministic model generation)")
+            try:
+                model.sync(root, False)
+            except ValueError as error:
+                assert "anchor must be unique and match its name" in str(error)
+            else:
+                raise AssertionError("legacy model with internal-ID headings was silently adopted")
+        assert original == {path: path.read_bytes() for path in (glue, datazone)}
+    print("glue-datazone-catalog: PASS (schema and read-only projection and legacy-input rejection)")
 
 
 if __name__ == "__main__":

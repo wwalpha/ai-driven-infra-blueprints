@@ -57,7 +57,7 @@
 
 `update` phase:
 
-1. humanがtask開始前に手動修正した詳細設計を変更せず、service modelを同期する。
+1. humanがtask開始前に手動修正したmodel propertiesを変更せず、Markdownを生成する。
 2. implement phaseと同じ`cfn-lint`を実行して対象templateを作成・変更する。
 3. deploy phaseと同じpreflight、`aws cloudformation validate-template`、change set確認、execution、完了確認を続けて実行する。
 4. このphase内で生成した対象templateのuncommitted diffだけをdeploy対象として許可する。
@@ -80,4 +80,4 @@
 
 active promptが対象を限定している場合は、implement phaseでは一部のtemplate、deploy phaseでは一部のstack/resourceだけを処理して終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
 
-deploy/update後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをOutputs、必要な場合だけstack resourceから取得し、詳細設計の正式なidentifier output rowと全参照元を更新する。service model同期とlocal loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。
+deploy/update後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをOutputs、必要な場合だけstack resourceから取得し、詳細設計のmodelのidentifier output／全参照元のobserved valueを先に更新し、Markdownを生成する。表示同期とlocal loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。

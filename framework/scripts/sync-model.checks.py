@@ -199,9 +199,13 @@ def main() -> None:
         assert "observed.row.002-001.value=subnet-0123456789abcdef0" in deployed
         assert "observed.row.002-002.value=vpc-0123456789abcdef0" in deployed
         with redirect_stdout(io.StringIO()):
-            assert MODULE.sync(root, True) == 0
-            artifact.write_text('{"Version":"changed"}\n', encoding="utf-8")
-            assert MODULE.sync(root, False) == 1
+            try:
+                MODULE.sync(root, True)
+            except ValueError as error:
+                assert "authoritative model missing" in str(error)
+            else:
+                raise AssertionError("Markdown must not overwrite authoritative model values")
+            assert not (root / "model").exists()
 
         alias_design = root / "docs" / "designs" / "dev" / "cde" / "vpc.md"
         alias_design.parent.mkdir(parents=True)
@@ -218,8 +222,13 @@ def main() -> None:
             encoding="utf-8",
         )
         with redirect_stdout(io.StringIO()):
-            assert MODULE.sync(root, True, "dev", "cde") == 0
-        assert (root / "model" / "dev" / "cde" / "vpc.properties").is_file()
+            try:
+                MODULE.sync(root, True, "dev", "cde")
+            except ValueError as error:
+                assert "authoritative model missing" in str(error)
+            else:
+                raise AssertionError("missing model was silently imported")
+        assert not (root / "model" / "dev" / "cde" / "vpc.properties").exists()
         assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
         assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
         stacks = design.with_name("cloudformation-stacks.md")
@@ -241,8 +250,12 @@ def main() -> None:
         assert "日次jobを配置するstack" not in stack_model and ".comment=" not in stack_model
         assert "dependsOn" not in stack_model and ".resource." not in stack_model
         with redirect_stdout(io.StringIO()):
-            assert MODULE.sync(root, True, "dev", "123456789012") == 0
-        assert (root / "model" / "dev" / "123456789012" / "cloudformation-stacks.properties").read_text(encoding="utf-8") == stack_model
+            try:
+                MODULE.sync(root, True, "dev", "123456789012")
+            except ValueError as error:
+                assert "authoritative model missing" in str(error)
+            else:
+                raise AssertionError("stack Markdown was silently imported")
     print("sync-model: PASS (39 focused checks)")
 
 

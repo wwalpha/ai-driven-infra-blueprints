@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Checks for authoritative properties, service displays and batch failure protection."""
+
+import importlib.util
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+from model_design import properties, markdown_for, naming_errors
+from security_group_tables import COMMENTS, GROUP_COMMENTS
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
+SYNC = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(SYNC)
+
+
+def model(service, kind, name, rows, logical_id=None, label=None):
+    anchor = service + "-" + name
+    result = {
+        f"desired.service.{service}.serviceId": service,
+        f"desired.service.{service}.ownedCatalogResourceTypes": kind,
+        "display.service.title": f"# {service} 詳細設計",
+        "desired.resource.001.resourceType": kind,
+        "desired.resource.001.logicalId": logical_id or name,
+        "desired.resource.001.anchor": anchor,
+        "display.resource.001.comment": "対象環境のデータ処理を提供するresource",
+    }
+    if label:
+        result["display.resource.001.label"] = label
+    for number, (field, value, comment) in enumerate(rows, 1):
+        key = f"001-{number:03d}"
+        result[f"desired.row.{key}.property"] = kind + "." + field
+        result[f"desired.row.{key}.value"] = value
+        result[f"desired.row.{key}.comment"] = comment
+    return result
+
+
+def text(values):
+    return "# Authoritative design values\n" + "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+
+
+def roundtrip(path, values, root):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown_for(path, values, root), encoding="utf-8")
+    projected = properties(SYNC.model_for(path, root))
+    expected = {key: value for key, value in values.items() if not key.startswith("display.")}
+    assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
+    return path.read_text(encoding="utf-8")
+
+
+def main():
+    for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("IAM.ManagedPolicy", "PolicyName"), ("EC2.VPC", "Name")):
+        assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
+    assert naming_errors(ROOT, "IAM.User", [["1", "UserName", "`example`", "名前"]]) == ["naming rule missing: IAM.User: UserName"]
+    assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
+    assert not naming_errors(ROOT, "Glue.Connection", [["1", "Name", "`PENDING_DEPLOY`", "生成される名前"]])
+    assert naming_errors(ROOT, "Glue.Connection", [["1", "ConnectionInput.Name", "`example`", "作成する接続の名前"]])
+    assert not naming_errors(ROOT, "Scheduler.Schedule", [["1", "GroupName", "`default`", "所属先"]])
+    assert not naming_errors(ROOT, "SecurityHub.Hub", [["1", "EnableDefaultStandards", "`true`", "標準を有効化"]])
+    assert not naming_errors(ROOT, "SecurityHub.Hub", [["1", "Tags[].Key", '"purpose"', "タグ"], ["2", "Tags[].Value", '"security"', "用途"]])
+    assert naming_errors(ROOT, "SecurityHub.Hub", [["1", "Tags[].Key", '"Name"', "タグ"], ["2", "Tags[].Value", '"security"', "名前"]])
+    assert not naming_errors(ROOT, "EC2.Instance", [["1", "Tags[].Key", '"Name"', "タグ"], ["2", "Tags[].Value", '"app"', "名前"]])
+    for invalid in ("x=1\nx=2\n", "missing-separator\n"):
+        try:
+            properties(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid model accepted")
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        base = root / "model/dev/123456789012"
+        base.mkdir(parents=True)
+        vpc = model("vpc", "EC2.VPC", "vpc-net-dev", [("Name", "`vpc-net-dev`", "識別するNameタグ"), ("VpcId", "[Vpc](#vpc-vpc-net-dev)", "一意に識別するID"), ("CidrBlock", "`10.1.0.0/16`", "IPv4のアドレス範囲")], "Vpc")
+        vpc["observed.row.001-002.property"] = "EC2.VPC.VpcId"
+        vpc["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
+        vpc["observed.row.001-002.comment"] = "一意に識別するID"
+        logs = model("logs", "Logs.LogGroup", "cwlogs-net-dev-flow", [("LogGroupName", "`cwlogs-net-dev-flow`", "ログを保存する名前"), ("RetentionInDays", "`30`", "ログを保持する日数")])
+        iam = model("iam", "IAM.Role", "net-dev-flow-role", [("RoleName", "`net-dev-flow-role`", "権限を識別する名前"), ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/flow-role-trust-policy.json)", "引受元に許可する権限")], "FlowRole")
+        iam["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
+        sources = {base / "vpc.properties": vpc, base / "logs.properties": logs, base / "iam.properties": iam}
+        for path, values in sources.items():
+            path.write_text(text(values), encoding="utf-8")
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        saved_sources = {path: path.read_bytes() for path in sources}
+        docs = root / "docs/designs/dev/123456789012"
+        assert "Version" in (docs / "iam.md").read_text()
+        assert "PENDING_DEPLOY" in (docs / "vpc.md").read_text()
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        assert saved_sources == {path: path.read_bytes() for path in sources}
+        logs["desired.row.001-002.value"] = "`14`"
+        (base / "logs.properties").write_text(text(logs))
+        old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        (base / "vpc.properties").write_text(text(vpc) + "desired.row.001-003.value=bad-duplicate\n")
+        try:
+            SYNC.sync(root, True, "dev", "123456789012")
+        except ValueError as error:
+            assert "duplicate model property" in str(error)
+        else:
+            raise AssertionError("invalid second model did not abort the whole batch")
+        assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        (base / "vpc.properties").write_text(text(vpc))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert "`14`" in (docs / "logs.md").read_text()
+        logs["desired.row.001-002.value"] = "`not-a-number`"
+        (base / "logs.properties").write_text(text(logs))
+        old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        try:
+            SYNC.sync(root, True, "dev", "123456789012")
+        except ValueError as error:
+            assert "provider schema violation" in str(error)
+        else:
+            raise AssertionError("invalid property value bypassed validation")
+        assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        # A late filesystem failure restores every previously changed generated file.
+        first, last = docs / "logs.md", docs / "vpc.md"
+        original_write = Path.write_text
+        def fail_last(path, *args, **kwargs):
+            if path == last:
+                raise OSError("test write failure")
+            return original_write(path, *args, **kwargs)
+        with patch.object(Path, "write_text", fail_last):
+            try:
+                SYNC.save_files({first: "changed\n", last: "changed\n"})
+            except OSError:
+                pass
+            else:
+                raise AssertionError("late write failure was swallowed")
+        assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        build = model("codebuild", "CodeBuild.Project", "cbld-app-dev-build", [("Name", "`cbld-app-dev-build`", "projectの名前"), ("Environment.EnvironmentVariables[].Name", "`TARGET`", "実行対象"), ("Environment.EnvironmentVariables[].Type", "`PLAINTEXT`", "実行対象"), ("Environment.EnvironmentVariables[].Value", "`cde`", "実行対象")])
+        output = roundtrip(base / "codebuild.md", build, ROOT)
+        assert "Environment.Variables.TARGET" in output and "EnvironmentVariables[]" not in output
+        detector = model("guardduty", "GuardDuty.Detector", "security-detector", [("Features[].Name", "`S3_DATA_EVENTS`", "検査を有効にする設定"), ("Features[].Status", "`ENABLED`", "検査を有効にする設定")], "Detector", "security-detector")
+        output = roundtrip(base / "guardduty.md", detector, ROOT)
+        assert "Features.S3_DATA_EVENTS" in output
+        trail = model("cloudtrail", "CloudTrail.Trail", "audit", [("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"), ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket")], "Trail", "audit")
+        output = roundtrip(base / "cloudtrail.md", trail, ROOT)
+        assert "EventSelectors.DataResources[1].S3" in output and "All current and future" in output
+        pipeline = model("codepipeline", "CodePipeline.Pipeline", "cpln-app-dev-build", [("Name", "`cpln-app-dev-build`", "pipelineの名前"), ("Stages[].Name", "`Source`", "入力を取得するstage"), ("Stages[].Actions[].Name", "`Source`", "入力を取得するaction"), ("Stages[].Actions[].Configuration", '`{"BranchName":"main","PollForSourceChanges":"false"}`', "BranchName: 対象branch / PollForSourceChanges: polling設定"), ("Stages[].Name", "`Build`", "buildを実行するstage"), ("Stages[].Actions[].Name", "`BuildOne`", "最初のbuild"), ("Stages[].Actions[].Configuration", '`{"ProjectName":"one"}`', "ProjectName: 実行するproject"), ("Stages[].Actions[].Name", "`BuildTwo`", "次のbuild")])
+        output = roundtrip(base / "codepipeline.md", pipeline, ROOT)
+        assert "Stages[1].Actions.Configuration.BranchName" in output
+        assert "Stages[2].Actions[1].Name" in output and "Stages[2].Actions[2].Name" in output
+        pipeline["desired.row.001-009.property"] = "CodePipeline.Pipeline.Tags[].Key"
+        pipeline["desired.row.001-009.value"] = "`purpose`"
+        pipeline["desired.row.001-009.comment"] = "タグのキー"
+        roundtrip(base / "codepipeline.md", pipeline, ROOT)
+        hub = model("securityhub", "SecurityHub.Hub", "security-hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub", "security-hub")
+        roundtrip(base / "securityhub.md", hub, ROOT)
+        s3 = model("s3", "S3.Bucket", "app-dev-data", [("BucketName", "`app-dev-data`", "データを保管する名前"), ("Region", "`ap-northeast-1`", "配置するregion"), ("BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm", "`aws:kms`", "暗号化方式")])
+        output = roundtrip(base / "s3.md", s3, ROOT)
+        assert "BucketEncryption[].SSEAlgorithm" in output
+        kms = model("kms", "KMS.Key", "data-key", [("KeyId", "[Key](#kms-data-key)", "一意に識別するID")], "Key", "data-key")
+        kms["desired.service.kms.ownedCatalogResourceTypes"] = "KMS.Key,KMS.Alias"
+        kms.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "一意に識別するID", "desired.resource.002.resourceType": "KMS.Alias", "desired.resource.002.logicalId": "Alias", "desired.resource.002.anchor": "kms-alias-app-dev-data", "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.002.parentReference": "[Key](#kms-data-key)", "desired.row.002-001.property": "KMS.Alias.AliasName", "desired.row.002-001.value": "`alias/app-dev-data`", "desired.row.002-001.comment": "keyを識別するalias"})
+        output = roundtrip(base / "kms.md", kms, ROOT)
+        assert "### KMS.Alias" not in output and "<!-- logical-id: Alias -->" in output
+        sg = model("security_group", "EC2.SecurityGroup", "dev-app-data-01-sg", [("Id", "[Group](#security_group-dev-app-data-01-sg)", GROUP_COMMENTS["Id"]), ("GroupDescription", "`Data access`", GROUP_COMMENTS["GroupDescription"]), ("GroupName", "`dev-app-data-01-sg`", GROUP_COMMENTS["GroupName"]), ("VpcId", "[vpc-app-dev](vpc.md#vpc-vpc-app-dev)", GROUP_COMMENTS["VpcId"]), ("Tags[].Key", '"purpose"', GROUP_COMMENTS["Tags[].Key"]), ("Tags[].Value", '"data"', GROUP_COMMENTS["Tags[].Value"]), ("SecurityGroupIngress[].IpProtocol", "`tcp`", COMMENTS["IpProtocol"]), ("SecurityGroupIngress[].FromPort", "`443`", COMMENTS["FromPort"]), ("SecurityGroupIngress[].ToPort", "`443`", COMMENTS["ToPort"]), ("SecurityGroupIngress[].CidrIp", "`10.1.0.0/16`", COMMENTS["CidrIp"]), ("SecurityGroupEgress[].IpProtocol", "`-1`", COMMENTS["IpProtocol"]), ("SecurityGroupEgress[].CidrIp", "`0.0.0.0/0`", COMMENTS["CidrIp"])], "Group")
+        sg.update({"observed.row.001-001.property": "EC2.SecurityGroup.Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": GROUP_COMMENTS["Id"], "desired.service.security_group.ownedCatalogResourceTypes": "EC2.SecurityGroup,EC2.SecurityGroupIngress", "desired.resource.002.resourceType": "EC2.SecurityGroupIngress", "desired.resource.002.logicalId": "Rule", "desired.resource.002.anchor": "security_group-rule", "desired.resource.002.parentProperty": "EC2.SecurityGroupIngress.GroupId", "desired.resource.002.parentReference": "[Group](#security_group-dev-app-data-01-sg)"})
+        for number, (field, value) in enumerate((("Id", "[Rule](#security_group-rule)"), ("IpProtocol", "`tcp`"), ("FromPort", "`22`"), ("ToPort", "`22`"), ("SourceSecurityGroupId", "[PENDING_DEPLOY](#security_group-dev-app-data-01-sg)")), 1):
+            key = f"002-{number:03d}"
+            sg.update({f"desired.row.{key}.property": "EC2.SecurityGroupIngress." + field, f"desired.row.{key}.value": value, f"desired.row.{key}.comment": COMMENTS[field]})
+        sg.update({"observed.row.002-001.property": "EC2.SecurityGroupIngress.Id", "observed.row.002-001.value": "PENDING_DEPLOY", "observed.row.002-001.comment": COMMENTS["Id"]})
+        # Self references use the parent's canonical logical identity and observed ID.
+        sg["desired.row.002-005.value"] = "[Group](#security_group-dev-app-data-01-sg)"
+        sg.update({"observed.row.002-005.property": "EC2.SecurityGroupIngress.SourceSecurityGroupId", "observed.row.002-005.value": "PENDING_DEPLOY", "observed.row.002-005.comment": COMMENTS["SourceSecurityGroupId"]})
+        output = roundtrip(base / "security_group.md", sg, ROOT)
+        assert "| Direction | IpProtocol | Port |" in output
+        assert "<!-- security-group-id:" in output and "<!-- rule-id:" in output
+        assert "### EC2.SecurityGroupIngress" not in output
+    print("model_design: PASS (authoritative updates, batch rollback, naming coverage and service displays)")
+
+
+if __name__ == "__main__":
+    main()

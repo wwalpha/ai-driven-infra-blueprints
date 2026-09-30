@@ -658,6 +658,8 @@ def check_resource_name_headings() -> None:
         path = root / "docs/designs/dev/123456789012/scheduler.md"
         path.parent.mkdir(parents=True)
         metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
+        (root / "framework/rules").mkdir(parents=True)
+        shutil.copyfile(REPOSITORY / "framework/rules/aws-resource-naming.md", root / "framework/rules/aws-resource-naming.md")
 
         def errors(markdown):
             path.write_text(markdown, encoding="utf-8")

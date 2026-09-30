@@ -36,7 +36,7 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 ## CFn非対応の設計対象
 
 - CFn非対応を理由に詳細設計を省略しない。現在は`Macie.ClassificationJob`をAPI設計catalogで扱い、`framework/rules/detailed-design.md`のAPI-backed design resourcesに従う。未登録の型・項目は推測しない。
-- SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。固定bucketを列挙する`bucketDefinitions`型Jobでは、Jobの設定表後に`framework/rules/detailed-design.md`の3列対応表を作り、Job・AWS account・bucketを1行ずつ確定する。`s3JobDefinition` rowは同serviceのJSON artifactへlinkし、対応表をbucketDefinitionsの正本とする。`bucketCriteria`型Jobには固定bucket表を作らない。値を初期値で勝手に確定しない。
+- SessionとJobは同じ`macie.md`に通常の一覧・anchor・詳細表で記載する。Jobの名前、対象S3 bucketとobject条件、単発／定期、周期、初回実行、サンプリング、検出識別子、allow listのうち必要な設定を確認する。固定bucketを列挙する`bucketDefinitions`型Jobでは、Jobの設定表後に`framework/rules/detailed-design.md`の3列対応表を作り、Job・AWS account・bucketを1行ずつ確定する。`s3JobDefinition` rowは同serviceのJSON artifactへlinkし、modelのdocument内のbucketDefinitionsを正本とし、対応表はそこから生成する。`bucketCriteria`型Jobには固定bucket表を作らない。値を初期値で勝手に確定しない。
 - property名はAPIの正式な大小文字を維持する。root property単位で記載し、nested設定はJSON object/arrayにまとめる。長いobjectはservice配下JSON artifactへ置く。型・未知のnested field・条件付き必須を検証し、CFn型を発明しない。
 - name、jobIdを含む表示順はAPI propertiesに従う。未選択name、clientToken、jobArn、取得response全体は出力しない。read-only取得時のoptional nullは省略する。
 - Jobは作成後にスキャン設定を変更できないため、実装が必要になった場合は新Jobの作成と旧Jobの扱いを別途決める。今回の詳細設計保存から作成・置換・キャンセルへ進まない。
@@ -92,6 +92,9 @@ S3 Bucketのregionが既存設計、system overview、またはuser回答で確�
 
 回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。上記4種類のdesign-only `.Name`と`S3.Bucket.Region`以外にschemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。これらのdesign-only propertyは省略せず、`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
+
+設計質問・保存を始める前に、作成対象resourceの選択済み名称property、必須.Name、human-selectedなName tagに対応する命名ルールがあるかを`framework/rules/aws-resource-naming.md`のCatalog resource types／Naming targetで照合してください。欠けている場合はtypeとpropertyを示して停止し、命名patternを作らないでください。名称のないSecurity Hub CSPM（SecurityHub.Hub）などにはruleを要求しません。表示labelや内部logical IDをAWS名称と扱わず、optional name／Name tagを追加する質問もしません。
+
 human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`には対応する`.Name`とnon-empty valueを1 rowで必ず設計し、resource heading identifierをそのvalueと完全一致させてください。`Tags[].Key=Name`と`Tags[].Value`の2 rowは作りません。その他のresourceではtaggableであることを理由に`Name` tagを質問または追加せず、humanが明示した場合だけ設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 
 ## Existing AWS configuration branch
@@ -121,7 +124,7 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 
 密接に関連するserviceは同じbatchにまとめて構いません。ただし、完成する詳細設計は`framework/rules/detailed-design.md`に従いAWS service ownership boundaryごとに分けて出力してください。IAM、KMS、CloudWatch Logsなどのsecurity／shared service resourceを利用元service fileへ混在させてはいけません。
 
-CloudFormation対象resourceでは、service設計とは別に同targetの`cloudformation-stacks.md`を確認してください。新しいstack instanceが必要なら、stack名、templateの共用有無、stackごとのparameterのファイル名をhumanと確定し、同fileの完成Markdownも出力してください。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含めてください。直接利用するresourceがない場合は、同targetの設計resourceからRoleへの直接参照がないこととtrust policyのPrincipalを確認し、Roleの用途とAssumeRole元をRole詳細設計の`Source / Comment`に記録してから、Role専用template/stackを設計してください。既存stackの名前や所有関係を推測しないでください。stack設計もservice設計と同じ`design` taskでmodelを生成し、IaCやAWS mutationへ進まないでください。
+CloudFormation対象resourceでは、service設計とは別に同targetの`cloudformation-stacks.md`を確認してください。新しいstack instanceが必要なら、stack名、templateの共用有無、stackごとのparameterのファイル名をhumanと確定し、同名のcloudformation-stacks.propertiesを設計値の正本として出力してください。Markdownはそこから生成します。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含めてください。直接利用するresourceがない場合は、同targetの設計resourceからRoleへの直接参照がないこととtrust policyのPrincipalを確認し、Roleの用途とAssumeRole元をRole詳細設計の`Source / Comment`に記録してから、Role専用template/stackを設計してください。既存stackの名前や所有関係を推測しないでください。stack設計もservice設計と同じ`design` taskでpropertiesを先に保存してMarkdownを生成し、IaCやAWS mutationへ進まないでください。
 
 ## Question style
 
@@ -209,7 +212,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 
 `CidrBlock`等のCIDR値は、詳細表・リソース一覧・参照link表示・配列内のいずれも`PENDING_DEPLOY`にしてはいけません。deploy前でも確定済みCIDRを記載し、未確定ならhumanへ確認してください。CIDRがcatalog上のidentifier outputでも例外にしません。`VpcId`等の生成IDの`PENDING_DEPLOY`とは区別してください。
 
-完成設計を出力する直前に、全resource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。見出し・`Property`から分かる対象resource名の繰り返しを省き、属性の意味だけを短く記載してください。ただし参照先・通信元・通信先を区別する名称は残してください。grouped resourceもrowの`Property`の所属で判断してください。例えば`EC2.Subnet.SubnetId`は`一意に識別するID`、`EC2.Subnet.AvailabilityZone`は`配置するAvailability Zone`とします。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
+完成設計を出力する直前に、全model propertiesの正式rowとそこから生成するresource-detail tableの全rowを自己確認してください。各`Source / Comment`が`Property`の設定・識別・制御対象となる属性の意味を日本語で説明し、`確定済み設計値`や`デプロイ後生成値`などの決定状態・分類、`人間が選択した`などの決定主体、出典・経緯・証跡、verification結果、`Value`の無意味な言い換えを含まないことを確認してください。見出し・`Property`から分かる対象resource名の繰り返しを省き、属性の意味だけを短く記載してください。ただし参照先・通信元・通信先を区別する名称は残してください。grouped resourceもrowの`Property`の所属で判断してください。例えば`EC2.Subnet.SubnetId`は`一意に識別するID`、`EC2.Subnet.AvailabilityZone`は`配置するAvailability Zone`とします。catalog `IDENTIFIER_OUTPUT`のrowも同じ基準で確認してください。判定基準の正本は`framework/rules/detailed-design.md`です。
 
 同時に全リソース一覧のCommentを読み、各行にResourceNameからは分からない具体的な機能・用途・役割があり、同型resourceの違いが分かることを確認してください。`セキュリティグループ（識別子）の設定`などの定型文が残れば、詳細設定と利用先を確認して書き直してください。根拠がなければ用途を創作せず不足情報を確認してください。
 
@@ -217,7 +220,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 
 `完了報告`には必要に応じて主な決定、前提service、対象外、残件、blockerを日本語で平易に要約して構いません。このreportは保存対象ではなく、内容を詳細設計Markdownへ複製してはいけません。
 
-`設計ファイル`には`framework/rules/detailed-design.md`に準拠した保存対象の完成形Markdownと必要なJSON artifactをfile単位で出力してください。`model/**`はCodexがMarkdownから生成するため、propertiesを出力してはいけません。
+`設計ファイル`には`framework/rules/model-information.md`に準拠した完成形model propertiesをfile単位で出力してください。catalog propertiesを項目の正本、model propertiesを設計値の正本としてください。保存対象の全service model propertiesをfile単位で出力し、MarkdownとJSON artifactはpropertiesから生成する表示例として扱ってください。`display.service.title`、用途を表す`display.resource.*.comment`、名称なしresourceの`display.resource.*.label`、Stack一覧の`display.stack.*.comment`もpropertiesへ含めます。policy／設定JSON本文は該当rowの`document`へcompact JSONで保持し、表示やJSONだけに値を残さないでください。
 
 - heading、一覧のResourceName、参照linkには確定済みresource名を使用する。内部logical IDはanchor直前の非表示`<!-- resource-logical-id: <logical-id> -->`へ保持し、表示用linkのtextやanchor生成元に使用しない。anchorはService IDと正規化したresource表示名から生成し、名称がない型はhuman-confirmedな表示名を確認する。未確定値や内部IDから表示名を発明しない。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のlogical IDは`.Name` valueと完全一致させる
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
@@ -259,13 +262,13 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 
 chat-only設計中は`tasks/active.md`を変更せず、完了済みの前taskが残っていてもblockerにしてはいけません。
 
-`Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全Markdown／JSON artifactのpathと完成内容を含め、Codexへ次の手順を明示してください。
+`Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全model propertiesのpathと完成内容、生成先Markdown／JSON artifactのpathを含め、Codexへ次の手順を明示してください。
 
 1. `AGENTS.md`、`README.md`、存在する場合は`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
-3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、対象の`docs/designs/**`、生成対象の`model/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
-4. 指定されたpathへ完成済みMarkdown／JSON artifactをそのまま作成する。設計値を追加、変更、推測せず、`model/**`を手動編集しない。
-5. policyを含む作成・変更対象のservice Markdownそれぞれに`python3 framework/scripts/policy_tables.py <対象service Markdown> --write`を実行し、設計値を変えずJSONから一覧とpolicy表を生成する。その後、aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じservice modelを生成する。
+3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。Required changes、対応するAcceptance checks、正本の`model/**`、生成対象の`docs/designs/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
+4. 作成対象の選択済み名称property／必須.Name／human-selectedなName tagに対応する命名ルールがあることを確認する。名称を持たないSecurity Hub CSPM（SecurityHub.Hub）などは対象外とする。rule欠落はtype／propertyを明示して停止し、patternを推測しない。指定された全model propertiesを先に保存する。model更新が失敗したらMarkdown／JSONを変更せず停止する。
+5. aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id>`で同じtargetのMarkdown／JSON artifactをmodelから生成する。全対象の一時生成・検証が成功した後だけ保存する。失敗時は保存済みMarkdown／JSONを保持し、propertiesの正本から修正・再実行する。Markdownをmodelへ逆反映しない。
 6. `python3 framework/scripts/blueprint-loop.py --mode local`と`git diff --check`を実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
@@ -275,9 +278,9 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 3. API catalogの`Macie.ClassificationJob`は`aws macie2 list-classification-jobs`で候補を取得する。CFn由来のcatalog resource typeだけを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. Macie Jobはhumanの選択後に`aws macie2 describe-classification-job --job-id <選択したjobId>`で選択済みroot propertyとjobIdだけを取得する。CFn由来resourceは選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
-6. chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。その他のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するsectionがなければ、上記4種類は`.Name` valueからlogical IDとanchorを生成し、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけ一つ質問して非表示metadataへ保持する。名称がない型ではhuman-confirmedな表示名を確認してからservice metadata、anchor、heading、tableを作成する。
-7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` rowへ実値を反映し、同じanchorを参照する全propertyのMarkdown link表示textも同じ実値へ更新する。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
-8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するartifactだけを差分更新する。その後、上記5と6のmodel生成、local loop、終了条件へ戻る。
+6. model propertiesへ、chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。その他のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するmodel resourceがなければ、上記4種類は`.Name` valueからlogical IDとanchorを生成し、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけlogical IDを一回の応答につき一つ質問してmodelのlogicalIdへ保持する。名称がない型ではhuman-confirmedな表示名を確認してからservice metadata、anchor、heading、tableを作成する。
+7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyに対応するmodelの`observed.row.*`へ実値を反映する。同じidentifierを参照する全model rowのobserved valueも同じ値へ更新し、Markdown link表示textは生成処理へ任せる。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
+8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するmodel rowのdocumentだけを差分更新する。その後、上記5と6のMarkdown／JSON生成、local loop、終了条件へ戻る。
 
 上記6のsection作成にも`resource-layout.json`を適用する。KMS Aliasなどのgrouped childは独立sectionを作らず、確定した所属親のtableへ識別marker付きで反映する。親を特定する選択済みpropertyの現在値と親のcurrent identifierが一致することを確認し、親が設計にない場合や対応を解決できない場合は停止する。未選択の親resource/propertyの取得や作成へscopeを広げない。
 

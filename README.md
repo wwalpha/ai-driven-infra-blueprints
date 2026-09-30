@@ -28,7 +28,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/05_update.md`: humanが手動修正した未commitの詳細設計をIaCへ反映し、deploy/applyまで行う指示
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
-- `framework/scripts/sync-model.py`: human-readable詳細設計からdesired/observedを含むservice modelを決定的に生成する
+- `framework/scripts/sync-model.py`: 設計値の正本model propertiesからMarkdown／JSON artifactを決定的に生成・検証する
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
@@ -53,7 +53,7 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 8. `model/`
 9. userが明示的に許可した外部情報
 
-`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`docs/designs/**/*.md`はenvironment/target directory別の詳細設計の正本とする。service resourceはAWS service別file、CloudFormation stackはtarget別`cloudformation-stacks.md`に記載する。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`model/**/*.properties`はenvironment/target directory別の設計値の正本、`docs/designs/**/*.md`はその生成表示とする。service resourceはAWS service別file、CloudFormation stackはtarget別`cloudformation-stacks.md`に記載する。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
 
 ## Task contract and types
 
@@ -121,15 +121,15 @@ active promptの`## Task contract`には次を正確に1件記載します。
 1. system overview、既存設計、関連materialsを確認する。
 2. 必須serviceの前提となる未設計serviceを優先する。
 3. 通常5〜8個の設計判断を一つのbatchとして質問する。
-4. humanが決める設計値だけで完成できる場合は、完成形の詳細設計Markdownと必要なJSON artifactをfile単位で出力する。
+4. humanが決める設計値だけで完成できる場合は、完成したmodel propertiesをfile単位で出力し、Markdown／JSON artifactの生成先を示す。
 5. 既存AWS resourceの現在値を使用する場合は、chatbotが対象service、resource type、propertyを確定し、完成Markdownの代わりにread-only取得を含む自己完結型Codex promptを出力する。
-6. Codexのdesign taskはtarget contextを検証し、resource候補をhumanが選択した後、選択済みpropertyを詳細設計へ直接差分反映して`model/**`を生成する。
+6. Codexのdesign taskはtarget contextを検証し、resource候補をhumanが選択した後、選択済みpropertyを`model/**`へ直接差分反映してMarkdown／JSON artifactを生成する。
 
-chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。service modelはMarkdownから生成し、design taskはCloudFormation/Terraform、AWS mutation、scenario、scenario resultを変更しません。既存resource取得では必要な非ARN current identifierだけをobserved valueへ反映できます。
+chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。model propertiesを先に更新してMarkdownとJSON artifactを生成し、design taskはCloudFormation/Terraform、AWS mutation、scenario、scenario resultを変更しません。既存resource取得では必要な非ARN current identifierだけをobserved valueへ反映できます。
 
 ## Post-design SDD
 
-新規設計では、`framework/prompts/chatbot/service-design.md`が出力したCodex promptで詳細設計とmodelを生成し、`03_implement.md`でIaCを作成・検証し、別taskの`04_deploy.md`でdeploy/applyする。
+新規設計では、`framework/prompts/chatbot/service-design.md`が出力したCodex promptでmodel propertiesを保存して詳細設計Markdownを生成し、`03_implement.md`でIaCを作成・検証し、別taskの`04_deploy.md`でdeploy/applyする。
 
 既存詳細設計をhumanが直接変更し、未commit差分をIaCへ反映してdeploy/applyまで行う場合は、`framework/prompts/codex/05_update.md`だけを使用する。`03_implement.md`、`04_deploy.md`を個別に実行しない。
 
@@ -142,7 +142,7 @@ chatの完了報告と保存対象Markdownは分離します。chatとMarkdown�
 3. `design` taskはintended designとservice modelを更新して終了する。既存resource取得が明示された場合だけ、read-only AWS APIによる現在値の直接差分反映を含める。
 4. `infrastructure` taskの`implement` phaseはIaC作成とlocal static validationまでで終了する。
 5. 別の`infrastructure` taskの`deploy` phaseは既存IaCを変更せず、CloudFormation change setまたはTerraform planを確認してdeploy/applyし、成功後のobserved value更新までで終了する。
-6. `infrastructure` taskの`update` phaseはhumanの未commit詳細設計を変更せず、model同期、IaC反映、deploy/apply、observed value更新までを一つのtaskで行う。
+6. `infrastructure` taskの`update` phaseはhumanの未commit model propertiesを変更せず、Markdown生成、IaC反映、deploy/apply、observed value更新までを一つのtaskで行う。
 7. `scenario-test` taskは別途開始し、指定scenarioのtestとcurrent resultだけを更新する。
 8. scenario testが失敗しても、同じtaskでdesign変更、IaC修正、redeploy、remediation task作成へ進まない。
 
@@ -150,13 +150,13 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 
 ## Framework distribution
 
-`framework/`と`.agents/`を共通資産の配布単位とします。既存repositoryへ同期する場合は、配布元repositoryのrootで次を実行します。
+`framework/`、`.agents/`、rootの`AGENTS.md`と`README.md`を共通資産の配布単位とします。既存repositoryへ同期する場合は、配布元repositoryのrootで次を実行します。
 
 ```console
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-このcommandは`<target-repository>/framework/**`と`<target-repository>/.agents/**`を追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`AGENTS.md`と`README.md`は各repositoryのentrypointとしてrootに残します。
+このcommandは`<target-repository>/framework/**`、`<target-repository>/.agents/**`、rootの`AGENTS.md`と`README.md`を追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`--dry-run`で保存前の差分を確認できます。同期件数はコピー先との内容差分で数えるため、同期対象外の`tasks/active.md`などを含むローカル未commit件数とは一致しない場合があります。summaryに同期範囲と対象外のpathを表示します。
 
 ## Repository structure
 
@@ -215,12 +215,12 @@ tests/
 
 ## Design information
 
-- `docs/designs/<environment>/<target-directory>/`はhuman-readable current designの正本。
-- CloudFormation targetでstackをdeployする場合は同directoryの`cloudformation-stacks.md`をstack管理の正本とする。同じtemplateを複数StackNameへ適用でき、各stackに個別parameterのファイル名を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
-- `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readable model。手動編集しない。
+- `docs/designs/<environment>/<target-directory>/`はpropertiesから生成するhuman-readable current design。
+- CloudFormation targetでstackをdeployする場合は対応するmodelの`cloudformation-stacks.properties`をstack管理の正本とし、`cloudformation-stacks.md`を生成する。同じtemplateを複数StackNameへ適用でき、各stackに個別parameterのファイル名を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
+- `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readableな設計値の正本。確定済み設計はここへ先に反映する。
 - service用の一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。stack詳細設計pairはtarget内のdeployment unitを所有する。
-- service間dependencyはfile統合やdesign valueの複製ではなく、relative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
-- policy JSONは`docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json`へ保存し、Markdownの参照をgenerated modelへそのまま反映する。
+- service間dependencyはfile統合やdesign valueの複製ではなく、正本modelのrelative Markdown linkとexplicit anchorで保持し、Markdownへ同じreferenceを生成する。
+- policy JSON本文と参照先は正本modelに保持し、`docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json`とMarkdownの参照を生成する。
 - topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`framework/rules/detailed-design.md`を正本とする。
 - `desired.*`は確定済みのintended design、`observed.*`は対象AWS accountから取得した必要最小限のgenerated current valueを保持する。
 - 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
@@ -239,7 +239,7 @@ tests/
 
 ## CFn非対応resourceの詳細設計
 
-詳細設計に記載できる対象と、選択済みIaC engineで作成できる対象を分離します。`Macie.ClassificationJob`は公式API仕様に基づいて設計し、CFn対応の`Macie.Session`と同じ`macie.md`へ通常のリソース一覧・詳細表で記載できます。両方を同じservice modelへ生成します。
+詳細設計に記載できる対象と、選択済みIaC engineで作成できる対象を分離します。`Macie.ClassificationJob`は公式API仕様に基づいて設計し、CFn対応の`Macie.Session`と同じ`macie.md`へ通常のリソース一覧・詳細表で記載できます。両方を同じservice modelに保持します。
 
 - APIの選択リストと固定schema: `framework/materials/api/Macie_ClassificationJob.properties`と同名`.json`
 - schema内に公式仕様URL、API version、元SDK modelのhash、確認日、CFn非対応を保持します。clientTokenと生成jobArnは設計項目にしません。
@@ -284,7 +284,7 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 ## Required changes
 
 - [R1] 確定済み詳細設計を保存する。
-- [R2] service modelを生成する。
+- [R2] 正本model propertiesを先に更新し、Markdown／JSON artifactを生成する。
 
 ## Acceptance checks
 
@@ -306,4 +306,6 @@ python framework/scripts/blueprint-loop.py --mode local
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
-local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanが手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
+local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
+
+設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。

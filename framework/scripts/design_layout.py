@@ -86,15 +86,23 @@ def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
     return identities
 
 
-def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
-    """Find a selected root name; never invent an AWS name from an internal ID."""
-    fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
+def resource_name_fields(resource_type: str) -> list[str]:
+    """Candidate resource names, excluding names of referenced resources."""
     kind = resource_type.split(".")[1]
-    names = ["Name", "name", kind + "Name", kind + "Identifier", kind + "Input.Name"]
+    names = [kind + "Input.Name", kind + "Config.Name", "Name", "name", kind + "Name", kind + "Identifier", kind + "." + kind + "Name"]
     if kind.endswith("Name"):
         names.append(kind)
     if resource_type == "EC2.SecurityGroup":
         names.append("GroupName")
+    if resource_type == "IAM.ManagedPolicy":
+        names.append("PolicyName")
+    return names
+
+
+def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
+    """Find a selected root name; never invent an AWS name from an internal ID."""
+    fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
+    names = resource_name_fields(resource_type)
     for field in names:
         if field in fields and not fields[field].startswith("["):
             return fields[field]

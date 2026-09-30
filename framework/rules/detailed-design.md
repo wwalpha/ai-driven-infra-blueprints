@@ -1,10 +1,14 @@
 # Detailed Design Rules
 
+## 正本と更新順
+
+catalog propertiesを項目の正本、model propertiesを設計値の正本とする。Markdownに表示される全項目・値・名称・説明はmodelから生成し、service固有表現はこのruleに従う。JSON artifactもmodelの`document`から生成する。model propertiesの更新に失敗したらMarkdownを更新しない。全対象の生成と検証が成功した後だけ生成物を保存する。詳細は`framework/rules/model-information.md`に従う。
+
 ## Task boundary
 
-- `design` taskはintended designを更新し、対応するservice modelを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。chatbotが指定した既存resource取得では必要な非ARN current identifierも反映できる。IaC、AWS mutation、scenarioへ自動的に進まない。
+- `design` taskはmodel propertiesのintended designを先に更新し、対応するMarkdown／JSONを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。chatbotが指定した既存resource取得では必要な非ARN current identifierも反映できる。IaC、AWS mutation、scenarioへ自動的に進まない。
 - `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
-- infrastructure `update` phaseは、humanがtask開始前に手動修正した未commitのintended designをimmutable inputとして受け取れる。Codexはそのintended designを変更せず、deploy/apply成功後のgenerated current valueだけを追加更新できる。
+- infrastructure `update` phaseは、humanがtask開始前にmodel propertiesへ手動修正した未commitのintended designをimmutable inputとして受け取れる。Codexはそのintended designを変更せず、deploy/apply成功後のgenerated current valueだけを追加更新できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
 ## Existing resource configuration
@@ -46,7 +50,7 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
 - VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
 - `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security_group.md`だけに置く。Design service IDは`security_group`、対応modelは`security_group.properties`、anchorは共通のresource表示名規則に従う。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
-- service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
+- service間dependencyはfile統合ではなく正本modelのrelative Markdown linkとexplicit anchorで保持し、Markdownへ同じreferenceを生成する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
 
@@ -54,7 +58,7 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名をここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
 
-`## Stack一覧`は`No. | StackName | Template | Parameters | Comment`の5列とする。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`をmodelのstack propertyとして保存しない。
+`## Stack一覧`は`No. | StackName | Template | Parameters | Comment`の5列とする。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`はmodelの`display.stack.*.comment`から生成し、AWS stack propertyとして扱わない。
 
 [CloudFormation stack詳細設計の例](detailed-design-samples.md#cloudformation-stack)
 
@@ -87,7 +91,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
 - tableは`No. | ResourceName | Comment`の3列とし、1 resourceを1 rowで表示する。`No.`はresource typeごとのtable内で1からの連番とする。`ResourceName`には対応するdetail headingのidentifierをsame-file linkで表示し、`Comment`にはそのresourceの機能・用途・役割を日本語で短く説明する。同型のresourceが複数ある場合は各行の用途を区別する。resource typeやResourceNameを繰り返しただけの`セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定`のような文はCommentとしない。Security Groupは詳細のGroupDescription、通信rule、利用先から用途を確認し、不明なら推測しない。全detail blockを重複なく一覧へ載せる。
-- 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、generated service modelへ重複保持しない。
+- 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、ResourceNameはmodelの名称row、Commentは`display.resource.*.comment`から生成する。生成済みtable自体はmodelへ重複保持しない。
 
 S3の例: [S3リソース一覧の例](detailed-design-samples.md#resource-overview)
 
@@ -138,17 +142,17 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 
 ## API-backed design resources
 
-詳細設計の対象とIaCで作成できる対象を分離する。CFn非対応でも、登録済みのAPI catalog resourceは通常のservice metadata、リソース一覧、anchor、heading、4列の詳細表、generated modelへ含める。CFn非対応を理由に詳細設計を省略しない。
+詳細設計の対象とIaCで作成できる対象を分離する。CFn非対応でも、登録済みのAPI catalog resourceは正本modelへ含め、通常のservice metadata、リソース一覧、anchor、heading、4列の詳細表を生成する。CFn非対応を理由に詳細設計を省略しない。
 
 - 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`### Macie.ClassificationJob: <resource-name>`を作る。表示関係は`resource-layout.json`に従う。
 - 選択リストは`framework/materials/api/Macie_ClassificationJob.properties`、型・制約は同名の`.json`を正本とする。公式Macie APIのrequest/responseに基づく固定した設計用schemaであり、CloudFormation provider schemaではない。参照元、API version、取得元hash、確認日、`cloudFormationType: null`はframework側に保持し、詳細設計のAWS propertyとして追加しない。
 - APIの正式な大小文字を維持し、`Macie.ClassificationJob.name`、`jobType`、`s3JobDefinition`などを使用する。catalogにないfield、架空のCFn型、実行時の`clientToken`、生成された`jobArn`を追加しない。
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
-- 固定bucketを列挙する`bucketDefinitions`型Jobでは、`s3JobDefinition` rowを同service配下JSON artifactへのlinkとし、そのJobの設定表の後に`#### 対象S3 bucket`と3列の対応表を置く。この表をJob・AWS account ID・bucketの正本とする。1 bucketを1行とし、Job cellはそのJobへのsame-file link、account cellは確定済み12桁ID、Bucket cellは同targetのS3設計へのrelative linkまたは外部bucket名のliteralとする。S3 linkの表示名はlink先BucketNameに一致させ、同じaccountの行を連続させる。重複bucket、別Jobへのlink、空表を拒否する。
+- 固定bucketを列挙する`bucketDefinitions`型Jobでは、`s3JobDefinition` rowを同service配下JSON artifactへのlinkとし、そのJobの設定表の後に`#### 対象S3 bucket`と3列の対応表を置く。この表はmodelの`desired.row.*.document`にあるbucketDefinitionsから生成する。1 bucketを1行とし、Job cellはそのJobへのsame-file link、account cellは確定済み12桁ID、Bucket cellは同targetのS3設計へのrelative linkまたは外部bucket名のliteralとする。S3 linkの表示名はlink先BucketNameに一致させ、同じaccountの行を連続させる。重複bucket、別Jobへのlink、空表を拒否する。
 
 [Macie bucket対応表の例](detailed-design-samples.md#macie-bucket-mapping)
 
-- `framework/scripts/sync-model.py --write`は対応表の行順からJSON artifactの`bucketDefinitions`をaccountごとに生成し、JSON内の選択済み`scoping`は保持する。local validationは表とJSONのaccount、bucket、順序を照合する。`bucketCriteria`型Jobには固定bucket対応表を置かず、従来どおりJSON objectを正本とする。
+- `framework/scripts/sync-model.py --write`は対応表の行順からmodelの`desired.row.*.document`からJSON artifactと対応表を生成し、選択済み`scoping`も保持する。local validationは表とJSONのaccount、bucket、順序を照合する。`bucketCriteria`型Jobには固定bucket対応表を置かず、model rowのJSON objectを正本とする。
 - `name`、`jobType`、`s3JobDefinition`を必須とし、未知のproperty、型、enum、長さ、範囲、nested object/arrayも検証する。未使用のoptional配列は空配列でなくrowを省略する。
 - `SCHEDULED`は実行周期を正確に一つ指定する。`ONE_TIME`は`scheduleFrequency`と`initialRun`を省略する。S3対象は`bucketDefinitions`または`bucketCriteria`のどちらか一つにする。managed data identifierの選択方式とID配列、custom data identifierの必須関係も検証する。
 - `Macie.ClassificationJob.jobId`は`IDENTIFIER_OUTPUT`としてcatalog順に記載する。未作成は既存の`PENDING_DEPLOY`、取得済みは非ARNの実IDとする。この値はCFnでの作成予定を意味しない。
@@ -192,7 +196,7 @@ Security Groupも一覧は3列とし、SGのId、GroupDescription、選択済み
 - 各ruleはIPv4 CIDR、IPv6 CIDR、Prefix List、Security Groupのいずれか一つを送信元／宛先に持つ。`SourceSecurityGroupOwnerId`は`SourceSecurityGroupId`に付随させる。値、参照先、`-1`、Port内の範囲・ICMP type/codeを保持し、`All`や推測したservice名へ書き換えない。RegionやHTTP/HTTPSなどのTypeを表示目的で追加しない。
 - 独立した`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`のDirection cellは`Inbound <a id="<service-id>-<logical-idのlowercase>"></a><!-- logical-id: <logical-id> --><!-- rule-id: <IdのValue> -->`とし、Egressでは先頭を`Outbound`とする。Security Group参照を持つ場合だけ、その後へ上記`security-group-id` markerを続ける。表にはDirectionだけを表示し、logical ID・anchor・取得済みcurrent IDまたは`PENDING_DEPLOY`を非表示の構造情報として保持する。Idを画面上のcolumnや説明文へ重複表示せず、modelの正式property `Id`は維持する。`GroupId`は包含するSGから解決し、他SGへの所属を出現順やphysical IDで推測しない。外部SGだけを参照して包含するSGの設計がない場合は停止する。
 - SG自身の`SecurityGroupIngress[]`／`SecurityGroupEgress[]`として設計したinline ruleは、Direction cellを`Inbound`または`Outbound`だけとし、identityやrule-idのmarkerを付けない。Security Group参照を持つ場合だけ上記`security-group-id` markerを続ける。catalogに存在しないinline rule IDを作らず、独立ruleへの変換もしない。inlineと独立ruleは同じtable内でも区別を保持する。
-- SG基本設定表とrule tableのcolumnとValue、およびDirection／所属SGの非表示metadataを設計の正本とする。共通parserは検証・model生成時だけ正式catalog propertyへ展開し、SG属性・inline rule・独立ruleを保持する。元Markdownを書き換えたり、設定値を一覧へ重複保存したりしない。
+- model propertiesのSG属性・inline rule・独立rule・親参照を設計の正本とし、SG基本設定表とrule table、Direction／所属SGの非表示metadataを生成する。共通parserは表示の検証・明示migration時だけ正式catalog propertyへ展開し、SG属性・inline rule・独立ruleを保持する。元Markdownを書き換えたり、設定値を一覧へ重複保存したりしない。
 
 ## JSON design artifacts
 
@@ -231,7 +235,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 
 ## Service policy tables
 
-設定表のpolicy JSONリンクだけでなく、所有resourceの設定表直後にJSON本文の派生表示を生成する。resource設定はMarkdownのproperty row、policy本文はそのrowが参照するJSON artifactを正本とし、派生表示を独立した設計入力にしない。
+設定表のpolicy JSONリンクだけでなく、所有resourceの設定表直後にJSON本文の派生表示を生成する。resource設定はmodel propertiesの正式row、policy本文はそのrowの`document`を正本とし、派生表示を独立した設計入力にしない。
 
 ### 対象と形式
 
@@ -258,7 +262,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 - 全形式で重複JSON key、不正なJSON定数、JSON object以外のartifact、他service配下のartifact参照を拒否する。marker欠落・重複・不正な所属、表や一覧リンクと正本との不一致をlocal loopでFAILとする。
 - 生成は指定したMarkdown一件の派生policy表だけを更新する。modelには派生表示を重複保持せず、既存のJSONリンクとcanonical hashを維持する。
 
-policyを含む設計を保存・変更した後、model生成前に実行する。`--write`なしはread-onlyの一致検証になる。
+通常の設計保存ではmodel更新後の`sync-model.py --write`がこの表示処理を呼ぶ。以下は生成済みpolicy表示だけを検査する補助commandとする。`--write`なしはread-onlyの一致検証になる。
 
 ```console
 python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/<service-id>.md --write
@@ -266,7 +270,7 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 ### IAM Role policy tables
 
-IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はMarkdownのproperty row、policy本文はそこから参照するJSON artifactを正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
+IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はmodel propertiesの正式row、policy本文はそのrowの`document`を正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
 
 - `## リソース一覧`内の`### IAM.Role`も共通の3列形式とし、ResourceNameにはRole詳細headingのidentifierを表示する。RoleNameとpolicy名・linkは詳細blockに保持し、一覧へ複製しない。`Comment`はRoleの用途説明を保持する。
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
@@ -281,7 +285,7 @@ IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し
 - Roleごとの生成範囲は`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲む。marker内にはそのRoleのpolicy anchor、見出し、信頼ポリシーのVersion表、Statement表だけを置く。設定表や手動のimplementation noteを入れない。markerの欠落・重複・不正な所属も検証対象とする。
 - 生成処理は明示したMarkdown一件のmarker内だけを更新する。policy JSON、Role設定、resource一覧を変更しない。表の内容やJSONを自動的に正しい権限へ修正しない。
 
-IAMを含む設計を保存・変更した後、model生成前に実行する。`--write`を省略するとread-onlyの一致検証になる。
+通常の設計保存ではmodel更新後の`sync-model.py --write`がこの表示処理を呼ぶ。以下は生成済みpolicy表示だけを検査する補助commandとする。`--write`を省略するとread-onlyの一致検証になる。
 
 ```console
 python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write

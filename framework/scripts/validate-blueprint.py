@@ -49,6 +49,7 @@ from design_layout import (
     catalog_order_errors,
 )
 from security_group_tables import security_group_table_lines
+from model_design import naming_errors
 
 
 REQUIRED_RULES = {
@@ -409,7 +410,7 @@ class Validator:
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
             models = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             self.check(bool(markdown or artifacts), "design task must change detailed-design Markdown or JSON artifacts")
-            self.check(bool(models), "design task must change generated service models")
+            self.check(bool(models), "design task must change authoritative service properties")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
                 self.check(expected in changed, f"changed design Markdown lacks changed service model: {path}")
@@ -418,7 +419,7 @@ class Validator:
                 service = expected.removesuffix(".md") + "/"
                 self.check(
                     expected in changed or any(artifact.startswith(service) for artifact in artifacts),
-                    f"changed service model lacks changed design source: {path}",
+                    f"changed authoritative model lacks changed generated design: {path}",
                 )
             for path in artifacts:
                 parts = Path(path).parts
@@ -435,11 +436,11 @@ class Validator:
                 self.check(iac_changed, "infrastructure update phase must change selected IaC")
                 self.check(
                     any(path.startswith("docs/designs/") and path.endswith(".md") for path in changed),
-                    "infrastructure update phase must include a human-changed detailed design",
+                    "infrastructure update phase must include generated detailed-design Markdown",
                 )
                 self.check(
                     any(path.startswith("model/") and path.endswith(".properties") for path in changed),
-                    "infrastructure update phase must regenerate service models",
+                    "infrastructure update phase must include human-changed authoritative service properties",
                 )
         elif self.task_type == "scenario-test":
             self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
@@ -511,7 +512,7 @@ class Validator:
             return
         prompt = path.read_text(encoding="utf-8")
         self.check("Task typeは`design`" in prompt, "service design prompt lacks design task contract")
-        self.check("sync-model.py" in prompt, "service design prompt does not generate the service model")
+        self.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
         self.check("blueprint-loop.py --mode local" in prompt, "service design prompt lacks local validation")
         self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
         required_existing_resource_contract = {
@@ -1098,6 +1099,8 @@ class Validator:
                     return
                 resource_type, display = current
                 name = resource_display_name(resource_type, rows)
+                for error in naming_errors(self.root, resource_type, rows):
+                    self.check(False, f"{self.relative(path)}: {error}")
                 self.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {self.relative(path)}: {resource_type}")
                 self.check(name is None or display == name, f"resource heading must display resource name: {self.relative(path)}: {resource_type}: {display} != {name}")
                 if name is None:

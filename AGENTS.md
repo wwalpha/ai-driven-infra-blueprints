@@ -35,7 +35,7 @@
 ## Task boundary
 
 - `design`: `docs/designs/**`と対応する`model/**`を更新し、local validation後に終了する。既存resource取得ではchatbotが選択したpropertyと必要な非ARN current identifierだけを反映できる。IaC、AWS mutation、scenarioへ進まない。
-- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後のgenerated current valueと`model/**`のobserved namespace更新までを行って終了する。`update` phaseではhumanがtask開始前に手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
+- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後の`model/**`のobserved namespace更新とMarkdown生成までを行って終了する。`update` phaseではhumanがtask開始前にmodel propertiesへ手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
 - `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<target-directory>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
 - `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
@@ -67,9 +67,9 @@
 
 ## Generated service model
 
-- `docs/designs/**`をintended designのsource of truthとする。
-- `model/**`は`framework/scripts/sync-model.py`で生成し、手動編集しない。
-- CloudFormation stackの管理対象はtarget別`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を詳細設計の正本とし、同名の`model/**`を生成する。templateとstackは一対一に限定しない。deploy時はStackNameでAWS実体を照合し、設計外stackを自動採用しない。
+- catalog propertiesを項目の正本、`model/**/*.properties`をintended designとobserved valueの正本とする。`docs/designs/**`のMarkdown／JSON artifactはmodelから生成する。
+- 設計変更は最初に`model/**`へ反映し、`framework/scripts/sync-model.py --write`でMarkdown／JSON artifactを生成する。Markdownを先に修正してmodelへ逆反映しない。
+- CloudFormation stackの管理対象はtarget別`model/<environment>/<target-directory>/cloudformation-stacks.properties`を詳細設計の正本とし、同名のMarkdownを生成する。templateとstackは一対一に限定しない。deploy時はStackNameでAWS実体を照合し、設計外stackを自動採用しない。
 - 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
-- design task、infrastructure `update` phase、成功したAWS mutation後はMarkdown更新後に同じservice modelを再生成する。design taskで既存resourceを取得した場合は確認済みcurrent identifierを`observed.*`へ生成してよい。
-- local loopはgenerated modelがMarkdownと一致しない場合に失敗する。
+- design task、infrastructure `update` phase、成功したAWS mutation後は先に同じservice modelを更新し、全対象の生成と検証が成功した後にMarkdown／JSON artifactを保存する。design taskで既存resourceを取得した場合は確認済みcurrent identifierを`observed.*`へ反映してよい。
+- local loopはpropertiesから生成したMarkdown／JSON artifactが保存済み表示と一致しない場合に失敗する。

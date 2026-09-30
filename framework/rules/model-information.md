@@ -3,27 +3,47 @@
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - human-readable current designは`docs/designs/<environment>/<target-directory>/`に置く。
 - machine-readable service modelは`model/<environment>/<target-directory>/`に置く。
-- CloudFormation stack詳細設計`cloudformation-stacks.md`から、同じstemの`.properties`へ`desired.stack.*`を生成する。各stackの名前、templateのファイル名、parameterのファイル名を保持する。一覧の`No.`と`Comment`、stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
-- Markdown designをdesired valueとobserved valueのsource of truthとする。
-- `model/`は`framework/scripts/sync-model.py`が生成し、手動編集しない。
-- Markdownとgenerated modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
-- design taskはMarkdownとJSON artifactを保存した後、同じcoherent logical changeでmodelを生成する。選択済み既存resourceをread-only取得した場合は必要な非ARN current identifierも`observed.*`へ生成する。
-- infrastructure taskは成功したAWS mutation後にMarkdownのgenerated identifier rowを更新し、同じmodelを再生成する。
-- infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
+- CloudFormation stack詳細設計は`cloudformation-stacks.properties`の`desired.stack.*`に各stackの名前、templateのファイル名、parameterのファイル名を保持し、同じstemのMarkdownを生成する。一覧の`No.`は生成し、`Comment`は`display.stack.*.comment`に保持する。stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
+- catalog propertiesは選択可能項目の正本、model propertiesはdesired value・observed valueの正本とする。MarkdownとJSON artifactは表示・利用用の生成物とする。
+- Codexは確定済み設計を`model/`へ先に保存する。humanによるmodel propertiesの手動修正も設計入力として扱う。`framework/scripts/sync-model.py --write`はmodelを上書きせず、Markdown／JSON artifactを生成する。
+- Markdownと正本modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
+- design taskはmodel propertiesを保存した後、同じcoherent logical changeでMarkdownとJSON artifactを生成する。選択済み既存resourceをread-only取得した場合は必要な非ARN current identifierも`observed.*`へ生成する。
+- infrastructure taskは成功したAWS mutation後にmodelのobserved identifierを更新し、Markdownのidentifier rowと全参照元を生成する。
+- infrastructure `update` phaseはhuman-changed model propertiesをimmutable inputとし、deploy前にMarkdownを生成する。成功したAWS mutation後だけobserved identifierを更新し、Markdownを再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
-- `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、一覧の`No.`と`Comment`もmodelへ保存しない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
+- `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、No.は生成する。一覧Commentは`display.resource.<番号>.comment`、Stack一覧Commentは`display.stack.<番号>.comment`を正本とする。AWS propertyとしては扱わない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
-- Security Groupと所属Ingress／Egressは`security_group.md`から`security_group.properties`へ生成し、service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
+- Security Groupと所属Ingress／Egressは`security_group.properties`に保持し、`security_group.md`を生成する。service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
 - ConfigurationRecorderのRoleName表示とKDFのBucketARN／RoleARNは、参照先の確定済み名称を表示したresource linkをdesiredへ保持する。正式ARN propertyを名称propertyへ変更せず、ARNを生成・保存しない。KDFのKeyARNは実KMS Keyへのlogical referenceをdesiredへ、表示されたKeyId／PENDING_DEPLOYを既存identifier reference規則どおりobservedへ分離する。
 
 ## Policy derived views
 
-- 各serviceのresource設定表とそこから参照するpolicy JSONがmodelの入力であり、JSONリンクとcanonical hashの既存形式を維持する。
-- リソース一覧のResourceNameとComment、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
+- 各service modelの`desired.row.*.document`にpolicy／設定JSON本文をcompact JSONで保持する。`desired.row.*.value`のJSON artifact linkからservice-owned JSONを生成し、そのJSONからpolicy表を生成する。JSON artifactや表を設計入力として逆反映しない。
+- リソース一覧のResourceNameとCommentの生成済みtable、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
 - 全serviceで派生表示のProperty/JSON/Version/Idの独立metadata行を省略する。元の設定rowのpropertyとJSONリンク、およびVersion/Idを含むJSON全体のcanonical hashは引き続きmodelへ保持する。
-- policy JSON変更時は`framework/scripts/policy_tables.py <対象service Markdown> --write`で派生表示を更新してからmodelを生成する。model生成はMarkdownやJSONを修正しない。local loopはJSONと表示の不一致も拒否する。
+- policy変更時は先にmodelの`document`を更新し、`sync-model.py --write`でJSON artifactとpolicy表を同時に生成する。local loopはproperties・JSON・表示の不一致を拒否する。
 
-## Format
+## Properties先行更新と表示生成
+
+1. 保存前に作成対象resourceの命名ルール有無、catalog選択項目、型・制約、未確定値を確認する。
+2. 確定済みの全service model propertiesを先に更新する。通常は`desired.service.*`、`desired.resource.*`、正式propertyの`desired.row.*`と必要な`observed.row.*`を使用する。
+3. 全対象のMarkdownとJSON artifactを一時領域で生成し、既存のservice表示parser・schema・参照検証で照合する。一件でも失敗したら保存済みMarkdown／JSONを一切変更せず、修正済みmodelとエラーを保持する。Markdownからmodelを復元しない。
+4. 全件成功後だけ生成物を保存する。書き込み失敗時はこのbatchで変更した生成物を元へ戻し、modelを正本として再実行できる状態を保つ。
+5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
+
+`display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型だけ`display.resource.<番号>.label`にhuman-confirmedな表示名を保持する。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
+
+JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複JSON key・不正な定数・object以外を拒否する。artifact hashは生成時に照合可能な派生値であり、設計値の正本にしない。
+
+サービス別の短縮property、CodePipeline index／Configuration展開、CodeBuild変数、GuardDuty Features、CloudTrail記録対象、Security Group横書きrule、KMS Aliasの親内表示、policy表は既存表示ruleに従ってmodelから生成する。検証parserは表示を正式propertyへ展開してlosslessな一致を確認するためだけに使用する。
+
+既存Markdownの採用は明示されたmigration taskだけで`sync-model.py --import-markdown --write`を実行する。既存modelを上書きしない。不足する表示label／commentを推測しない。通常のdesign／infrastructure taskで自動移行しない。
+
+## Formal properties and display verification
+
+以下の表示展開は、propertiesから生成した表示を検証・明示migrationで採用するための逆変換規則とする。通常taskでMarkdownを設計入力にせず、propertiesの正式rowを上書きしない。
+
+## Properties format
 
 Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 
@@ -31,18 +51,18 @@ Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTa
 
 CodePipelineの`Stages[N]`と単一`Actions`／複数`Actions[M]`はmodelで正式な`Stages[]`／`Actions[]`へ戻し、stage/actionごとの元の行順と所属を維持する。同じactionの連続した`Configuration.<Key>` rowを一つの正式property `CodePipeline.Pipeline.Stages[].Actions[].Configuration`へまとめ、Valueを元の文字列値からなるJSON objectとして生成する。resource linkはJSON objectの該当keyの文字列値へlosslessに保持し、CFn import式やExport名へ戻さない。各keyの日本語commentはkey名付きで出現順にまとめる。表示専用indexとConfigurationのkey別propertyをmodelのpropertyとして保存しない。元Markdownを生成時に書き換えない。
 
-`CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
+`CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
 
-`CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、model生成時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
+`CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、表示の検証時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
 
-`GuardDuty.Detector.Features.<Name>`の1行表示は、model生成時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
+`GuardDuty.Detector.Features.<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
 
-`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、model生成時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。
+`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、表示の検証時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。
 
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 
 ```properties
-# Generated by framework/scripts/sync-model.py; do not edit.
+# Authoritative design values; Markdown is generated from these properties.
 desired.service.vpc.serviceId=vpc
 desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet
 desired.resource.001.resourceType=EC2.VPC
@@ -64,11 +84,11 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-resourceとrowの番号はMarkdown内の出現順から生成する。`## リソース一覧`のtableは、全serviceで人間向けの案内としてmodel生成対象から除外する。Markdownのproperty rowはmaterialsのproperties行順に従い、未選択・非表示項目を省略する。modelはMarkdown順を保持し、名前やidentifierを先頭へ並べ戻さない。design-only `.Name`と`S3.Bucket.Region`は既存の特殊表示位置を保持する。`S3.Bucket`のheading identifierはBucketNameと一致させ、内部logicalIdは非表示metadataから保持する。markerを省略した場合はBucketNameをlogicalIdとして使う。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と、Markdownで`EC2.RouteTableId`と表示する正式property `EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へ正式Property名で反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文は複製せず、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
+resourceとrowの番号はmodel propertiesで指定し、表示の再解析で同じ順序になることを検証する。`## リソース一覧`のtableは、全serviceで人間向けの案内としてmodel生成対象から除外する。Markdownのproperty rowはmaterialsのproperties行順に従い、未選択・非表示項目を省略する。Markdownはmodelのrow順を保持し、名前やidentifierを先頭へ並べ戻さない。design-only `.Name`と`S3.Bucket.Region`は既存の特殊表示位置を保持する。`S3.Bucket`のheading identifierはBucketNameと一致させ、内部logicalIdは非表示metadataから保持する。markerを省略した場合はBucketNameをlogicalIdとして使う。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と、Markdownで`EC2.RouteTableId`と表示する正式property `EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へ正式Property名で反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文はdocumentを正本とし、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
 未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
 
-生成command:
+Markdown／JSON artifact生成command:
 
 ```console
 python framework/scripts/sync-model.py --write --environment <environment> --alias <alias>
@@ -81,7 +101,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - `framework/materials/api/*.properties`も同じcatalog読込に含める。`Macie.ClassificationJob`のresource type、logical ID、anchorと全設計rowを既存の`desired.*`へ生成する。
 - `jobId`は同catalogの`IDENTIFIER_OUTPUT`から判定し、desiredには自己anchorへのlogical reference、observedにはcurrent IDまたは`PENDING_DEPLOY`を保持する。Job IDを参照する通常のMarkdown linkも既存のidentifier reference処理を使う。
 - JSON object/arrayのinline値はそのまま保持し、JSON artifactは既存のpathとcanonical hashを保持する。`clientToken`、`jobArn`、CFn対応情報や作成者情報をmodelへ追加しない。
-- `bucketDefinitions`型Macie JobはMarkdownの`#### 対象S3 bucket`表をJob・account・bucket対応の正本とする。`sync-model.py --write`で同じserviceの`S3JobDefinition` JSON artifactへ`bucketDefinitions`を生成してからmodelを再生成し、表自体は`desired.note.*`や追加resourceへ保存しない。modelは従来のJSON linkとcanonical hashを保持する。`scoping`はJSON内の選択済み設定として保持し、`bucketCriteria`型Jobには対応表を生成しない。
+- `bucketDefinitions`型Macie Jobはmodelの`desired.row.*.document`内の`bucketDefinitions`をJob・account・bucket対応の正本とする。modelの`desired.row.*.document`から同じserviceの`S3JobDefinition` JSON artifactとbucket対応表を生成し、表自体は`desired.note.*`や追加resourceへ保存しない。modelは従来のJSON linkとcanonical hashを保持する。`scoping`はJSON内の選択済み設定として保持し、`bucketCriteria`型Jobには対応表を生成しない。
 - service modelにJobが存在することを、CFnで作成可能または実装済みという判定に使用しない。実装可否はresource typeから対応するcatalog/schemaへ解決する。
 
 ## Grouping
@@ -91,9 +111,9 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - 子の`desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId`と`parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`を生成する。省略した親propertyはこのlogical referenceから復元し、physical KeyIdや先頭Aliasによる補完をしない。これはdesiredの所属関係であり、observed値を追加しない。
 - Alias参照は子のanchorとAliasNameをそのまま保持し、KeyIdへの変換やobserved namespaceへの分離をしない。子の移動時はparentReferenceだけが新しい所属親を指し、確定済みlogical IDとanchorは維持する。
 
-- Security Group詳細表のId、GroupDescription、選択済みGroupName、VpcIdと、所属SGの非表示security-group-tags metadataをSG自身の設計入力として一度だけ読む。Tagsの各要素は`Tags[].Key`、`Tags[].Value`へ順序を保って対応させる。Id、GroupDescription、選択済みGroupName、VpcId、Tagsの順に生成し、VPC参照も既存のdesired logical reference／observed current identifierの分離を使う。タグmetadataのcommentをdesired.noteへ生成しない。
+- 表示検証ではSecurity Group詳細表のId、GroupDescription、選択済みGroupName、VpcIdと、所属SGの非表示security-group-tags metadataを一度だけ読み、正本modelの値と照合する。Tagsの各要素は`Tags[].Key`、`Tags[].Value`へ順序を保って対応させる。Id、GroupDescription、選択済みGroupName、VpcId、Tagsの順に生成し、VPC参照も既存のdesired logical reference／observed current identifierの分離を使う。タグmetadataのcommentをdesired.noteへ生成しない。
 - ルール未設定のSecurity GroupもH3 headingと基本設定表を持ち、識別・VPC参照・選択済みタグを同じSG modelへ生成する。ruleや空のrule resourceを補完せず、次のSGのanchorや所属を変えない。
-- Security Groupの単一rule tableを設計入力として読み、Directionの`Inbound`／`Outbound`をIngress／Egressへ対応させる。独立ruleは既存のgrouped resource形式へ展開し、`parentProperty=EC2.SecurityGroupIngress.GroupId`または`EC2.SecurityGroupEgress.GroupId`と包含SGへの`parentReference`を生成する。Direction cellの非表示`rule-id` markerを正式propertyの`Id`へ、`security-group-id` markerをInboundでは`SourceSecurityGroupId`、Outboundでは`DestinationSecurityGroupId`へ対応させる。参照値をlosslessに保持し、visible columnやmodel上のmetadata propertyを追加しない。ruleのdesiredは自身へのlogical reference、observedはcurrent ID／`PENDING_DEPLOY`とし、複数の未作成ruleはlogical IDとanchorで区別する。
+- 表示検証ではSecurity Groupの単一rule tableを読み、Directionの`Inbound`／`Outbound`をIngress／Egressへ対応させる。独立ruleは既存のgrouped resource形式へ展開し、`parentProperty=EC2.SecurityGroupIngress.GroupId`または`EC2.SecurityGroupEgress.GroupId`と包含SGへの`parentReference`を生成する。Direction cellの非表示`rule-id` markerを正式propertyの`Id`へ、`security-group-id` markerをInboundでは`SourceSecurityGroupId`、Outboundでは`DestinationSecurityGroupId`へ対応させる。参照値をlosslessに保持し、visible columnやmodel上のmetadata propertyを追加しない。ruleのdesiredは自身へのlogical reference、observedはcurrent ID／`PENDING_DEPLOY`とし、複数の未作成ruleはlogical IDとanchorで区別する。
 - inline ruleはSG自身の`EC2.SecurityGroup.SecurityGroupIngress[].<property>`／`SecurityGroupEgress[].<property>`へ保持し、独立resourceやIdを生成しない。SG属性の後にInbound、Outboundの順、各方向では表のrow順に並べる。独立ruleはその後に表のrow順で並べる。一つのinline ruleのpropertyを連続させ、必ず`IpProtocol`を先頭に置く。同じ配列の次の`IpProtocol`が次要素の開始を表し、optional propertyの有無から所属を推測しない。
 - `Port`は単一値ならFromPort／ToPortの両方へ同値、範囲なら開始／終了値、ICMPの`Type=n, Code=n`ならtype／codeとして展開する。`—`なら両propertyを省略する。展開後は独立rule自身またはinline rule配下の正式catalog propertyへ保持し、modelにPortというpropertyを追加しない。
 - 横書きruleの省略cell `—`はpropertyを生成しない。参照linkと選択値は保持し、propertyごとの日本語commentは共通parserの属性説明を使用する。DirectionやPortという表示column名、HTTP/HTTPSなどのType、rule table見出し、identity markerはmodelへ追加しない。
@@ -107,3 +127,21 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - referenceは同じenvironment/target directory内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。
 
 - resource名表示へ変更するときも`desired.resource.*.logicalId`とidentifier logical referenceの表示textは非表示metadataから従来の内部IDを保持する。`desired.resource.*.anchor`はresource表示名由来のanchorを保持し、desired/observedの分離は維持する。人間向けMarkdownでは内部IDを表示用linkに使わない。
+
+properties形式の最小例（名称・用途は対象設計で確認する）:
+
+```properties
+desired.service.logs.serviceId=logs
+desired.service.logs.ownedCatalogResourceTypes=Logs.LogGroup
+desired.resource.001.resourceType=Logs.LogGroup
+desired.resource.001.logicalId=FlowLogs
+desired.resource.001.anchor=logs-cwlogs-app-dev-flow
+desired.row.001-001.property=Logs.LogGroup.LogGroupName
+desired.row.001-001.value=cwlogs-app-dev-flow
+desired.row.001-001.comment=ログを保存する名前
+desired.row.001-002.property=Logs.LogGroup.RetentionInDays
+desired.row.001-002.value=30
+desired.row.001-002.comment=ログを保持する日数
+display.service.title=# CloudWatch Logs 詳細設計
+display.resource.001.comment=VPCの通信ログを保存するLog Group
+```

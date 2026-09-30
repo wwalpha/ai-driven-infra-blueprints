@@ -16,6 +16,12 @@
 - 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
 - CloudFormation logical ID、詳細設計のlogical ID、JSON artifact filenameには、それぞれの既存ruleを適用する。
 
+## Naming rule coverage check
+
+- 作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
+- 名称propertyを選択していないresourceと、名称を持たない型（例：`SecurityHub.Hub` / Security Hub CSPM）は対象外とする。表示用label、内部logical ID、AWS生成identifierに命名patternを要求しない。taggableだけでName tagを追加しない。
+- 既存resourceの確定済み名称は変更しない。このcheckはruleの有無を確認し、patternへの自動renameはしない。
+
 ## General rules
 
 - service固有要件がない名称はlower-kebab-caseとし、区切りにはASCIIの`-`を使う。
@@ -43,62 +49,62 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 
 ## Naming patterns
 
-| AWS service | AWS resource | Naming target | Pattern |
-| --- | --- | --- | --- |
-| Amazon VPC | VPC | `EC2.VPC.Name` | `vpc-{{application}}-{{environment}}` |
-| Amazon VPC | Subnet | `EC2.Subnet.Name` | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
-| Amazon VPC | Route table | `EC2.RouteTable.Name` | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
-| Amazon VPC | Flow Log | `EC2.FlowLog.Name` | `flowlog-{{application}}-{{environment}}[-{{target_alias}}]` |
-| Amazon VPC | VPC peering connection | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
-| Amazon VPC | Internet gateway | Name tag | `igw-{{application}}-{{environment}}` |
-| Amazon VPC | VPC endpoint | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |
-| Amazon VPC | NAT gateway | Name tag | `natgw-{{application}}-{{environment}}-{{zone}}` |
-| Amazon VPC | Elastic IP address | Name tag | `eip-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Transit gateway | Name tag | `tgw-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Transit gateway attachment | Name tag | `tgwa-{{application}}-{{environment}}-{{vpc_token}}-{{number}}` |
-| Amazon VPC | Transit gateway route table | Name tag | `tgwrtb-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Workload transit gateway attachment | Name tag | `tgwa-{{account_id}}-{{target_alias}}` |
-| Amazon VPC | Workload transit gateway route table | Name tag | `tgwrtb-{{account_id}}-{{target_alias}}` |
-| Amazon VPC | Customer gateway | Name tag | `cgw-{{dc_location}}-{{number}}` |
-| Amazon VPC | Site-to-Site VPN connection | Name tag | `s2s-{{dc_location}}-{{number}}` |
-| Amazon S3 | General purpose bucket | `BucketName` | `{{application}}-{{environment}}-{{purpose}}-{{account_id}}-{{region}}` |
-| Amazon S3 | Lifecycle rule | `LifecycleConfiguration.Rules[].Id` | `{{purpose}}-{{lifecycle_action}}` |
-| Amazon RDS | DB instance | `DBInstanceIdentifier` | `rds-{{application}}-{{environment}}-{{engine}}-{{number}}` |
-| Amazon RDS | DB subnet group | `DBSubnetGroupName` | `rdbsg-{{application}}-{{environment}}-{{number}}` |
-| Amazon RDS | DB parameter group | `DBParameterGroupName` | `rdbpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon RDS | DB cluster parameter group | `DBClusterParameterGroupName` | `rdbcpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon RDS | Option group | `OptionGroupName` | `rdbog-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon EC2 | Instance | Name tag | `{{environment}}-{{application}}-{{purpose}}-{{number}}` |
-| Amazon EC2 | Security group | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
-| Amazon EC2 | Launch template | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Elastic Load Balancing | Load balancer | `Name` | `{{load_balancer_type}}-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Elastic Load Balancing | Target group | `Name` | `tgp-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| EC2 Auto Scaling | Auto Scaling group | `AutoScalingGroupName` | `asg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon CloudWatch | Alarm | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
-| Amazon CloudWatch Logs | Log group | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CloudFormation | Stack | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| AWS CloudFormation | StackSet | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
-| AWS CloudFormation | Change set | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
-| AWS CodeBuild | Project | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CodePipeline | Pipeline | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CodeCommit | Repository | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}` |
-| AWS KMS | Customer managed key alias | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}` |
-| Amazon Data Firehose | Delivery stream | `DeliveryStreamName` | `kdf-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon Kinesis Data Streams | Data stream | `StreamName` | `kds-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon EventBridge | Rule | `Name` | `ebr-{{rule_type}}-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon EventBridge Scheduler | Schedule | `Name` | `ebs-{{application}}-{{environment}}-{{purpose}}-{{pattern}}-{{timeslot}}` |
-| Amazon SNS | Topic | `TopicName` | `sns-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
-| Amazon SQS | Queue | `QueueName` | `sqs-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
-| AWS Lambda | Function | `FunctionName` | `lmda-{{application}}-{{environment}}-{{purpose}}` |
-| AWS IAM | Role | `RoleName` | `{{application}}-{{environment}}-{{purpose}}-role` |
-| AWS IAM | Customer managed policy | `PolicyName` | `{{application}}-{{environment}}-{{purpose}}-policy` |
-| AWS RAM | Resource share | `Name` | `ram-{{service}}-{{application}}-{{environment}}-share-with-{{target_type}}-{{target_token}}` |
-| Amazon Route 53 Resolver | Resolver endpoint | `Name` | `rslv-{{endpoint_type}}-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon Route 53 Resolver | Resolver rule | `Name` | `rslvr-{{application}}-{{environment}}-{{from}}-to-{{to}}-{{domain_token}}` |
-| Amazon Route 53 Profiles | Profile | `Name` | `rpf-{{application}}-{{environment}}-{{region}}` |
-| AWS Backup | Backup vault | `BackupVaultName` | `backup-vault-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Backup | Backup plan | `BackupPlanName` | `backup-plan-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon API Gateway | REST, HTTP, or WebSocket API | `Name` | `apigw-{{protocol}}-{{application}}-{{environment}}-{{purpose}}` |
+| AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
+| --- | --- | --- | --- | --- |
+| Amazon VPC | VPC | `EC2.VPC` | `EC2.VPC.Name` | `vpc-{{application}}-{{environment}}` |
+| Amazon VPC | Subnet | `EC2.Subnet` | `EC2.Subnet.Name` | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
+| Amazon VPC | Route table | `EC2.RouteTable` | `EC2.RouteTable.Name` | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
+| Amazon VPC | Flow Log | `EC2.FlowLog` | `EC2.FlowLog.Name` | `flowlog-{{application}}-{{environment}}[-{{target_alias}}]` |
+| Amazon VPC | VPC peering connection | `EC2.VPCPeeringConnection` | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
+| Amazon VPC | Internet gateway | `EC2.InternetGateway` | Name tag | `igw-{{application}}-{{environment}}` |
+| Amazon VPC | VPC endpoint | `EC2.VPCEndpoint` | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |
+| Amazon VPC | NAT gateway | `EC2.NatGateway` | Name tag | `natgw-{{application}}-{{environment}}-{{zone}}` |
+| Amazon VPC | Elastic IP address | `EC2.EIP` | Name tag | `eip-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon VPC | Transit gateway | `EC2.TransitGateway` | Name tag | `tgw-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon VPC | Transit gateway attachment | `EC2.TransitGatewayVpcAttachment` | Name tag | `tgwa-{{application}}-{{environment}}-{{vpc_token}}-{{number}}` |
+| Amazon VPC | Transit gateway route table | `EC2.TransitGatewayRouteTable` | Name tag | `tgwrtb-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon VPC | Workload transit gateway attachment | `EC2.TransitGatewayVpcAttachment` | Name tag | `tgwa-{{account_id}}-{{target_alias}}` |
+| Amazon VPC | Workload transit gateway route table | `EC2.TransitGatewayRouteTable` | Name tag | `tgwrtb-{{account_id}}-{{target_alias}}` |
+| Amazon VPC | Customer gateway | `EC2.CustomerGateway` | Name tag | `cgw-{{dc_location}}-{{number}}` |
+| Amazon VPC | Site-to-Site VPN connection | `EC2.VPNConnection` | Name tag | `s2s-{{dc_location}}-{{number}}` |
+| Amazon S3 | General purpose bucket | `S3.Bucket` | `BucketName` | `{{application}}-{{environment}}-{{purpose}}-{{account_id}}-{{region}}` |
+| Amazon S3 | Lifecycle rule | `S3.Bucket` | `LifecycleConfiguration.Rules[].Id` | `{{purpose}}-{{lifecycle_action}}` |
+| Amazon RDS | DB instance | `RDS.DBInstance` | `DBInstanceIdentifier` | `rds-{{application}}-{{environment}}-{{engine}}-{{number}}` |
+| Amazon RDS | DB subnet group | `RDS.DBSubnetGroup` | `DBSubnetGroupName` | `rdbsg-{{application}}-{{environment}}-{{number}}` |
+| Amazon RDS | DB parameter group | `RDS.DBParameterGroup` | `DBParameterGroupName` | `rdbpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon RDS | DB cluster parameter group | `RDS.DBClusterParameterGroup` | `DBClusterParameterGroupName` | `rdbcpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon RDS | Option group | `RDS.OptionGroup` | `OptionGroupName` | `rdbog-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon EC2 | Instance | `EC2.Instance` | Name tag | `{{environment}}-{{application}}-{{purpose}}-{{number}}` |
+| Amazon EC2 | Security group | `EC2.SecurityGroup` | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
+| Amazon EC2 | Launch template | `EC2.LaunchTemplate` | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Elastic Load Balancing | Load balancer | `ElasticLoadBalancingV2.LoadBalancer` | `Name` | `{{load_balancer_type}}-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Elastic Load Balancing | Target group | `ElasticLoadBalancingV2.TargetGroup` | `Name` | `tgp-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| EC2 Auto Scaling | Auto Scaling group | `AutoScaling.AutoScalingGroup` | `AutoScalingGroupName` | `asg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon CloudWatch | Alarm | `CloudWatch.Alarm` | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
+| Amazon CloudWatch Logs | Log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
+| AWS CloudFormation | Change set | `CloudFormation.ChangeSet` | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
+| AWS CodeBuild | Project | `CodeBuild.Project` | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodePipeline | Pipeline | `CodePipeline.Pipeline` | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodeCommit | Repository | `CodeCommit.Repository` | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}` |
+| AWS KMS | Customer managed key alias | `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}` |
+| Amazon Data Firehose | Delivery stream | `KinesisFirehose.DeliveryStream` | `DeliveryStreamName` | `kdf-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
+| Amazon Kinesis Data Streams | Data stream | `Kinesis.Stream` | `StreamName` | `kds-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
+| Amazon EventBridge | Rule | `Events.Rule` | `Name` | `ebr-{{rule_type}}-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
+| Amazon EventBridge Scheduler | Schedule | `Scheduler.Schedule` | `Name` | `ebs-{{application}}-{{environment}}-{{purpose}}-{{pattern}}-{{timeslot}}` |
+| Amazon SNS | Topic | `SNS.Topic` | `TopicName` | `sns-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
+| Amazon SQS | Queue | `SQS.Queue` | `QueueName` | `sqs-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
+| AWS Lambda | Function | `Lambda.Function` | `FunctionName` | `lmda-{{application}}-{{environment}}-{{purpose}}` |
+| AWS IAM | Role | `IAM.Role` | `RoleName` | `{{application}}-{{environment}}-{{purpose}}-role` |
+| AWS IAM | Customer managed policy | `IAM.ManagedPolicy` | `PolicyName` | `{{application}}-{{environment}}-{{purpose}}-policy` |
+| AWS RAM | Resource share | `RAM.ResourceShare` | `Name` | `ram-{{service}}-{{application}}-{{environment}}-share-with-{{target_type}}-{{target_token}}` |
+| Amazon Route 53 Resolver | Resolver endpoint | `Route53Resolver.ResolverEndpoint` | `Name` | `rslv-{{endpoint_type}}-{{application}}-{{environment}}-{{purpose}}` |
+| Amazon Route 53 Resolver | Resolver rule | `Route53Resolver.ResolverRule` | `Name` | `rslvr-{{application}}-{{environment}}-{{from}}-to-{{to}}-{{domain_token}}` |
+| Amazon Route 53 Profiles | Profile | `Route53Profiles.Profile` | `Name` | `rpf-{{application}}-{{environment}}-{{region}}` |
+| AWS Backup | Backup vault | `Backup.BackupVault` | `BackupVaultName` | `backup-vault-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Backup | Backup plan | `Backup.BackupPlan` | `BackupPlanName` | `backup-plan-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| Amazon API Gateway | REST, HTTP, or WebSocket API | `ApiGateway.RestApi`, `ApiGatewayV2.Api` | `Name` | `apigw-{{protocol}}-{{application}}-{{environment}}-{{purpose}}` |
 
 ## Service-specific constraints
 

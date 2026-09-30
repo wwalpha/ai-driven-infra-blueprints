@@ -125,16 +125,20 @@ def main():
         design.parent.mkdir(parents=True)
         model.parent.mkdir(parents=True)
         schema = DesignSchemaCatalog(root)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        # Isolated fixture rule: production intentionally rejects the unregistered Job name.
+        naming = root / "framework/rules/aws-resource-naming.md"
+        naming.write_text(naming.read_text() + "\n| Fixture | Job | `Macie.ClassificationJob` | `name` | `{{purpose}}` |\n")
 
         def check(values=VALUES, text=None):
             artifact = design.with_suffix("") / "job-scope.json"
             if text is None and isinstance(values.get("s3JobDefinition"), dict) and values["s3JobDefinition"].get("bucketDefinitions"):
                 artifact.parent.mkdir(exist_ok=True)
-                artifact.write_text(json.dumps(values["s3JobDefinition"]), encoding="utf-8")
+                artifact.write_text(json.dumps(values["s3JobDefinition"], indent=2) + "\n", encoding="utf-8")
             elif text is None and artifact.is_file():
                 artifact.unlink()
             design.write_text(text if text is not None else markdown(values), encoding="utf-8")
-            model.write_text(MODEL.model_for(design, root), encoding="utf-8")
+            model.write_text(MODEL.imported_model(design, root), encoding="utf-8")
             validator = VALIDATOR.Validator(root)
             validator.schema_catalog = schema
             validator.accounts = {("dev", "123456789012"): {}}
@@ -191,7 +195,7 @@ def main():
         assert any("duplicate API" in error for error in check(text=duplicate))
         assert any("unknown catalog" in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, "Macie.Unknown")))
 
-        # Markdown owns fixed bucket mappings; the JSON link keeps the artifact/hash path.
+        # Model document owns fixed bucket mappings; rendered tables must match it.
         artifact = design.with_suffix("") / "job-scope.json"
         text = markdown(VALUES)
         assert not check(text=text), check(text=text)
@@ -214,13 +218,16 @@ def main():
         s3.unlink()
         noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `000000000000` | `other-bucket` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `third-bucket` |")
         assert any("account rows must be contiguous" in error for error in check(text=noncontiguous))
-        changed = text.replace("`app-data` |", "`new-bucket` |")
-        design.write_text(changed, encoding="utf-8")
-        artifact.write_text(json.dumps({**VALUES["s3JobDefinition"], "scoping": {}}))
+        assert not check()
+        authoritative = model.read_text()
+        doc_key = next(line.split("=", 1)[0] for line in authoritative.splitlines() if line.startswith("desired.row.") and ".document=" in line)
+        definition = {**VALUES["s3JobDefinition"], "bucketDefinitions": [{"accountId": "123456789012", "buckets": ["new-bucket"]}], "scoping": {}}
+        lines = [doc_key + "=" + json.dumps(definition) if line.startswith(doc_key + "=") else line for line in authoritative.splitlines()]
+        model.write_text("\n".join(lines) + "\n")
         assert MODEL.sync(root, True, "dev", "123456789012") == 0
         assert json.loads(artifact.read_text())["bucketDefinitions"][0]["buckets"] == ["new-bucket"]
         assert "scoping" in json.loads(artifact.read_text())
-        assert not check(text=changed)
+        assert "`new-bucket`" in design.read_text()
         artifact.write_text(json.dumps({"bucketCriteria": {}}))
         try:
             write_job_bucket_definitions(design)
