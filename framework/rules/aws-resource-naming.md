@@ -5,6 +5,7 @@
 このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを決定するときのdefault naming conventionとする。
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
+- `CodeBuild.Project.Name`は詳細設計で必須とし、確定済みnon-empty literalをresourceごとに1 row保持する。Name tagや表示labelで代替せず、未確定なら停止する。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
 - `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`と`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
 - `EC2.VPCEndpoint`は正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`で必須tagを保持する。設計専用`.Name`を追加せず、一覧・heading・通常の参照linkにはこのValueを使用する。display labelで欠落を代替しない。
@@ -83,6 +84,8 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | EC2 Auto Scaling | Auto Scaling group | `AutoScaling.AutoScalingGroup` | `AutoScalingGroupName` | `asg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon CloudWatch | Alarm | `CloudWatch.Alarm` | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
 | Amazon CloudWatch Logs | Log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
+| Amazon Athena | Workgroup | `Athena.WorkGroup` | `Name` | `athwg-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}` |
 | AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
 | AWS CloudFormation | Change set | `CloudFormation.ChangeSet` | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |

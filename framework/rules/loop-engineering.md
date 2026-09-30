@@ -54,6 +54,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
 - `EC2.VPCEndpoint`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する
 - cross-service relative linkとexplicit anchorが解決でき、正本modelから同じreferenceが生成されている
+- `CodeBuild.Project.Name`がresourceごとに1 rowだけ存在し、確定済みnon-empty literalである。設計検証とmodel生成の共通名称検証で欠落・空値・未確定値・重複を拒否し、Name tagや表示labelで代替していない
 - CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
 - generated ARNが`model/`に存在しない
 - scenario/result structureとmetadataが有効

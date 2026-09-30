@@ -27,6 +27,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 
 ## AWS resource naming
 
+- `CodeBuild.Project.Name`はprovider schemaのoptional指定にかかわらず詳細設計で必須とする。resourceごとに確定済みnon-empty literalを1 rowだけ保持し、欠落・空値・未確定値・重複を拒否する。Name tag、内部logical ID、表示labelで代替せず、未確定なら値を推測せず停止する。設計検証とmodel生成の共通名称検証で判定する。
 - human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用する。
 - root-levelの`Tags`または`HostedZoneTags`があっても`Name` tagを自動的に必須化しない。mandatory対象は`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`、`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`.Name`の1 rowで表す。
 - 上記4種類の`.Name`は詳細設計専用propertyであり、provider schemaのresource propertyではない。IaC実装時にcase-sensitiveな`Name` keyを持つtagへ変換し、詳細設計へ`Tags[].Key=Name`と`Tags[].Value`の2 rowを作らない。

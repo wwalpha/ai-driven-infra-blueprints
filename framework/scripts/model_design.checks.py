@@ -170,9 +170,74 @@ def check_endpoint_name_tag():
     print(f"Endpoint Name tag checks: PASS ({len(invalid_tags)} rejected cases; design, generation, IDs and references)")
 
 
+def check_codebuild_required_name():
+    spec = importlib.util.spec_from_file_location("codebuild_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    kind, name = "CodeBuild.Project", "cbld-app-dev-build"
+    name_row = ("Name", f"`{name}`", "projectの名前")
+    rows = [("Id", f"[BuildProject](#codebuild-{name})", "projectを識別するID"),
+            ("Artifacts.Type", "`NO_ARTIFACTS`", "成果物の方式"),
+            ("Environment.ComputeType", "`BUILD_GENERAL1_SMALL`", "計算能力"),
+            ("Environment.Image", "`aws/codebuild/standard:7.0`", "build環境のimage"),
+            ("Environment.Type", "`LINUX_CONTAINER`", "build環境の方式"),
+            ("ServiceRole", "`build-role`", "buildの実行権限"),
+            ("Source.Type", "`NO_SOURCE`", "入力の方式")]
+    invalid = [[], [name_row, name_row], [("name", f"`{name}`", "誤ったproperty")],
+               [("Tags[].Key", "`Name`", "タグのキー"), ("Tags[].Value", f"`{name}`", "タグの値")]]
+    invalid += [[("Name", value, "未確定の名前")] for value in
+                ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#codebuild-{name})")]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        path = root / "docs/designs/dev/123456789012/codebuild.md"
+        values = model("codebuild", kind, name, [name_row, *rows], "BuildProject", name)
+        values.update({"observed.row.001-002.property": kind + ".Id", "observed.row.001-002.value": "`PENDING_DEPLOY`", "observed.row.001-002.comment": rows[0][2]})
+        output = roundtrip(path, values, root)
+        source = root / "model/dev/123456789012/codebuild.properties"
+        source.parent.mkdir(parents=True)
+        source.write_text(text(values))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        saved = path.read_bytes()
+        metadata = {path: ("codebuild", (kind,))}
+        validator = validator_module.Validator(root)
+        validator.check_resource_names(metadata)
+        assert not validator.errors, validator.errors
+        for bad_names in invalid:
+            bad_rows = [*bad_names, *rows]
+            formal_rows = [[str(i), kind + "." + field, value, comment] for i, (field, value, comment) in enumerate(bad_rows, 1)]
+            assert naming_errors(root, kind, formal_rows), bad_names
+            assert naming_errors(root, kind, [[row[0], row[1].removeprefix(kind + "."), *row[2:]] for row in formal_rows]), bad_names
+            bad = model("codebuild", kind, name, bad_rows, "BuildProject", name)
+            try:
+                markdown_for(path, bad, root)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid CodeBuild Name accepted: {bad_names}")
+            rendered = output[:output.index("| 1 | Name |")]
+            rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"
+            path.write_text(rendered)
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata)
+            assert any("CodeBuild.Project.Name" in error for error in validator.errors), (bad_names, validator.errors)
+        path.write_bytes(saved)
+        source.write_text(text(model("codebuild", kind, name, rows, "BuildProject", name)))
+        try:
+            SYNC.sync(root, True, "dev", "123456789012")
+        except ValueError as error:
+            assert "CodeBuild.Project.Name" in str(error), error
+        else:
+            raise AssertionError("service generation accepted a label without CodeBuild Name")
+        assert path.read_bytes() == saved
+    print(f"CodeBuild required Name checks: PASS ({len(invalid)} rejected cases; design, generation and saved view)")
+
+
 def main():
+    check_codebuild_required_name()
     check_endpoint_name_tag()
-    for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("IAM.ManagedPolicy", "PolicyName"), ("EC2.VPC", "Name")):
+    for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("IAM.ManagedPolicy", "PolicyName"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "IAM.User", [["1", "UserName", "`example`", "名前"]]) == ["naming rule missing: IAM.User: UserName"]
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
