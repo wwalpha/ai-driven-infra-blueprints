@@ -1,36 +1,24 @@
-# CodeBuild VPC参照の1リソース1行表示
+# CodeBuild・CodePipeline・CodeCommitの命名規則
 
 ## Task contract
 
 - Task type: `governance`
-- Target: framework共通 / CodeBuild.Project詳細設計
-- Goal: CodeBuildのSubnetとSecurity Group参照を、1件1行、1からの連番、resource linkで表示できるFW契約にする。
+- Target: framework共通 / AWS resource naming rules
+- Goal: humanが採用した4文字prefixによるCodeBuild、CodePipeline、CodeCommitの命名規則を追加する。
 
 ## Required changes
 
-- [R1] `VpcConfig.Subnets[N]`と`VpcConfig.SecurityGroupIds[N]`の表示、正式propertyとの対応、modelへの反映をFWルールに定義する。
-- [R2] 共通parserとvalidatorで連番、resource link、参照先resource typeを検証する。
-- [R3] 正常系と不正形式のfocused checkを追加する。
+- [R1] CodeBuild Projectの`Name`を`cbld-{{application}}-{{environment}}-{{purpose}}`、CodePipeline Pipelineの`Name`を`cpln-{{application}}-{{environment}}-{{purpose}}`、CodeCommit Repositoryの`RepositoryName`を`ccmt-{{application}}[-{{environment}}]-{{purpose}}`として命名表へ追加する。CodeCommitのenvironmentは環境共有repositoryでは省略し、環境別repositoryでは含める。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `changed:framework/rules/model-information.md`
-- [R1] `changed:framework/prompts/chatbot/service-design.md`
-- [R2] `changed:framework/scripts/design_layout.py`
-- [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/design_layout.checks.py`
+- [R1] `changed:framework/rules/aws-resource-naming.md`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/rules/detailed-design.md`
-- `framework/rules/model-information.md`
-- `framework/prompts/chatbot/service-design.md`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/design_layout.checks.py`
+- `framework/rules/aws-resource-naming.md`
 
 ## Out of scope
 
-- target設計、model、IaC、AWS操作、scenario、catalogは変更しない。
+- 既存名称の変更、target設計、model、IaC、AWS操作、scenario、catalog、validatorの変更は行わない。

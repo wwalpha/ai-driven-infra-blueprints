@@ -79,6 +79,9 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | AWS CloudFormation | Stack | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | AWS CloudFormation | StackSet | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
 | AWS CloudFormation | Change set | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
+| AWS CodeBuild | Project | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodePipeline | Pipeline | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodeCommit | Repository | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}` |
 | AWS KMS | Customer managed key alias | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}` |
 | Amazon Data Firehose | Delivery stream | `DeliveryStreamName` | `kdf-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
 | Amazon Kinesis Data Streams | Data stream | `StreamName` | `kds-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
@@ -99,6 +102,7 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 
 ## Service-specific constraints
 
+- AWS CodeCommit repositoryの`environment`は、環境間で同じrepositoryを共有する場合は省略し、環境ごとにrepositoryを分ける場合は含める。
 - Amazon S3 bucket nameはlowercaseの3〜63文字とし、partition内でglobalに一意にする。patternの全componentを含めたfinal nameを検証する。
 - Elastic Load Balancingのload balancerとtarget groupは32文字以内とする。
 - AWS IAM Roleは64文字以内、customer managed policyは128文字以内とし、caseだけが異なる名前を作らない。
