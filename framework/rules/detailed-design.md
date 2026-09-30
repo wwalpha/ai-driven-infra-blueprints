@@ -15,7 +15,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
-- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を`.Name`へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、それ以外はlogical IDをhumanへ一つ質問してservice metadata、anchor、heading、tableを既存ruleどおり作成する。
+- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を`.Name`へ直接差分反映する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型ではhuman-confirmedな表示名を確認し、名前を発明せずservice metadata、anchor、heading、tableを作成する。
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
@@ -45,7 +45,7 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 - IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
 - VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
-- `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security_group.md`だけに置く。Design service IDは`security_group`、対応modelは`security_group.properties`、anchorは`security_group-<logical-idのlowercase>`とする。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
+- `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security_group.md`だけに置く。Design service IDは`security_group`、対応modelは`security_group.properties`、anchorは共通のresource表示名規則に従う。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
 - service間dependencyはfile統合ではなくrelative Markdown linkとexplicit anchorで表し、generated modelへ同じreferenceを保持する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。
@@ -71,9 +71,11 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
-- 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <logical-id>`とする。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
+- 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <resource-name>`とする。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
 - `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
-- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の`<logical-id>`は同じtableの`.Name` valueと完全一致させる。
+- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Schedule.Name`に相当する`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがない型はhuman-confirmedな表示名を使い、未確定なら停止する。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
+- 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
+- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のresource名は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
@@ -96,7 +98,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 [Resource-detail tableのheader例](detailed-design-samples.md#resource-detail-table)
 
 - 各 table の row は 1 から連番にする。
-- Property列では、所属する`### <catalog-resource-type>: <logical-id>`の`<catalog-resource-type>.`を省く。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
+- Property列では、所属する`### <catalog-resource-type>: <resource-name>`の`<catalog-resource-type>.`を省く。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。特別な表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。
 - grouped childは所属する設定範囲内、配列は各要素内でcatalog順を適用する。複数要素のrowをproperty単位で横断sortしない。親子の所属、identity marker、IAM PolicyNameとPolicyDocumentの対応を保つ。Security Groupの横書き一覧／rule table、JSONから生成するpolicy表は既存形式を維持する。
@@ -138,7 +140,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 
 詳細設計の対象とIaCで作成できる対象を分離する。CFn非対応でも、登録済みのAPI catalog resourceは通常のservice metadata、リソース一覧、anchor、heading、4列の詳細表、generated modelへ含める。CFn非対応を理由に詳細設計を省略しない。
 
-- 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`### Macie.ClassificationJob: <logical-id>`を作る。表示関係は`resource-layout.json`に従う。
+- 現在の対象は`Macie.ClassificationJob`だけとする。`Macie.Session`と同じ`macie.md`に置き、Jobごとに`### Macie.ClassificationJob: <resource-name>`を作る。表示関係は`resource-layout.json`に従う。
 - 選択リストは`framework/materials/api/Macie_ClassificationJob.properties`、型・制約は同名の`.json`を正本とする。公式Macie APIのrequest/responseに基づく固定した設計用schemaであり、CloudFormation provider schemaではない。参照元、API version、取得元hash、確認日、`cloudFormationType: null`はframework側に保持し、詳細設計のAWS propertyとして追加しない。
 - APIの正式な大小文字を維持し、`Macie.ClassificationJob.name`、`jobType`、`s3JobDefinition`などを使用する。catalogにないfield、架空のCFn型、実行時の`clientToken`、生成された`jobArn`を追加しない。
 - 選択単位はAPIのroot propertyとする。`s3JobDefinition`、`scheduleFrequency`、`tags`はJSON object、識別子の配列はJSON arrayとしてValueへ記載する。長いobjectは既存のservice配下JSON artifactへのlinkを使用できる。配列要素の所属を失うleaf rowへの分解や、JSON内部へのMarkdown link埋込みは行わない。関連resourceへの説明上の参照には通常のrelative Markdown linkを使用する。
@@ -294,14 +296,13 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 - 関連 resource は `Value` column の Markdown link で表す。
 - link は relative path を使う。
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
-- anchorはlower-case Service IDとlower-case logical IDを`-`で結ぶ。
-- `S3.Bucket`ではlogical IDの代わりにlower-case BucketNameを使用する。
+- anchorはService IDとlowercase resource表示名を`-`で結ぶ。表示名内の`[a-z0-9_.-]`以外の連続文字を`-`へ置き換え、表示名部分の前後の`-`を除く。正規化後のanchor衝突は停止し、内部IDで補正しない。内部logical IDを表示用linkのanchor生成元にしない。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では`.Name` valueをlogical IDとし、anchorにも同じvalueをlowercaseで使用する。
-- 別fileの例: `[FLOWLOGROLE01](iam.md#iam-flowlogrole01)`。
-- 同じfileの例: `[FLOWLOG01](#vpc-flowlog01)`。
+- 別fileの例: `[role-app-dev-flow-logs](iam.md#iam-role-app-dev-flow-logs)`。
+- 同じfileの例: `[flow-log-app-dev-vpc](#vpc-flow-log-app-dev-vpc)`。
 - file と anchor の存在を local loop で検証する。
 - catalogのidentifier outputを参照するpropertyは、link先anchorをlogical referenceの正本とし、表示textへ参照先のcurrent physical IDを記載する。deploy前とdestroy後は`[PENDING_DEPLOY](#vpc-vpc-app-dev)`、deploy成功後は`[vpc-0123456789abcdef0](#vpc-vpc-app-dev)`とする。
-- IaC生成は表示textのphysical IDを使用せず、link先anchorに対応するresource headingのlogical IDを解決する。CloudFormationは`!Ref`、Terraformはresource attribute referenceを使用し、physical IDを直書きしない。
+- IaC生成は表示textのphysical IDを使用せず、link先anchorに対応する非表示metadataのlogical IDを解決する。markerを省略したresourceはheadingの確定済みresource名を内部identityとして使う。CloudFormationは`!Ref`、Terraformはresource attribute referenceを使用し、physical IDを直書きしない。
 
 ## Generated values and deployment state
 

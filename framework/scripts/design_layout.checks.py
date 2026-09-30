@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from design_layout import LAYOUTS, expanded_design, expanded_display_rows, layout_errors
+from design_layout import LAYOUTS, expanded_design, expanded_display_rows, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
 
 
@@ -624,7 +624,85 @@ def check_config_firehose_references() -> None:
         assert "observed.row.001-002.value=PENDING_DEPLOY" in MODEL.model_for(kdf_path, REPOSITORY)
 
 
+def check_resource_name_headings() -> None:
+    name = "ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455"
+    logical_id = "CoreSystemNightlyProcessingCompletedDetect0200To0455Schedule"
+    anchor = resource_anchor("scheduler", name)
+    marker = f"<!-- resource-logical-id: {logical_id} -->"
+    text = f"""# Scheduler 詳細設計
+
+- Design service ID: `scheduler`
+- Owned catalog resource types: `Scheduler.Schedule`
+
+## リソース一覧
+
+### Scheduler.Schedule
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [{name}](#{anchor}) | 夜間処理の完了を5分間隔で検知するschedule |
+
+## リソース詳細
+
+{marker}
+<a id="{anchor}"></a>
+
+### Scheduler.Schedule: {name}
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `{name}` | scheduleの名前 |
+"""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/scheduler.md"
+        path.parent.mkdir(parents=True)
+        metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
+
+        def errors(markdown):
+            path.write_text(markdown, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.check_resource_names(metadata)
+            validator.check_design_overviews()
+            validator.check_design_links({})
+            return validator.errors
+
+        assert not errors(text), errors(text)
+        model = MODEL.model_for(path, REPOSITORY)
+        assert f"desired.resource.001.logicalId={logical_id}" in model
+        assert f"desired.resource.001.anchor={anchor}" in model
+        assert "resource-logical-id" not in model and "desired.note" not in model
+        assert MODEL.linked_resource(path, f"[{name}](#{anchor})") == ("Scheduler.Schedule", logical_id)
+        for invalid, message in (
+            (text.replace(f"### Scheduler.Schedule: {name}", f"### Scheduler.Schedule: {logical_id}"), "heading must display resource name"),
+            (text.replace(f"[{name}]", f"[{logical_id}]"), "must not display internal logical ID"),
+            (text.replace(f"| `{name}` |", "| `PENDING_DEPLOY` |"), "display name must be confirmed"),
+            (text.replace(anchor, "scheduler-internal-id"), "anchor must use display name"),
+            (text.replace(marker, "<!-- resource-logical-id: -->"), "invalid resource identity"),
+            (text + "\n" + marker, "invalid resource identity"),
+        ):
+            failures = errors(invalid)
+            assert any(message in failure for failure in failures), (message, failures)
+        assert not errors(text), errors(text)
+
+        # A named parent keeps its hidden ID when children are expanded.
+        named_kms = KMS.replace('<a id="kms-keyone"></a>', '<!-- resource-logical-id: KeyOne -->\n<a id="kms-transfer-key"></a>').replace('### KMS.Key: KeyOne', '### KMS.Key: transfer-key').replace('(#kms-keyone)', '(#kms-transfer-key)').replace('[KeyOne]', '[transfer-key]')
+        kms = path.with_name("kms.md")
+        kms.write_text(named_kms, encoding="utf-8")
+        model = MODEL.model_for(kms, REPOSITORY)
+        assert "desired.resource.001.logicalId=KeyOne" in model
+        assert "parentReference=[KeyOne](#kms-transfer-key)" in model
+        assert "desired.row.001-001.value=[KeyOne](#kms-transfer-key)" in model
+        assert MODEL.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-transfer-key)") == ("KMS.Key", "KeyOne")
+
+    assert resource_display_name("IAM.Role", [["1", "RoleName", "`role-app-dev`", "名前"]]) == "role-app-dev"
+    assert resource_display_name("KMS.Key", [["1", "KMS.Alias.AliasName", "`alias/app`", "名前"]]) is None
+    assert resource_anchor("secretsmanager", "app/dev/key") == "secretsmanager-app-dev-key"
+    assert resource_logical_ids(text.splitlines()) == {("Scheduler.Schedule", name): logical_id}
+
+
 def main() -> None:
+    check_resource_name_headings()
     assert not layout_errors(REPOSITORY)
     policy_rows = [
         '<a id="iam-role"></a>', '### IAM.Role: Role',

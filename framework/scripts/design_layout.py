@@ -23,8 +23,9 @@ IMPLICIT_GROUPED_PROPERTIES = {
 DISPLAY_ALIAS_PATH = Path(__file__).resolve().parents[1] / "rules" / "display-property-aliases.json"
 DISPLAY_PROPERTY_ALIASES = json.loads(DISPLAY_ALIAS_PATH.read_text(encoding="utf-8"))
 DETAILS_HEADING = "## リソース詳細"
-RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
+RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`]+\S|\S)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
+RESOURCE_ID = re.compile(r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->$")
 CHILD = re.compile(
     r'^<a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
 )
@@ -52,6 +53,54 @@ RESOURCE_REFERENCE_PROPERTIES = {
 HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+
+
+def resource_anchor(service_id: str, name: str) -> str:
+    """Use the displayed resource name as the navigation identity."""
+    return service_id + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
+
+
+def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
+    """Read hidden IDs before anchors without changing displayed headings."""
+    identities = {}
+    pending = ""
+    anchored = False
+    for line in lines:
+        if not line.strip():
+            continue
+        if marker := RESOURCE_ID.fullmatch(line):
+            if pending:
+                raise ValueError("duplicate resource logical ID metadata")
+            pending, anchored = marker.group(1), False
+        elif pending and ANCHOR.fullmatch(line) and not anchored:
+            anchored = True
+        elif pending and (heading := RESOURCE.fullmatch(line)) and anchored:
+            if heading.groups() in identities or pending in identities.values():
+                raise ValueError("duplicate resource logical ID metadata")
+            identities[heading.groups()] = pending
+            pending, anchored = "", False
+        elif pending or line.startswith("<!-- resource-logical-id:"):
+            raise ValueError("resource logical ID metadata must precede its anchor and heading")
+    if pending:
+        raise ValueError("resource logical ID metadata lacks its anchor and heading")
+    return identities
+
+
+def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
+    """Find a selected root name; never invent an AWS name from an internal ID."""
+    fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`") for row in rows if row[1].startswith(resource_type + ".") or not any(row[1].startswith(kind + ".") for kind in LAYOUTS)}
+    names = ["Name", "name", resource_type.split(".")[1] + "Name"]
+    names.extend(field for field in fields if "." not in field and field.endswith("Name") and field != "GroupName")
+    names.extend(("GroupName", "DBInstanceIdentifier", "DBClusterIdentifier"))
+    for field in names:
+        if field in fields and not fields[field].startswith("["):
+            return fields[field]
+    for index, row in enumerate(rows[:-1]):
+        if row[1] in {resource_type + ".Tags[].Key", "Tags[].Key"} and row[2].strip("`") == "Name":
+            value = rows[index + 1]
+            if value[1] in {resource_type + ".Tags[].Value", "Tags[].Value"}:
+                return value[2].strip("`")
+    return None
 
 
 def stack_design(path: Path) -> list[dict[str, str]]:
@@ -390,6 +439,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
     Child anchors and logical IDs live in the first row's comment. Visible tables
     stay grouped; this in-memory expansion never rewrites the source Markdown.
     """
+    identities = resource_logical_ids(lines)
+    lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
         lines = security_group_table_lines(lines)
     lines = expanded_display_rows(lines)
@@ -411,6 +462,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
             pending_anchor = anchor.group(1)
         if heading := RESOURCE.fullmatch(line):
             parent_type, parent_id = heading.groups()
+            parent_id = identities.get(heading.groups(), parent_id)
             parent_anchor = pending_anchor
             pending_anchor = ""
             if parent_id in logical_ids:
@@ -458,10 +510,11 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                         if not marker:
                             raise ValueError(f"grouped identity row requires anchor and logical ID: {prop}")
                         anchor, logical_id = marker.groups()
-                        if anchor != f"{service_id}-{logical_id.lower()}" or logical_id in logical_ids:
+                        name = cells[2].strip("`")
+                        valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name)}
+                        if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)
-                        name = cells[2].strip("`")
                         pending_rule = rule.get("display") == "rule-table" and name == "PENDING_DEPLOY"
                         if not pending_rule and (resource_type, name) in child_names:
                             raise ValueError(f"duplicate grouped identity value: {resource_type}: {name}")

@@ -11,7 +11,7 @@
 - infrastructure taskは成功したAWS mutation後にMarkdownのgenerated identifier rowを更新し、同じmodelを再生成する。
 - infrastructure `update` phaseはhuman-changed Markdownからdeploy前にmodelを生成し、成功したAWS mutation後にgenerated identifier rowを含めて再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
-- `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、一覧の`No.`と`Comment`もmodelへ保存しない。詳細section配下のH3 resource headingから従来どおりresourceを識別し、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
+- `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、一覧の`No.`と`Comment`もmodelへ保存しない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
 - Security Groupと所属Ingress／Egressは`security_group.md`から`security_group.properties`へ生成し、service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
 - ConfigurationRecorderのRoleName表示とKDFのBucketARN／RoleARNは、参照先の確定済み名称を表示したresource linkをdesiredへ保持する。正式ARN propertyを名称propertyへ変更せず、ARNを生成・保存しない。KDFのKeyARNは実KMS Keyへのlogical referenceをdesiredへ、表示されたKeyId／PENDING_DEPLOYを既存identifier reference規則どおりobservedへ分離する。
@@ -105,3 +105,5 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - 別serviceのvalueを参照元properties fileへ複製しない。
 - AWS managed-policy ARNのような既存またはhuman-provided design inputは必要な場合に`desired.*`へ残してよい。
 - referenceは同じenvironment/target directory内のstable logical referenceをdefaultとする。cross-account referenceは所有AWS accountと接続方式をhuman designに明示し、値を推測しない。
+
+- resource名表示へ変更するときも`desired.resource.*.logicalId`とidentifier logical referenceの表示textは非表示metadataから従来の内部IDを保持する。`desired.resource.*.anchor`はresource表示名由来のanchorを保持し、desired/observedの分離は維持する。人間向けMarkdownでは内部IDを表示用linkに使わない。

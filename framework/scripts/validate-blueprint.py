@@ -39,6 +39,9 @@ from design_layout import (
     RESOURCE as RESOURCE_HEADING_PATTERN,
     expanded_display_rows,
     expanded_design,
+    resource_anchor,
+    resource_display_name,
+    resource_logical_ids,
     STACK_DESIGN,
     stack_design,
     layout_errors,
@@ -770,6 +773,7 @@ class Validator:
         service_metadata, catalog_types, catalog_property_owners, identifier_outputs = self.check_design_service_ownership(markdown_paths)
         self.check_policy_tables()
         self.check_design_overviews()
+        self.check_resource_names(service_metadata)
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
         self.check_design_links(identifier_outputs)
         self.check_design_artifacts()
@@ -1075,6 +1079,47 @@ class Validator:
         errors = layout_errors(self.root)
         self.check(not errors, "; ".join(errors) or "resource layout decisions are invalid")
 
+    def check_resource_names(self, service_metadata: dict[Path, tuple[str, tuple[str, ...]]]) -> None:
+        for path in self.design_files():
+            lines = without_policy_tables(path.read_text(encoding="utf-8").splitlines())
+            try:
+                identities = resource_logical_ids(lines)
+                lines = security_group_table_lines(lines)
+            except ValueError as error:
+                self.check(False, f"invalid resource identity: {self.relative(path)}: {error}")
+                continue
+            anchor = ""
+            current = None
+            rows = []
+
+            def check_name() -> None:
+                if current is None:
+                    return
+                resource_type, display = current
+                name = resource_display_name(resource_type, rows)
+                self.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {self.relative(path)}: {resource_type}")
+                self.check(name is None or display == name, f"resource heading must display resource name: {self.relative(path)}: {resource_type}: {display} != {name}")
+                if name is None:
+                    self.check(current in identities and display != identities[current], f"resource without a name requires a confirmed display label and hidden logical ID: {self.relative(path)}: {display}")
+                if path in service_metadata:
+                    expected = resource_anchor(service_metadata[path][0], display)
+                    self.check(anchor == expected, f"resource anchor must use display name: {self.relative(path)}: expected {expected}")
+
+            for line in [*lines, "### end"]:
+                if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    check_name()
+                    current, rows = heading.groups(), []
+                elif line.startswith("### "):
+                    check_name()
+                    current = None
+                elif match := ANCHOR_PATTERN.fullmatch(line):
+                    check_name()
+                    current, anchor = None, match.group(1)
+                elif current and line.startswith("| "):
+                    cells = [cell.strip() for cell in line.strip("|").split("|")]
+                    if len(cells) == 4 and cells[0].isdigit():
+                        rows.append(cells)
+
     def check_design_tables(
         self,
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
@@ -1084,6 +1129,11 @@ class Validator:
     ) -> None:
         for path in self.design_files():
             lines = path.read_text(encoding="utf-8").splitlines()
+            try:
+                identities = resource_logical_ids(lines)
+            except ValueError as error:
+                self.check(False, f"invalid resource identity: {self.relative(path)}: {error}")
+                identities = {}
             resource_type = ""
             for index, line in enumerate(lines):
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
@@ -1349,7 +1399,7 @@ class Validator:
                         path, current_resource_type, current_logical_id, rows
                     )
                 if current_resource_type == "IAM.Role":
-                    self.check_markdown_iam_policy_artifacts(path, current_logical_id, rows)
+                    self.check_markdown_iam_policy_artifacts(path, identities.get((current_resource_type, current_logical_id), current_logical_id), rows)
             self.check(table_count > 0, f"resource design has no table: {self.relative(path)}")
 
             previous = ""
@@ -1361,7 +1411,7 @@ class Validator:
                     if path in service_metadata:
                         logical_id = heading_match.group(2)
                         if anchor_match is not None:
-                            expected = f"{service_metadata[path][0]}-{logical_id.lower()}"
+                            expected = resource_anchor(service_metadata[path][0], logical_id)
                             self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
                     previous = line.strip()
@@ -1569,9 +1619,22 @@ class Validator:
         }
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
+        hidden_ids: dict[tuple[Path, str], str] = {}
         name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
         for path in self.design_files():
+            source_lines = path.read_text(encoding="utf-8").splitlines()
+            try:
+                identities = resource_logical_ids(source_lines)
+            except ValueError:
+                identities = {}
+            pending_anchor = ""
+            for line in source_lines:
+                if match := ANCHOR_PATTERN.fullmatch(line):
+                    pending_anchor = match.group(1)
+                elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    if heading.groups() in identities and identities[heading.groups()] != heading.group(2):
+                        hidden_ids[path.resolve(), pending_anchor] = identities[heading.groups()]
             pending_anchor = ""
             current: tuple[Path, str] | None = None
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -1599,6 +1662,10 @@ class Validator:
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in self.design_files():
+            for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", source.read_text(encoding="utf-8")):
+                label, target_text, fragment = link.groups()
+                target = (source if not target_text else source.parent / target_text).resolve()
+                self.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {self.relative(source)}: {label}")
             for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
                 if raw.startswith(("http://", "https://", "mailto:")):
                     continue

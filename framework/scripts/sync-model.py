@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from design_catalog import design_material_files
-from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, expanded_design, stack_design
+from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, expanded_design, resource_logical_ids, stack_design
 from macie_bucket_tables import write_job_bucket_definitions
 from policy_tables import without_policy_tables
 
@@ -54,13 +54,15 @@ def linked_resource(path: Path, value: str) -> tuple[str, str] | None:
     if not target.is_file():
         return None
     pending_anchor = ""
-    lines, _ = expanded_design(target.read_text(encoding="utf-8").splitlines())
+    source = target.read_text(encoding="utf-8").splitlines()
+    identities = resource_logical_ids(source)
+    lines, _ = expanded_design(source)
     for line in lines:
         if anchor := ANCHOR.fullmatch(line):
             pending_anchor = anchor.group(1)
         elif resource := RESOURCE.fullmatch(line):
             if pending_anchor == fragment:
-                return resource.groups()
+                return resource.group(1), identities.get(resource.groups(), resource.group(2))
             pending_anchor = ""
     return None
 
@@ -93,6 +95,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
         return "\n".join(output) + "\n"
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
+    identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
@@ -122,6 +125,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
         if match := RESOURCE.fullmatch(line):
             resource_number += 1
             current_type, current_logical_id = match.groups()
+            current_logical_id = identities.get(match.groups(), current_logical_id)
             current_anchor = pending_anchor
             key = f"{resource_number:03d}"
             output.extend(
