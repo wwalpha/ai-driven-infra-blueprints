@@ -95,6 +95,8 @@ def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
 
 def resource_name_fields(resource_type: str) -> list[str]:
     """Candidate resource names, excluding names of referenced resources."""
+    if resource_type == "SSM.Association":
+        return ["AssociationName"]  # Name identifies the referenced SSM document.
     kind = resource_type.split(".")[1]
     names = [kind + "Input.Name", kind + "Config.Name", "Name", "name", kind + "Name", kind + "Identifier", kind + "." + kind + "Name"]
     if kind.endswith("Name"):

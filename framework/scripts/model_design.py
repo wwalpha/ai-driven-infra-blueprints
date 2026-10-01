@@ -18,9 +18,15 @@ from design_catalog import design_material_files
 
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 NAMING_EXEMPT_PROPERTIES = {
+    "Config.ConfigurationRecorder.Name",
+    "Config.DeliveryChannel.Name",
+    "Glue.Connection.ConnectionInput.Name",
+    "GuardDuty.Detector.Name",
     "IAM.ManagedPolicy.ManagedPolicyName",
     "IAM.User.UserName",
     "IAM.InstanceProfile.InstanceProfileName",
+    "Route53.HostedZone.Name",
+    "Route53.RecordSet.Name",
 }
 
 

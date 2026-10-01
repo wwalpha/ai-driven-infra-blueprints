@@ -218,7 +218,7 @@ def service_policy_checks():
     repository = SCRIPTS.parents[1]
     schema = CloudFormationSchemaCatalog(repository)
     assert POLICY_FORMATS["IAM.User.Policies[].PolicyDocument"] == "statement"
-    candidates = set()
+    candidates = {"Organizations.Policy.Content"}
     for catalog in (repository / "framework/materials/aws").glob("*.properties"):
         resource_type = catalog.stem.replace("_", ".", 1)
         for line in catalog.read_text().splitlines():

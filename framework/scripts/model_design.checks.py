@@ -234,43 +234,100 @@ def check_codebuild_required_name():
     print(f"CodeBuild required Name checks: PASS ({len(invalid)} rejected cases; design, generation and saved view)")
 
 
-def check_iam_naming_exclusions():
-    spec = importlib.util.spec_from_file_location("iam_validator", Path(__file__).with_name("validate-blueprint.py"))
+def check_naming_exclusions():
+    spec = importlib.util.spec_from_file_location("naming_validator", Path(__file__).with_name("validate-blueprint.py"))
     validator_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(validator_module)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
-        path = root / "docs/designs/dev/123456789012/iam.md"
-        for kind, field in (("IAM.ManagedPolicy", "ManagedPolicyName"), ("IAM.User", "UserName"), ("IAM.InstanceProfile", "InstanceProfileName")):
+        for kind, field in (("IAM.ManagedPolicy", "ManagedPolicyName"), ("IAM.User", "UserName"), ("IAM.InstanceProfile", "InstanceProfileName"),
+                            ("Config.ConfigurationRecorder", "Name"), ("Config.DeliveryChannel", "Name"),
+                            ("Glue.Connection", "ConnectionInput.Name"), ("GuardDuty.Detector", "Name"),
+                            ("Route53.HostedZone", "Name"), ("Route53.RecordSet", "Name")):
+            service = kind.split(".")[0].lower()
+            path = root / f"docs/designs/dev/123456789012/{service}.md"
             for prop in (field, kind + "." + field):
                 assert not naming_errors(root, kind, [["1", prop, "`example`", "名前"]])
-            values = model("iam", kind, "example", [(field, "`example`", "名前")])
+            values = model(service, kind, "example", [(field, "`example`", "名前")])
             output = roundtrip(path, values, root)
-            metadata = {path: ("iam", (kind,))}
+            metadata = {path: (service, (kind,))}
             validator = validator_module.Validator(root)
-            validator.check_resource_names(metadata)
+            validator.check_resource_names(metadata, [path])
             assert not validator.errors, validator.errors
             # Exemption does not bypass value checks or apply to Name tags.
-            path.write_text(output.replace("`example`", "`PENDING_DEPLOY`"))
-            validator = validator_module.Validator(root)
-            validator.check_resource_names(metadata)
-            assert any("resource display name must be confirmed" in error for error in validator.errors)
+            for invalid in ("", "UNSET", "PENDING_DEPLOY"):
+                path.write_text(output.replace("`example`", f"`{invalid}`"))
+                validator = validator_module.Validator(root)
+                validator.check_resource_names(metadata, [path])
+                assert any("resource display name must be confirmed" in error for error in validator.errors)
+                values["desired.row.001-001.value"] = f"`{invalid}`"
+                try:
+                    markdown_for(path, values, root)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"naming exemption accepted an unconfirmed display name: {kind}: {invalid}")
             assert naming_errors(root, kind, [["1", "Tags[].Key", '"Name"', "タグ"], ["2", "Tags[].Value", '"example"', "名前"]]) == [f"naming rule missing: {kind}: Name tag"]
     assert not naming_errors(ROOT, "IAM.Role", [["1", "RoleName", "`example`", "名前"]])
     assert naming_errors(ROOT, "IAM.Group", [["1", "GroupName", "`example`", "名前"]]) == ["naming rule missing: IAM.Group: GroupName"]
-    print("IAM naming exclusions: PASS (3 properties; design, generation, value checks and coverage boundaries)")
+    assert naming_errors(ROOT, "Glue.Job", [["1", "name", "`example`", "名前"]]) == ["naming rule missing: Glue.Job: name"]
+    schema = validator_module.DesignSchemaCatalog(ROOT)
+    assert schema.literal_errors("Config.ConfigurationRecorder", "Name", "UNSET")
+    assert schema.literal_errors("Route53.HostedZone", "Name", "x" * 1025)
+    try:
+        schema.property_schema("GuardDuty.Detector", "Name")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("naming exemption added an unsupported GuardDuty property")
+    print("Naming exclusions: PASS (9 properties; design, generation, value/schema checks and coverage boundaries)")
+
+
+def check_security_naming():
+    from design_catalog import DesignSchemaCatalog
+    schema = DesignSchemaCatalog(ROOT)
+    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text()
+    patterns = {}
+    for line in text.splitlines():
+        cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
+        if len(cells) == 5 and cells[2] and cells[4].startswith(("waf", "nfw", "scp", "fmsp", "sspb", "ssma", "ssmw", "mwtg", "mwts", "cfgr", "vbpe")):
+            patterns[cells[2]] = (cells[3], cells[4])
+    assert len(patterns) == 15
+    for kind, (field, pattern) in patterns.items():
+        if kind.startswith("WAFv2."):
+            assert pattern.startswith("waf")
+        for shared in (False, True) if kind == "Organizations.Policy" else (False,):
+            name = pattern.replace("[-{{environment}}]", "" if shared else "-dev")
+            for key, value in (("application", "app"), ("environment", "dev"), ("purpose", "patching")):
+                name = name.replace("{{" + key + "}}", value)
+            assert "{{" not in name
+            fields = [("Tags[].Key", "Name"), ("Tags[].Value", name)] if field == "Name tag" else [(field, name)]
+            rows = [[str(number), prop, f"`{value}`", "名称"] for number, (prop, value) in enumerate(fields, 1)]
+            assert not naming_errors(ROOT, kind, rows), kind
+            assert not naming_errors(ROOT, kind, [[row[0], kind + "." + row[1], *row[2:]] for row in rows]), kind
+            for prop, value in fields:
+                assert schema.literal_errors(kind, prop, value) == [], (kind, prop)
+                selected = (ROOT / "framework/materials/aws" / (kind.replace(".", "_", 1) + ".properties")).read_text()
+                assert f"{kind}.{prop}=" in selected
+    for kind in ("EC2.TransitGateway", "EC2.TransitGatewayVpcAttachment", "EC2.TransitGatewayRouteTable"):
+        assert not naming_errors(ROOT, kind, [["1", "Tags[].Key", "`Name`", "タグ"], ["2", "Tags[].Value", "`tgw-app-dev-patching-01`", "名称"]])
+    assert not naming_errors(ROOT, "SSM.Association", [["1", "Name", "`AWS-RunPatchBaseline`", "参照document"]])
+    assert not naming_errors(ROOT, "EC2.VPCBlockPublicAccessOptions", [["1", "InternetGatewayBlockMode", "`block-ingress`", "遮断設定"]])
+    assert not naming_errors(ROOT, "EC2.VPCBlockPublicAccessExclusion", [["1", "InternetGatewayExclusionMode", "`allow-egress`", "除外設定"]])
+    print("Security naming: PASS (15 patterns, catalog/schema, formal/short properties, TGW and optional names)")
 
 
 def main():
-    check_iam_naming_exclusions()
+    check_security_naming()
+    check_naming_exclusions()
     check_codebuild_required_name()
     check_endpoint_name_tag()
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
     assert not naming_errors(ROOT, "Glue.Connection", [["1", "Name", "`PENDING_DEPLOY`", "生成される名前"]])
-    assert naming_errors(ROOT, "Glue.Connection", [["1", "ConnectionInput.Name", "`example`", "作成する接続の名前"]])
+    assert not naming_errors(ROOT, "Glue.Connection", [["1", "ConnectionInput.Name", "`example`", "作成する接続の名前"]])
     assert not naming_errors(ROOT, "Scheduler.Schedule", [["1", "GroupName", "`default`", "所属先"]])
     assert not naming_errors(ROOT, "SecurityHub.Hub", [["1", "EnableDefaultStandards", "`true`", "標準を有効化"]])
     assert not naming_errors(ROOT, "SecurityHub.Hub", [["1", "Tags[].Key", '"purpose"', "タグ"], ["2", "Tags[].Value", '"security"', "用途"]])

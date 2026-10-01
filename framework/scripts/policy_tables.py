@@ -42,6 +42,7 @@ POLICY_FORMATS = {
     "SecretsManager.ResourcePolicy.ResourcePolicy": "statement",
     "ECR.Repository.LifecyclePolicy": "settings",
     "Logs.LogGroup.DataProtectionPolicy": "settings",
+    "Organizations.Policy.Content": "settings",
     "SNS.Subscription.DeliveryPolicy": "settings",
     "SNS.Subscription.FilterPolicy": "settings",
     "SNS.Subscription.RedrivePolicy": "settings",

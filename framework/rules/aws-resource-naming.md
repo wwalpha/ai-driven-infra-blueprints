@@ -6,6 +6,7 @@
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
 - `IAM.ManagedPolicy.ManagedPolicyName`、`IAM.User.UserName`、`IAM.InstanceProfile.InstanceProfileName`は命名conventionと命名ルールcoverage checkの対象外とする。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は対象外にしない。
+- `Config.ConfigurationRecorder.Name`、`Config.DeliveryChannel.Name`、`Glue.Connection.ConnectionInput.Name`、`GuardDuty.Detector.Name`、`Route53.HostedZone.Name`、`Route53.RecordSet.Name`は命名ルールcoverage checkの対象外とする。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は維持する。`GuardDuty.Detector.Name`の除外はcatalogにないpropertyの追加・使用を許可するものではない。Name tagや他のName propertyへ除外を拡張しない。
 - `CodeBuild.Project.Name`は詳細設計で必須とし、確定済みnon-empty literalをresourceごとに1 row保持する。Name tagや表示labelで代替せず、未確定なら停止する。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
 - `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`と`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
@@ -21,7 +22,7 @@
 
 ## Naming rule coverage check
 
-- Scopeで対象外とした3 propertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
+- Scopeで対象外としたpropertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
 - 名称propertyを選択していないresourceと、名称を持たない型（例：`SecurityHub.Hub` / Security Hub CSPM）は対象外とする。表示用label、内部logical ID、AWS生成identifierに命名patternを要求しない。taggableだけでName tagを追加しない。
 - 既存resourceの確定済み名称は変更しない。このcheckはruleの有無を確認し、patternへの自動renameはしない。
 
@@ -61,6 +62,7 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | Amazon VPC | VPC peering connection | `EC2.VPCPeeringConnection` | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
 | Amazon VPC | Internet gateway | `EC2.InternetGateway` | Name tag | `igw-{{application}}-{{environment}}` |
 | Amazon VPC | VPC endpoint | `EC2.VPCEndpoint` | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |
+| Amazon VPC | Block Public Access exclusion | `EC2.VPCBlockPublicAccessExclusion` | Name tag | `vbpe-{{application}}-{{environment}}-{{purpose}}` |
 | Amazon VPC | NAT gateway | `EC2.NatGateway` | Name tag | `natgw-{{application}}-{{environment}}-{{zone}}` |
 | Amazon VPC | Elastic IP address | `EC2.EIP` | Name tag | `eip-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon VPC | Transit gateway | `EC2.TransitGateway` | Name tag | `tgw-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
@@ -115,9 +117,27 @@ Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tag�
 | AWS Backup | Backup vault | `Backup.BackupVault` | `BackupVaultName` | `backup-vault-{{application}}-{{environment}}-{{purpose}}` |
 | AWS Backup | Backup plan | `Backup.BackupPlan` | `BackupPlanName` | `backup-plan-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon API Gateway | REST, HTTP, or WebSocket API | `ApiGateway.RestApi`, `ApiGatewayV2.Api` | `Name` | `apigw-{{protocol}}-{{application}}-{{environment}}-{{purpose}}` |
+| AWS WAF | Web ACL | `WAFv2.WebACL` | `Name` | `wafacl-{{application}}-{{environment}}-{{purpose}}` |
+| AWS WAF | Rule group | `WAFv2.RuleGroup` | `Name` | `wafrg-{{application}}-{{environment}}-{{purpose}}` |
+| AWS WAF | IP set | `WAFv2.IPSet` | `Name` | `wafip-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Network Firewall | Firewall | `NetworkFirewall.Firewall` | `FirewallName` | `nfwl-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Network Firewall | Firewall policy | `NetworkFirewall.FirewallPolicy` | `FirewallPolicyName` | `nfwp-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Network Firewall | Rule group | `NetworkFirewall.RuleGroup` | `RuleGroupName` | `nfwr-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Organizations | Service control policy | `Organizations.Policy` | `Name` | `scp-{{application}}[-{{environment}}]-{{purpose}}` |
+| AWS Firewall Manager | Policy | `FMS.Policy` | `PolicyName` | `fmsp-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Systems Manager | Patch baseline | `SSM.PatchBaseline` | `Name` | `sspb-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Systems Manager | Association | `SSM.Association` | `AssociationName` | `ssma-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Systems Manager | Maintenance window | `SSM.MaintenanceWindow` | `Name` | `ssmw-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Systems Manager | Maintenance window target | `SSM.MaintenanceWindowTarget` | `Name` | `mwtg-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Systems Manager | Maintenance window task | `SSM.MaintenanceWindowTask` | `Name` | `mwts-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Config | Config rule | `Config.ConfigRule` | `ConfigRuleName` | `cfgr-{{application}}-{{environment}}-{{purpose}}` |
 
 ## Service-specific constraints
 
+- AWS WAFのWebACL／RuleGroup／IPSetのprefixはそれぞれ`wafacl`／`wafrg`／`wafip`とし、すべて`waf`を含める。
+- AWS Organizations Policyの`scp` patternは`Type=SERVICE_CONTROL_POLICY`のSCPに使用する。環境間で同じSCPを共有する場合は`environment`を省略し、環境別に分ける場合は含める。他のpolicy typeへ`scp` prefixを自動適用しない。
+- AWS Systems Manager Association自身の名称は`AssociationName`を対象とする。`Name`は参照するSSM document名（例：`AWS-RunPatchBaseline`）であり、この命名patternで変更しない。
+- VPC Block Public Access Optionsは名称propertyを持たないため命名patternを要求しない。Exclusionの`Name` tagはhumanが選択した場合だけ`vbpe` patternを適用し、必須化しない。
 - AWS Glue JobとSecurityConfigurationの`Name`はlower-kebab-case・1〜255文字とし、`purpose`は用途を識別するhuman-confirmedなtokenを使用する。SecurityConfigurationのprefixは`glsc`（Glue Security Configuration）とし、prefix内にhyphenを含めない。
 - Amazon QuickSight DataSourceの`source_type`は`athena`、`snowflake`などの接続種別をlowercaseで表し、`purpose`は部署・情報区分などデータソースの用途を識別するhuman-confirmedな値とする。DataSourceとVPCConnectionの`Name`は1〜128文字の表示名とし、`DataSourceId`／`VPCConnectionId`とは別に扱う。
 - Amazon MWAA Environmentの`purpose`は用途別にenvironmentを分ける場合だけ含める。`Name`は英字で開始し、英数字、hyphen、underscoreだけを使い、1〜80文字とする。この命名patternではlower-kebab-caseを使用する。

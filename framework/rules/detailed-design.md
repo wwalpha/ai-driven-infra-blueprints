@@ -248,7 +248,7 @@ IAM Roleが所有するpolicy JSON artifactは、Roleのlogical IDを`<role-arti
 | --- | --- |
 | Statement表 | IAM Roleのtrust／inline、IAM ManagedPolicy、S3 BucketPolicy、KMS KeyPolicy、VPC endpoint、SQS／SNS、ECR repository、Secrets Manager、CloudWatch Logsのresource policy、API Gateway、EventBridge、SSO PermissionSet inline、DynamoDBのtable／stream／replica policy |
 | 内包するStatement表 | `DynamoDB.Table.ResourcePolicy`のJSON object内の`PolicyDocument`。外側の構造を保持し、未知のwrapper keyは省略せず停止する |
-| 設定表 | SNSのdelivery／filter／redrive／replay／archive／data protection、SQSのredrive／redrive allow、CloudWatch Logsのdata protection、ECR lifecycle |
+| 設定表 | SNSのdelivery／filter／redrive／replay／archive／data protection、SQSのredrive／redrive allow、CloudWatch Logsのdata protection、ECR lifecycle、Organizations PolicyのContent（SCPを含む各policy typeのJSON構造を保持） |
 
 `SecurityPolicy`、`SslPolicy`、policy名、ARN、booleanなどのscalar／referenceは通常の設定行を維持する。CloudFrontやNetwork Firewall、Auto Scaling等のcatalogで個別propertyへ展開されているpolicy設定も既存の4列表へ記載する。選択していないpolicy、policy名、権限を表示のために作成・補完しない。
 

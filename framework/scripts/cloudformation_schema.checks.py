@@ -130,6 +130,43 @@ def main() -> None:
         assert catalog.property_schema("Scheduler.Schedule", path)
     assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "OFF") == []
     assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "WRONG")
+    from design_layout import LAYOUTS, resource_display_name, resource_name_fields
+    for kind, paths in {
+        "EC2.VPCBlockPublicAccessOptions": "AccountId InternetGatewayBlockMode",
+        "EC2.VPCBlockPublicAccessExclusion": "ExclusionId InternetGatewayExclusionMode VpcId SubnetId Tags[].Key Tags[].Value",
+        "Organizations.Policy": "Id Name Type Content TargetIds",
+        "FMS.Policy": "Id PolicyName IncludeMap.ACCOUNT IncludeMap.ORGUNIT ExcludeMap.ACCOUNT ExcludeResourceTags RemediationEnabled SecurityServicePolicyData.Type SecurityServicePolicyData.ManagedServiceData",
+        "SSM.PatchBaseline": "Id Name OperatingSystem DefaultBaseline PatchGroups ApprovalRules.PatchRules[].ApproveAfterDays ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Key",
+        "SSM.Association": "AssociationId AssociationName Name Parameters Targets[].Key ScheduleExpression",
+        "SSM.MaintenanceWindow": "WindowId Name Schedule ScheduleTimezone Duration Cutoff AllowUnassociatedTargets",
+        "SSM.MaintenanceWindowTarget": "WindowTargetId WindowId Name ResourceType Targets[].Key",
+        "SSM.MaintenanceWindowTask": "WindowTaskId WindowId Name TaskArn TaskType Targets[].Key TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Parameters",
+        "Config.ConfigRule": "ConfigRuleId ConfigRuleName Source.Owner Source.SourceIdentifier Source.CustomPolicyDetails.PolicyText Scope.ComplianceResourceTypes InputParameters EvaluationModes[].Mode",
+    }.items():
+        assert DesignSchemaCatalog(root).cloudformation_type(kind) == "AWS::" + kind.replace(".", "::", 1)
+        assert LAYOUTS[kind] == "independent"
+        lines = (materials / (kind.replace(".", "_", 1) + ".properties")).read_text().splitlines()
+        selected = {line.partition("=")[0] for line in lines}
+        for path in paths.split():
+            assert f"{kind}.{path}" in selected, (kind, path)
+            assert catalog.property_schema(kind, path)
+        assert all(not line.partition("=")[0].split(".")[-1].lower().endswith("arn")
+                   for line in lines if line.endswith("=IDENTIFIER_OUTPUT"))
+    for kind, prop, value in (
+        ("EC2.VPCBlockPublicAccessOptions", "InternetGatewayBlockMode", "block-bidirectional"),
+        ("EC2.VPCBlockPublicAccessExclusion", "InternetGatewayExclusionMode", "allow-egress"),
+        ("Organizations.Policy", "Type", "SERVICE_CONTROL_POLICY"),
+        ("SSM.PatchBaseline", "OperatingSystem", "AMAZON_LINUX_2023"),
+    ):
+        assert catalog.literal_errors(kind, prop, value) == [], (kind, prop)
+        assert catalog.literal_errors(kind, prop, "INVALID_ENUM"), (kind, prop)
+    assert catalog.literal_errors("SSM.MaintenanceWindowTask", "TaskType", "RUN_COMMAND") == []
+    assert catalog.literal_errors("Config.ConfigRule", "Source.Owner", "AWS") == []
+    assert resource_name_fields("SSM.Association") == ["AssociationName"]
+    rows = [["1", "SSM.Association.Name", "AWS-RunPatchBaseline", "参照document"],
+            ["2", "SSM.Association.AssociationName", "patch-scan", "associationの名前"]]
+    assert resource_display_name("SSM.Association", rows) == "patch-scan"
+    assert resource_display_name("SSM.Association", rows[:1]) is None
     print("cloudformation-schema: PASS")
 
 
