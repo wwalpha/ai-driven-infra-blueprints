@@ -3,16 +3,78 @@
 
 from __future__ import annotations
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+import importlib.util
+import io
+import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("sync-existing-files.py")
+SPEC = importlib.util.spec_from_file_location("sync_existing_files", SCRIPT)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+def check_failure_safety() -> None:
+    missing_target = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
+    assert missing_target.returncode != 0 and "--target" in missing_target.stderr
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "source"
+        target = Path(directory) / "target"
+        (source / "framework").mkdir(parents=True)
+        (source / ".agents").mkdir()
+        target.mkdir()
+        target = target.resolve()
+        for relative in ("framework/a.txt", "framework/b.txt", "AGENTS.md", "README.md"):
+            (source / relative).write_text("original\n", encoding="utf-8")
+
+        def run() -> int:
+            with mock.patch.object(MODULE, "FRAMEWORK_ROOT", source / "framework"), mock.patch.object(
+                MODULE, "REPOSITORY_ROOT", source
+            ), mock.patch.object(sys, "argv", [str(SCRIPT), "--target", str(target)]), redirect_stdout(
+                io.StringIO()
+            ), redirect_stderr(io.StringIO()):
+                return MODULE.main()
+
+        assert run() == 0
+        (target / "framework/b.txt").unlink()
+        original = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+        (source / "framework/a.txt").write_text("updated\n", encoding="utf-8")
+        (source / "README.md").write_text("updated\n", encoding="utf-8")
+        copy2 = shutil.copy2
+        failed = False
+
+        def fail_once(src: Path, dst: Path, *args: object, **kwargs: object) -> str:
+            nonlocal failed
+            if Path(dst) == target / "README.md" and not failed:
+                failed = True
+                raise OSError("injected copy failure")
+            return copy2(src, dst, *args, **kwargs)
+
+        with mock.patch.object(MODULE.shutil, "copy2", side_effect=fail_once):
+            result = run()
+            assert result == 1, (result, failed)
+        assert failed
+        assert {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()} == original
+
+        new_source = source / "framework/new.txt"
+        new_source.write_text("new\n", encoding="utf-8")
+        with mock.patch.object(Path, "is_symlink", lambda self: self == new_source):
+            assert run() == 1
+        assert not (target / "framework/new.txt").exists()
 
 
 def main() -> None:
+    check_failure_safety()
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory)
         protected = ("project.json", "docs/keep.md", "infra/keep.yaml", "model/keep.properties", "tasks/active.md", "tests/keep.py")

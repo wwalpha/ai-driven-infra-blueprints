@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import json
 import subprocess
@@ -136,6 +139,12 @@ def check_idle_without_active_task() -> None:
             cwd=root,
             check=True,
         )
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        validator.check_task_type_requirements()
+        validator.check_acceptance_checks()
+        assert not validator.errors, validator.errors
+        assert not validator.task_type
         (root / "tasks" / "active.md").unlink()
         validator = MODULE.Validator(root)
         validator.check_task_scope()
@@ -223,7 +232,7 @@ def check_optional_alias_targets() -> None:
                 {
                     "environment": "sandbox",
                     "awsAccountId": "210987654321",
-                    "awsRegion": "ap-northeast-1",
+                    "awsRegion": "eusc-de-east-1",
                     "iacEngine": "terraform",
                 },
             ],
@@ -270,6 +279,18 @@ def check_optional_alias_targets() -> None:
             (
                 [{**topology["targets"][0], "alias": "123456789012"}],
                 "invalid target alias",
+            ),
+            (
+                [{**topology["targets"][0], "awsRegion": "Tokyo"}, *topology["targets"][1:]],
+                "invalid AWS region ID",
+            ),
+            (
+                [{**topology["targets"][0], "awsRegion": "ap--1"}, *topology["targets"][1:]],
+                "invalid AWS region ID",
+            ),
+            (
+                [{**topology["targets"][0], "awsRegion": ""}, *topology["targets"][1:]],
+                "AWS region is required",
             ),
         ]
         for targets, expected_error in invalid_targets:

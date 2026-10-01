@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath

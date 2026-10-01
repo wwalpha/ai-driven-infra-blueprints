@@ -28,12 +28,15 @@ def main() -> int:
             for path in sorted((root / "framework" / "scripts").glob("*.checks.py"))
         ),
     ]
-    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
+    failed = []
     for command in commands:
         result = subprocess.run(command, cwd=root, check=False, env=environment)
         if result.returncode:
-            print(f"Blueprint local loop: FAIL ({Path(command[1]).name})")
-            return result.returncode
+            failed.append(Path(command[1]).name)
+    if failed:
+        print(f"Blueprint local loop: FAIL ({', '.join(failed)})")
+        return 1
     print(f"Blueprint local loop: PASS ({len(commands) - 1} focused check scripts)")
     return 0
 

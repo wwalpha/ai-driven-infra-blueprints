@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import json
 import subprocess
@@ -116,6 +119,16 @@ def main() -> None:
             assert "topology target must exist exactly once" in str(error)
         else:
             raise AssertionError("aliased target was selected without its alias")
+
+        topology = json.loads((root / "project.json").read_text(encoding="utf-8"))
+        topology["targets"][0]["awsRegion"] = "Tokyo"
+        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+        try:
+            MODULE.load_target(root, "production", account_id="210987654321")
+        except MODULE.DeployContextError as error:
+            assert "AWS region ID is invalid" in str(error)
+        else:
+            raise AssertionError("invalid AWS region ID was accepted")
     print("check-deploy-context: PASS")
 
 

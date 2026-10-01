@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Check grouped identities, references and catalog display coverage end to end."""
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import json
 import shutil

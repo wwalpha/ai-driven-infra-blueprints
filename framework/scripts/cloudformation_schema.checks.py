@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 from pathlib import Path
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors

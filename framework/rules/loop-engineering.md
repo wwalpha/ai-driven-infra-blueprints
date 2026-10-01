@@ -17,7 +17,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態ではactive taskなしを許容する。一層でも未実行または失敗の場合はFAILとする。
+local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -70,7 +70,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-`framework/scripts/blueprint-loop.py`はrepository validator成功後、`framework/scripts/*.checks.py`を名前順に全件実行する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
+`framework/scripts/blueprint-loop.py`はrepository validatorの成否にかかわらず、`framework/scripts/*.checks.py`を名前順に全件実行する。Python最適化によるassert無効化を防ぎ、全失敗を報告する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
 
 ## Design task completion
 

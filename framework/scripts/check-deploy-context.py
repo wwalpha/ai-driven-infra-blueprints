@@ -67,6 +67,8 @@ def load_target(
         raise DeployContextError("target AWS account ID is invalid")
     if not isinstance(region, str) or not region:
         raise DeployContextError("target AWS region is missing")
+    if not re.fullmatch(r"[a-z]{2,}(?:-[a-z0-9]+)+-[1-9][0-9]*", region):
+        raise DeployContextError("target AWS region ID is invalid")
     if engine not in {"cloudformation", "terraform"}:
         raise DeployContextError(f"invalid target IaC engine: {engine}")
     resolved = {

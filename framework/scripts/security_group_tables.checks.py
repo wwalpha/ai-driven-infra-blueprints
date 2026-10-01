@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Check horizontal SG rules, catalog validation, model ownership and references."""
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import tempfile
 from pathlib import Path

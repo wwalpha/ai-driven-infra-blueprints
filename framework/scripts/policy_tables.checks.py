@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Check service policy views, IAM regression and the unchanged model contract."""
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 import importlib.util
 import json
 from pathlib import Path

@@ -264,6 +264,8 @@ class Validator:
             | self.git_paths(["diff", "--cached", "--name-only"])
             | self.git_paths(["ls-files", "--others", "--exclude-standard"])
         )
+        if not self.changed_paths:
+            return
         if not prompt.is_file():
             self.check(
                 not (self.changed_paths - {"tasks/active.md"}),
@@ -658,7 +660,13 @@ class Validator:
                     and re.fullmatch(r"\d{12}", alias) is None,
                     f"invalid target alias: {target}",
                 )
-            self.check(region not in {"", "UNSET"}, f"AWS region is required: {target}")
+            if region in {"", "UNSET"}:
+                self.check(False, f"AWS region is required: {target}")
+            else:
+                self.check(
+                    re.fullmatch(r"[a-z]{2,}(?:-[a-z0-9]+)+-[1-9][0-9]*", region) is not None,
+                    f"invalid AWS region ID: {target}: {region}",
+                )
             self.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine: {target}")
             key = (environment, target_directory)
             order.append(key)
