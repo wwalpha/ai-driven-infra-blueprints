@@ -16,7 +16,7 @@ IDENTIFIER_OUTPUT = "IDENTIFIER_OUTPUT"
 
 
 def catalog_files() -> list[Path]:
-    return sorted(CATALOG_DIR.glob("*.properties"))
+    return sorted(CATALOG_DIR.glob("*.properties"), key=lambda path: path.name)
 
 
 def manifest_text(files: list[Path]) -> str:

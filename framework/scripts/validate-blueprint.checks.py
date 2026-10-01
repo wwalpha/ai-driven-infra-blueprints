@@ -618,7 +618,7 @@ def check_catalog_display_order() -> None:
         material = root / "framework/materials/aws/Example_Resource.properties"
         material.parent.mkdir(parents=True)
         lines = ["Example.Resource.Name=", "Example.Resource.Hidden=", "Example.Resource.Id=IDENTIFIER_OUTPUT", "Example.Resource.Tags[].Key=", "Example.Resource.Tags[].Value="]
-        material.write_text("\n".join(lines) + "\n")
+        material.write_text("\n".join(lines) + "\n", encoding="utf-8")
         def rows(*properties):
             return [[str(n), "Example.Resource." + prop, "value", "属性"] for n, prop in enumerate(properties, 1)]
         selected = rows("Name", "Id", "Tags[].Key", "Tags[].Value", "Tags[].Key", "Tags[].Value")
@@ -626,7 +626,7 @@ def check_catalog_display_order() -> None:
         assert catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
         assert catalog_order_errors("Example.Resource", rows("Tags[].Value", "Tags[].Key"), root)
         assert catalog_order_errors("Example.Resource", rows("Tags[].Key", "Name", "Tags[].Key"), root)
-        material.write_text("\n".join([lines[2], *lines[:2], *lines[3:]]) + "\n")
+        material.write_text("\n".join([lines[2], *lines[:2], *lines[3:]]) + "\n", encoding="utf-8")
         assert not catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
         assert catalog_order_errors("Example.Resource", rows("Name", "Id"), root)
         assert len(selected) == 6 and all("Hidden" not in row[1] for row in selected)

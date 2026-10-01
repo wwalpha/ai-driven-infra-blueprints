@@ -203,7 +203,7 @@ def check_codebuild_variable_display() -> None:
         other_target.mkdir()
         shutil.copy(secret, other_target / secret.name)
         assert errors(codebuild.replace("(secretsmanager.md#", "(../987654321098/secretsmanager.md#"))
-        secret.write_text(secret.read_text().replace("SecretsManager.Secret:", "S3.Bucket:"), encoding="utf-8")
+        secret.write_text(secret.read_text(encoding="utf-8").replace("SecretsManager.Secret:", "S3.Bucket:"), encoding="utf-8")
         assert errors(codebuild)
 
 
@@ -648,7 +648,7 @@ def check_config_firehose_references() -> None:
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        (root / "framework").symlink_to(REPOSITORY / "framework", target_is_directory=True)
+        shutil.copytree(REPOSITORY / "framework", root / "framework")
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
             "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
         }]}) + "\n", encoding="utf-8")

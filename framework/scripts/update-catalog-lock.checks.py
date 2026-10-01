@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("update-catalog-lock.py")
@@ -16,6 +17,12 @@ SPEC.loader.exec_module(MODULE)
 
 
 def main() -> None:
+    names = ["ApiGateway_ApiKey.properties", "ApiGatewayV2_Api.properties"]
+    for path_type in (PurePosixPath, PureWindowsPath):
+        paths = [path_type(name) for name in names]
+        with patch.object(MODULE, "CATALOG_DIR") as directory:
+            directory.glob.return_value = paths
+            assert [path.name for path in MODULE.catalog_files()] == sorted(names)
     with tempfile.TemporaryDirectory() as directory:
         catalog = Path(directory) / "EC2_VPC.properties"
         catalog.write_text(

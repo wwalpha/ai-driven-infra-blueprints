@@ -181,7 +181,7 @@ def main():
                 assert not valid and "Sid must be a string of at most 16 characters" in str(error)
             else:
                 assert valid and "S" * 16 in view
-            assert json.loads(inline_artifact.read_text()) == document
+            assert json.loads(inline_artifact.read_text(encoding="utf-8")) == document
         assert any("Sid must be" in error for error in errors(rendered))
         inline_artifact.write_text(json.dumps(inline), encoding="utf-8")
         trust_with_sid = json.loads(json.dumps(trust))
@@ -221,7 +221,7 @@ def service_policy_checks():
     candidates = {"Organizations.Policy.Content"}
     for catalog in (repository / "framework/materials/aws").glob("*.properties"):
         resource_type = catalog.stem.replace("_", ".", 1)
-        for line in catalog.read_text().splitlines():
+        for line in catalog.read_text(encoding="utf-8").splitlines():
             prop = line.partition("=")[0]
             # Discover omissions for review; never infer their rendering mode.
             if "Policy" in prop.split(".")[-1] and "object" in schema.property_schema(resource_type, prop[len(resource_type) + 1:]).get("type", []):
@@ -235,7 +235,7 @@ def service_policy_checks():
     for prop, style in POLICY_FORMATS.items():
         resource_type = ".".join(prop.split(".")[:2])
         catalog = repository / "framework/materials/aws" / (resource_type.replace(".", "_") + ".properties")
-        assert prop in {line.partition("=")[0] for line in catalog.read_text().splitlines()}
+        assert prop in {line.partition("=")[0] for line in catalog.read_text(encoding="utf-8").splitlines()}
         node = schema.property_schema(resource_type, prop[len(resource_type) + 1:])
         assert "object" in node["type"], (prop, node)
         assert VALIDATOR.Validator.is_policy_document_property(prop)
@@ -338,8 +338,8 @@ def service_policy_checks():
             artifact.write_text(json.dumps(document), encoding="utf-8")
             path.write_text(original, encoding="utf-8")
             write = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"], capture_output=True)
-            assert write.returncode == 0 and path.read_text() == rendered, write.stderr
-            assert json.loads(artifact.read_text()) == document, "generation must not modify policy JSON"
+            assert write.returncode == 0 and path.read_text(encoding="utf-8") == rendered, write.stderr
+            assert json.loads(artifact.read_text(encoding="utf-8")) == document, "generation must not modify policy JSON"
 
     # Scalar policies and names remain ordinary catalog property rows.
     for prop in ("ApiGateway.RestApi.SecurityPolicy", "ElasticLoadBalancingV2.Listener.SslPolicy", "NetworkFirewall.FirewallPolicy.FirewallPolicy.StatefulEngineOptions.StreamExceptionPolicy", "S3.Bucket.PublicAccessBlockConfiguration.BlockPublicPolicy", "SSO.PermissionSet.ManagedPolicies"):

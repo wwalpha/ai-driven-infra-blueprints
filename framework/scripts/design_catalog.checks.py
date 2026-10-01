@@ -78,7 +78,7 @@ def markdown(values):
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 """
-    order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / "framework/materials/api/Macie_ClassificationJob.properties").read_text().splitlines()]
+    order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / "framework/materials/api/Macie_ClassificationJob.properties").read_text(encoding="utf-8").splitlines()]
     for number, key in enumerate(sorted(values, key=lambda key: order.index(key) if key in order else len(order)), 1):
         value = values[key]
         raw = value if isinstance(value, str) else json.dumps(value)
@@ -125,10 +125,10 @@ def main():
         design.parent.mkdir(parents=True)
         model.parent.mkdir(parents=True)
         schema = DesignSchemaCatalog(root)
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         # Isolated fixture rule: production intentionally rejects the unregistered Job name.
         naming = root / "framework/rules/aws-resource-naming.md"
-        naming.write_text(naming.read_text() + "\n| Fixture | Job | `Macie.ClassificationJob` | `name` | `{{purpose}}` |\n")
+        naming.write_text(naming.read_text(encoding="utf-8") + "\n| Fixture | Job | `Macie.ClassificationJob` | `name` | `{{purpose}}` |\n", encoding="utf-8")
 
         def check(values=VALUES, text=None):
             artifact = design.with_suffix("") / "job-scope.json"
@@ -146,15 +146,15 @@ def main():
             return validator.errors
 
         assert not check(), check()
-        pending = model.read_text()
+        pending = model.read_text(encoding="utf-8")
         assert f"desired.resource.002.resourceType={MACIE_JOB}" in pending
         assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in pending
         assert "observed.row.002-002.value=`PENDING_DEPLOY`" in pending
         assert "desired.row.002-004.value=" in pending
         assert "observed.row.002-004" not in pending
         assert not check({**VALUES, "jobId": "0123456789abcdef0123456789abcdef"})
-        assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in model.read_text()
-        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in model.read_text()
+        assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in model.read_text(encoding="utf-8")
+        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in model.read_text(encoding="utf-8")
         single = {key: value for key, value in VALUES.items() if key not in {"scheduleFrequency", "initialRun"}}
         assert not check({**single, "jobType": "ONE_TIME"})
         assert not check({**VALUES, "scheduleFrequency": {"weeklySchedule": {"dayOfWeek": "MONDAY"}}})
@@ -199,10 +199,10 @@ def main():
         artifact = design.with_suffix("") / "job-scope.json"
         text = markdown(VALUES)
         assert not check(text=text), check(text=text)
-        assert "desired.row.002-006.artifactSha256=" in model.read_text()
-        artifact.write_text(json.dumps({"bucketDefinitions": [{"accountId": "123456789012", "buckets": ["wrong-bucket"]}]}))
+        assert "desired.row.002-006.artifactSha256=" in model.read_text(encoding="utf-8")
+        artifact.write_text(json.dumps({"bucketDefinitions": [{"accountId": "123456789012", "buckets": ["wrong-bucket"]}]}), encoding="utf-8")
         assert any("bucket mapping differs from JSON artifact" in error for error in check(text=text))
-        artifact.write_text(json.dumps(VALUES["s3JobDefinition"]))
+        artifact.write_text(json.dumps(VALUES["s3JobDefinition"]), encoding="utf-8")
         assert any("requires a Markdown mapping table" in error for error in check(text=text.split("#### 対象S3 bucket")[0]))
         assert any("missing or duplicate Macie bucket" in error for error in check(text=text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `app-data` |")))
         assert any("invalid Macie Job/account mapping row" in error for error in check(text=text.replace("[daily-data-scan](#macie-daily-data-scan) | `123456789012`", "[Other](#macie-other) | `123456789012`")))
@@ -219,32 +219,32 @@ def main():
         noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `000000000000` | `other-bucket` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `third-bucket` |")
         assert any("account rows must be contiguous" in error for error in check(text=noncontiguous))
         assert not check()
-        authoritative = model.read_text()
+        authoritative = model.read_text(encoding="utf-8")
         doc_key = next(line.split("=", 1)[0] for line in authoritative.splitlines() if line.startswith("desired.row.") and ".document=" in line)
         definition = {**VALUES["s3JobDefinition"], "bucketDefinitions": [{"accountId": "123456789012", "buckets": ["new-bucket"]}], "scoping": {}}
         lines = [doc_key + "=" + json.dumps(definition) if line.startswith(doc_key + "=") else line for line in authoritative.splitlines()]
-        model.write_text("\n".join(lines) + "\n")
+        model.write_text("\n".join(lines) + "\n", encoding="utf-8")
         assert MODEL.sync(root, True, "dev", "123456789012") == 0
-        assert json.loads(artifact.read_text())["bucketDefinitions"][0]["buckets"] == ["new-bucket"]
-        assert "scoping" in json.loads(artifact.read_text())
-        assert "`new-bucket`" in design.read_text()
-        artifact.write_text(json.dumps({"bucketCriteria": {}}))
+        assert json.loads(artifact.read_text(encoding="utf-8"))["bucketDefinitions"][0]["buckets"] == ["new-bucket"]
+        assert "scoping" in json.loads(artifact.read_text(encoding="utf-8"))
+        assert "`new-bucket`" in design.read_text(encoding="utf-8")
+        artifact.write_text(json.dumps({"bucketCriteria": {}}), encoding="utf-8")
         try:
             write_job_bucket_definitions(design)
         except ValueError as error:
             assert "conflicts with bucketCriteria" in str(error)
         else:
             raise AssertionError("bucketCriteria accepted with a fixed bucket table")
-        artifact.write_text('{"unknown":true}')
+        artifact.write_text('{"unknown":true}', encoding="utf-8")
         assert any("API schema violation" in error for error in check(text=text))
         artifact.unlink()
         assert not check()
-        model.write_text(model.read_text() + "desired.extra=stale\n")
+        model.write_text(model.read_text(encoding="utf-8") + "desired.extra=stale\n", encoding="utf-8")
         validator = VALIDATOR.Validator(root)
         validator.check_generated_service_models()
         assert validator.errors
         snapshot = root / "framework/materials/api/Macie_ClassificationJob.json"
-        snapshot.write_text(snapshot.read_text() + "\n")
+        snapshot.write_text(snapshot.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         assert api_snapshot_errors(root)
     print("design-catalog: PASS (Macie designs, constraints, model, CFn boundary, snapshot integrity)")
 

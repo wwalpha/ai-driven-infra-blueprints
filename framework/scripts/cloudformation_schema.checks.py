@@ -66,7 +66,7 @@ def main() -> None:
             "Tags[].Value",
         ),
     }.items():
-        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
+        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text(encoding="utf-8").splitlines()
         for property_path in properties:
             assert f"{resource_type}.{property_path}=" in lines, property_path
             node = catalog.property_schema(resource_type, property_path)
@@ -79,7 +79,7 @@ def main() -> None:
     assert catalog.required_properties("GuardDuty.MalwareProtectionPlan") == {"ProtectedResource", "Role"}
     assert "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId=IDENTIFIER_OUTPUT" in (
         materials / "GuardDuty_MalwareProtectionPlan.properties"
-    ).read_text().splitlines()
+    ).read_text(encoding="utf-8").splitlines()
     assert catalog.property_schema("GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId")["type"] == "string"
     assert catalog.schema("GuardDuty.MalwareProtectionPlan")["primaryIdentifier"] == [
         "/properties/MalwareProtectionPlanId"
@@ -101,11 +101,11 @@ def main() -> None:
         "LakeFormation.PrincipalPermissions": "Catalog Permissions PermissionsWithGrantOption Principal Resource Principal.DataLakePrincipalIdentifier Resource.Catalog Resource.Database Resource.Table Resource.TableWithColumns Resource.Database.CatalogId Resource.Database.Name Resource.Table.CatalogId Resource.Table.DatabaseName Resource.Table.Name Resource.Table.TableWildcard Resource.TableWithColumns.CatalogId Resource.TableWithColumns.DatabaseName Resource.TableWithColumns.Name Resource.TableWithColumns.ColumnNames Resource.TableWithColumns.ColumnWildcard Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames",
         "QuickSight.DataSource": "Credentials.KeyPairCredentials Credentials.KeyPairCredentials.KeyPairUsername Credentials.KeyPairCredentials.PrivateKey Credentials.KeyPairCredentials.PrivateKeyPassphrase",
     }.items():
-        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text().splitlines()
+        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text(encoding="utf-8").splitlines()
         for path in paths.split():
             assert f"{resource_type}.{path}=" in lines, path
             assert catalog.property_schema(resource_type, path)
-    lake = (materials / "LakeFormation_PrincipalPermissions.properties").read_text()
+    lake = (materials / "LakeFormation_PrincipalPermissions.properties").read_text(encoding="utf-8")
     assert "LakeFormation.PrincipalPermissions.PrincipalIdentifier=IDENTIFIER_OUTPUT" in lake
     assert "LakeFormation.PrincipalPermissions.ResourceIdentifier=IDENTIFIER_OUTPUT" in lake
     for path in ("DataCatalog.DatabaseName", "DataCatalog.TableName"):
@@ -145,7 +145,7 @@ def main() -> None:
     }.items():
         assert DesignSchemaCatalog(root).cloudformation_type(kind) == "AWS::" + kind.replace(".", "::", 1)
         assert LAYOUTS[kind] == "independent"
-        lines = (materials / (kind.replace(".", "_", 1) + ".properties")).read_text().splitlines()
+        lines = (materials / (kind.replace(".", "_", 1) + ".properties")).read_text(encoding="utf-8").splitlines()
         selected = {line.partition("=")[0] for line in lines}
         for path in paths.split():
             assert f"{kind}.{path}" in selected, (kind, path)

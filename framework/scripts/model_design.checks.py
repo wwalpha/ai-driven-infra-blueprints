@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import shutil
 import tempfile
 import subprocess
 import sys
@@ -70,8 +71,8 @@ def check_endpoint_name_tag():
                      for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#vpc-{name})")]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         path = root / "docs/designs/dev/123456789012/vpc.md"
         path.parent.mkdir(parents=True)
         rows = [("Id", f"[{logical_id}](#vpc-{name})", "Endpointを識別するID"),
@@ -89,7 +90,7 @@ def check_endpoint_name_tag():
         base = root / "model/dev/123456789012"
         base.mkdir(parents=True)
         source = base / "vpc.properties"
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         saved = path.read_bytes()
         metadata = {path: ("vpc", (kind,))}
@@ -100,7 +101,7 @@ def check_endpoint_name_tag():
         assert not validator.errors, validator.errors
         # Ordinary navigation uses Name, while identifier references retain observed IDs.
         for label in ("wrong-label", "vpce-0123456789abcdef0", logical_id):
-            path.write_text(output.replace(f"参照: [{name}]", f"参照: [{label}]"))
+            path.write_text(output.replace(f"参照: [{name}]", f"参照: [{label}]"), encoding="utf-8")
             validator = validator_module.Validator(root)
             validator.check_design_links(outputs)
             assert any("Endpoint link must display" in error for error in validator.errors)
@@ -113,7 +114,7 @@ def check_endpoint_name_tag():
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | EC2.Route.VpcEndpointId | [vpce-0123456789abcdef0](vpc.md#vpc-{name}) | 宛先EndpointのID |
-''')
+''', encoding="utf-8")
         path.write_bytes(saved)
         validator = validator_module.Validator(root)
         validator.check_design_links(outputs)
@@ -122,7 +123,7 @@ def check_endpoint_name_tag():
         assert projected["desired.row.001-001.value"] == f"[{logical_id}](vpc.md#vpc-{name})"
         assert projected["observed.row.001-001.value"] == "vpce-0123456789abcdef0"
         reference.unlink()
-        path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"))
+        path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"), encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_resource_names(metadata)
         assert any("heading must display resource name" in error for error in validator.errors)
@@ -144,13 +145,13 @@ def check_endpoint_name_tag():
             # Design-name validation reports the same shared error, without crashing.
             rendered = output[:output.index("| 1 | Id |")]
             rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"
-            path.write_text(rendered)
+            path.write_text(rendered, encoding="utf-8")
             validator = validator_module.Validator(root)
             validator.check_resource_names(metadata)
             assert validator.errors, bad_tags
         path.write_bytes(saved)
         # A missing tag rejects this service before saved Markdown changes.
-        source.write_text(text(model("vpc", kind, name, rows[:2] + rows[-2:], logical_id, name)))
+        source.write_text(text(model("vpc", kind, name, rows[:2] + rows[-2:], logical_id, name)), encoding="utf-8")
         try:
             SYNC.sync(root, True, "dev", "123456789012")
         except ValueError as error:
@@ -189,15 +190,15 @@ def check_codebuild_required_name():
                 ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#codebuild-{name})")]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         path = root / "docs/designs/dev/123456789012/codebuild.md"
         values = model("codebuild", kind, name, [name_row, *rows], "BuildProject", name)
         values.update({"observed.row.001-002.property": kind + ".Id", "observed.row.001-002.value": "`PENDING_DEPLOY`", "observed.row.001-002.comment": rows[0][2]})
         output = roundtrip(path, values, root)
         source = root / "model/dev/123456789012/codebuild.properties"
         source.parent.mkdir(parents=True)
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         saved = path.read_bytes()
         metadata = {path: ("codebuild", (kind,))}
@@ -218,12 +219,12 @@ def check_codebuild_required_name():
                 raise AssertionError(f"invalid CodeBuild Name accepted: {bad_names}")
             rendered = output[:output.index("| 1 | Name |")]
             rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"
-            path.write_text(rendered)
+            path.write_text(rendered, encoding="utf-8")
             validator = validator_module.Validator(root)
             validator.check_resource_names(metadata)
             assert any("CodeBuild.Project.Name" in error for error in validator.errors), (bad_names, validator.errors)
         path.write_bytes(saved)
-        source.write_text(text(model("codebuild", kind, name, rows, "BuildProject", name)))
+        source.write_text(text(model("codebuild", kind, name, rows, "BuildProject", name)), encoding="utf-8")
         try:
             SYNC.sync(root, True, "dev", "123456789012")
         except ValueError as error:
@@ -240,7 +241,7 @@ def check_naming_exclusions():
     spec.loader.exec_module(validator_module)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
+        shutil.copytree(ROOT / "framework", root / "framework")
         for kind, field in (("IAM.ManagedPolicy", "ManagedPolicyName"), ("IAM.User", "UserName"), ("IAM.InstanceProfile", "InstanceProfileName"),
                             ("Config.ConfigurationRecorder", "Name"), ("Config.DeliveryChannel", "Name"),
                             ("Glue.Connection", "ConnectionInput.Name"), ("GuardDuty.Detector", "Name"),
@@ -257,7 +258,7 @@ def check_naming_exclusions():
             assert not validator.errors, validator.errors
             # Exemption does not bypass value checks or apply to Name tags.
             for invalid in ("", "UNSET", "PENDING_DEPLOY"):
-                path.write_text(output.replace("`example`", f"`{invalid}`"))
+                path.write_text(output.replace("`example`", f"`{invalid}`"), encoding="utf-8")
                 validator = validator_module.Validator(root)
                 validator.check_resource_names(metadata, [path])
                 assert any("resource display name must be confirmed" in error for error in validator.errors)
@@ -287,7 +288,7 @@ def check_naming_exclusions():
 def check_security_naming():
     from design_catalog import DesignSchemaCatalog
     schema = DesignSchemaCatalog(ROOT)
-    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text()
+    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
     patterns = {}
     for line in text.splitlines():
         cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
@@ -308,7 +309,7 @@ def check_security_naming():
             assert not naming_errors(ROOT, kind, [[row[0], kind + "." + row[1], *row[2:]] for row in rows]), kind
             for prop, value in fields:
                 assert schema.literal_errors(kind, prop, value) == [], (kind, prop)
-                selected = (ROOT / "framework/materials/aws" / (kind.replace(".", "_", 1) + ".properties")).read_text()
+                selected = (ROOT / "framework/materials/aws" / (kind.replace(".", "_", 1) + ".properties")).read_text(encoding="utf-8")
                 assert f"{kind}.{prop}=" in selected
     for kind in ("EC2.TransitGateway", "EC2.TransitGatewayVpcAttachment", "EC2.TransitGatewayRouteTable"):
         assert not naming_errors(ROOT, kind, [["1", "Tags[].Key", "`Name`", "タグ"], ["2", "Tags[].Value", "`tgw-app-dev-patching-01`", "名称"]])
@@ -342,8 +343,8 @@ def main():
             raise AssertionError("invalid model accepted")
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "framework").symlink_to(ROOT / "framework", target_is_directory=True)
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         base = root / "model/dev/123456789012"
         base.mkdir(parents=True)
         vpc = model("vpc", "EC2.VPC", "vpc-net-dev", [("Name", "`vpc-net-dev`", "識別するNameタグ"), ("VpcId", "[Vpc](#vpc-vpc-net-dev)", "一意に識別するID"), ("CidrBlock", "`10.1.0.0/16`", "IPv4のアドレス範囲")], "Vpc")
@@ -359,28 +360,28 @@ def main():
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         saved_sources = {path: path.read_bytes() for path in sources}
         docs = root / "docs/designs/dev/123456789012"
-        assert "Version" in (docs / "iam.md").read_text()
-        assert "PENDING_DEPLOY" in (docs / "vpc.md").read_text()
+        assert "Version" in (docs / "iam.md").read_text(encoding="utf-8")
+        assert "PENDING_DEPLOY" in (docs / "vpc.md").read_text(encoding="utf-8")
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
         assert saved_sources == {path: path.read_bytes() for path in sources}
         logs["desired.row.001-002.value"] = "`14`"
-        (base / "logs.properties").write_text(text(logs))
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-        (base / "vpc.properties").write_text(text(vpc) + "desired.row.001-003.value=bad-duplicate\n")
+        (base / "vpc.properties").write_text(text(vpc) + "desired.row.001-003.value=bad-duplicate\n", encoding="utf-8")
         try:
             SYNC.sync(root, True, "dev", "123456789012")
         except ValueError as error:
             assert "duplicate model property" in str(error)
         else:
             raise AssertionError("invalid service was not reported")
-        assert "`14`" in (docs / "logs.md").read_text()
+        assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
         assert (docs / "vpc.md").read_bytes() == old_docs[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
-        (base / "vpc.properties").write_text(text(vpc))
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
-        assert "`14`" in (docs / "logs.md").read_text()
+        assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
         logs["desired.row.001-002.value"] = "`not-a-number`"
-        (base / "logs.properties").write_text(text(logs))
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         try:
             SYNC.sync(root, True, "dev", "123456789012")
@@ -399,40 +400,40 @@ def main():
 
         # Missing JSON input preserves this service's Markdown and JSON; others save.
         logs["desired.row.001-002.value"] = "`7`"
-        (base / "logs.properties").write_text(text(logs))
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         without_document = {key: value for key, value in iam.items() if not key.endswith(".document")}
-        (base / "iam.properties").write_text(text(without_document))
+        (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
         fails_with("authoritative JSON document missing")
         assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
         assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == old_docs[docs / "iam/flow-role-trust-policy.json"]
-        assert "`7`" in (docs / "logs.md").read_text()
-        assert (base / "iam.properties").read_text() == text(without_document)
+        assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
+        assert (base / "iam.properties").read_text(encoding="utf-8") == text(without_document)
         # Read-only checks report stale successes without modifying any view.
         logs["desired.row.001-002.value"] = "`14`"
-        (base / "logs.properties").write_text(text(logs))
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         fails_with("generated Markdown is stale or missing", write=False)
         assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-        (base / "iam.properties").write_text(text(iam))
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
         # Failed targets use saved anchors; dependents must not publish broken links.
         renamed_logs = {**logs, "desired.resource.001.anchor": "logs-cwlogs-new-dev-flow",
                         "desired.row.001-001.value": "`cwlogs-new-dev-flow`",
                         "desired.row.001-002.value": "`not-a-number`"}
-        (base / "logs.properties").write_text(text(renamed_logs))
+        (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
         vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
-        (base / "vpc.properties").write_text(text(vpc))
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         fails_with("missing design anchor")
         assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         renamed_logs["desired.row.001-002.value"] = "`14`"
-        (base / "logs.properties").write_text(text(renamed_logs))
+        (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
-        assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text()
+        assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text(encoding="utf-8")
         del vpc["desired.note.001.text"]
-        (base / "vpc.properties").write_text(text(vpc))
-        (base / "logs.properties").write_text(text(logs))
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
         # A JSON write followed by a Markdown write failure rolls back only IAM.
@@ -441,9 +442,9 @@ def main():
         document["Statement"][0]["Sid"] = "Trust"
         iam["desired.row.001-002.document"] = json.dumps(document)
         iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
-        (base / "iam.properties").write_text(text(iam))
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         logs["desired.row.001-002.value"] = "`7`"
-        (base / "logs.properties").write_text(text(logs))
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         original_write = Path.write_text
         def fail_iam(path, *args, **kwargs):
             if path == docs / "iam.md":
@@ -453,18 +454,18 @@ def main():
             fails_with("test IAM write failure")
         assert (docs / "iam.md").read_bytes() == snapshot[docs / "iam.md"]
         assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
-        assert "`7`" in (docs / "logs.md").read_text()
+        assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
-        assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text()) == document
+        assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text(encoding="utf-8")) == document
         assert {path: path.read_bytes() for path in sources} == {
             base / "vpc.properties": text(vpc).encode(), base / "logs.properties": text(logs).encode(), base / "iam.properties": text(iam).encode()}
         # If saving a target fails, roll back views that reference its new anchor.
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-        (base / "logs.properties").write_text(text(renamed_logs))
+        (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
         vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
-        (base / "vpc.properties").write_text(text(vpc))
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
         iam["desired.row.001-002.comment"] = "引受元に許可する権限と条件を定義する設定"
-        (base / "iam.properties").write_text(text(iam))
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         def fail_logs(path, *args, **kwargs):
             if path == docs / "logs.md":
                 raise OSError("test target write failure")
@@ -475,14 +476,14 @@ def main():
         assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
         # The CLI returns failure while persisting an unrelated successful service.
-        (base / "iam.properties").write_text(text(without_document))
+        (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
                                  "--repository-root", str(root), "--write", "--environment", "dev",
                                  "--aws-account-id", "123456789012"], capture_output=True, text=True)
         assert result.returncode == 1 and "authoritative JSON document missing" in result.stderr
         assert "logs.md" in result.stdout and "iam.md" not in result.stdout
-        assert "cwlogs-new-dev-flow" in (docs / "logs.md").read_text()
-        (base / "iam.properties").write_text(text(iam))
+        assert "cwlogs-new-dev-flow" in (docs / "logs.md").read_text(encoding="utf-8")
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         # A late filesystem failure restores every previously changed generated file.
