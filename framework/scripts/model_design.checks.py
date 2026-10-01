@@ -448,6 +448,7 @@ def main():
         (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         logs["desired.row.001-002.value"] = "`7`"
         (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+        saved_sources = {path: path.read_bytes() for path in sources}
         original_write = Path.write_text
         def fail_iam(path, *args, **kwargs):
             if path == docs / "iam.md":
@@ -460,8 +461,7 @@ def main():
         assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text(encoding="utf-8")) == document
-        assert {path: path.read_bytes() for path in sources} == {
-            base / "vpc.properties": text(vpc).encode(), base / "logs.properties": text(logs).encode(), base / "iam.properties": text(iam).encode()}
+        assert {path: path.read_bytes() for path in sources} == saved_sources
         # If saving a target fails, roll back views that reference its new anchor.
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
