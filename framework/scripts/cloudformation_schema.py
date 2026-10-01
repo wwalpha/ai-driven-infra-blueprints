@@ -126,9 +126,17 @@ class CloudFormationSchemaCatalog:
 
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
         node = self.property_schema(resource_type, property_path)
+        return self._literal_errors(node, raw_value)
+
+    def _literal_errors(self, node: dict[str, Any], raw_value: str) -> list[str]:
         if raw_value.lower() in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"} and raw_value not in node.get("enum", []):
             return ["unused optional properties must be omitted instead of using a sentinel value"]
         expected_type = node.get("type")
+        if isinstance(expected_type, list):
+            alternatives = [self._literal_errors({**node, "type": kind}, raw_value) for kind in expected_type]
+            if any(not errors for errors in alternatives):
+                return []
+            return [f"must satisfy one of {expected_type}", *dict.fromkeys(error for errors in alternatives for error in errors)]
         value: Any = raw_value
         try:
             if expected_type == "boolean":
@@ -141,7 +149,7 @@ class CloudFormationSchemaCatalog:
                 value = int(raw_value)
             elif expected_type == "number":
                 value = float(raw_value)
-            elif expected_type in {"array", "object"}:
+            elif expected_type in {"array", "object", "null"}:
                 value = json.loads(raw_value)
         except (ValueError, json.JSONDecodeError):
             return [f"must be {expected_type}"]
@@ -153,6 +161,7 @@ class CloudFormationSchemaCatalog:
             "number": isinstance(value, (int, float)) and not isinstance(value, bool),
             "array": isinstance(value, list),
             "object": isinstance(value, dict),
+            "null": value is None,
         }
         errors: list[str] = []
         if expected_type in actual_types and not actual_types[expected_type]:

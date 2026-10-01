@@ -17,6 +17,31 @@ def main() -> None:
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
 
+    assert catalog.property_schema("Events.Rule", "EventPattern")["type"] == ["string", "object"]
+    for resource_type, property_path in (
+        ("Events.Rule", "EventPattern"),
+        ("IAM.User", "Policies[].PolicyDocument"),
+    ):
+        for raw_value in ('{"source":["aws.ec2"]}', "plain string", "{invalid json"):
+            assert catalog.literal_errors(resource_type, property_path, raw_value) == []
+        assert catalog.literal_errors(resource_type, property_path, "not-used")
+
+    # Exercise union rejection and constraints without changing the pinned schemas.
+    for node, accepted, rejected in (
+        ({"type": ["object", "array"]}, ('{}', '[]'), ('42', 'true', '"text"', '{invalid')),
+        ({"type": ["boolean", "null"]}, ('false', 'true', 'null'), ('0', '"null"', '{}')),
+        ({"type": ["string", "integer"], "minimum": 2, "minLength": 3}, ('2', 'abc'), ('1', 'ab')),
+        ({"type": ["string", "boolean"], "enum": [False]}, ('false',), ('true', 'text')),
+        ({"type": ["integer", "number"], "maximum": 3}, ('2', '2.5'), ('4', 'true')),
+        ({"type": ["object", "string"], "const": {"enabled": True}}, ('{"enabled":true}',), ('{}', 'text')),
+        ({"type": ["object", "string"], "pattern": "^allowed$"}, ('{}', 'allowed'), ('other',)),
+    ):
+        catalog.schemas["AWS::Test::Union"] = {"properties": {"Value": node}}
+        for raw_value in accepted:
+            assert catalog.literal_errors("Test.Union", "Value", raw_value) == [], (node, raw_value)
+        for raw_value in rejected:
+            assert catalog.literal_errors("Test.Union", "Value", raw_value), (node, raw_value)
+
     logs = catalog.schema("Logs.LogGroup")
     assert "BearerTokenAuthenticationEnabled" in logs["properties"]  # full schema, not the curated list
     assert catalog.literal_errors(
