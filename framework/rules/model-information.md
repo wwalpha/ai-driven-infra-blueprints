@@ -55,13 +55,13 @@ display.stack.002.comment=月次集計jobを配置するstack
 4. 成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時は同serviceの生成物だけ元へ戻す。成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
 5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
 
-`display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型だけ`display.resource.<番号>.label`にhuman-confirmedな表示名を保持する。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
+`display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型では、同じservice内に同型の独立resourceが1件だけあり、選択済みName tagと既存の確定済み表示labelもなければ、resource typeを表示名として導出する。この場合`display.resource.<番号>.label`を必須とせず、型名をlabelへ重複保存しない。詳細headingは`### <catalog-resource-type>`、一覧・通常の参照linkもresource type、anchorは型名由来とする。同型複数件を区別するhuman-confirmedな表示名、または既存の確定済み表示名は`display.resource.<番号>.label`へ保持する。型名表示でも非表示logical IDを必須とし、既存値を維持して型名から推測しない。名称propertyの省略・必須Name tag不足には適用しない。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
 
 JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複JSON key・不正な定数・object以外を拒否する。artifact hashは生成時に照合可能な派生値であり、設計値の正本にしない。
 
 サービス別の短縮property、CodePipeline index／Configuration展開、CodeBuild変数、GuardDuty Features、CloudTrail記録対象、Security Group横書きrule、KMS Aliasの親内表示、policy表は既存表示ruleに従ってmodelから生成する。検証parserは表示を正式propertyへ展開してlosslessな一致を確認するためだけに使用する。
 
-既存Markdownの採用は明示されたmigration taskだけで`sync-model.py --import-markdown --write`を実行する。既存modelを上書きしない。不足する表示label／commentを推測しない。通常のdesign／infrastructure taskで自動移行しない。
+既存Markdownの採用は明示されたmigration taskだけで`sync-model.py --import-markdown --write`を実行する。既存modelを上書きしない。同型単一で名称propertyがない独立resourceの型名表示にはlabelを作らず、その他の不足する表示label／commentを推測しない。通常のdesign／infrastructure taskで自動移行しない。
 
 ## Formal properties and display verification
 

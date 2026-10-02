@@ -67,12 +67,25 @@ def resource_anchor(service_id: str, name: str) -> str:
     return service_id + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
 
 
+def resource_heading_lines(lines: list[str]) -> list[str]:
+    """Normalize type-only detail headings; overview type headings stay unchanged."""
+    result = []
+    details = False
+    for line in lines:
+        if line.startswith("## "):
+            details = line == DETAILS_HEADING
+        if details and re.fullmatch(r"### [A-Za-z0-9]+\.[A-Za-z0-9]+", line):
+            line += ": " + line[4:]
+        result.append(line)
+    return result
+
+
 def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
     """Read hidden IDs before anchors without changing displayed headings."""
     identities = {}
     pending = ""
     anchored = False
-    for line in lines:
+    for line in resource_heading_lines(lines):
         if not line.strip():
             continue
         if marker := RESOURCE_ID.fullmatch(line):
@@ -106,6 +119,18 @@ def resource_name_fields(resource_type: str) -> list[str]:
     if resource_type == "IAM.ManagedPolicy":
         names.append("PolicyName")
     return names
+
+
+def resource_has_name_property(root: Path, resource_type: str) -> bool:
+    """Check the catalog, rather than treating an omitted optional name as nameless."""
+    if resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog", "EC2.VPCEndpoint"}:
+        return True  # These require a design-only name or Name tag.
+    names = set(resource_name_fields(resource_type))
+    return any(line.partition("=")[0].removeprefix(resource_type + ".") in names
+               and line.partition("=")[2] != "IDENTIFIER_OUTPUT"
+               for path in design_material_files(root)
+               if path.stem.replace("_", ".", 1) == resource_type
+               for line in path.read_text(encoding="utf-8").splitlines())
 
 
 def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
@@ -365,6 +390,7 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
 
 def expanded_display_rows(lines: list[str]) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
+    lines = resource_heading_lines(lines)
     result = []
     index = 0
     resource_type = ""

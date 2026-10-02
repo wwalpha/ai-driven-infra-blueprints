@@ -19,7 +19,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
-- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を直接差分反映する。前4種類は`.Name`へ、`EC2.VPCEndpoint`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型ではhuman-confirmedな表示名を確認し、名前を発明せずservice metadata、anchor、heading、tableを作成する。
+- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を直接差分反映する。前4種類は`.Name`へ、`EC2.VPCEndpoint`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型は下記の型名表示規則を適用し、同型1件なら表示名を質問せずresource typeを使う。複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
@@ -77,10 +77,10 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - title、heading、implementation note、`Source / Comment`を含む説明文は日本語で記載する。AWS service/resource/propertyの正式名称、logical ID、code、JSON keyなど翻訳すると意味が変わる値は原文のままでよい。
 - 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
-- 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <resource-name>`とする。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
+- 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <resource-name>`とする。下記の型名表示を適用する場合だけ`### <catalog-resource-type>`とし、`: <resource-name>`を付けない。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
 - `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
-- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがない型はhuman-confirmedな表示名を使い、未確定なら停止する。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
-- 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
+- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがcatalogにない型で、選択済みName tagと既存の確定済み表示名もなく、同じservice file内で同型の独立resourceが1件だけなら、resource typeを表示名として見出し・一覧・通常の参照linkへ使う。追加の表示名を質問せず、anchorもresource typeから生成する。同型複数件はそれぞれを区別できるhuman-confirmedな表示名を要求し、不足時は停止する。既存の確定済み表示名・logical IDは維持する。名称propertyの省略や必須Name tagの不足にこの規則を適用しない。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
+- 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。型名表示ではmarkerを必須とし、logical IDをresource typeから推測しない。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のresource名は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
@@ -93,7 +93,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 
 - 一覧内はdetail blockを持つcatalog resource typeごとに`### <catalog-resource-type>`とtableを一つ置く。grouped child resource typeは独立一覧を作らない。
 - tableは`No. | ResourceName | Comment`の3列とし、1 resourceを1 rowで表示する。`No.`はresource typeごとのtable内で1からの連番とする。`ResourceName`には対応するdetail headingのidentifierをsame-file linkで表示し、`Comment`にはそのresourceの機能・用途・役割を日本語で短く説明する。同型のresourceが複数ある場合は各行の用途を区別する。resource typeやResourceNameを繰り返しただけの`セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定`のような文はCommentとしない。Security Groupは詳細のGroupDescription、通信rule、利用先から用途を確認し、不明なら推測しない。全detail blockを重複なく一覧へ載せる。
-- 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、ResourceNameはmodelの名称row、Commentは`display.resource.*.comment`から生成する。生成済みtable自体はmodelへ重複保持しない。
+- 設定値、生成ID、policy linkは一覧に表示せず、対応するresourceの詳細blockに保持する。一覧は人間向けの案内であり、ResourceNameはmodelの名称row・確定済み表示label、または上記の型名表示規則、Commentは`display.resource.*.comment`から生成する。生成済みtable自体はmodelへ重複保持しない。
 
 S3の例: [S3リソース一覧の例](detailed-design-samples.md#resource-overview)
 
@@ -104,7 +104,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 [Resource-detail tableのheader例](detailed-design-samples.md#resource-detail-table)
 
 - 各 table の row は 1 から連番にする。
-- Property列では、所属する`### <catalog-resource-type>: <resource-name>`の`<catalog-resource-type>.`を省く。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
+- Property列では、所属するresource headingの`<catalog-resource-type>.`を省く。型名だけのheadingでも同じ規則を使う。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。特別な表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。
 - grouped childは所属する設定範囲内、配列は各要素内でcatalog順を適用する。複数要素のrowをproperty単位で横断sortしない。親子の所属、identity marker、IAM PolicyNameとPolicyDocumentの対応を保つ。Security Groupの横書き一覧／rule table、JSONから生成するpolicy表は既存形式を維持する。

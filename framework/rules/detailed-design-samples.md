@@ -63,6 +63,40 @@
 
 一覧・参照linkは`[ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455](#scheduler-ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455)`とする。内部IDのmarkerは表示されない。
 
+<a id="nameless-resource-heading"></a>
+
+## 名称propertyのない同型単一resource
+
+名称property、選択済みName tag、既存の確定済み表示labelがなく、同じservice内に同型の独立resourceが1件だけある場合の例。logical IDは例示値であり、実設計では確定済み値を保持する。
+
+```md
+# AWS Security Hub 詳細設計
+
+- Design service ID: `securityhub`
+- Owned catalog resource types: `SecurityHub.Hub`
+
+## リソース一覧
+
+### SecurityHub.Hub
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [SecurityHub.Hub](#securityhub-securityhub.hub) | セキュリティ検出結果を集約するHub |
+
+## リソース詳細
+
+<!-- resource-logical-id: SecurityHub -->
+<a id="securityhub-securityhub.hub"></a>
+
+### SecurityHub.Hub
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | EnableDefaultStandards | `true` | デフォルトの標準を有効にする設定 |
+```
+
+通常の参照linkは`[SecurityHub.Hub](securityhub.md#securityhub-securityhub.hub)`とする。型名を`display.resource.*.label`へ保存しない。同型が複数ある場合は個別の確定済みlabelを使い、既存の確定済みlabelも維持する。
+
 <a id="vpc-endpoint-name-tag"></a>
 
 ## VPC Endpointの必須Name tag

@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 
-from design_layout import ANCHOR, HEADER, RESOURCE, formal_property
+from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
@@ -146,6 +146,7 @@ class Resource:
 
 
 def resources_in(lines: list[str]) -> list[Resource]:
+    lines = resource_heading_lines(lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
     index = 0

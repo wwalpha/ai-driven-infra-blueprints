@@ -239,7 +239,8 @@ def imported_model(path: Path, root: Path) -> str:
                 label = headings.get(resource["anchor"])
                 if label is None:
                     raise ValueError(f"confirmed display label required for grouped resource: {resource['logicalId']}")
-                output.append(f"display.resource.{identity}.label={label}")
+                if label != resource["resourceType"]:
+                    output.append(f"display.resource.{identity}.label={label}")
             if resource["resourceType"] not in GROUPED:
                 if resource["anchor"] not in overview:
                     raise ValueError(f"resource overview comment is missing: {resource['anchor']}")

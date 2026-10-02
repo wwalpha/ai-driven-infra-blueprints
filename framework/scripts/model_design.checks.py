@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from model_design import properties, markdown_for, naming_errors, stack_model
 from design_layout import stack_design, stack_deployment_policy
-from design_layout import resource_display_name
+from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
 
@@ -57,6 +57,108 @@ def roundtrip(path, values, root):
     expected = {key: value for key, value in values.items() if not key.startswith("display.")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
+
+
+def check_nameless_type_display():
+    spec = importlib.util.spec_from_file_location("nameless_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        docs = root / "docs/designs/dev/123456789012"
+        kind, logical_id = "GuardDuty.Detector", "SecurityDetector"
+        anchor = resource_anchor("guardduty", kind)
+        rows = [("Id", f"[{logical_id}](#{anchor})", "検出器を識別するID"), ("Enable", "`true`", "脅威検出を有効にする設定")]
+        values = model("guardduty", kind, kind.lower(), rows, logical_id)
+        values.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
+                       "desired.note.001.text": f"参照: [{kind}](#{anchor})"})
+        path = docs / "guardduty.md"
+        output = roundtrip(path, values, root)
+        assert output.count(f"### {kind}\n") == 2  # Overview and detail.
+        assert f"### {kind}:" not in output
+        assert f"<!-- resource-logical-id: {logical_id} -->" in output
+        imported = properties(SYNC.imported_model(path, root))
+        assert "display.resource.001.label" not in imported
+        assert imported == values
+        assert SYNC.linked_resource(path, f"[{kind}](#{anchor})") == (kind, logical_id)
+        metadata = {path: ("guardduty", (kind,))}
+        catalog = validator_module.Validator(root).catalog_design_properties()
+
+        def failures(markdown):
+            path.write_text(markdown, encoding="utf-8")
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata, [path])
+            validator.check_design_tables(metadata, *catalog, [path])
+            validator.check_design_overviews([path])
+            validator.check_design_links(catalog[2], [path])
+            return validator.errors
+
+        assert not failures(output), failures(output)
+        for invalid, message in (
+            (output.replace(f"<!-- resource-logical-id: {logical_id} -->", ""), "hidden logical ID"),
+            (output.replace(anchor, "guardduty-wrong"), "anchor must use display name"),
+            (output.replace(f"参照: [{kind}]", "参照: [wrong]"), "nameless resource link"),
+            (output.replace(f"参照: [{kind}]", f"参照: [{logical_id}]"), "must not display internal logical ID"),
+        ):
+            errors = failures(invalid)
+            assert any(message in error for error in errors), (message, errors)
+        assert not failures(output), failures(output)
+        source = root / "model/dev/123456789012/guardduty.properties"
+        source.parent.mkdir(parents=True)
+        source.write_text(text(values), encoding="utf-8")
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        assert source.read_text() == text(values)
+        assert path.read_text() == output
+        hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub")
+        hub["desired.note.001.text"] = f"参照: [{kind}](guardduty.md#{anchor})"
+        hub_path = docs / "securityhub.md"
+        roundtrip(hub_path, hub, root)
+        validator = validator_module.Validator(root)
+        validator.check_design_links(catalog[2])
+        assert not validator.errors, validator.errors
+        hub_path.unlink()
+        # Generated identifiers remain observed values and do not become display names.
+        current = {**values, "observed.row.001-001.value": "`0123456789abcdef0123456789abcdef`"}
+        assert f"### {kind}:" not in roundtrip(path, current, root)
+        # Confirmed labels are preserved, including for a single nameless resource.
+        labeled = {key: value.replace(anchor, "guardduty-primary-detector") for key, value in values.items()}
+        labeled["display.resource.001.label"] = "primary-detector"
+        assert f"### {kind}: primary-detector" in roundtrip(path, labeled, root)
+        assert properties(SYNC.imported_model(path, root))["display.resource.001.label"] == "primary-detector"
+        second = model("guardduty", kind, "secondary-detector", [("Id", "[SecondDetector](#guardduty-secondary-detector)", rows[0][2]), rows[1]], "SecondDetector", "secondary-detector")
+        second.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2]})
+        additional = {key.replace(".001", ".002", 1): value for key, value in second.items()
+                      if key.startswith(("desired.resource.", "desired.row.", "observed.row.", "display.resource."))}
+        try:
+            markdown_for(path, {**values, **additional}, root)
+        except ValueError as error:
+            assert "single nameless independent resource" in str(error)
+        else:
+            raise AssertionError("multiple resources accepted a type-only display")
+        multiple = roundtrip(path, {**labeled, **additional}, root)
+        assert not failures(multiple), failures(multiple)
+        mixed = multiple.replace("guardduty-primary-detector", anchor).replace("primary-detector", kind)
+        assert any("single nameless independent resource" in error for error in failures(mixed))
+        # An optional name property omitted from rows is still a named resource type.
+        assert resource_has_name_property(root, "CodeCommit.Repository")
+        assert resource_has_name_property(root, "SNS.Topic")
+        assert not resource_has_name_property(root, kind)
+        topic = model("sns", "SNS.Topic", "sns.topic", [], "Topic")
+        try:
+            markdown_for(docs / "sns.md", topic, root)
+        except ValueError as error:
+            assert "single nameless independent resource" in str(error)
+        else:
+            raise AssertionError("omitted optional name accepted a type-only display")
+        path.write_text(output.replace(kind, "SNS.Topic").replace(anchor, "guardduty-sns.topic"))
+        validator = validator_module.Validator(root)
+        validator.check_resource_names({path: ("guardduty", ("SNS.Topic",))}, [path])
+        assert any("single nameless independent resource" in error for error in validator.errors)
+        assert resource_display_name(kind, [["1", "Tags[].Key", "`Name`", "キー"], ["2", "Tags[].Value", "`selected-name`", "名前"]]) == "selected-name"
+    print("Nameless type display: PASS (generation, import, identity, references, single/multiple and named types)")
 
 
 def check_endpoint_name_tag():
@@ -395,6 +497,7 @@ def check_stack_policy():
 
 
 def main():
+    check_nameless_type_display()
     check_stack_policy()
     check_security_naming()
     check_naming_exclusions()

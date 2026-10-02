@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import datetime
 import fnmatch
 import json
@@ -43,6 +44,8 @@ from design_layout import (
     expanded_design,
     resource_anchor,
     resource_display_name,
+    resource_heading_lines,
+    resource_has_name_property,
     resource_logical_ids,
     STACK_DESIGN,
     stack_design,
@@ -1102,7 +1105,7 @@ class Validator:
 
     def check_resource_names(self, service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None) -> None:
         for path in self.design_files() if paths is None else paths:
-            lines = without_policy_tables(path.read_text(encoding="utf-8").splitlines())
+            lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
             try:
                 identities = resource_logical_ids(lines)
                 lines = security_group_table_lines(lines)
@@ -1112,6 +1115,7 @@ class Validator:
             anchor = ""
             current = None
             rows = []
+            counts = Counter(match.group(1) for line in lines if (match := RESOURCE_HEADING_PATTERN.fullmatch(line)))
 
             def check_name() -> None:
                 if current is None:
@@ -1127,7 +1131,9 @@ class Validator:
                 self.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {self.relative(path)}: {resource_type}")
                 self.check(name is None or display == name, f"resource heading must display resource name: {self.relative(path)}: {resource_type}: {display} != {name}")
                 if name is None:
-                    self.check(current in identities and display != identities[current], f"resource without a name requires a confirmed display label and hidden logical ID: {self.relative(path)}: {display}")
+                    if display == resource_type:
+                        self.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(self.root, resource_type), f"resource type display requires a single nameless independent resource: {self.relative(path)}: {resource_type}")
+                    self.check(current in identities and (display == resource_type or display != identities[current]), f"resource without a name requires a display label or resource type and hidden logical ID: {self.relative(path)}: {display}")
                 if path in service_metadata:
                     expected = resource_anchor(service_metadata[path][0], display)
                     self.check(anchor == expected, f"resource anchor must use display name: {self.relative(path)}: expected {expected}")
@@ -1160,7 +1166,7 @@ class Validator:
         paths: list[Path] | None = None,
     ) -> None:
         for path in self.design_files() if paths is None else paths:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
             try:
                 identities = resource_logical_ids(lines)
             except ValueError as error:
@@ -1500,7 +1506,7 @@ class Validator:
 
     def check_design_overviews(self, paths: list[Path] | None = None) -> None:
         for path in self.design_files() if paths is None else paths:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
             try:
                 lines = security_group_table_lines(lines)
             except ValueError:
@@ -1646,10 +1652,11 @@ class Validator:
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
         hidden_ids: dict[tuple[Path, str], str] = {}
         endpoint_names: dict[tuple[Path, str], str] = {}
+        type_names: dict[tuple[Path, str], str] = {}
         name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
         for path in self.design_files():
-            source_lines = path.read_text(encoding="utf-8").splitlines()
+            source_lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
             try:
                 identities = resource_logical_ids(source_lines)
             except ValueError:
@@ -1661,6 +1668,8 @@ class Validator:
                 elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     if heading.group(1) == "EC2.VPCEndpoint":
                         endpoint_names[path.resolve(), pending_anchor] = heading.group(2)
+                    if heading.group(1) == heading.group(2):
+                        type_names[path.resolve(), pending_anchor] = heading.group(1)
                     if heading.groups() in identities and identities[heading.groups()] != heading.group(2):
                         hidden_ids[path.resolve(), pending_anchor] = identities[heading.groups()]
             pending_anchor = ""
@@ -1707,6 +1716,10 @@ class Validator:
                         observed = resources.get((target, fragment), ("", {}))[1].values()
                         identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
                         self.check(label == name or identifier_reference, f"Endpoint link must display Name tag value or observed identifier: {self.relative(source)}: {label}")
+                    if name := type_names.get((target, fragment)):
+                        observed = resources.get((target, fragment), ("", {}))[1].values()
+                        identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
+                        self.check(label == name or identifier_reference, f"nameless resource link must display resource type or observed identifier: {self.relative(source)}: {label}")
             for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
                 if raw.startswith(("http://", "https://", "mailto:")):
                     continue

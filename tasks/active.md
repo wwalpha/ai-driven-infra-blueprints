@@ -1,57 +1,50 @@
-# 必須項目の生成前検証
+# 名称propertyのないresourceの型名表示
 
 ## Task contract
 
 - Task type: `governance`
 - Target: framework共通
-- Goal: propertiesを設計入力として保持し、schema/catalogの必須項目不足をMarkdown／JSONの一時生成前に拒否する。
+- Goal: 名称propertyのない独立resourceが同じservice内で同型1件の場合、表示labelを必須とせずresource typeだけを見出し・一覧・参照linkへ表示する。
 
 ## Required changes
 
-- [R1] provider/API schemaとcatalogの必須root property判定を再利用し、全serviceのmodelを生成前に検証する。grouped childの暗黙propertyを維持する。
-- [R2] 不足serviceでは一時Markdown／JSONを作らず、既存生成物と正本propertiesを維持し、他serviceは処理する。新規・既存、read-only・writeの回帰checkを追加する。
-- [R3] rulesと設計promptへproperties保存可／必須項目不足時の生成禁止を明記する。
+- [R1] 詳細設計・model・local loopのrule、設計promptと表示例を更新する。同型複数件は区別できる確定済みlabelを要求し、既存の確定済みlabelとlogical ID、名称property・必須Name tagの契約を維持する。
+- [R2] 型名だけの見出しを生成・解析・検証し、一覧見出しと区別する。型名由来anchorと非表示logical IDを維持し、派生型名をmodelのlabelへ重複保存しない。
+- [R3] 単一・複数resource、名称を持つ型、Name tag、既存label、logical ID、desired/observedと参照linkの回帰checkを実行する。
 
 ## Acceptance checks
 
-- [R1] `exists:framework/scripts/design_catalog.py`
-- [R1] `exists:framework/scripts/model_design.py`
-- [R1] `exists:framework/scripts/validate-blueprint.py`
-- [R1] `check:framework.schema-backed-design-validation`
-- [R2] `exists:framework/scripts/sync-model.py`
-- [R2] `changed:framework/scripts/sync-model.checks.py`
-- [R2] `changed:framework/scripts/model_design.checks.py`
-- [R3] `changed:framework/rules/detailed-design.md`
-- [R3] `changed:framework/rules/model-information.md`
-- [R3] `changed:framework/rules/loop-engineering.md`
-- [R3] `changed:framework/prompts/chatbot/service-design.md`
+- [R1] `changed:framework/rules/detailed-design.md`
+- [R1] `changed:framework/rules/model-information.md`
+- [R1] `changed:framework/rules/loop-engineering.md`
+- [R1] `changed:framework/rules/detailed-design-samples.md`
+- [R1] `changed:framework/prompts/chatbot/service-design.md`
+- [R2] `changed:framework/scripts/design_layout.py`
+- [R2] `changed:framework/scripts/model_design.py`
+- [R2] `changed:framework/scripts/policy_tables.py`
+- [R2] `changed:framework/scripts/sync-model.py`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `check:framework.generated-service-model`
+- [R3] `changed:framework/scripts/model_design.checks.py`
+- [R3] `check:framework.schema-backed-design-validation`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/design_catalog.py`
-- `framework/scripts/model_design.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/sync-model.checks.py`
 - `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
 - `framework/rules/loop-engineering.md`
-- `framework/prompts/chatbot/service-design.md`
-- `framework/scripts/cloudformation-deploy.py`
-- `framework/scripts/cloudformation-deploy.checks.py`
-- `framework/scripts/model_design.checks.py`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/validate-blueprint.checks.py`
-- `framework/rules/cloudformation.md`
 - `framework/rules/detailed-design-samples.md`
-- `framework/prompts/codex/03_implement.md`
-- `framework/prompts/codex/04_deploy.md`
-- `framework/prompts/codex/05_update.md`
+- `framework/prompts/chatbot/service-design.md`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/model_design.py`
+- `framework/scripts/policy_tables.py`
+- `framework/scripts/sync-model.py`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/model_design.checks.py`
 
 ## Out of scope
 
-- Allowed paths内の既存のdeploy順序・並列制御の差分は保持し、挙動を追加修正しない。model_design.checks.pyの不完全な表示テスト入力だけは生成前検証に適合させる。
-- 作業中にcommit済みとなった生成前検証の実装pathはexistsと登録済みschema検証で確認し、focused checkで挙動を検証する。
-- AWS API、deploy/apply、catalog、project.json、実targetのdesign/model/IaC、consumer repository、Terraform、scenario、別taskは変更・実行しない。
+- AWS API、deploy/apply、catalog、project.json、実targetのdesign/model/IaC、consumer repository、scenario、別taskは変更・実行しない。
+- logical IDをresource typeから推測・新規決定しない。既存の確定済み値を保持し、不足時は確認を求める。
 - focused checks、governance local loop、git diff --checkを実行し、既存failureと今回の結果を分けて報告する。

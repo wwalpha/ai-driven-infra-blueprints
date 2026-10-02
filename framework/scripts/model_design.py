@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from design_layout import (
     ALIGNMENT, HEADER, DISPLAY_PROPERTY_ALIASES, GROUPED, HIDDEN_PROPERTIES,
     CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
-    resource_name_fields, resource_anchor,
+    resource_name_fields, resource_anchor, resource_has_name_property,
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
@@ -361,6 +362,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
+    counts = Counter(resource["resourceType"] for _, resource in resources)
     by_anchor = {}
     details = []
     for identity, resource in resources:
@@ -369,7 +371,13 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
             raise ValueError(f"resource is outside service ownership: {kind}")
         rows = resource_rows(values, identity, kind, root)
         rule_table = GROUPED.get(kind, {}).get("display") == "rule-table"
-        name = resource["logicalId"] if rule_table else resource_display_name(kind, rows) or values.get(f"display.resource.{identity}.label")
+        configured_name = None if rule_table else resource_display_name(kind, rows)
+        name = resource["logicalId"] if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
+        type_display = not rule_table and configured_name is None and (name is None or name == kind)
+        if type_display:
+            if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind):
+                raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
+            name = kind
         if not name or name in {"UNSET", "PENDING_DEPLOY"}:
             raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
         anchor = resource["anchor"]
@@ -403,7 +411,8 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     output += ["", "## リソース詳細"]
     for identity, resource, name, rows in independent:
         kind = resource["resourceType"]
-        output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", f"### {kind}: {name}", ""]
+        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows) is None else f"### {kind}: {name}"
+        output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
         if kind == "EC2.SecurityGroup":
             output += sg_tables(rows, [(child, child_rows) for _, child, _, child_rows in children])
