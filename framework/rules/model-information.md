@@ -53,7 +53,7 @@ display.stack.002.comment=月次集計jobを配置するstack
 1. 保存前に作成対象resourceの命名ルール有無、catalog選択項目、型・制約、未確定値を確認する。
 2. 確定済みの全service model propertiesを先に更新する。通常は`desired.service.*`、`desired.resource.*`、正式propertyの`desired.row.*`と必要な`observed.row.*`を使用する。
 3. service単位に正本propertiesからschema/catalogの必須root propertyを直接検証する。不足時はMarkdown／JSON artifactの一時生成にも進まず、resource／propertyを報告し、propertiesと既存生成物を保持する。他serviceは処理を続ける。必須項目が揃ったserviceだけMarkdownとJSON artifactを一時生成し、既存のservice表示parser・schema・参照検証で照合する。失敗serviceの保存済みMarkdown／JSONと修正済みmodelを保持する。参照先が失敗した場合は保存済み表示に戻して参照を再検証する。Markdownからmodelを復元しない。
-4. 成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時は同serviceの生成物だけ元へ戻す。成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
+4. 保存前に同targetの保持された参照元も検証し、保存済み表示では解決していたlinkを候補生成物が新たに切断する場合は、参照先serviceの生成物を元へ戻す。対象service・参照元・linkを報告し、復元後の候補を再検証する。既存の参照エラーは新たな切断と区別する。成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時も元の表示へ戻し、保持された参照元と保存済み候補を同じ基準で再検証する。無関係な成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
 5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
 
 `display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型では、同じservice内に同型の独立resourceが1件だけあり、選択済みName tagと既存の確定済み表示labelもなければ、resource typeを表示名として導出する。この場合`display.resource.<番号>.label`を必須とせず、型名をlabelへ重複保存しない。詳細headingは`### <catalog-resource-type>`、一覧・通常の参照linkもresource type、anchorは型名由来とする。同型複数件を区別するhuman-confirmedな表示名、または既存の確定済み表示名は`display.resource.<番号>.label`へ保持する。型名表示でも非表示logical IDを必須とし、既存値を維持して型名から推測しない。名称propertyの省略・必須Name tag不足には適用しない。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。

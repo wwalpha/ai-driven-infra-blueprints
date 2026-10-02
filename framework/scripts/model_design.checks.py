@@ -723,6 +723,7 @@ def main():
                 SYNC.sync(root, write, "dev", "123456789012")
             except ValueError as error:
                 assert message in str(error), error
+                return str(error)
             else:
                 raise AssertionError(f"service failure was not reported: {message}")
 
@@ -761,6 +762,74 @@ def main():
         assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text(encoding="utf-8")
         del vpc["desired.note.001.text"]
         (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+
+        # A failed source retains its old link, so its otherwise valid target must stay.
+        old_link = "logs.md#logs-cwlogs-net-dev-flow"
+        new_link = "logs.md#logs-cwlogs-new-dev-flow"
+        vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+        iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+        saved_sources = {path: path.read_bytes() for path in sources}
+        error = fails_with("candidate breaks saved reference")
+        assert f"logs.md: candidate breaks saved reference: docs/designs/dev/123456789012/vpc.md: {old_link}" in error
+        assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
+        assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
+        assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
+        assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
+        assert saved_sources == {path: path.read_bytes() for path in sources}
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        fails_with("candidate breaks saved reference", write=False)
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        assert saved_sources == {path: path.read_bytes() for path in sources}
+
+        # Matching source/target changes publish together, including in read-only verification.
+        vpc["desired.note.001.text"] = f"参照: [cwlogs-new-dev-flow]({new_link})"
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+        saved_sources = {path: path.read_bytes() for path in sources}
+        # A source write failure also retains its old link and rolls back the saved target.
+        original_write = Path.write_text
+        def fail_source(path, *args, **kwargs):
+            if path == docs / "vpc.md":
+                raise OSError("test source write failure")
+            return original_write(path, *args, **kwargs)
+        with patch.object(Path, "write_text", fail_source):
+            error = fails_with("candidate breaks saved reference")
+        assert "test source write failure" in error
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        assert saved_sources == {path: path.read_bytes() for path in sources}
+        fails_with("generated Markdown is stale or missing", write=False)
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert new_link in (docs / "vpc.md").read_text(encoding="utf-8")
+        assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        assert saved_sources == {path: path.read_bytes() for path in sources}
+
+        # Already broken links in a retained source do not reject an unrelated candidate.
+        retained = docs / "retained.md"
+        retained.write_text("参照: [旧参照](logs.md#logs-already-missing)\n", encoding="utf-8")
+        logs["desired.row.001-002.value"] = "`7`"
+        (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+        del vpc["desired.note.001.text"]
+        (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+        error = fails_with("authoritative model missing")
+        assert "candidate breaks saved reference" not in error
+        assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
+        # Retained sources without a readable model still protect their valid saved links.
+        retained.write_text(retained.read_text(encoding="utf-8") + f"参照: [ログ]({old_link})\n", encoding="utf-8")
+        (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        error = fails_with("candidate breaks saved reference")
+        assert "retained.md: " + old_link in error
+        assert "logs-already-missing" not in error
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        retained.unlink()
         (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
 

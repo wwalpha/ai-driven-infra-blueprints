@@ -318,6 +318,8 @@ def sync(
                     shutil.copytree(base / target, stage / base.relative_to(root) / target)
         if (root / "project.json").is_file():
             shutil.copyfile(root / "project.json", stage / "project.json")
+        saved_paths = [path for path in markdown_paths if (stage / path.relative_to(root)).is_file()]
+        baseline_links = broken_design_links(stage, root, [stage / path.relative_to(root) for path in saved_paths])
         generated = {}
         # Render all valid base views before resolving cross-service links.
         for path, values in destinations.items():
@@ -369,8 +371,14 @@ def sync(
                     failures.append(f"{path.relative_to(root)}: {error}")
                     rejected.append(path)
             if not rejected:
+                retained = [stage / path.relative_to(root) for path in saved_paths if path not in generated]
+                for reference, target in broken_design_links(stage, root, retained).items():
+                    if reference not in baseline_links and target in generated:
+                        failures.append(f"{target.relative_to(root)}: candidate breaks saved reference: {reference}")
+                        rejected.append(target)
+            if not rejected:
                 break
-            for path in rejected:
+            for path in sorted(set(rejected)):
                 del generated[path]
                 restore_view(stage, root, path)
         saved = {}
@@ -401,8 +409,14 @@ def sync(
                     failures.append(f"{path.relative_to(root)}: {error}")
                     rejected.append(path)
             if not rejected:
+                retained = [path for path in saved_paths if path not in saved]
+                for reference, target in broken_design_links(root, root, retained).items():
+                    if reference not in baseline_links and target in saved:
+                        failures.append(f"{target.relative_to(root)}: candidate breaks saved reference: {reference}")
+                        rejected.append(target)
+            if not rejected:
                 break
-            for path in rejected:
+            for path in sorted(set(rejected)):
                 restore_files(saved.pop(path))
         for path in saved:
             print(f"Design Markdown sync: PASS ({path.relative_to(root)})")
@@ -421,6 +435,35 @@ def restore_view(stage: Path, root: Path, path: Path) -> None:
     shutil.rmtree(staged.with_suffix(""), ignore_errors=True)
     if path.with_suffix("").is_dir():
         shutil.copytree(path.with_suffix(""), staged.with_suffix(""))
+
+
+def view_validator(stage: Path, root: Path):
+    spec = importlib.util.spec_from_file_location("blueprint_view_validator", Path(__file__).with_name("validate-blueprint.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    validator = module.Validator(stage)
+    validator.schema_catalog = module.DesignSchemaCatalog(root)
+    return validator
+
+
+def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str, Path]:
+    """Use existing link diagnostics, keyed by source/link independently of failure kind."""
+    if not paths:
+        return {}
+    validator = view_validator(stage, root)
+    validator.check_design_links(identifier_outputs(root), paths)
+    broken = {}
+    for error in validator.errors:
+        kind, _, reference = error.partition(": ")
+        if kind not in {"broken design link", "missing design anchor"}:
+            continue
+        source_text, raw = reference.split(": ", 1)
+        source = stage / source_text
+        target_text = raw.partition("#")[0]
+        target = (source.parent / target_text if target_text else source).resolve()
+        if target.parent == source.parent:
+            broken[reference] = root / target.relative_to(stage)
+    return broken
 
 
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]]) -> None:
@@ -443,11 +486,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
             raise ValueError(f"model/display projection mismatch: {path.name}: {', '.join(differences)}")
     if not paths:
         return
-    spec = importlib.util.spec_from_file_location("blueprint_view_validator", Path(__file__).with_name("validate-blueprint.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    validator = module.Validator(stage)
-    validator.schema_catalog = module.DesignSchemaCatalog(root)
+    validator = view_validator(stage, root)
     validator.check_project_topology()
     for path in paths:
         validator.check_target_file(path, stage / "docs/designs")
