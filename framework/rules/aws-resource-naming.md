@@ -45,11 +45,11 @@
 
 | Policy | AWS resource | Rule |
 | --- | --- | --- |
-| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`)、Flow Log (`EC2.FlowLog.Name`)、VPC endpoint (`EC2.VPCEndpoint`のName tag) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
-| Conditional | 長期運用するEC2 Instance、VPC peering connection、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
+| Required | VPC (`EC2.VPC.Name`)、Subnet (`EC2.Subnet.Name`)、Route table (`EC2.RouteTable.Name`)、Flow Log (`EC2.FlowLog.Name`)、VPC endpoint (`EC2.VPCEndpoint`のName tag)、詳細設計するEC2 Instance (`EC2.Instance`のName tag) | AWS生成IDだけでは用途を識別しにくく、VPC consoleで継続的に選択するため必須とする |
+| Conditional | VPC peering connection、NAT gateway、Transit gateway／attachment／route table、Customer gateway、Site-to-Site VPN connection | 同種resourceが複数、cross-account／central networking、またはconsoleで頻繁に手動選択する場合にhumanが使用を決定する |
 | Optional by default | Internet gateway、Elastic IP address、Security group、固有のname／identifier propertyを持つresource | 関連先または正式なname／identifierで識別できるため、自動追加しない |
 
-Auto Scalingなどが作成する一時的なEC2 Instanceへ同一の`Name` tagを必須化しない。Security groupは必須の`GroupName`を使用し、`Name` tagを重複要求しない。
+個別に`EC2.Instance`として詳細設計するresourceはName tagを表示名とする。Auto Scalingなどが作成し、個別の詳細設計resourceとして扱わない一時的なEC2 Instanceへ同一の`Name` tagを必須化しない。Security groupは必須の`GroupName`を使用し、`Name` tagを重複要求しない。
 
 ## Naming patterns
 

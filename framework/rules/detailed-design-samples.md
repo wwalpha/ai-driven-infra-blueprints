@@ -131,6 +131,39 @@
 
 通常の参照は`[vpce-app-dev-s3](vpc.md#vpc-vpce-app-dev-s3)`を表示する。IdやId参照は既存規則どおりcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesiredには非表示内部IDのlogical reference、observedにはcurrent IDを分離する。Endpointの設計専用.Nameは作らず、必須tag不足を表示labelで代替しない。
 
+<a id="ec2-instance-name-tag"></a>
+
+## EC2 Instanceの必須Name tag
+
+Name tagの値は例示値であり、実設計では確定済みの値を使う。内部logical IDは非表示metadataへ保持する。
+
+```md
+## リソース一覧
+
+### EC2.Instance
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [dev-app-vulnerability-scan-01](#ec2-dev-app-vulnerability-scan-01) | 脆弱性スキャンを実行するInstance |
+
+## リソース詳細
+
+<!-- resource-logical-id: VULNERABILITYSCANINSTANCE01 -->
+<a id="ec2-dev-app-vulnerability-scan-01"></a>
+
+### EC2.Instance: dev-app-vulnerability-scan-01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | InstanceId | `PENDING_DEPLOY` | Instanceを識別するID |
+| 2 | ImageId | `ami-0123456789abcdef0` | 起動するAMI |
+| 3 | InstanceType | `t3.micro` | Instanceの種類 |
+| 4 | Tags[].Key | `Name` | 名前を識別するタグのキー |
+| 5 | Tags[].Value | `dev-app-vulnerability-scan-01` | Instanceを識別する名前 |
+```
+
+通常の参照linkもName tagの値を表示する。InstanceIdの参照はcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesired logical reference／observed IDの分離を維持する。設計専用.Nameや表示labelでName tagを代替しない。
+
 <a id="resource-detail-table"></a>
 
 ## Resource-detail table

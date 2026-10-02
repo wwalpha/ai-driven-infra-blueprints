@@ -86,7 +86,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 一緒に確認した方が理解しやすい関連 service
 - humanが決めるproperty／既存AWS resourceから取得するproperty
 
-`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`は詳細設計へ載せる候補項目、対応するCloudFormation provider schemaまたはAPI設計schemaは型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`と、`EC2.VPCEndpoint`の必須Name tag（正式な`Tags[].Key=Name`と対応する`Tags[].Value`）はmandatory policyとしてこの省略対象から除外してください。
+`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`は詳細設計へ載せる候補項目、対応するCloudFormation provider schemaまたはAPI設計schemaは型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`と、`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tag（正式な`Tags[].Key=Name`と対応する`Tags[].Value`）はmandatory policyとしてこの省略対象から除外してください。
 
 S3 Bucketのregionが既存設計、system overview、またはuser回答で確定していない場合は、bucketごに配置するAWS regionを質問してください。`project.json`のtarget `awsRegion`を自動転記せず、`us-east-1`などtargetと異なるregionの回答もそのまま採用してください。
 
@@ -95,7 +95,7 @@ S3 Bucketのregionが既存設計、system overview、またはuser回答で確�
 
 設計質問・保存を始める前に、作成対象resourceの選択済み名称property、必須.Name、必須またはhuman-selectedなName tagに対応する命名ルールがあるかを`framework/rules/aws-resource-naming.md`のCatalog resource types／Naming targetで照合してください。欠けている場合はtypeとpropertyを示して停止し、命名patternを作らないでください。名称のないSecurity Hub CSPM（SecurityHub.Hub）などにはruleを要求しません。表示labelや内部logical IDをAWS名称と扱わず、optional name／Name tagを追加する質問もしません。
 
-human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`には対応する`.Name`とnon-empty valueを1 rowで必ず設計し、resource heading identifierをそのvalueと完全一致させてください。`Tags[].Key=Name`と`Tags[].Value`の2 rowは作りません。`EC2.VPCEndpoint`では正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`を必ず設計してください。設計専用`.Name`を追加せず、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しないでください。一覧・heading・通常の参照linkはValueを使用し、その表示名からanchorを生成します。内部logical IDは非表示metadataへ保持し、identifier参照のdesired／observed分離を維持してください。その他のresourceではtaggableであることを理由に`Name` tagを質問または追加せず、humanが明示した場合だけ設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
+human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`には対応する`.Name`とnon-empty valueを1 rowで必ず設計し、resource heading identifierをそのvalueと完全一致させてください。`Tags[].Key=Name`と`Tags[].Value`の2 rowは作りません。`EC2.VPCEndpoint`／`EC2.Instance`では正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`を必ず設計してください。設計専用`.Name`を追加せず、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しないでください。一覧・heading・通常の参照linkはValueを使用し、その表示名からanchorを生成します。内部logical IDは非表示metadataへ保持し、identifier参照のdesired／observed分離を維持してください。その他のresourceではtaggableであることを理由に`Name` tagを質問または追加せず、humanが明示した場合だけ設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 
 ## Existing AWS configuration branch
 
@@ -103,10 +103,10 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 
 - target AWS service
 - `framework/materials/aws/`または`framework/materials/api/`に存在するcatalog resource type
-- 今回の詳細設計で使用するmaterials property。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`も必ず含める。`EC2.VPCEndpoint`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含める
+- 今回の詳細設計で使用するmaterials property。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`も必ず含める。`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含める
 - 出力先service Markdownと、必要な場合だけJSON artifactのpath
 
-全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。上記4種類のmandatory `.Name`と`EC2.VPCEndpoint`の必須Name tagだけを例外とし、既存resourceに`Name` tagが存在しない場合は値を発明せずblockerとする。これら5種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
+全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。上記4種類のmandatory `.Name`と`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagだけを例外とし、既存resourceに`Name` tagが存在しない場合は値を発明せずblockerとする。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
 
 既存AWS configuration branchは値が未確定でも、resource typeとpropertyの取得scopeが確定すればCodexへ引き渡せる。対応する完成Markdownにplaceholder、`UNSET`、仮値、空tableを出力しない。
 
@@ -193,7 +193,7 @@ batch の最初に、現在確認する service group、今回決める範囲、
 - 未決定値が後続実装の blocker にならない
 - generated value と human-selected value が区別されている
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueがあり、resource heading identifierと一致する
-- `EC2.VPCEndpoint`に正式な`Tags[].Key=Name`と対応する確定済みnon-empty `Tags[].Value`があり、一覧・heading・通常の参照linkへその値を表示し、その表示名からanchorを生成する。設計専用.Nameやdisplay labelで代替しない
+- `EC2.VPCEndpoint`／`EC2.Instance`に正式な`Tags[].Key=Name`と対応する確定済みnon-empty `Tags[].Value`があり、一覧・heading・通常の参照linkへその値を表示し、その表示名からanchorを生成する。設計専用.Nameやdisplay labelで代替しない
 
 既存AWS configuration branchのresourceは、target service、catalog resource type、materials property、出力pathが確定すれば完了とする。AWS current valueはchatbotの完了条件に含めず、Codex取得前に完成Markdownを出力しない。
 
@@ -254,7 +254,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 - 必要なpropertyだけを記載する
 - 必要なnon-ARN generated current identifierはcatalogで`IDENTIFIER_OUTPUT`と指定されたpropertyの短縮表示rowとして該当resource tableに置き、deploy前は`PENDING_DEPLOY`とする。`VPC ID`などの合成labelは作らない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueがあり、resource heading identifierと一致する
-- `EC2.VPCEndpoint`に正式な`Tags[].Key=Name`と対応する確定済みnon-empty `Tags[].Value`があり、一覧・heading・通常の参照linkへその値を表示し、その表示名からanchorを生成する。設計専用.Nameやdisplay labelで代替しない
+- `EC2.VPCEndpoint`／`EC2.Instance`に正式な`Tags[].Key=Name`と対応する確定済みnon-empty `Tags[].Value`があり、一覧・heading・通常の参照linkへその値を表示し、その表示名からanchorを生成する。設計専用.Nameやdisplay labelで代替しない
 - environment、AWS account、AWS region、purpose、deployment stateのfile metadataを出力しない
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを出力しない
 - 値を推測しない
@@ -277,12 +277,12 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
 
-1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`を含め、`EC2.VPCEndpoint`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含め、それ以外の別service、未選択resource type、未選択propertyへscopeを広げない。
+1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`を含め、`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含め、それ以外の別service、未選択resource type、未選択propertyへscopeを広げない。
 2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
 3. API catalogの`Macie.ClassificationJob`は`aws macie2 list-classification-jobs`で候補を取得する。CFn由来のcatalog resource typeだけを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. Macie Jobはhumanの選択後に`aws macie2 describe-classification-job --job-id <選択したjobId>`で選択済みroot propertyとjobIdだけを取得する。CFn由来resourceは選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
-6. model propertiesへ、chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。`EC2.VPCEndpoint`では選択したEndpointのName tagを必須取得項目とし、正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。これら5種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するmodel resourceがなければ、上記4種類は`.Name` valueからlogical IDとanchorを生成し、`EC2.VPCEndpoint`は取得したName tag value、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけlogical IDを一回の応答につき一つ質問してmodelのlogicalIdへ保持する。名称propertyがcatalogにない型は上記の型名表示規則を使い、同型1件で選択済みName tagと既存の確定済みlabelもなければ追加の表示名を質問せずresource typeを使う。同型複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
+6. model propertiesへ、chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。`EC2.VPCEndpoint`／`EC2.Instance`では選択したEndpoint／InstanceのName tagを必須取得項目とし、正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するmodel resourceがなければ、上記4種類は`.Name` valueからlogical IDとanchorを生成し、`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけlogical IDを一回の応答につき一つ質問してmodelのlogicalIdへ保持する。名称propertyがcatalogにない型は上記の型名表示規則を使い、同型1件で選択済みName tagと既存の確定済みlabelもなければ追加の表示名を質問せずresource typeを使う。同型複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
 7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyに対応するmodelの`observed.row.*`へ実値を反映する。同じidentifierを参照する全model rowのobserved valueも同じ値へ更新し、Markdown link表示textは生成処理へ任せる。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するmodel rowのdocumentだけを差分更新する。その後、上記5と6のMarkdown／JSON生成、local loop、終了条件へ戻る。
 

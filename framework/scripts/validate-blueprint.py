@@ -34,6 +34,7 @@ from design_layout import (
     GROUPED,
     CHILD,
     HIDDEN_PROPERTIES,
+    REQUIRED_NAME_TAG_TYPES,
     RESOURCE_REFERENCE_PROPERTIES,
     is_service_role_reference,
     SECURITY_GROUP_TYPES,
@@ -1013,7 +1014,7 @@ class Validator:
         logical_id: str,
         rows: list[list[str]],
     ) -> None:
-        if resource_type == "EC2.VPCEndpoint":
+        if resource_type in REQUIRED_NAME_TAG_TYPES:
             try:
                 name = resource_display_name(resource_type, rows)
             except ValueError as error:
@@ -1651,7 +1652,7 @@ class Validator:
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
         hidden_ids: dict[tuple[Path, str], str] = {}
-        endpoint_names: dict[tuple[Path, str], str] = {}
+        tagged_names: dict[tuple[Path, str], tuple[str, str]] = {}
         type_names: dict[tuple[Path, str], str] = {}
         name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
@@ -1666,8 +1667,8 @@ class Validator:
                 if match := ANCHOR_PATTERN.fullmatch(line):
                     pending_anchor = match.group(1)
                 elif heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
-                    if heading.group(1) == "EC2.VPCEndpoint":
-                        endpoint_names[path.resolve(), pending_anchor] = heading.group(2)
+                    if heading.group(1) in REQUIRED_NAME_TAG_TYPES:
+                        tagged_names[path.resolve(), pending_anchor] = heading.groups()
                     if heading.group(1) == heading.group(2):
                         type_names[path.resolve(), pending_anchor] = heading.group(1)
                     if heading.groups() in identities and identities[heading.groups()] != heading.group(2):
@@ -1712,10 +1713,12 @@ class Validator:
                     label, target_text, fragment = link.groups()
                     target = (source if not target_text else source.parent / target_text).resolve()
                     self.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {self.relative(source)}: {label}")
-                    if name := endpoint_names.get((target, fragment)):
+                    if tagged := tagged_names.get((target, fragment)):
+                        kind, name = tagged
                         observed = resources.get((target, fragment), ("", {}))[1].values()
                         identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
-                        self.check(label == name or identifier_reference, f"Endpoint link must display Name tag value or observed identifier: {self.relative(source)}: {label}")
+                        resource = "Endpoint" if kind == "EC2.VPCEndpoint" else "Instance"
+                        self.check(label == name or identifier_reference, f"{resource} link must display Name tag value or observed identifier: {self.relative(source)}: {label}")
                     if name := type_names.get((target, fragment)):
                         observed = resources.get((target, fragment), ("", {}))[1].values()
                         identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed

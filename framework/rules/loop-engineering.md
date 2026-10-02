@@ -52,7 +52,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
-- `EC2.VPCEndpoint`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する
+- `EC2.VPCEndpoint`／`EC2.Instance`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する
 - 名称propertyのない同型単一の独立resourceは、選択済みName tagと既存labelがなければ型名だけの詳細headingと型名由来anchorを生成する。一覧見出しと詳細headingを区別し、非表示logical ID・desired/observed分離を保持する。派生型名をlabelへ保存せず、同型複数件・名称propertyの省略・必須Name tag不足への型名表示は拒否する
 - cross-service relative linkとexplicit anchorが解決でき、正本modelから同じreferenceが生成されている
 - `CodeBuild.Project.Name`がresourceごとに1 rowだけ存在し、確定済みnon-empty literalである。設計検証とmodel生成の共通名称検証で欠落・空値・未確定値・重複を拒否し、Name tagや表示labelで代替していない

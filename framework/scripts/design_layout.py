@@ -51,6 +51,7 @@ RESOURCE_REFERENCE_PROPERTIES = {
     "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN": ("IAM.Role", "RoleName"),
 }
 HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
+REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
 
@@ -123,7 +124,7 @@ def resource_name_fields(resource_type: str) -> list[str]:
 
 def resource_has_name_property(root: Path, resource_type: str) -> bool:
     """Check the catalog, rather than treating an omitted optional name as nameless."""
-    if resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog", "EC2.VPCEndpoint"}:
+    if resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"} | REQUIRED_NAME_TAG_TYPES:
         return True  # These require a design-only name or Name tag.
     names = set(resource_name_fields(resource_type))
     return any(line.partition("=")[0].removeprefix(resource_type + ".") in names
@@ -136,20 +137,20 @@ def resource_has_name_property(root: Path, resource_type: str) -> bool:
 def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
     fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
-    if resource_type == "EC2.VPCEndpoint":
+    if resource_type in REQUIRED_NAME_TAG_TYPES:
         keys = [index for index, row in enumerate(rows)
                 if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
                 and row[2].strip("`\"") == "Name"]
         if "Name" in fields or len(keys) != 1:
-            raise ValueError("EC2.VPCEndpoint requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
+            raise ValueError(f"{resource_type} requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
         index = keys[0] + 1
         if index >= len(rows) or rows[index][1].removeprefix(resource_type + ".") != "Tags[].Value":
-            raise ValueError("EC2.VPCEndpoint Name tag requires the corresponding Tags[].Value")
+            raise ValueError(f"{resource_type} Name tag requires the corresponding Tags[].Value")
         value = rows[index][2].strip("`\"")
         if not value.strip() or value.strip().lower() in {
             "unset", "pending", "pending_deploy", "tbd", "n/a", "none", "not-used", "not used", "unused", "未使用", "未確定",
         } or value.startswith("[") or "{{" in value:
-            raise ValueError("EC2.VPCEndpoint Name tag value must be confirmed and non-empty")
+            raise ValueError(f"{resource_type} Name tag value must be confirmed and non-empty")
         return value
     names = resource_name_fields(resource_type)
     for field in names:
