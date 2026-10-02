@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -36,90 +37,209 @@ def framework_changed(paths: set[str]) -> bool:
 
 
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
-                 directory: Path, heartbeat_seconds: float = 30) -> int:
+                 directory: Path, heartbeat_seconds: float = 30, jobs: int = 1) -> int:
+    """Only adjacent regression scripts overlap; diagnostics retain command order."""
     started = time.perf_counter()
     failed = []
     status = "error"
+    running = {}
+    completed = {}
+    next_index = 0
+    displayed = 0
     print(f"Local loop logs: {directory}", flush=True)
     with (directory / "timing.jsonl").open("w", encoding="utf-8", buffering=1) as timing:
         def record(event, **fields):
-            timing.write(json.dumps({
-                "event": event,
+            timing.write(json.dumps({"event": event,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "elapsed_seconds": round(time.perf_counter() - started, 6),
-                **fields,
-            }, ensure_ascii=False) + "\n")
+                "elapsed_seconds": round(time.perf_counter() - started, 6), **fields},
+                ensure_ascii=False) + "\n")
 
-        record("loop_start", repository=str(root), pid=os.getpid(),
-               python=sys.executable, step_count=len(commands))
+        def regression(command):
+            return command[0] != "git" and command[1].endswith(".checks.py")
+
+        def finish(index, item, returncode, error="", interrupted=False):
+            process, stream, step, output, began, _ = item
+            stream.close()
+            duration = time.perf_counter() - began
+            result = "interrupted" if interrupted else "error" if error else "pass" if returncode == 0 else "fail"
+            record("step_end", step=step, status=result, returncode=returncode,
+                   duration_seconds=round(duration, 6), error=error)
+            completed[index] = (step, output, duration, result, error)
+
+        record("loop_start", repository=str(root), pid=os.getpid(), python=sys.executable,
+               step_count=len(commands), jobs=jobs)
         try:
-            for index, command in enumerate(commands, 1):
-                step = "git-diff-check" if command[0] == "git" else Path(command[1]).name
-                output = directory / f"{index:02d}-{step}.log"
-                step_started = time.perf_counter()
-                record("step_start", step=step, output=str(output))
-                print(f"[{index}/{len(commands)}] START {step}", flush=True)
-                returncode = None
-                process = None
-                interrupted = False
-                error = ""
-                with output.open("w", encoding="utf-8") as stream:
+            while next_index < len(commands) or running:
+                while next_index < len(commands) and len(running) < jobs:
+                    command = commands[next_index]
+                    if running and (not regression(command) or
+                                    any(not regression(commands[i]) for i in running)):
+                        break
+                    index = next_index
+                    step = "git-diff-check" if command[0] == "git" else Path(command[1]).name
+                    output = directory / f"{index + 1:02d}-{step}.log"
+                    began = time.perf_counter()
+                    record("step_start", step=step, output=str(output))
+                    print(f"[{index + 1}/{len(commands)}] START {step}", flush=True)
+                    stream = output.open("w", encoding="utf-8")
+                    item = [None, stream, step, output, began, began]
+                    # Register before launching so interruption always closes the log.
+                    running[index] = item
+                    next_index += 1
                     try:
-                        process = subprocess.Popen(command, cwd=root, env=environment,
+                        item[0] = subprocess.Popen(command, cwd=root, env=environment,
                                                    stdout=stream, stderr=subprocess.STDOUT)
-                        try:
-                            record("step_running", step=step, pid=process.pid)
-                            while True:
-                                try:
-                                    returncode = process.wait(timeout=heartbeat_seconds)
-                                    break
-                                except subprocess.TimeoutExpired:
-                                    elapsed = time.perf_counter() - step_started
-                                    record("heartbeat", step=step, pid=process.pid,
-                                           duration_seconds=round(elapsed, 6))
-                                    print(f"[{index}/{len(commands)}] RUNNING {step} ({elapsed:.1f}s, PID {process.pid})", flush=True)
-                        except BaseException:
-                            process.terminate()
-                            try:
-                                process.wait(timeout=5)
-                            except subprocess.TimeoutExpired:
-                                process.kill()
-                                process.wait()
-                            raise
-                    except KeyboardInterrupt:
-                        interrupted = True
-                        returncode = process.returncode if process is not None else None
-                    except OSError as exception:
-                        error = str(exception)
-                duration = time.perf_counter() - step_started
-                step_status = "pass" if returncode == 0 else "fail"
-                if interrupted or error:
-                    step_status = "interrupted" if interrupted else "error"
-                record("step_end", step=step, status=step_status, returncode=returncode,
-                       duration_seconds=round(duration, 6), error=error)
-                with output.open(encoding="utf-8", errors="replace") as stream:
-                    shutil.copyfileobj(stream, sys.stdout)
-                print(f"[{index}/{len(commands)}] {step_status.upper()} {step} ({duration:.1f}s){': ' + error if error else ''}", flush=True)
-                if interrupted:
-                    status = "interrupted"
-                    print("Blueprint local loop: INTERRUPTED (remaining checks not executed)", flush=True)
-                    return 130
-                if returncode != 0:
-                    failed.append(step)
+                        record("step_running", step=step, pid=item[0].pid)
+                    except OSError as error:
+                        finish(index, running.pop(index), None, str(error))
+                    if not regression(command):
+                        break
+                for index, item in list(running.items()):
+                    process, stream, step, output, began, last_heartbeat = item
+                    try:
+                        returncode = process.wait(timeout=min(0.05, heartbeat_seconds))
+                    except subprocess.TimeoutExpired:
+                        now = time.perf_counter()
+                        if now - last_heartbeat >= heartbeat_seconds:
+                            item[5] = now
+                            record("heartbeat", step=step, pid=process.pid,
+                                   duration_seconds=round(now - began, 6))
+                            print(f"[{index + 1}/{len(commands)}] RUNNING {step} ({now - began:.1f}s, PID {process.pid})", flush=True)
+                    else:
+                        finish(index, running.pop(index), returncode)
+                while displayed in completed:
+                    step, output, duration, result, error = completed.pop(displayed)
+                    with output.open(encoding="utf-8", errors="replace") as stream:
+                        shutil.copyfileobj(stream, sys.stdout)
+                    print(f"[{displayed + 1}/{len(commands)}] {result.upper()} {step} ({duration:.1f}s){': ' + error if error else ''}", flush=True)
+                    if result != "pass":
+                        failed.append(step)
+                    displayed += 1
             status = "fail" if failed else "pass"
             if failed:
                 print(f"Blueprint local loop: FAIL ({', '.join(failed)})", flush=True)
                 return 1
-            count = sum(command[1].endswith(".checks.py") for command in commands)
+            count = sum(regression(command) for command in commands)
             print(f"Blueprint local loop: PASS ({count} framework regression scripts)", flush=True)
             return 0
         except KeyboardInterrupt:
             status = "interrupted"
+            print("Blueprint local loop: INTERRUPTED (remaining checks not executed)", flush=True)
             return 130
         finally:
+            # Signal every child before waiting for any of them.
+            for item in running.values():
+                if item[0] is not None:
+                    item[0].terminate()
+            for index, item in running.items():
+                process = item[0]
+                if process is not None:
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                finish(index, item, process.returncode if process is not None else None, interrupted=True)
             record("loop_end", status=status, failed_steps=failed,
                    duration_seconds=round(time.perf_counter() - started, 6))
             print(f"Local loop elapsed: {time.perf_counter() - started:.1f}s; timing: {directory / 'timing.jsonl'}", flush=True)
+
+
+def utf8_environment():
+    return {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0",
+            "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+
+
+def utf8_preflight(directory, environment):
+    command = [sys.executable, "-X", "utf8", "-c",
+               "from pathlib import Path; import sys; "
+               "p=Path(sys.argv[1]); p.write_text('日本語', encoding='utf-8'); "
+               "assert p.read_text(encoding='utf-8') == '日本語'; print('日本語')",
+               str(directory / "utf8.txt")]
+    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8", check=True)
+    if result.stdout.strip() != "日本語":
+        raise ValueError("UTF-8 preflight failed")
+    (directory / "utf8.txt").unlink()
+
+
+def select_checks(root, paths, affected=False):
+    checks = sorted((root / "framework/scripts").glob("*.checks.py"))
+    if not affected:
+        return checks, "all requested"
+    # Only leaf test edits and the standalone runner have a proven narrow dependency set.
+    mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
+    mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
+    selected = set()
+    for path in sorted(paths):
+        if not framework_changed({path}):
+            continue
+        if path not in mapping or not mapping[path] <= {check.name for check in checks}:
+            return checks, f"all: shared or unknown dependency: {path}"
+        selected.update(mapping[path])
+    return [path for path in checks if path.name in selected], "affected: explicit leaf/runner mapping"
+
+
+def git(root, *arguments, environment=None):
+    return subprocess.run(["git", *arguments], cwd=root, env=environment,
+                          capture_output=True, encoding="utf-8", check=True).stdout.strip()
+
+
+def index_tree(root, directory):
+    # Use a private index; write-tree must not lock or refresh the user's index.
+    source = Path(git(root, "rev-parse", "--git-path", "index"))
+    if not source.is_absolute():
+        source = root / source
+    private = directory / "index"
+    shutil.copyfile(source, private)
+    return git(root, "write-tree", environment={**os.environ, "GIT_INDEX_FILE": str(private)})
+
+
+def staged_snapshot(root, args, directory, environment):
+    base = git(root, "rev-parse", "--verify", "--end-of-options", f"{args.base}^{{commit}}")
+    head = git(root, "rev-parse", "HEAD")
+    tree = index_tree(root, directory)
+    snapshot = directory / "repository"
+    snapshot.mkdir()
+    git(snapshot, "init", "--quiet")
+    # Copy two trees and the comparison commit, without unrelated branch/history objects.
+    objects = git(root, "rev-list", "--objects", "--no-object-names", f"{base}^{{tree}}", tree)
+    with tempfile.TemporaryFile() as pack:
+        subprocess.run(["git", "pack-objects", "--stdout"], cwd=root,
+                       input=(base + "\n" + objects + "\n").encode(), stdout=pack,
+                       stderr=subprocess.PIPE, check=True)
+        pack.seek(0)
+        subprocess.run(["git", "index-pack", "--stdin"], cwd=snapshot,
+                       stdin=pack, capture_output=True, check=True)
+    (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
+    git(snapshot, "checkout", "--quiet", "--detach", base)
+    git(snapshot, "read-tree", "--reset", "-u", tree)
+    metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
+    (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
+    command = [sys.executable, "-X", "utf8", str(snapshot / "framework/scripts/blueprint-loop.py"),
+               "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
+               *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
+               *(["--profile"] if args.profile else [])]
+    process = subprocess.Popen(command, cwd=snapshot, env=environment,
+                               **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
+    try:
+        result = process.wait()
+    except KeyboardInterrupt:
+        process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        raise
+    current_tree = index_tree(root, directory)
+    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head
+    metadata.update(returncode=result, source_unchanged=unchanged)
+    (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    if not unchanged:
+        print("Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.", flush=True)
+        return 1
+    return result
 
 
 def main() -> int:
@@ -128,20 +248,34 @@ def main() -> int:
                         help="task/local: active-scope validation; full: also all regression tests")
     parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all regression tests")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
+    parser.add_argument("--profile", action="store_true", help="Profile model_design/design_catalog checks into the run directory")
+    parser.add_argument("--jobs", type=int, choices=(1, 2), default=2, help="Independent regression workers (default: 2)")
+    parser.add_argument("--staged", action="store_true", help="Validate a fixed staged tree in a private repository")
+    parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
+    parser.add_argument("--affected", action="store_true", help="Select proven affected checks; unknown dependencies run all")
     args = parser.parse_args()
+    if args.staged != bool(args.base):
+        parser.error("--staged and --base must be specified together")
+    if args.affected and (args.mode == "full" or args.all):
+        parser.error("--affected cannot narrow full/--all validation")
 
     root = Path(__file__).resolve().parents[2]
     try:
-        scope = active_scope(root, args.all)
-        changed = changed_paths(root)
+        scope = active_scope(root, args.all) if not args.staged else set()
+        changed = changed_paths(root) if not args.staged else set()
     except (OSError, ValueError) as error:
         parser.error(str(error))
     full_validation = scope is None
     regression = (args.mode == "full" or args.all or framework_changed(changed)
                   or (args.mode == "local" and scope is None))
-    checks = sorted((root / "framework" / "scripts").glob("*.checks.py")) if regression else []
-    print(f"Validation: {'all' if full_validation else 'active scope'}; "
-          f"framework regression: {'all' if regression else 'skipped (shared framework unchanged)'}", flush=True)
+    checks, reason = select_checks(root, changed, args.affected) if regression else ([], "shared framework unchanged")
+    if not args.staged:
+        print(f"Validation: {'all' if full_validation else 'active scope'}; "
+              f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}", flush=True)
+    if regression and not args.staged:
+        print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}", flush=True)
+        omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
+        print(f"Not executed: {', '.join(omitted) or 'none'}", flush=True)
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         parser.error("--log-dir must be outside the repository")
@@ -163,14 +297,32 @@ def main() -> int:
         ["git", "diff", "--check"],
         ["git", "diff", "--cached", "--check"],
     ]
-    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0",
-                   "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+    environment = utf8_environment()
+    if args.profile:
+        environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
     try:
-        return run_commands(root, commands, environment, directory)
-    except OSError as error:
+        utf8_preflight(directory, environment)
+        if args.staged:
+            return staged_snapshot(root, args, directory, environment)
+        return run_commands(root, commands, environment, directory, jobs=args.jobs)
+    except KeyboardInterrupt:
+        return 130
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Blueprint local loop: ERROR ({error}); logs: {directory}", file=sys.stderr)
         return 2
 
 
+def interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, interrupt)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, interrupt)
+    # UTF-8 mode must be set before Python initializes file/subprocess defaults.
+    if not sys.flags.utf8_mode:
+        os.execvpe(sys.executable, [sys.executable, "-X", "utf8", *sys.argv], utf8_environment())
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     raise SystemExit(main())

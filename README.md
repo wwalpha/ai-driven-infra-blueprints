@@ -324,13 +324,13 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 通常taskはValidation scopeに指定したserviceの設計/model、生成Markdown/JSON一致、ownership、stack、catalog/schema、命名、policy、reference/link、artifact、active task contractとtask固有checkを検証します。validatorからmodel照合まで指定serviceを引き継ぎます。共通の契約・変更範囲・project topology・catalog整合性チェックは維持します。参照先はlink解決に必要な情報だけを読み、参照先service全体は検証しません。unstaged/staged両方の`git diff --check`もloop内で実行します。CloudFormation/Terraformとdeployの既存必須手順は各phaseのrules/promptどおり別途維持します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode task
+python -X utf8 framework/scripts/blueprint-loop.py --mode task
 ```
 
 frameworkが未変更なら`*.checks.py`のself-testを省略します。`framework/**`全体（scripts/rules/materials/schema/catalog/prompts等）、`.agents/**`、`AGENTS.md`、`README.md`のunstaged/staged/untracked変更がある場合は全self-testを自動追加します。framework変更taskやcommit済みframework変更の再検証は明示的に次を実行します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode full
+python -X utf8 framework/scripts/blueprint-loop.py --mode full
 ```
 
 `full`は通常taskのvalidationに加え、全`framework/scripts/*.checks.py`を実行します。実設計の全体検証とframework regressionは別の責務です。framework未変更の`task`はValidation scopeが`all`でもself-testを実行しません。
@@ -339,18 +339,36 @@ python framework/scripts/blueprint-loop.py --mode full
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
+### 競合解消後の固定snapshot検証
+
+競合解消したfileと今回の`tasks/active.md`をstageした後、比較元commitを明示して実行します。
+
+```console
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
+```
+
+stage内容をrepository外に固定し、その中のrunnerと契約を使います。元workspaceの未stage変更は含めず、元indexも変更しません。比較元との差分にはincoming変更も含まれます。終了時に元HEAD/indexが変わっていればstaleとして失敗し、古い結果を最新状態の成功とは扱いません。`snapshot.json`に検証したtreeと比較元が残ります。通常実行は従来どおり未stage変更も検証します。
+
+`--affected`は、既存の回帰script自身の変更ならそのcheck、standalone loop runnerの変更ならloop checkを選びます。共通処理・rule・catalogなど対応不明の変更は全checkを実行します。選択理由と未実行checkを表示し、`full`／`--all`との併用は拒否します。framework開発taskの完了には`--mode full`を使います。
+
+回帰は最大2並列で実行し、診断を名前順に表示します。直列比較は`--jobs 1`を指定します。起動時にUTF-8の事前確認を行い、通常のPython起動でも自動でUTF-8 modeへ切り替えます。
+
 ### Local loopの時間計測
 
 追加指定なしでも、実行ごとにOS一時directoryの`blueprint-loop-*`へ計測ログを保存し、開始時に絶対pathを表示します。継続保存したい場合はrepository外の親directoryを指定します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode task --log-dir /tmp/blueprint-loop-logs
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --log-dir /tmp/blueprint-loop-logs
 ```
+
+`--profile`を追加すると、遅い2本（model_design／design_catalog）の関数別内訳も計測します。計測overheadを含むため、通常の所要時間との直接比較は避けます。
 
 Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換えてください。一時directoryはOSが削除する場合があるため、長期保存にはrepository外の専用directoryを使用します。各実行は別directoryを作り、以前のログを上書きしません。
 
 | File | 内容 |
 | --- | --- |
+| `snapshot.json`（`--staged`時） | 比較元commit、HEAD、index tree、元状態との一致、終了code |
+| `*.checks.prof`（`--profile`時） | model_design／design_catalogの関数別cProfile計測。上位25件はcheck logにも出力 |
 | `timing.jsonl` | loopとcheckの開始・終了UTC時刻、経過秒数、PID、終了code、成否。30秒ごとの稼働記録も含む |
 | `01-validate-blueprint.py.log`など | check別のstdout/stderr。実行中から直接fileへ保存し、check終了時にterminalにも表示 |
 

@@ -6,6 +6,7 @@ if not __debug__:
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -117,7 +118,7 @@ def main():
     else:
         raise AssertionError("API design leaked into the CFn catalog")
     command = [sys.executable, str(ROOT / "framework/scripts/design_catalog.py"), "--cloudformation-type", MACIE_JOB]
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "CloudFormation unsupported" in result.stdout
 
     with tempfile.TemporaryDirectory() as directory:
@@ -253,4 +254,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
+        import cProfile
+        import pstats
+        profile = cProfile.Profile()
+        try:
+            profile.runcall(main)
+        finally:
+            profile.dump_stats(str(Path(directory) / (Path(__file__).stem + ".prof")))
+            pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+    else:
+        main()

@@ -110,7 +110,10 @@ def main():
         assert result.returncode == 0, result.stderr
         assert read_model(source) == text
         result = cli("--find", "desired.note.600.text")
-        assert result.returncode == 0 and "/config/part-002.properties:" in result.stdout, result
+        assert result.returncode == 0, result
+        found_path, line_number, key = result.stdout.strip().rsplit(":", 2)
+        assert Path(found_path) == source.parent / "config/part-002.properties", result.stdout
+        assert int(line_number) > 0 and key.strip() == "desired.note.600.text", result.stdout
         assert "desired.note.600.text" in result.stdout
         assert "注記600" not in result.stdout  # Lookup does not dump potentially large JSON values.
         assert "desired.note.599" not in result.stdout

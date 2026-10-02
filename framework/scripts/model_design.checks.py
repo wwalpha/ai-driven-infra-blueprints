@@ -8,6 +8,7 @@ from contextlib import redirect_stderr
 import io
 import importlib.util
 import json
+import os
 import shutil
 import tempfile
 import subprocess
@@ -201,7 +202,7 @@ def check_kms_alias_display():
         validator.check_design_overviews([path])
         validator.check_design_links(validator.catalog_design_properties()[2], [path])
         assert not validator.errors, validator.errors
-        path.write_text(output.replace(f"### KMS.Key: {name}", "### KMS.Key: CDE用ログキー（log）"))
+        path.write_text(output.replace(f"### KMS.Key: {name}", "### KMS.Key: CDE用ログキー（log）"), encoding="utf-8")
         validator = SYNC.view_validator(root, root)
         validator.check_resource_names(metadata, [path])
         assert any("heading must display resource name" in error for error in validator.errors), validator.errors
@@ -237,7 +238,7 @@ def check_nameless_type_display():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         docs = root / "docs/designs/dev/123456789012"
         kind, logical_id = "GuardDuty.Detector", "SecurityDetector"
         anchor = resource_anchor("guardduty", kind)
@@ -281,8 +282,8 @@ def check_nameless_type_display():
         source.write_text(text(values), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
-        assert source.read_text() == text(values)
-        assert path.read_text() == output
+        assert source.read_text(encoding="utf-8") == text(values)
+        assert path.read_text(encoding="utf-8") == output
         hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub")
         hub["desired.note.001.text"] = f"参照: [{kind}](guardduty.md#{anchor})"
         hub_path = docs / "securityhub.md"
@@ -324,7 +325,7 @@ def check_nameless_type_display():
             assert "single nameless independent resource" in str(error)
         else:
             raise AssertionError("omitted optional name accepted a type-only display")
-        path.write_text(output.replace(kind, "SNS.Topic").replace(anchor, "guardduty-sns.topic"))
+        path.write_text(output.replace(kind, "SNS.Topic").replace(anchor, "guardduty-sns.topic"), encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_resource_names({path: ("guardduty", ("SNS.Topic",))}, [path])
         assert any("single nameless independent resource" in error for error in validator.errors)
@@ -397,8 +398,8 @@ def check_nameless_logical_id_label():
         assert not failures(values), failures(values)
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
-        assert source.read_text() == text(values)
-        assert path.read_text() == output
+        assert source.read_text(encoding="utf-8") == text(values)
+        assert path.read_text(encoding="utf-8") == output
     print("Nameless logical ID label: PASS (explicit labels, missing labels, identity, hidden IDs, anchors and namespaces)")
 
 
@@ -603,28 +604,28 @@ def check_iam_role_name():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         source = root / "model/dev/123456789012/iam.properties"
         source.parent.mkdir(parents=True)
         values = model("iam", kind, name, [name_row, trust_row], logical_id, "fallback-label")
         values["desired.row.001-002.document"] = document
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
         path = root / "docs/designs/dev/123456789012/iam.md"
-        output = path.read_text()
+        output = path.read_text(encoding="utf-8")
         assert f"| 1 | [{name}](#iam-{name}) |" in output
         assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
         assert f"<!-- resource-logical-id: {logical_id} -->" in output
         projected = properties(SYNC.model_for(path, root))
         assert projected["desired.resource.001.logicalId"] == logical_id
         assert projected["desired.row.001-001.value"] == f"`{name}`"
-        assert source.read_text() == text(values)
+        assert source.read_text(encoding="utf-8") == text(values)
         metadata = {path: ("iam", (kind,))}
         outputs = validator_module.Validator(root).catalog_design_properties()[2]
 
         def failures(markdown):
-            path.write_text(markdown)
+            path.write_text(markdown, encoding="utf-8")
             validator = validator_module.Validator(root)
             validator.check_resource_names(metadata, [path])
             validator.check_design_overviews([path])
@@ -634,7 +635,7 @@ def check_iam_role_name():
         assert not failures(output), failures(output)
         reference = path.with_name("reference.md")
         for label in (name, logical_id, "wrong-name", "/service-role/" + name):
-            reference.write_text(f"参照: [{label}](iam.md#iam-{name})\n")
+            reference.write_text(f"参照: [{label}](iam.md#iam-{name})\n", encoding="utf-8")
             errors = failures(output)
             assert bool(errors) == (label != name), (label, errors)
         reference.unlink()
@@ -783,7 +784,7 @@ def check_stack_policy():
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
-            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         values = {"desired.deployment.maxConcurrentStacks": "3"}
         for i, (name, order) in enumerate((("app-b", "20"), ("network", "10"), ("app-a", "20")), 1):
             key = f"{i:03d}"
@@ -794,12 +795,12 @@ def check_stack_policy():
                            f"display.stack.{key}.comment": name + "を配置するstack"})
         source = root / "model/dev/123456789012/cloudformation-stacks.properties"
         source.parent.mkdir(parents=True)
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         before = source.read_bytes()
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert source.read_bytes() == before
         path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-        rendered = path.read_text()
+        rendered = path.read_text(encoding="utf-8")
         assert "## Deployment設定" not in rendered and "| MaxConcurrentStacks |" not in rendered
         assert "<!-- max-concurrent-stacks: 3 -->" in rendered
         assert "| Deploy<br>Order |" in rendered
@@ -816,14 +817,14 @@ def check_stack_policy():
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
         # Default policy stays hidden and preserves the model.
         del values["desired.deployment.maxConcurrentStacks"]
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert stack_deployment_policy(path) == 1
         saved = path.read_bytes()
         for field, value in (("desired.stack.001.deployOrder", "0"), ("desired.stack.001.deployOrder", "-1"),
                              ("desired.stack.001.deployOrder", "abc"), ("desired.deployment.maxConcurrentStacks", "0"),
                              ("desired.deployment.maxConcurrentStacks", "-1"), ("desired.deployment.maxConcurrentStacks", "1.5")):
-            source.write_text(text(values | {field: value}))
+            source.write_text(text(values | {field: value}), encoding="utf-8")
             try:
                 SYNC.sync(root, True, "dev", "123456789012")
             except ValueError as error:
@@ -832,7 +833,7 @@ def check_stack_policy():
                 raise AssertionError((field, value))
             assert path.read_bytes() == saved
         del values["desired.stack.001.deployOrder"]
-        source.write_text(text(values))
+        source.write_text(text(values), encoding="utf-8")
         try:
             SYNC.sync(root, True, "dev", "123456789012")
         except ValueError as error:
@@ -848,7 +849,7 @@ def check_athena_configuration_display():
     kind = "Athena.WorkGroup"
     prefix = kind + ".WorkGroupConfiguration."
     fields = [line.partition("=")[0] for line in
-              (ROOT / "framework/materials/aws/athena_workgroup.properties").read_text().splitlines()]
+              (ROOT / "framework/materials/aws/athena_workgroup.properties").read_text(encoding="utf-8").splitlines()]
     rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
     displayed = display_rows(kind, rows)
     from design_layout import DISPLAY_PROPERTY_ALIASES, formal_property
@@ -1015,7 +1016,7 @@ def main():
             error = fails_with("missing design anchor")
         assert "2 services succeeded; 1 services failed" in error
         assert f"vpc.md: {old_link}" in warnings.getvalue()
-        assert new_link.partition("#")[2] in (docs / "logs.md").read_text()
+        assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
         assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
         assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
@@ -1120,11 +1121,11 @@ def main():
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
         # The CLI returns failure while persisting an unrelated successful service.
         (root / "tasks").mkdir()
-        (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n")
+        (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
         (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
                                  "--repository-root", str(root), "--write", "--environment", "dev",
-                                 "--aws-account-id", "123456789012"], capture_output=True, text=True)
+                                 "--aws-account-id", "123456789012"], capture_output=True, encoding="utf-8")
         assert result.returncode == 1 and "authoritative JSON document missing" in result.stderr
         assert "logs.md" in result.stdout and "iam.md" not in result.stdout
         assert "cwlogs-new-dev-flow" in (docs / "logs.md").read_text(encoding="utf-8")
@@ -1232,4 +1233,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
+        import cProfile
+        import pstats
+        profile = cProfile.Profile()
+        try:
+            profile.runcall(main)
+        finally:
+            profile.dump_stats(str(Path(directory) / (Path(__file__).stem + ".prof")))
+            pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+    else:
+        main()

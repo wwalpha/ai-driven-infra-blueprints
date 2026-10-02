@@ -1,49 +1,40 @@
-# CloudFormation stackのMarkdown表示を調整する
+# Local loopの再現性と実行時間を改善する
 
 ## Task contract
-
 - Task type: `governance`
-- Target: frameworkのCloudFormation stack表示
-- Goal: MaxConcurrentStacksをMarkdown描画で非表示にし、DeployOrder見出しを2行にする。
+- Target: framework local validation
+- Goal: 文字コードとfixture依存を修復し、固定staged snapshot、保守的なcheck選択、並列回帰、重点計測を追加する。
 
 ## Validation scope
-
 - `framework`
 
 ## Required changes
-
-- [R1] Deployment設定表を非表示metadataへ置換し、Deploy<br>Order見出しを生成・解析する。modelとdeploymentの値・検証は維持する。
-- [R2] 表示rule、model rule、sampleを更新する。
-- [R3] 表示・復元・不正値拒否・deployment前の不一致検出を既存fixtureで検証する。
+- [R1] UTF-8事前確認、staged snapshotと比較元固定、変更検知を実装する。
+- [R2] 回帰fixtureとpath比較をOSとconsumer状態から独立させる。
+- [R3] 保守的なcheck選択、最大2並列と順序付き診断、重点計測を実装する。
+- [R4] 実行ruleと使用方法を更新し、回帰検証する。
 
 ## Acceptance checks
-
-- [R1] `changed:framework/scripts/model_design.py`
-- [R1] `changed:framework/scripts/design_layout.py`
-- [R2] `changed:framework/rules/detailed-design.md`
-- [R2] `changed:framework/rules/model-information.md`
-- [R2] `changed:framework/rules/detailed-design-samples.md`
-- [R3] `changed:framework/scripts/model_design.checks.py`
-- [R3] `changed:framework/scripts/cloudformation-deploy.checks.py`
-- [R3] `changed:framework/scripts/sync-model.checks.py`
-- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
+- [R1] `changed:framework/scripts/blueprint-loop.py`
+- [R1] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R2] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R2] `changed:framework/scripts/model_files.checks.py`
+- [R3] `changed:framework/scripts/blueprint-loop.py`
+- [R3] `changed:framework/scripts/design_catalog.checks.py`
+- [R4] `changed:framework/rules/loop-engineering.md`
+- [R4] `changed:README.md`
 
 ## Allowed paths
-
 - `tasks/active.md`
-- `framework/scripts/model_design.py`
-- `framework/scripts/design_layout.py`
-- `framework/rules/detailed-design.md`
-- `framework/rules/model-information.md`
-- `framework/rules/detailed-design-samples.md`
+- `framework/scripts/blueprint-loop.py`
+- `framework/scripts/blueprint-loop.checks.py`
 - `framework/scripts/model_design.checks.py`
-- `framework/scripts/cloudformation-deploy.checks.py`
-- `framework/scripts/sync-model.checks.py`
-- `framework/scripts/validate-blueprint.checks.py`
-- `framework/rules/display-property-aliases.json`
+- `framework/scripts/model_files.checks.py`
+- `framework/scripts/design_catalog.checks.py`
+- `framework/rules/loop-engineering.md`
+- `README.md`
 
 ## Out of scope
-
-- 前taskの未commit Athena表示差分を保持する。
 - consumer同期、実設計/model、catalog、IaC、AWS、scenarioは変更しない。
-- repository外fixtureで検証し、framework scopeのfull local loopを実行する。
+- commit、push、現在のindexの変更は行わない。snapshot検証は一時fixtureで確認する。
+- framework scopeのfull local loopを実行し、実Windows実行と静的確認を区別して報告する。

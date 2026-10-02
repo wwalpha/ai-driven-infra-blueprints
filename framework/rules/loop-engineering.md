@@ -119,15 +119,26 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 ### 通常taskとframework regression
 
 - 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。Validation scopeを引き継ぐ`validate-blueprint.py`と、その内部のservice指定`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
-- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を名前順に実行する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
+- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を最大2並列で実行し、診断と失敗一覧を名前順に集約する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
 - `task`／`local`でも、unstaged、staged、untrackedの変更pathが`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`にあれば全regressionを自動追加する。scriptsだけでなくrules、materials（catalog/schema snapshot）、将来のschema/catalog directory、promptと配布skillも対象にする。削除・rename元も検出する。Gitで変更を判定できなければ停止し、regressionを省略しない。commit済み変更の再検証には明示的な`full`を使用する。
 - `--mode local`も`task`と同じ対象限定検証として有効とする。skillが`local`を指定する場合はその実行でよく、追加の`task`／`full`を要求しない。明示`--all`は全体検証＋全regression、`local`のscope `all`も従来どおり全体検証＋全regressionとする。`full`単独やframework変更によるregression追加は実設計scopeを広げない。
 - validatorが失敗してもregressionと差分checkを継続する。Python最適化によるassert無効化を防ぐ。選択したcheckの失敗・未実行はFAILとする。
 - CloudFormationの`cfn-lint`、deploy context、`aws cloudformation validate-template`、change set／change summary、delete/replacement確認、AWS account/region確認、およびTerraformのfmt/init/validate/plan/applyの既存必須手順は各phaseのrules/promptどおり維持する。loopはこれらの実IaC/deployment手順を代替せず、implementとdeployを統合しない。
 
+### 競合解消と再現可能な検証
+
+- 起動は`python -X utf8 framework/scripts/blueprint-loop.py --mode task`を推奨する。通常起動でもrunnerはUTF-8 modeで再起動し、子processへ`PYTHONUTF8=1`と`PYTHONIOENCODING=utf-8`を継承する。検証前に日本語のfile読書きと子process出力を確認し、失敗時は回帰を開始しない。text入出力ではUTF-8を明記する。
+- 競合解消後、検証したいfileと今回の`tasks/active.md`をstageしたうえで、`--staged --base <比較元commit>`を指定する。比較元はhumanの変更範囲に合うcommitを明示し、incomingも比較元との差分に含める。未解決のindex conflictは停止する。通常modeは従来どおりunstaged/staged/untrackedを検証する。
+- staged modeは比較元commit、HEAD、index treeを固定し、repository外の独立Git repositoryへ展開して、そのsnapshotにあるrunner、契約、入力を検証する。元workspaceの未stage変更やuntracked fileは含めず、元indexは書き換えない。snapshot内のHEADを比較元にすることで契約・変更path・差分checkも同じ基準を使う。終了時に元HEAD/index treeが変わっていればstaleとして非zero終了し、旧treeの結果を最新状態のPASSと扱わない。直後の編集までロックするものではない。
+- 選択検証は`--mode task --affected`（`local`も可）で明示する。通常の全回帰自動追加に対する例外とし、runner内の明示対応表だけでcheckを選ぶ。現在の限定対象は既存の回帰script自身の変更とstandalone loop runnerの変更だけとする。共通validator/generator、rule、catalog、prompt、削除・rename元など対応不明のframework変更は全回帰へfallbackする。incomingであることだけを理由に省略しない。
+- `--affected`は`full`／`--all`と併用できない。共通validation、task固有check、Acceptance checks、差分checkは省略しない。選択理由・選択check・未実行checkを表示する。framework開発taskの完了には従来どおり`--mode full`を使う。
+- 回帰fixtureは必要なframework入力とテスト内生成のproject/task/modelだけで構成し、実consumerのissues、project、model、設計、active taskをコピーしない。filesystem pathは`Path`で比較し、Markdown linkなどPOSIX表記が契約の値だけ`as_posix()`で検証する。
+- 独立した回帰scriptだけ最大2並列とし、validatorとGit差分checkは直列にする。`--jobs 1`で直列比較できる。checkごとに一時fixtureを所有し、共有workspaceへ書き込まない。失敗後も残りを実行し、中断時は実行中の子processを停止する。
+
 ### 時間計測と長時間実行
 
 - local loopは実行ごとにrepository外のOS一時directoryへ`blueprint-loop-*`directoryを作成し、絶対pathを開始時に表示する。`--log-dir <repository外のdirectory>`で保存先の親directoryを指定できる。同時・再実行時も既存ログを上書きしない。一時directoryはOSの清掃対象なので、継続保存が必要な場合はrepository外の保存先を指定する。
+- `--profile`指定時は`model_design.checks.py`と`design_catalog.checks.py`だけをstdlib cProfileで計測し、同じrun directoryへ`.prof`とcheck log内の累積時間上位25件を保存する。fixture copy、catalog読込、生成・検証の関数別内訳を確認する。計測自体のoverheadがあるため、通常実行の時間と直接比較しない。
 - `timing.jsonl`へUTC時刻、repository、Python launcher、loop/checkのPID、開始・終了、check別・全体の経過秒数、終了code、成否を逐次記録する。所要時間にはmonotonic clockを使用し、失敗後も全checkを実行する。checkのstdout/stderrはcheck別`.log`へ直接保存し、check終了時にterminalへ表示する。
 - checkが30秒以上動いている場合は30秒ごとにcheck名・経過時間・PIDをterminalと`timing.jsonl`へ表示・保存する。これは子プロセスが未終了であることを示す稼働表示であり、処理の進捗率やCopilot sessionの延命を保証しない。
 - エージェントはlocal loopを一度だけ起動し、既存実行のログとPIDを追跡する。toolの待機・追跡timeoutだけで再起動しない。check終了までrepositoryのinputを変更せず、同じrepositoryのloopを重複起動しない。無変更・未完了の実行へfocused checkやfull loopを追加しない。
