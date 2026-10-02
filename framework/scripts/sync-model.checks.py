@@ -461,13 +461,10 @@ def main() -> None:
         stacks.write_text(
             """# CloudFormation stack 詳細設計
 
-## Deployment設定
-| Property | Value |
-| --- | ---: |
-| MaxConcurrentStacks | 2 |
+<!-- max-concurrent-stacks: 2 -->
 
 ## Stack一覧
-| No. | DeployOrder | StackName | Template | Parameters | Comment |
+| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |
 | ---: | ---: | --- | --- | --- | --- |
 | 1 | 10 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
 | 2 | 10 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |

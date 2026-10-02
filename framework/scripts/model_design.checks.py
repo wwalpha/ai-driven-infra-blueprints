@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from model_design import properties, markdown_for, naming_errors, stack_model
+from model_design import properties, markdown_for, naming_errors, stack_model, display_rows
 from design_layout import stack_design, stack_deployment_policy
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
@@ -799,6 +799,10 @@ def check_stack_policy():
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
         assert source.read_bytes() == before
         path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+        rendered = path.read_text()
+        assert "## Deployment設定" not in rendered and "| MaxConcurrentStacks |" not in rendered
+        assert "<!-- max-concurrent-stacks: 3 -->" in rendered
+        assert "| Deploy<br>Order |" in rendered
         assert stack_deployment_policy(path) == 3
         stacks = stack_design(path)
         assert [s["deployOrder"] for s in stacks] == ["10", "20", "20"]
@@ -810,7 +814,7 @@ def check_stack_policy():
         assert [s for _, s in stack_model(projected)[1]] == [s for _, s in stack_model(values)[1]]
         assert "dependsOn" not in projected
         assert SYNC.sync(root, False, "dev", "123456789012") == 0
-        # Default policy generates an explicit 1 without writing the model.
+        # Default policy stays hidden and preserves the model.
         del values["desired.deployment.maxConcurrentStacks"]
         source.write_text(text(values))
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
@@ -839,7 +843,37 @@ def check_stack_policy():
     print("Stack policy model checks: PASS (sorting, identity, comments, default 1, invalid policy, legacy fail closed)")
 
 
+
+def check_athena_configuration_display():
+    kind = "Athena.WorkGroup"
+    prefix = kind + ".WorkGroupConfiguration."
+    fields = [line.partition("=")[0] for line in
+              (ROOT / "framework/materials/aws/athena_workgroup.properties").read_text().splitlines()]
+    rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
+    displayed = display_rows(kind, rows)
+    from design_layout import DISPLAY_PROPERTY_ALIASES, formal_property
+    for original, shown in zip(rows, displayed):
+        expected = original[1].removeprefix(prefix if original[1].startswith(prefix) else kind + ".")
+        assert shown == [original[0], expected, *original[2:]], (original, shown)
+        restored = formal_property(shown[1], kind)
+        assert DISPLAY_PROPERTY_ALIASES.get(restored, restored) == original[1]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        values = model("athena", kind, "athwg-app-dev", [
+            ("Name", "`athwg-app-dev`", "クエリ実行用の名前"),
+            ("WorkGroupConfiguration.EnforceWorkGroupConfiguration", "true", "設定を強制する"),
+            ("WorkGroupConfiguration.EngineVersion.SelectedEngineVersion", "`Athena engine version 3`", "使用するエンジン"),
+        ])
+        output = roundtrip(root / "docs/designs/dev/123456789012/athena.md", values, root)
+        assert "| EnforceWorkGroupConfiguration | true |" in output
+        assert "| EngineVersion.SelectedEngineVersion |" in output
+        assert "WorkGroupConfiguration." not in output
+    print("Athena configuration display checks: PASS (catalog aliases and model roundtrip)")
+
+
 def main():
+    check_athena_configuration_display()
     check_config_typed_anchors()
     check_kms_alias_display()
     check_nameless_type_display()

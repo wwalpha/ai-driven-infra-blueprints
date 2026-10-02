@@ -45,7 +45,7 @@ CLOUDTRAIL_DATA_RESOURCE = re.compile(r"^EventSelectors\.DataResources\[([1-9]\d
 CLOUDTRAIL_RESOURCE_TYPES = {"S3": "AWS::S3::Object", "Lambda": "AWS::Lambda::Function"}
 CLOUDTRAIL_FORMAL_DATA_RESOURCE = "CloudTrail.Trail.EventSelectors[].DataResources[]."
 STACK_DESIGN = "cloudformation-stacks.md"
-STACK_HEADER = "| No. | DeployOrder | StackName | Template | Parameters | Comment |"
+STACK_HEADER = "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |"
 SECURITY_GROUP_TYPES = {"EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
 RESOURCE_REFERENCE_PROPERTIES = {
     "Config.ConfigurationRecorder.RoleARN": ("IAM.Role", "RoleName"),
@@ -197,10 +197,9 @@ def positive_integer(value: str, label: str) -> int:
 
 def stack_deployment_policy(path: Path) -> int:
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-    if lines[:4] != ["# CloudFormation stack 詳細設計", "## Deployment設定",
-                     "| Property | Value |", "| --- | ---: |"] or len(lines) < 5:
+    if len(lines) < 2 or lines[0] != "# CloudFormation stack 詳細設計":
         raise ValueError("invalid CloudFormation stack design header; explicit DeployOrder migration required")
-    match = re.fullmatch(r"\| MaxConcurrentStacks \| ([^|]+) \|", lines[4])
+    match = re.fullmatch(r"<!-- max-concurrent-stacks: (.+) -->", lines[1])
     if not match:
         raise ValueError("invalid CloudFormation deployment policy")
     return positive_integer(match.group(1), "MaxConcurrentStacks")
@@ -210,13 +209,13 @@ def stack_design(path: Path) -> list[dict[str, str]]:
     """Read a target's stack detailed design."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
     stack_deployment_policy(path)
-    if lines[5:8] != [
+    if lines[2:5] != [
         "## Stack一覧", STACK_HEADER,
         "| ---: | ---: | --- | --- | --- | --- |",
     ]:
         raise ValueError("invalid CloudFormation stack design header")
     result = []
-    for line in lines[8:]:
+    for line in lines[5:]:
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if not line.startswith("|") or not line.endswith("|") or len(cells) != 6 or not all(cells):
             raise ValueError(f"invalid CloudFormation stack design row: {line}")

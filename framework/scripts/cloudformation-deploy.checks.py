@@ -316,7 +316,7 @@ def check_inputs():
         limit, scoped = M.load_units(root, "dev", "123456789012", ["A", "C"])
         assert limit == 2 and [unit["name"] for unit in scoped] == ["C", "A"]
         rejects(lambda: M.load_units(root, "dev", "123456789012", ["unknown"]), "Deployment scope")
-        path.write_text(path.read_text().replace("| MaxConcurrentStacks | 2 |", "| MaxConcurrentStacks | 3 |"))
+        path.write_text(path.read_text().replace("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: 3 -->"))
         rejects(lambda: M.load_units(root, "dev", "123456789012", ["A"]), "mismatch")
         (root / "tasks").mkdir()
         contract = root / "tasks/active.md"

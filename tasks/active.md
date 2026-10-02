@@ -1,10 +1,10 @@
-# 保存済み参照によるservice生成の連鎖停止を解消する
+# CloudFormation stackのMarkdown表示を調整する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: frameworkのservice単位生成・保存
-- Goal: 検証に成功したserviceを保存し、他serviceの保存済み旧リンク切断は警告とする。参照元修復は後続の別taskで行えるようにする。
+- Target: frameworkのCloudFormation stack表示
+- Goal: MaxConcurrentStacksをMarkdown描画で非表示にし、DeployOrder見出しを2行にする。
 
 ## Validation scope
 
@@ -12,31 +12,38 @@
 
 ## Required changes
 
-- [R1] candidate breaks saved referenceによる成功serviceの除外・rollbackをやめ、保存後に旧参照切断を警告する。生成service自身の検証、失敗serviceの保存済み表示維持、書込失敗時の保護は維持する。
-- [R2] 旧参照が残っても成功serviceを保存し、後続の参照元修復で整合すること、生成失敗・書込失敗を既存fixtureで回帰検証する。
-- [R4] 元フォルダのRotationSchedule修復を保持し、旧参照切断の回帰検証を警告方式に合わせる。
-- [R3] 他serviceの旧参照切断を許容するservice単位保存規則を記載する。
+- [R1] Deployment設定表を非表示metadataへ置換し、Deploy<br>Order見出しを生成・解析する。modelとdeploymentの値・検証は維持する。
+- [R2] 表示rule、model rule、sampleを更新する。
+- [R3] 表示・復元・不正値拒否・deployment前の不一致検出を既存fixtureで検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R2] `changed:framework/scripts/model_design.checks.py`
-- [R2] `changed:framework/scripts/sync-model.checks.py`
-- [R3] `changed:framework/rules/model-information.md`
-
-- [R4] `changed:framework/scripts/rotation_schedule.checks.py`
+- [R1] `changed:framework/scripts/model_design.py`
+- [R1] `changed:framework/scripts/design_layout.py`
+- [R2] `changed:framework/rules/detailed-design.md`
+- [R2] `changed:framework/rules/model-information.md`
+- [R2] `changed:framework/rules/detailed-design-samples.md`
+- [R3] `changed:framework/scripts/model_design.checks.py`
+- [R3] `changed:framework/scripts/cloudformation-deploy.checks.py`
+- [R3] `changed:framework/scripts/sync-model.checks.py`
+- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/rotation_schedule.checks.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/model_design.checks.py`
-- `framework/scripts/sync-model.checks.py`
+- `framework/scripts/model_design.py`
+- `framework/scripts/design_layout.py`
+- `framework/rules/detailed-design.md`
 - `framework/rules/model-information.md`
+- `framework/rules/detailed-design-samples.md`
+- `framework/scripts/model_design.checks.py`
+- `framework/scripts/cloudformation-deploy.checks.py`
+- `framework/scripts/sync-model.checks.py`
+- `framework/scripts/validate-blueprint.checks.py`
+- `framework/rules/display-property-aliases.json`
 
 ## Out of scope
 
-- 関連serviceの自動追加・一括修復、consumer同期、design/model、catalog、IaC、AWS、scenarioは行わない。
-- 元フォルダへ専用worktreeの差分を反映し、既存のRotationSchedule修復を保持する。
-- fixtureはrepository外の一時directoryに作成する。framework scopeのlocal loopを実行する。
+- 前taskの未commit Athena表示差分を保持する。
+- consumer同期、実設計/model、catalog、IaC、AWS、scenarioは変更しない。
+- repository外fixtureで検証し、framework scopeのfull local loopを実行する。

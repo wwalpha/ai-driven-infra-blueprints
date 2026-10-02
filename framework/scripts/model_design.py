@@ -363,9 +363,9 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         for _, stack in stacks:
             if errors := naming_errors(root, "CloudFormation.Stack", [["1", "StackName", stack["name"], "名前"]]):
                 raise ValueError("; ".join(errors))
-        return "\n".join(["# CloudFormation stack 詳細設計", "", "## Deployment設定", "",
-            "| Property | Value |", "| --- | ---: |", f"| MaxConcurrentStacks | {limit} |", "",
-            "## Stack一覧", "", "| No. | DeployOrder | StackName | Template | Parameters | Comment |",
+        return "\n".join(["# CloudFormation stack 詳細設計", "",
+            f"<!-- max-concurrent-stacks: {limit} -->", "",
+            "## Stack一覧", "", "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",
             "| ---: | ---: | --- | --- | --- | --- |", *[
                 "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],
                     stack["parameters"], values[f"display.stack.{identity}.comment"]]) + " |"

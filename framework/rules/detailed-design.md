@@ -63,7 +63,7 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名、stack instanceごとの`DeployOrder`、target単位の`MaxConcurrentStacks`をここで確定する。template filenameから順序を推測しない。Import/Export、resource ownership、change/rollback unitから順序を提示し、確定できない場合はdesign taskでhumanへ確認する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
 
-`## Deployment設定`は`Property | Value`の2列で`MaxConcurrentStacks`（整数1以上）を表示する。`## Stack一覧`は`No. | DeployOrder | StackName | Template | Parameters | Comment`の6列とする。`DeployOrder`は正の整数、値の間隔は自由とし、同じ値は並列実行可能な同一groupを意味する。小さいgroupの全stackがterminal successとなってから次groupへ進む。DeployOrder数値昇順、StackName文字列昇順で表示する。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`はmodelの`display.stack.*.comment`から生成し、AWS stack propertyとして扱わない。
+`MaxConcurrentStacks`（整数1以上）はMarkdownの描画では非表示とし、`## Deployment設定`と設定表を出力しない。title直後のHTML comment `<!-- max-concurrent-stacks: N -->`に実効値を保持し、modelとの一致と整数制約を検証する。`## Stack一覧`は`No. | Deploy<br>Order | StackName | Template | Parameters | Comment`の6列とし、DeployOrder見出しを2行で表示する。`DeployOrder`は正の整数、値の間隔は自由とし、同じ値は並列実行可能な同一groupを意味する。小さいgroupの全stackがterminal successとなってから次groupへ進む。DeployOrder数値昇順、StackName文字列昇順で表示する。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`はmodelの`display.stack.*.comment`から生成し、AWS stack propertyとして扱わない。
 
 [CloudFormation stack詳細設計の例](detailed-design-samples.md#cloudformation-stack)
 
@@ -109,6 +109,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 [Resource-detail tableのheader例](detailed-design-samples.md#resource-detail-table)
 
 - 各 table の row は 1 から連番にする。
+- `Athena.WorkGroup`のProperty列では先頭の`WorkGroupConfiguration.`を省略する。例えば`WorkGroupConfiguration.EnforceWorkGroupConfiguration`は`EnforceWorkGroupConfiguration`、`WorkGroupConfiguration.EngineVersion.SelectedEngineVersion`は`EngineVersion.SelectedEngineVersion`と表示する。対応は`display-property-aliases.json`へ登録し、modelでは正式propertyを維持する。
 - Property列では、所属するresource headingの`<catalog-resource-type>.`を省く。型名だけのheadingでも同じ規則を使う。例えば`CodeBuild.Project.Artifacts.Type`は`Artifacts.Type`、`CodeBuild.Project.Id`は`Id`と表示する。modelとcatalog照合ではheadingのresource typeを補って正式propertyへ戻す。同じtableへ統合された別resource typeのrowは所属を区別するため正式propertyを維持する。見出しと同じresource type接頭辞がProperty列に残る場合はlocal validationで拒否する。
 - resource設定表のproperty表示順は`framework/materials/aws/<service>_<resource>.properties`の行順を正本とする。API resourceは`framework/materials/api/*.properties`の行順を使う。未選択・非表示項目は飛ばし、名前や生成IDを別途先頭へ移動しない。表示順の変更はcatalog-maintenance taskでpropertiesの行を移動し、checksumを更新する。alphabet順の強制や別の表示順一覧は設けない。特別な表示propertyから正式propertyへの対応は`framework/rules/display-property-aliases.json`を正本とする。
 - 例外として、VPC／Subnet／RouteTable／Flow Logのdesign-only .Nameは1行目、S3.BucketのBucketName／design-only Regionは1／2行目の既存表示を維持する。Name tagの必須性、1行表示、heading・anchorとの一致を変更せず、catalogへ設計専用propertyを追加しない。

@@ -44,7 +44,7 @@ display.stack.002.comment=月次集計jobを配置するstack
 ```
 
 - StackNameをidentityとし、同一templateを持つ別stackをまとめない。parameter fileはstack固有とする。
-- `MaxConcurrentStacks`省略時の実効値は1。生成Markdownは実効値1を明示する。新規設計では明記する。
+- `MaxConcurrentStacks`省略時の実効値は1。生成Markdownは実効値を非表示HTML comment `<!-- max-concurrent-stacks: N -->`へ保持し、正式model値への復元と不一致検出を維持する。新規設計では明記する。
 - `DeployOrder`未設定の旧modelと旧5列Markdownはgeneration/validation/controllerで拒否する。通常deployで一覧順から推測・自動移行しない。humanが順序を確定し、明示されたdesign/migration taskで既存entry ID、name、template、parameter、commentを保持して値を追加し、sync-modelで再生成する。既存modelをMarkdown importで上書きしない。
 - 同じDeployOrderと同じTemplateは許可する。`DependsOn`、`AfterStack`、`DependsOnStack`、`Dependencies`を追加しない。
 - 表示はDeployOrder数値昇順、StackName文字列昇順とし、No.は表示用の連番。model entry IDやcommentの所属を並べ替えで変更しない。

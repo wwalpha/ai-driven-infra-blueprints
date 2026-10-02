@@ -1183,13 +1183,10 @@ def check_cloudformation_stack_design() -> None:
         stack_file.write_text(
             """# CloudFormation stack 詳細設計
 
-## Deployment設定
-| Property | Value |
-| --- | ---: |
-| MaxConcurrentStacks | 2 |
+<!-- max-concurrent-stacks: 2 -->
 
 ## Stack一覧
-| No. | DeployOrder | StackName | Template | Parameters | Comment |
+| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |
 | ---: | ---: | --- | --- | --- | --- |
 | 1 | 10 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
 | 2 | 10 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
@@ -1220,8 +1217,8 @@ def check_cloudformation_stack_design() -> None:
 
         assert not errors(), errors()
         original = stack_file.read_text(encoding="utf-8")
-        for old, replacement in (("| MaxConcurrentStacks | 2 |", "| MaxConcurrentStacks | 0 |"),
-                                 ("| MaxConcurrentStacks | 2 |", "| MaxConcurrentStacks | -1 |"),
+        for old, replacement in (("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: 0 -->"),
+                                 ("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: -1 -->"),
                                  ("| 1 | 10 |", "| 1 | 0 |"), ("| 1 | 10 |", "| 1 | -1 |"),
                                  ("| 1 | 10 |", "| 1 | abc |")):
             stack_file.write_text(original.replace(old, replacement), encoding="utf-8")
@@ -1233,7 +1230,7 @@ def check_cloudformation_stack_design() -> None:
         assert any("parameter file belongs to multiple stacks" in error for error in errors())
         stack_file.write_text(original.replace("| job.yaml |", "| ../job.yaml |", 1), encoding="utf-8")
         assert any("invalid stack template filename" in error for error in errors())
-        stack_file.write_text(original.replace("| No. | DeployOrder | StackName | Template | Parameters | Comment |", "| StackName | Template | Parameters |", 1), encoding="utf-8")
+        stack_file.write_text(original.replace("| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |", "| StackName | Template | Parameters |", 1), encoding="utf-8")
         assert any("invalid CloudFormation stack design header" in error for error in errors())
         stack_file.write_text(original.replace("| 2 | 10 | stack-job-02", "| 3 | 10 | stack-job-02"), encoding="utf-8")
         assert any("No. must be sequential" in error for error in errors())
