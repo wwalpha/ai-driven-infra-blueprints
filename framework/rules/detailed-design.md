@@ -132,6 +132,7 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
 - optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`とS3 Bucketの`S3.Bucket.Region`、`EC2.VPCEndpoint`の必須Name tagの`Tags[].Key`／`Tags[].Value`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
 - schemaの`required`に指定され、かつproperties選択リストにあるroot propertyは省略しない。
+- 必須項目が不足したpropertiesは設計入力として保持できるが、詳細設計Markdown／JSON artifactは一時fileを含め生成しない。正本propertiesを直接検証し、row欠落・空値・未確定値のresource／propertyを報告する。既存生成物は維持し、値を推測・自動補完しない。必須項目が揃ったserviceだけ生成へ進み、不足が残るtaskを完了扱いにしない。
 
 `Source / Comment`は、そのrowの`Property`が何を設定、識別、制御する属性なのかを日本語で短く説明する。見出し・`Property`から分かる対象resource名の繰り返しは省き、属性の意味だけを記載する。ただし、参照先・通信元・通信先を区別する名称は残す。grouped resourceのrowも、そのrowの`Property`が属するresourceを対象に判断する。次の内容は記載しない。
 

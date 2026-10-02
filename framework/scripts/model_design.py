@@ -156,12 +156,14 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
     for identity, resource in entries(values, "desired.resource."):
         kind = resource["resourceType"]
         rows = resource_rows(values, identity, kind, root)
-        properties = {row[1] for row in rows}
+        properties = {row[1] for row in rows
+                      if literal(row[2]).strip().strip('"').strip().lower()
+                      not in {"", "unset", "pending", "pending_deploy", "tbd", "未確定"}}
         if "parentProperty" in resource:
             properties.add(resource["parentProperty"])
         kinds = {kind} | {
             child for child in GROUPED_RESOURCE_TYPES.get(kind, set())
-            if any(prop.startswith(child + ".") for prop in properties)
+            if any(row[1].startswith(child + ".") for row in rows)
         }
         for schema_kind in sorted(kinds):
             present = {prop.removeprefix(schema_kind + ".") for prop in properties

@@ -8,9 +8,12 @@ if not __debug__:
 
 import importlib.util
 import io
+import json
+import shutil
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("sync-model.py")
@@ -20,7 +23,107 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def check_required_preflight() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(SCRIPT.parents[1], root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
+            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        model = root / "model/dev/123456789012/quicksight.properties"
+        model.parent.mkdir(parents=True)
+        values = {
+            "desired.service.quicksight.serviceId": "quicksight",
+            "desired.service.quicksight.ownedCatalogResourceTypes": "QuickSight.DataSource",
+            "desired.resource.001.resourceType": "QuickSight.DataSource",
+            "desired.resource.001.logicalId": "AthenaSource",
+            "desired.resource.001.anchor": "quicksight-qs-app-dev-athena",
+            "display.service.title": "# QuickSight 詳細設計",
+            "display.resource.001.comment": "分析用データソース",
+            "desired.row.001-001.property": "QuickSight.DataSource.Name",
+            "desired.row.001-001.value": "`qs-app-dev-athena`",
+            "desired.row.001-001.comment": "データソースの名前",
+            "desired.row.001-002.property": "QuickSight.DataSource.Credentials.KeyPairCredentials",
+            "desired.row.001-002.value": "[設定](quicksight/credentials.json)",
+            "desired.row.001-002.document": '{"KeyPairUsername":"test","PrivateKey":"test"}',
+            "desired.row.001-002.comment": "接続の認証設定",
+        }
+        source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+        model.write_text(source)
+        design = root / "docs/designs/dev/123456789012/quicksight.md"
+        artifact = design.with_suffix("") / "credentials.json"
+        for existing in (False, True):
+            if existing:
+                artifact.parent.mkdir(parents=True)
+                design.write_text("existing Markdown\n")
+                artifact.write_text("existing JSON\n")
+            for write in (False, True):
+                # Neither the renderer nor artifact writer may run for this service.
+                with patch.object(MODULE, "markdown_for", side_effect=AssertionError("rendered before preflight")), \
+                     patch.object(MODULE, "save_files", side_effect=AssertionError("wrote before preflight")):
+                    try:
+                        MODULE.sync(root, write, "dev", "123456789012")
+                    except ValueError as error:
+                        assert "AthenaSource: required provider schema property missing: QuickSight.DataSource.Type" in str(error)
+                    else:
+                        raise AssertionError("incomplete model accepted")
+                assert model.read_text() == source
+                assert design.exists() == existing and artifact.exists() == existing
+                if existing:
+                    assert design.read_text() == "existing Markdown\n"
+                    assert artifact.read_text() == "existing JSON\n"
+        try:
+            MODULE.markdown_for(design, values, root)
+        except ValueError as error:
+            assert "QuickSight.DataSource.Type" in str(error)
+        else:
+            raise AssertionError("direct renderer accepted missing Type")
+        complete = values | {
+            "desired.row.001-003.property": "QuickSight.DataSource.Type",
+            "desired.row.001-003.value": "`ATHENA`",
+            "desired.row.001-003.comment": "データソースの接続方式",
+        }
+        MODULE.validate_required_properties(complete, root)
+        for empty in ("", "``", '`""`', "`UNSET`"):
+            try:
+                MODULE.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
+            except ValueError as error:
+                assert "QuickSight.DataSource.Type" in str(error)
+            else:
+                raise AssertionError("empty required value accepted")
+        grouped = complete | {
+            "desired.resource.001.resourceType": "S3.Bucket",
+            "desired.row.001-001.property": "S3.Bucket.BucketName",
+            "desired.row.001-002.property": "S3.BucketPolicy.PolicyDocument",
+            "desired.row.001-002.value": "",
+        }
+        try:
+            MODULE.validate_required_properties(grouped, root)
+        except ValueError as error:
+            assert "S3.BucketPolicy.PolicyDocument" in str(error)
+            assert "S3.BucketPolicy.Bucket" not in str(error)
+        else:
+            raise AssertionError("empty grouped required value accepted")
+        # An unrelated valid service still saves while the incomplete one fails.
+        stack = model.with_name("cloudformation-stacks.properties")
+        stack.write_text("desired.stack.001.name=cfn-stack-app-dev-general-01\n"
+                         "desired.stack.001.template=app.yaml\n"
+                         "desired.stack.001.parameters=app.json\n"
+                         "desired.stack.001.deployOrder=10\n"
+                         "display.stack.001.comment=アプリケーションのstack\n")
+        with redirect_stdout(io.StringIO()):
+            try:
+                MODULE.sync(root, True, "dev", "123456789012")
+            except ValueError as error:
+                assert "1 services succeeded; 1 services failed" in str(error), error
+            else:
+                raise AssertionError("partial failure accepted")
+        assert design.with_name("cloudformation-stacks.md").is_file()
+        assert design.read_text() == "existing Markdown\n" and artifact.read_text() == "existing JSON\n"
+    print("Required-property preflight: PASS (new/existing, read/write, direct renderer, partial success)")
+
+
 def main() -> None:
+    check_required_preflight()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         materials = root / "framework" / "materials" / "aws"

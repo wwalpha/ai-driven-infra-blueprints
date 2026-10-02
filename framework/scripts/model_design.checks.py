@@ -254,7 +254,17 @@ def check_naming_exclusions():
             path = root / f"docs/designs/dev/123456789012/{service}.md"
             for prop in (field, kind + "." + field):
                 assert not naming_errors(root, kind, [["1", prop, "`example`", "名前"]])
-            values = model(service, kind, "example", [(field, "`example`", "名前")])
+            required_rows = {
+                "IAM.ManagedPolicy": [("PolicyDocument", '`{"Version":"2012-10-17","Statement":[]}`', "権限の文書")],
+                "IAM.InstanceProfile": [("Roles", '`["example"]`', "所属するロール")],
+                "Config.ConfigurationRecorder": [("RoleARN", "[example](iam.md#iam-example)", "記録に使用するロール")],
+                "Config.DeliveryChannel": [("S3BucketName", "`example`", "配信先のバケット")],
+                "Glue.Connection": [("CatalogId", "`123456789012`", "カタログのID"),
+                                    ("ConnectionInput", '`{"Name":"example","ConnectionType":"JDBC"}`', "接続の設定")],
+                "GuardDuty.Detector": [("Enable", "`true`", "検出の有効化")],
+                "Route53.RecordSet": [("Type", "`A`", "レコードの種類")],
+            }
+            values = model(service, kind, "example", [(field, "`example`", "名前"), *required_rows.get(kind, [])])
             output = roundtrip(path, values, root)
             metadata = {path: (service, (kind,))}
             validator = validator_module.Validator(root)
@@ -571,21 +581,26 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
         build = model("codebuild", "CodeBuild.Project", "cbld-app-dev-build", [("Name", "`cbld-app-dev-build`", "projectの名前"), ("Environment.EnvironmentVariables[].Name", "`TARGET`", "実行対象"), ("Environment.EnvironmentVariables[].Type", "`PLAINTEXT`", "実行対象"), ("Environment.EnvironmentVariables[].Value", "`cde`", "実行対象")])
+        build.update({"desired.row.001-005.property": "CodeBuild.Project.ServiceRole", "desired.row.001-005.value": "[BuildRole](iam.md#iam-build-role)", "desired.row.001-005.comment": "実行に使用するロール"})
         output = roundtrip(base / "codebuild.md", build, ROOT)
         assert "Environment.Variables.TARGET" in output and "EnvironmentVariables[]" not in output
         detector = model("guardduty", "GuardDuty.Detector", "security-detector", [("Features[].Name", "`S3_DATA_EVENTS`", "検査を有効にする設定"), ("Features[].Status", "`ENABLED`", "検査を有効にする設定")], "Detector", "security-detector")
+        detector.update({"desired.row.001-003.property": "GuardDuty.Detector.Enable", "desired.row.001-003.value": "`true`", "desired.row.001-003.comment": "検出の有効化"})
         output = roundtrip(base / "guardduty.md", detector, ROOT)
         assert "Features.S3_DATA_EVENTS" in output
         trail = model("cloudtrail", "CloudTrail.Trail", "audit", [("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"), ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket")], "Trail", "audit")
+        trail.update({"desired.row.001-003.property": "CloudTrail.Trail.IsLogging", "desired.row.001-003.value": "`true`", "desired.row.001-003.comment": "記録の有効化",
+                      "desired.row.001-004.property": "CloudTrail.Trail.S3BucketName", "desired.row.001-004.value": "`audit-logs`", "desired.row.001-004.comment": "記録先のバケット"})
         output = roundtrip(base / "cloudtrail.md", trail, ROOT)
         assert "EventSelectors.DataResources[1].S3" in output and "All current and future" in output
         pipeline = model("codepipeline", "CodePipeline.Pipeline", "cpln-app-dev-build", [("Name", "`cpln-app-dev-build`", "pipelineの名前"), ("Stages[].Name", "`Source`", "入力を取得するstage"), ("Stages[].Actions[].Name", "`Source`", "入力を取得するaction"), ("Stages[].Actions[].Configuration", '`{"BranchName":"main","PollForSourceChanges":"false"}`', "BranchName: 対象branch / PollForSourceChanges: polling設定"), ("Stages[].Name", "`Build`", "buildを実行するstage"), ("Stages[].Actions[].Name", "`BuildOne`", "最初のbuild"), ("Stages[].Actions[].Configuration", '`{"ProjectName":"one"}`', "ProjectName: 実行するproject"), ("Stages[].Actions[].Name", "`BuildTwo`", "次のbuild")])
+        pipeline.update({"desired.row.001-009.property": "CodePipeline.Pipeline.RoleArn", "desired.row.001-009.value": "[PipelineRole](iam.md#iam-pipeline-role)", "desired.row.001-009.comment": "実行に使用するロール"})
         output = roundtrip(base / "codepipeline.md", pipeline, ROOT)
         assert "Stages[1].Actions.Configuration.BranchName" in output
         assert "Stages[2].Actions[1].Name" in output and "Stages[2].Actions[2].Name" in output
-        pipeline["desired.row.001-009.property"] = "CodePipeline.Pipeline.Tags[].Key"
-        pipeline["desired.row.001-009.value"] = "`purpose`"
-        pipeline["desired.row.001-009.comment"] = "タグのキー"
+        pipeline["desired.row.001-010.property"] = "CodePipeline.Pipeline.Tags[].Key"
+        pipeline["desired.row.001-010.value"] = "`purpose`"
+        pipeline["desired.row.001-010.comment"] = "タグのキー"
         roundtrip(base / "codepipeline.md", pipeline, ROOT)
         hub = model("securityhub", "SecurityHub.Hub", "security-hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub", "security-hub")
         roundtrip(base / "securityhub.md", hub, ROOT)

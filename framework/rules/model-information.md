@@ -51,7 +51,7 @@ display.stack.002.comment=月次集計jobを配置するstack
 
 1. 保存前に作成対象resourceの命名ルール有無、catalog選択項目、型・制約、未確定値を確認する。
 2. 確定済みの全service model propertiesを先に更新する。通常は`desired.service.*`、`desired.resource.*`、正式propertyの`desired.row.*`と必要な`observed.row.*`を使用する。
-3. service単位でMarkdownとJSON artifactを一時生成し、既存のservice表示parser・schema・参照検証で照合する。失敗serviceの保存済みMarkdown／JSONと修正済みmodelを保持し、他serviceの処理を続ける。参照先が失敗した場合は保存済み表示に戻して参照を再検証する。Markdownからmodelを復元しない。
+3. service単位に正本propertiesからschema/catalogの必須root propertyを直接検証する。不足時はMarkdown／JSON artifactの一時生成にも進まず、resource／propertyを報告し、propertiesと既存生成物を保持する。他serviceは処理を続ける。必須項目が揃ったserviceだけMarkdownとJSON artifactを一時生成し、既存のservice表示parser・schema・参照検証で照合する。失敗serviceの保存済みMarkdown／JSONと修正済みmodelを保持する。参照先が失敗した場合は保存済み表示に戻して参照を再検証する。Markdownからmodelを復元しない。
 4. 成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時は同serviceの生成物だけ元へ戻す。成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
 5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
 
