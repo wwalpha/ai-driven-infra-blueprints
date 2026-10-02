@@ -9,11 +9,18 @@
 ```md
 # CloudFormation stack 詳細設計
 
+## Deployment設定
+
+| Property | Value |
+| --- | ---: |
+| MaxConcurrentStacks | 2 |
+
 ## Stack一覧
-| No. | StackName | Template | Parameters | Comment |
-| ---: | --- | --- | --- | --- |
-| 1 | cfn-stack-app-dev-job-01 | job.yaml | job-01.json | 日次集計jobを配置するstack |
-| 2 | cfn-stack-app-dev-job-02 | job.yaml | job-02.json | 月次集計jobを配置するstack |
+
+| No. | DeployOrder | StackName | Template | Parameters | Comment |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 10 | cfn-stack-app-dev-job-01 | job.yaml | job-01.json | 日次集計jobを配置するstack |
+| 2 | 10 | cfn-stack-app-dev-job-02 | job.yaml | job-02.json | 月次集計jobを配置するstack |
 ```
 
 <a id="service-metadata"></a>

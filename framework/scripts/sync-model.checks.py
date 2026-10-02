@@ -238,11 +238,16 @@ def main() -> None:
         stacks.write_text(
             """# CloudFormation stack 詳細設計
 
+## Deployment設定
+| Property | Value |
+| --- | ---: |
+| MaxConcurrentStacks | 2 |
+
 ## Stack一覧
-| No. | StackName | Template | Parameters | Comment |
-| ---: | --- | --- | --- | --- |
-| 1 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
-| 2 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
+| No. | DeployOrder | StackName | Template | Parameters | Comment |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 10 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
+| 2 | 10 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
 """,
             encoding="utf-8",
         )
@@ -251,6 +256,8 @@ def main() -> None:
         assert "desired.stack.002.template=job.yaml" in stack_model
         assert "desired.stack.002.parameters=job-02.json" in stack_model
         assert "日次jobを配置するstack" not in stack_model and ".comment=" not in stack_model
+        assert "desired.deployment.maxConcurrentStacks=2" in stack_model
+        assert "desired.stack.002.deployOrder=10" in stack_model
         assert "dependsOn" not in stack_model and ".resource." not in stack_model
         with redirect_stdout(io.StringIO()):
             try:

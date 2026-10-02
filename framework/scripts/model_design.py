@@ -11,9 +11,10 @@ from design_layout import (
     CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
     resource_name_fields, resource_anchor,
+    positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
-from design_catalog import design_material_files
+from design_catalog import DesignSchemaCatalog, design_material_files
 
 
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
@@ -51,6 +52,37 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
                 raise ValueError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
     return sorted(groups.items())
+
+
+def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
+    """Validate deployment inputs once for rendering, projection and execution."""
+    limit = positive_integer(values.get("desired.deployment.maxConcurrentStacks", "1"), "MaxConcurrentStacks")
+    stacks = entries(values, "desired.stack.")
+    if not stacks:
+        raise ValueError("stack model is empty")
+    names, parameters = set(), set()
+    allowed = {"name", "template", "parameters", "deployOrder"}
+    for identity, stack in stacks:
+        if set(stack) != allowed:
+            raise ValueError(f"stack {identity} requires only {sorted(allowed)}; explicit DeployOrder migration required")
+        positive_integer(stack["deployOrder"], "DeployOrder")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack["name"]):
+            raise ValueError(f"invalid stack name: {stack['name']}")
+        if stack["name"] in names:
+            raise ValueError(f"duplicate stack name: {stack['name']}")
+        if stack["parameters"] in parameters:
+            raise ValueError(f"parameter file belongs to multiple stacks: {stack['parameters']}")
+        names.add(stack["name"])
+        parameters.add(stack["parameters"])
+        for field, suffixes in (("template", {".yaml", ".yml"}), ("parameters", {".json"})):
+            path = Path(stack[field])
+            if path.name != stack[field] or "\\" in stack[field] or path.suffix not in suffixes:
+                raise ValueError(f"invalid stack {field} filename: {stack[field]}")
+    unknown = [key for key in values if key.startswith("desired.") and
+               not key.startswith("desired.stack.") and key != "desired.deployment.maxConcurrentStacks"]
+    if unknown:
+        raise ValueError(f"unknown stack design fields: {unknown}")
+    return limit, sorted(stacks, key=lambda entry: (int(entry[1]["deployOrder"]), entry[1]["name"]))
 
 
 def naming_targets(root: Path) -> dict[str, set[str]]:
@@ -112,6 +144,33 @@ def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) 
                 raise ValueError(f"observed value requires a desired logical reference: {row_id}")
         rows.append([row_id, row["property"], value, row["comment"]])
     return rows
+
+
+def validate_required_properties(values: dict[str, str], root: Path) -> None:
+    """Reject missing required model inputs before producing any view or artifact."""
+    if entries(values, "desired.stack."):
+        stack_model(values)
+        return
+    catalog = DesignSchemaCatalog(root)
+    errors = []
+    for identity, resource in entries(values, "desired.resource."):
+        kind = resource["resourceType"]
+        rows = resource_rows(values, identity, kind, root)
+        properties = {row[1] for row in rows}
+        if "parentProperty" in resource:
+            properties.add(resource["parentProperty"])
+        kinds = {kind} | {
+            child for child in GROUPED_RESOURCE_TYPES.get(kind, set())
+            if any(prop.startswith(child + ".") for prop in properties)
+        }
+        for schema_kind in sorted(kinds):
+            present = {prop.removeprefix(schema_kind + ".") for prop in properties
+                       if prop.startswith(schema_kind + ".")}
+            missing = catalog.required_design_properties(schema_kind) - present - IMPLICIT_GROUPED_PROPERTIES.get(schema_kind, set())
+            errors.extend(f"{resource['logicalId']}: required provider schema property missing: {schema_kind}.{prop}"
+                          for prop in sorted(missing))
+    if errors:
+        raise ValueError("\n- ".join(errors))
 
 
 def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
@@ -280,17 +339,19 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
 
 def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     """Produce the complete base view; policy tables are rendered afterwards."""
+    validate_required_properties(values, root)
     if path.stem == "cloudformation-stacks":
-        stacks = entries(values, "desired.stack.")
-        if not stacks:
-            raise ValueError("stack model is empty")
+        limit, stacks = stack_model(values)
         for _, stack in stacks:
             if errors := naming_errors(root, "CloudFormation.Stack", [["1", "StackName", stack["name"], "名前"]]):
                 raise ValueError("; ".join(errors))
-        return "\n".join(["# CloudFormation stack 詳細設計", "", "## Stack一覧", *table(
-            ["No.", "StackName", "Template", "Parameters", "Comment"],
-            [[str(number), stack["name"], stack["template"], stack["parameters"], values[f"display.stack.{identity}.comment"]]
-             for number, (identity, stack) in enumerate(stacks, 1)], numbered=True)]) + "\n"
+        return "\n".join(["# CloudFormation stack 詳細設計", "", "## Deployment設定", "",
+            "| Property | Value |", "| --- | ---: |", f"| MaxConcurrentStacks | {limit} |", "",
+            "## Stack一覧", "", "| No. | DeployOrder | StackName | Template | Parameters | Comment |",
+            "| ---: | ---: | --- | --- | --- | --- |", *[
+                "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],
+                    stack["parameters"], values[f"display.stack.{identity}.comment"]]) + " |"
+                for number, (identity, stack) in enumerate(stacks, 1)]]) + "\n"
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")

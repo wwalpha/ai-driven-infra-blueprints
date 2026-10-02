@@ -82,22 +82,40 @@ CloudFormationでは`list-stacks`でtarget account/regionのstackを確認し、
 
 ## Resolve deployment units
 
-CloudFormationではstack詳細設計のStackNameをdeployment unitとして対象template、stack固有parameter file、設計resource対応、dependencyを特定する。同じtemplateを複数stackへdeployできるが、scope内の全StackNameを個別unitとして扱う。文字列中のresource参照もcross-stack dependencyへ含め、exportが未deployならproducer stackを先行unitとする。同時に実行可能なunitはStackName順に列挙する。dependency cycle、stack設計不足、parameter不足、参照先不明がある場合は停止する。
+CloudFormationでは正本stack propertiesと生成Markdownの一致を確認し、StackNameをdeployment identityとしてTemplate、stack固有Parameters、DeployOrder、MaxConcurrentStacksを解決する。同じtemplateの全StackNameを個別unitとして保持する。resource所有、parameter、既存stackとの照合は既存設計とIaCから確認し、曖昧なら停止する。Deployment scopeを自動拡張しない。順序と並列数はcontrollerで強制し、LLMがdependency順を再計算しない。
 
 Terraformでは対象root、workspace、backend、variable inputを既存IaCから特定する。不足または不一致があれば停止する。
 
-preflightはtargetにつき一回だけ実行する。
+初回のpreflightはtargetにつき一回だけ実行する。CloudFormation controllerは起動ごとに同じcheck-deploy-contextの結果を再確認する。
 
 ## Validate and deploy
 
 CloudFormationの場合:
 
-1. 対象全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
-2. 対象全templateへ`aws cloudformation validate-template`を実行する。
-3. 依存元stackがterminal successとなり、必要なobserved valueとexportの確認が終わったunitを実行可能とする。最初は依存元のないunitが実行可能となる。必要なexportが未deployなら、scope内のproducer templateにOutput/Exportが用意されている場合だけproducerのchange setへ進む。deploy phaseではIaCを変更せず、Output/Exportがない場合やproducerがscope外なら実行を止めて実装の前提を報告する。実行可能な各StackNameとそのtemplate・parameter fileで個別のchange setを作成し、add、change、delete、replacementがdeployment scopeと許可範囲内であることを確認する。同じtemplateの別StackNameを一つのchange setとみなさない。
-4. 未承認のdelete/replacementがある場合は次の`Confirm unapproved delete/replacement`に従い、新たなchange setを実行せずhuman確認待ちにする。
-5. 確認済みの実行可能なunitは、事前承認済みまたはchange set作成後にhuman承認された同じchange setを並列で実行する。stackごとにterminal successを確認する。他の独立unitが実行中でも、依存元の成功と必要なobserved valueの反映が終わったunitは手順3へ進める。
-6. 各stackの成功後、stack詳細設計のStackNameと実行したtemplateのLogicalIdから対象resourceを特定し、service詳細設計と照合する。対応が曖昧なら推測せず停止する。必要なnon-ARN identifierをそのstackのOutputsから取得し、対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用する。両方が存在する場合は一致を確認し、model propertiesの正式なidentifier output rowと全参照元のobserved valueを先に更新する。producerでは実際のexport名・値をread-onlyで再確認する。完了したunitごとにmodelからMarkdownを生成・検証し、依存先のchange set作成前に反映する。
+1. `check-deploy-context.py`のpreflightと、StackNameごとのAWS現存・parameter・resource ownership照合を行う。controllerも同じpreflight helperを使い、mutationと再開の直前にaccount/region/engineを再確認する。scopeとtarget、許可はactive taskに次の形式で明記する。
+
+```md
+- Deployment scope: `stack-a`, `stack-b`
+- AWS API execution: `allowed`
+- Deploy/apply: `allowed`
+- Target environment: `<environment>`
+- Target AWS account: `<account>`
+```
+
+aliasがある場合はTarget alias行も追加し、その値をbacktickで囲む。
+
+2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeのcfn-lint、validate-templateはcontrollerが先に行い、各unitでImportValue実Export確認、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。これらのCLIをpromptから別方式で実行して二重管理しない。
+
+```console
+python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]
+# aliasなしでは --alias の代わりに --aws-account-id <aws-account-id>
+```
+
+3. controllerは1 DeployOrder groupずつ実行する。同group内だけMaxConcurrentStacksまで実行し、空いたslotへ次stackを開始する。producer成功前にconsumerのchange setを作成しない。list-exportsに必要なExportがない場合やscope内producerが未成功ならBLOCKEDとし、設計された順序とImport/Export関係の矛盾を報告する。scope外のproducerを自動追加しない。
+4. 未承認delete/replacementがあればcontrollerはBLOCKEDとして同じchange set IDと変更のfingerprintをrepository外sessionへ保持し、他のRUNNING stackをterminalまで確認する。次の`Confirm unapproved delete/replacement`の影響説明・human確認を行う。`--approve-change-set`は人間がそのchange set全体を承認した場合だけ渡す。事前承認も実change setの全破壊変更との一致を確認してから同じ方法で再開する。
+5. 承認後は同じtaskと同じsessionへ`--resume --approve-change-set <保存されたchange-set-id>`を追加する。controllerが同一ID、CREATE_COMPLETE/AVAILABLE、変更fingerprintを再取得・照合して実行する。変更/失効なら以前の承認で実行しない。成功済みstackを再実行しない。
+6. GROUP_COMPLETEでは同groupのSUCCESS stackごとに既存`observed-values.md`のOutputs優先・PhysicalResourceId fallback・catalog対応・全参照伝播を行い、sync-modelで生成・検証する。必要なExportの実名・値を確認する。controllerはobserved値の対応付けやmodel更新を再実装しない。これらが完了した場合だけ同じcommandへ`--resume`を追加し次groupへ進む。failure/blockerがあれば後続groupへ進まず、成功分のobservedだけ反映する。
+7. sessionはtarget/design/scopeとstackごとのtemplate/parameterのdigestを保持する。deploy phaseではIaCの変更を一切許さず、update phaseでは未着手NOT_STARTED stackの承認済み設計内のIaC変更だけを再検証して受け付ける。準備済み・実行済みstackのIaCとtarget/design/scopeの変更は再開を拒否する。status/StackId/ARN/履歴はmodelやGitへ保存しない。sessionは同taskの継続用であり成功済みstackを自動rollback/delete/redeployしない。RUNNING取得エラーでは新規起動を止めterminal確認を続ける。controllerへの割り込み後は同じsessionだけで再開し、別sessionの同時実行を行わない。target lockで重複controllerを拒否する。異常終了でlockが残った場合は実行中controllerがないことを確認してからlockだけを除去し、同じsessionを再開する。
 
 Terraformの場合:
 

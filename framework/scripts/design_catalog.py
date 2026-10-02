@@ -35,6 +35,16 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
             raise ValueError(f"{resource_type}: CloudFormation unsupported; implementation remains incomplete if this resource is in scope")
         return super().schema(resource_type)["typeName"]
 
+    def required_design_properties(self, resource_type: str) -> set[str]:
+        selected = {
+            line.partition("=")[0].removeprefix(resource_type + ".")
+            for path in design_material_files(self.root)
+            if path.stem.replace("_", ".", 1) == resource_type
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.startswith("#")
+        }
+        return self.required_properties(resource_type) & selected
+
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
         if resource_type not in self.api_schemas:
             return super().literal_errors(resource_type, property_path, raw_value)

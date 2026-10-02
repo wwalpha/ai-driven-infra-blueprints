@@ -3,7 +3,7 @@
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - human-readable current designは`docs/designs/<environment>/<target-directory>/`に置く。
 - machine-readable service modelは`model/<environment>/<target-directory>/`に置く。
-- CloudFormation stack詳細設計は`cloudformation-stacks.properties`の`desired.stack.*`に各stackの名前、templateのファイル名、parameterのファイル名を保持し、同じstemのMarkdownを生成する。一覧の`No.`は生成し、`Comment`は`display.stack.*.comment`に保持する。stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
+- CloudFormation stack詳細設計は`cloudformation-stacks.properties`の`desired.stack.*`に各stackの名前、templateのファイル名、parameterのファイル名、正の整数`deployOrder`を保持し、target policyは`desired.deployment.maxConcurrentStacks`（整数1以上）へ保持する。同じstemのMarkdownを生成する。`DeployOrder`はstack instanceごとの正式設計値であり、template identityやdependency fieldではない。`project.json`へpolicyを追加しない。一覧の`No.`は生成し、`Comment`は`display.stack.*.comment`に保持する。stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
 - catalog propertiesは選択可能項目の正本、model propertiesはdesired value・observed valueの正本とする。MarkdownとJSON artifactは表示・利用用の生成物とする。
 - Codexは確定済み設計を`model/`へ先に保存する。humanによるmodel propertiesの手動修正も設計入力として扱う。`framework/scripts/sync-model.py --write`はmodelを上書きせず、Markdown／JSON artifactを生成する。
 - Markdownと正本modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
@@ -24,6 +24,28 @@
 - リソース一覧のResourceNameとCommentの生成済みtable、`<!-- policy-tables:start -->`〜`<!-- policy-tables:end -->`およびIAMの`<!-- iam-policy-tables:start -->`〜`<!-- iam-policy-tables:end -->`内の表示はmodelへ重複保持しない。policy anchor、見出し、信頼ポリシーのVersion表、Statement表、設定表を`desired.note.*`や追加resourceとして保存しない。
 - 全serviceで派生表示のProperty/JSON/Version/Idの独立metadata行を省略する。元の設定rowのpropertyとJSONリンク、およびVersion/Idを含むJSON全体のcanonical hashは引き続きmodelへ保持する。
 - policy変更時は先にmodelの`document`を更新し、`sync-model.py --write`でJSON artifactとpolicy表を同時に生成する。local loopはproperties・JSON・表示の不一致を拒否する。
+
+## CloudFormation deployment policy
+
+```properties
+desired.deployment.maxConcurrentStacks=2
+desired.stack.001.name=cfn-stack-app-dev-job-01
+desired.stack.001.template=job.yaml
+desired.stack.001.parameters=job-01.json
+desired.stack.001.deployOrder=10
+display.stack.001.comment=日次集計jobを配置するstack
+desired.stack.002.name=cfn-stack-app-dev-job-02
+desired.stack.002.template=job.yaml
+desired.stack.002.parameters=job-02.json
+desired.stack.002.deployOrder=10
+display.stack.002.comment=月次集計jobを配置するstack
+```
+
+- StackNameをidentityとし、同一templateを持つ別stackをまとめない。parameter fileはstack固有とする。
+- `MaxConcurrentStacks`省略時の実効値は1。生成Markdownは実効値1を明示する。新規設計では明記する。
+- `DeployOrder`未設定の旧modelと旧5列Markdownはgeneration/validation/controllerで拒否する。通常deployで一覧順から推測・自動移行しない。humanが順序を確定し、明示されたdesign/migration taskで既存entry ID、name、template、parameter、commentを保持して値を追加し、sync-modelで再生成する。既存modelをMarkdown importで上書きしない。
+- 同じDeployOrderと同じTemplateは許可する。`DependsOn`、`AfterStack`、`DependsOnStack`、`Dependencies`を追加しない。
+- 表示はDeployOrder数値昇順、StackName文字列昇順とし、No.は表示用の連番。model entry IDやcommentの所属を並べ替えで変更しない。
 
 ## Properties先行更新と表示生成
 

@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from model_design import properties, markdown_for, naming_errors
+from model_design import properties, markdown_for, naming_errors, stack_model
+from design_layout import stack_design, stack_deployment_policy
 from design_layout import resource_display_name
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
@@ -322,7 +323,69 @@ def check_security_naming():
     print("Security naming: PASS (15 patterns, catalog/schema, formal/short properties, TGW and optional names)")
 
 
+def check_stack_policy():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
+            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        values = {"desired.deployment.maxConcurrentStacks": "3"}
+        for i, (name, order) in enumerate((("app-b", "20"), ("network", "10"), ("app-a", "20")), 1):
+            key = f"{i:03d}"
+            values.update({f"desired.stack.{key}.name": f"cfn-stack-app-dev-{name}-01",
+                           f"desired.stack.{key}.template": "app.yaml" if order == "20" else "network.yaml",
+                           f"desired.stack.{key}.parameters": name + ".json",
+                           f"desired.stack.{key}.deployOrder": order,
+                           f"display.stack.{key}.comment": name + "を配置するstack"})
+        source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+        source.parent.mkdir(parents=True)
+        source.write_text(text(values))
+        before = source.read_bytes()
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert source.read_bytes() == before
+        path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+        assert stack_deployment_policy(path) == 3
+        stacks = stack_design(path)
+        assert [s["deployOrder"] for s in stacks] == ["10", "20", "20"]
+        assert [s["parameters"] for s in stacks] == ["network.json", "app-a.json", "app-b.json"]
+        assert [s["comment"] for s in stacks] == ["networkを配置するstack", "app-aを配置するstack", "app-bを配置するstack"]
+        assert stacks[1]["template"] == stacks[2]["template"]
+        projected = properties(SYNC.model_for(path, root))
+        assert stack_model(projected)[0] == stack_model(values)[0]
+        assert [s for _, s in stack_model(projected)[1]] == [s for _, s in stack_model(values)[1]]
+        assert "dependsOn" not in projected
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        # Default policy generates an explicit 1 without writing the model.
+        del values["desired.deployment.maxConcurrentStacks"]
+        source.write_text(text(values))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert stack_deployment_policy(path) == 1
+        saved = path.read_bytes()
+        for field, value in (("desired.stack.001.deployOrder", "0"), ("desired.stack.001.deployOrder", "-1"),
+                             ("desired.stack.001.deployOrder", "abc"), ("desired.deployment.maxConcurrentStacks", "0"),
+                             ("desired.deployment.maxConcurrentStacks", "-1"), ("desired.deployment.maxConcurrentStacks", "1.5")):
+            source.write_text(text(values | {field: value}))
+            try:
+                SYNC.sync(root, True, "dev", "123456789012")
+            except ValueError as error:
+                assert "integer >= 1" in str(error), error
+            else:
+                raise AssertionError((field, value))
+            assert path.read_bytes() == saved
+        del values["desired.stack.001.deployOrder"]
+        source.write_text(text(values))
+        try:
+            SYNC.sync(root, True, "dev", "123456789012")
+        except ValueError as error:
+            assert "migration required" in str(error)
+        else:
+            raise AssertionError("legacy order silently inferred")
+        assert path.read_bytes() == saved
+    print("Stack policy model checks: PASS (sorting, identity, comments, default 1, invalid policy, legacy fail closed)")
+
+
 def main():
+    check_stack_policy()
     check_security_naming()
     check_naming_exclusions()
     check_codebuild_required_name()

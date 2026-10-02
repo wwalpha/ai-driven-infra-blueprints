@@ -42,7 +42,7 @@ CLOUDTRAIL_DATA_RESOURCE = re.compile(r"^EventSelectors\.DataResources\[([1-9]\d
 CLOUDTRAIL_RESOURCE_TYPES = {"S3": "AWS::S3::Object", "Lambda": "AWS::Lambda::Function"}
 CLOUDTRAIL_FORMAL_DATA_RESOURCE = "CloudTrail.Trail.EventSelectors[].DataResources[]."
 STACK_DESIGN = "cloudformation-stacks.md"
-STACK_HEADER = "| No. | StackName | Template | Parameters | Comment |"
+STACK_HEADER = "| No. | DeployOrder | StackName | Template | Parameters | Comment |"
 SECURITY_GROUP_TYPES = {"EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
 RESOURCE_REFERENCE_PROPERTIES = {
     "Config.ConfigurationRecorder.RoleARN": ("IAM.Role", "RoleName"),
@@ -146,22 +146,41 @@ def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | No
     return None
 
 
+def positive_integer(value: str, label: str) -> int:
+    if not re.fullmatch(r"[0-9]+", value) or int(value) < 1:
+        raise ValueError(f"{label} must be an integer >= 1: {value}")
+    return int(value)
+
+
+def stack_deployment_policy(path: Path) -> int:
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    if lines[:4] != ["# CloudFormation stack 詳細設計", "## Deployment設定",
+                     "| Property | Value |", "| --- | ---: |"] or len(lines) < 5:
+        raise ValueError("invalid CloudFormation stack design header; explicit DeployOrder migration required")
+    match = re.fullmatch(r"\| MaxConcurrentStacks \| ([^|]+) \|", lines[4])
+    if not match:
+        raise ValueError("invalid CloudFormation deployment policy")
+    return positive_integer(match.group(1), "MaxConcurrentStacks")
+
+
 def stack_design(path: Path) -> list[dict[str, str]]:
     """Read a target's stack detailed design."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-    if lines[:4] != [
-        "# CloudFormation stack 詳細設計", "## Stack一覧", STACK_HEADER,
-        "| ---: | --- | --- | --- | --- |",
+    stack_deployment_policy(path)
+    if lines[5:8] != [
+        "## Stack一覧", STACK_HEADER,
+        "| ---: | ---: | --- | --- | --- | --- |",
     ]:
         raise ValueError("invalid CloudFormation stack design header")
     result = []
-    for line in lines[4:]:
+    for line in lines[8:]:
         cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if not line.startswith("|") or not line.endswith("|") or len(cells) != 5 or not all(cells):
+        if not line.startswith("|") or not line.endswith("|") or len(cells) != 6 or not all(cells):
             raise ValueError(f"invalid CloudFormation stack design row: {line}")
         if cells[0] != str(len(result) + 1):
             raise ValueError(f"CloudFormation stack design No. must be sequential: {line}")
-        result.append(dict(zip(("name", "template", "parameters", "comment"), cells[1:])))
+        positive_integer(cells[1], "DeployOrder")
+        result.append(dict(zip(("deployOrder", "name", "template", "parameters", "comment"), cells[1:])))
     if not result:
         raise ValueError("CloudFormation stack design table must not be empty")
     return result

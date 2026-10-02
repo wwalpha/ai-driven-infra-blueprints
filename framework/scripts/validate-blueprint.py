@@ -46,6 +46,7 @@ from design_layout import (
     resource_logical_ids,
     STACK_DESIGN,
     stack_design,
+    stack_deployment_policy,
     layout_errors,
     catalog_order_errors,
 )
@@ -800,6 +801,7 @@ class Validator:
                 f"stack design requires CloudFormation target: {self.relative(path)}",
             )
             try:
+                stack_deployment_policy(path)
                 stacks = stack_design(path)
             except ValueError as error:
                 self.check(False, f"invalid stack design: {self.relative(path)}: {error}")
@@ -1404,14 +1406,7 @@ class Validator:
                                 if resource_type
                                 in catalog_property_owners.get(row[1], set())
                             }
-                            selected_required = {
-                                property_name
-                                for property_name in self.schema_catalog.required_properties(
-                                    resource_type
-                                )
-                                if resource_type
-                                in catalog_property_owners.get(property_name, set())
-                            }
+                            selected_required = self.schema_catalog.required_design_properties(resource_type)
                             missing = (
                                 selected_required
                                 - present

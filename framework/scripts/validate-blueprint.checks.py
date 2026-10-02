@@ -1172,11 +1172,16 @@ def check_cloudformation_stack_design() -> None:
         stack_file.write_text(
             """# CloudFormation stack 詳細設計
 
+## Deployment設定
+| Property | Value |
+| --- | ---: |
+| MaxConcurrentStacks | 2 |
+
 ## Stack一覧
-| No. | StackName | Template | Parameters | Comment |
-| ---: | --- | --- | --- | --- |
-| 1 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
-| 2 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
+| No. | DeployOrder | StackName | Template | Parameters | Comment |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 10 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
+| 2 | 10 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
 """,
             encoding="utf-8",
         )
@@ -1204,15 +1209,22 @@ def check_cloudformation_stack_design() -> None:
 
         assert not errors(), errors()
         original = stack_file.read_text(encoding="utf-8")
-        stack_file.write_text(original.replace("| 2 | stack-job-02 | job.yaml", "| 2 | stack-job-01 | job.yaml"), encoding="utf-8")
+        for old, replacement in (("| MaxConcurrentStacks | 2 |", "| MaxConcurrentStacks | 0 |"),
+                                 ("| MaxConcurrentStacks | 2 |", "| MaxConcurrentStacks | -1 |"),
+                                 ("| 1 | 10 |", "| 1 | 0 |"), ("| 1 | 10 |", "| 1 | -1 |"),
+                                 ("| 1 | 10 |", "| 1 | abc |")):
+            stack_file.write_text(original.replace(old, replacement), encoding="utf-8")
+            assert any("integer >= 1" in error for error in errors()), errors()
+        stack_file.write_text(original, encoding="utf-8")
+        stack_file.write_text(original.replace("| 2 | 10 | stack-job-02 | job.yaml", "| 2 | 10 | stack-job-01 | job.yaml"), encoding="utf-8")
         assert any("duplicate stack name" in error for error in errors())
         stack_file.write_text(original.replace("job-02.json", "job-01.json"), encoding="utf-8")
         assert any("parameter file belongs to multiple stacks" in error for error in errors())
         stack_file.write_text(original.replace("| job.yaml |", "| ../job.yaml |", 1), encoding="utf-8")
         assert any("invalid stack template filename" in error for error in errors())
-        stack_file.write_text(original.replace("| No. | StackName | Template | Parameters | Comment |", "| StackName | Template | Parameters |", 1), encoding="utf-8")
+        stack_file.write_text(original.replace("| No. | DeployOrder | StackName | Template | Parameters | Comment |", "| StackName | Template | Parameters |", 1), encoding="utf-8")
         assert any("invalid CloudFormation stack design header" in error for error in errors())
-        stack_file.write_text(original.replace("| 2 | stack-job-02", "| 3 | stack-job-02"), encoding="utf-8")
+        stack_file.write_text(original.replace("| 2 | 10 | stack-job-02", "| 3 | 10 | stack-job-02"), encoding="utf-8")
         assert any("No. must be sequential" in error for error in errors())
         stack_file.write_text(original.replace("| 月次jobを配置するstack |", "| |"), encoding="utf-8")
         assert any("invalid CloudFormation stack design row" in error for error in errors())

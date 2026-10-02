@@ -58,9 +58,9 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 ## CloudFormation stack詳細設計
 
-CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名をここで確定する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
+CloudFormation targetでstackを作成・更新する前に、targetごとに`docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`を作成する。これはservice resourceではなくdeployment unitの詳細設計であり、`AWS::CloudFormation::Stack`（nested stack）を表さない。stack名、使用templateのファイル名、stack固有parameterのファイル名、stack instanceごとの`DeployOrder`、target単位の`MaxConcurrentStacks`をここで確定する。template filenameから順序を推測しない。Import/Export、resource ownership、change/rollback unitから順序を提示し、確定できない場合はdesign taskでhumanへ確認する。accountとregionは`project.json`を参照し、deployment status、StackId/ARN、履歴を保存しない。
 
-`## Stack一覧`は`No. | StackName | Template | Parameters | Comment`の5列とする。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`はmodelの`display.stack.*.comment`から生成し、AWS stack propertyとして扱わない。
+`## Deployment設定`は`Property | Value`の2列で`MaxConcurrentStacks`（整数1以上）を表示する。`## Stack一覧`は`No. | DeployOrder | StackName | Template | Parameters | Comment`の6列とする。`DeployOrder`は正の整数、値の間隔は自由とし、同じ値は並列実行可能な同一groupを意味する。小さいgroupの全stackがterminal successとなってから次groupへ進む。DeployOrder数値昇順、StackName文字列昇順で表示する。1 stack instanceを1 rowで表示し、`No.`は1からの連番、`Comment`はstackの用途・役割を日本語で短く説明する。`Comment`はmodelの`display.stack.*.comment`から生成し、AWS stack propertyとして扱わない。
 
 [CloudFormation stack詳細設計の例](detailed-design-samples.md#cloudformation-stack)
 
