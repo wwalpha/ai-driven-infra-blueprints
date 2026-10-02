@@ -4,6 +4,8 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from contextlib import redirect_stderr
+import io
 import importlib.util
 import json
 import shutil
@@ -963,7 +965,7 @@ def main():
         (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
-        # A failed source retains its old link, so its otherwise valid target must stay.
+        # A failed source retains its old link, but must not block its valid target.
         old_link = "logs.md#logs-cwlogs-net-dev-flow"
         new_link = "logs.md#logs-cwlogs-new-dev-flow"
         vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
@@ -974,15 +976,18 @@ def main():
         iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
         (base / "iam.properties").write_text(text(iam), encoding="utf-8")
         saved_sources = {path: path.read_bytes() for path in sources}
-        error = fails_with("candidate breaks saved reference")
-        assert f"logs.md: candidate breaks saved reference: docs/designs/dev/123456789012/vpc.md: {old_link}" in error
-        assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
+        warnings = io.StringIO()
+        with redirect_stderr(warnings):
+            error = fails_with("missing design anchor")
+        assert "2 services succeeded; 1 services failed" in error
+        assert f"vpc.md: {old_link}" in warnings.getvalue()
+        assert new_link.partition("#")[2] in (docs / "logs.md").read_text()
         assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
         assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
         assert saved_sources == {path: path.read_bytes() for path in sources}
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-        fails_with("candidate breaks saved reference", write=False)
+        fails_with("missing design anchor", write=False)
         assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         assert saved_sources == {path: path.read_bytes() for path in sources}
 
@@ -990,16 +995,21 @@ def main():
         vpc["desired.note.001.text"] = f"参照: [cwlogs-new-dev-flow]({new_link})"
         (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
         saved_sources = {path: path.read_bytes() for path in sources}
-        # A source write failure also retains its old link and rolls back the saved target.
+        # A source write failure retains its old link without rolling back the target.
+        (docs / "logs.md").write_bytes(old_docs[docs / "logs.md"])
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         original_write = Path.write_text
         def fail_source(path, *args, **kwargs):
             if path == docs / "vpc.md":
                 raise OSError("test source write failure")
             return original_write(path, *args, **kwargs)
-        with patch.object(Path, "write_text", fail_source):
-            error = fails_with("candidate breaks saved reference")
-        assert "test source write failure" in error
-        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        warnings = io.StringIO()
+        with patch.object(Path, "write_text", fail_source), redirect_stderr(warnings):
+            error = fails_with("test source write failure")
+        assert "saved reference needs repair" in warnings.getvalue()
+        assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
+        assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
         assert saved_sources == {path: path.read_bytes() for path in sources}
         fails_with("generated Markdown is stale or missing", write=False)
         assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
@@ -1019,14 +1029,18 @@ def main():
         error = fails_with("authoritative model missing")
         assert "candidate breaks saved reference" not in error
         assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
-        # Retained sources without a readable model still protect their valid saved links.
+        # Retained sources without a model also warn without blocking a scoped write.
         retained.write_text(retained.read_text(encoding="utf-8") + f"参照: [ログ]({old_link})\n", encoding="utf-8")
         (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
         snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-        error = fails_with("candidate breaks saved reference")
-        assert "retained.md: " + old_link in error
-        assert "logs-already-missing" not in error
-        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        warnings = io.StringIO()
+        with redirect_stderr(warnings):
+            assert SYNC.sync(root, True, "dev", "123456789012", services=["logs"]) == 0
+        assert "retained.md: " + old_link in warnings.getvalue()
+        assert "logs-already-missing" not in warnings.getvalue()
+        assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
+        assert all(path.read_bytes() == content for path, content in snapshot.items() if path.name != "logs.md")
+        assert SYNC.sync(root, False, "dev", "123456789012", services=["logs"]) == 0
         retained.unlink()
         (base / "logs.properties").write_text(text(logs), encoding="utf-8")
         assert SYNC.sync(root, True, "dev", "123456789012") == 0

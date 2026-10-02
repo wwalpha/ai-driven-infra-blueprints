@@ -1,10 +1,10 @@
-# Secrets Manager RotationScheduleの生成・解析契約修復
+# 保存済み参照によるservice生成の連鎖停止を解消する
 
 ## Task contract
 
 - Task type: `governance`
-- Target: fw内のRotationSchedule grouped child生成・解析・model照合
-- Goal: 確定表示名、identity、observed値、正式SecretIdと親metadataを保持し、生成・解析・検証の不整合を修復する。
+- Target: frameworkのservice単位生成・保存
+- Goal: 検証に成功したserviceを保存し、他serviceの保存済み旧リンク切断は警告とする。参照元修復は後続の別taskで行えるようにする。
 
 ## Validation scope
 
@@ -12,34 +12,31 @@
 
 ## Required changes
 
-- [R1] 現行コードでfixture再現後、RotationScheduleの親内表示、identity、正式SecretIdと親metadataの整合を生成・解析・照合で統一する。不足・矛盾はresource/property付きで拒否する。
-- [R2] 直接関係する表示・model規則を統一し、具体的表示例を変更前に提示する。
-- [R3] 単一・複数親、重複、不正参照、再解析・照合、既存grouping、Secrets Manager/KMS同時生成と既存リンク保護をfixtureで回帰検証する。
+- [R1] candidate breaks saved referenceによる成功serviceの除外・rollbackをやめ、保存後に旧参照切断を警告する。生成service自身の検証、失敗serviceの保存済み表示維持、書込失敗時の保護は維持する。
+- [R2] 旧参照が残っても成功serviceを保存し、後続の参照元修復で整合すること、生成失敗・書込失敗を既存fixtureで回帰検証する。
+- [R4] 元フォルダのRotationSchedule修復を保持し、旧参照切断の回帰検証を警告方式に合わせる。
+- [R3] 他serviceの旧参照切断を許容するservice単位保存規則を記載する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/model_design.py`
-- [R1] `changed:framework/scripts/design_layout.py`
-- [R2] `changed:framework/rules/resource-layout.json`
-- [R2] `changed:framework/rules/detailed-design.md`
-- [R2] `changed:framework/rules/model-information.md`
-- [R3] `changed:framework/scripts/rotation_schedule.checks.py`
-- [R3] `changed:framework/scripts/design_layout.checks.py`
+- [R1] `changed:framework/scripts/sync-model.py`
+- [R2] `changed:framework/scripts/model_design.checks.py`
+- [R2] `changed:framework/scripts/sync-model.checks.py`
+- [R3] `changed:framework/rules/model-information.md`
+
+- [R4] `changed:framework/scripts/rotation_schedule.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/model_design.py`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/validate-blueprint.py`
 - `framework/scripts/rotation_schedule.checks.py`
-- `framework/scripts/design_layout.checks.py`
-- `framework/rules/resource-layout.json`
-- `framework/rules/detailed-design.md`
+- `framework/scripts/sync-model.py`
+- `framework/scripts/model_design.checks.py`
+- `framework/scripts/sync-model.checks.py`
 - `framework/rules/model-information.md`
 
 ## Out of scope
 
-- consumer repositoryへのアクセス・変更・同期、catalog/provider schema変更、IaC、AWS、deploy、scenario、別taskを行わない。
-- fixtureはrepository外の一時directoryに生成する。full loopと差分checkを実行して終了する。
+- 関連serviceの自動追加・一括修復、consumer同期、design/model、catalog、IaC、AWS、scenarioは行わない。
+- 元フォルダへ専用worktreeの差分を反映し、既存のRotationSchedule修復を保持する。
+- fixtureはrepository外の一時directoryに作成する。framework scopeのlocal loopを実行する。

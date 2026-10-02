@@ -7,6 +7,7 @@
 - catalog propertiesは選択可能項目の正本、model propertiesはdesired value・observed valueの正本とする。MarkdownとJSON artifactは表示・利用用の生成物とする。
 - Codexは確定済み設計を`model/`へ先に保存する。humanによるmodel propertiesの手動修正も設計入力として扱う。`framework/scripts/sync-model.py --write`はmodelを上書きせず、Markdown／JSON artifactを生成する。
 - Markdownと正本modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
+- 検証に成功したserviceのanchor変更が他serviceの保存済み旧リンクを切断しても、その成功serviceは保存する。新たな切断は参照元とリンクを警告し、参照元の正本修復・再生成は別taskで行える。関連serviceを自動で生成対象へ追加せず、失敗serviceの保存済み表示を手編集しない。生成対象自身の参照・schema・model照合は引き続き必須とし、切れたリンクを持つserviceを検証対象に含めたlocal loopは失敗する。
 - design taskはmodel propertiesを保存した後、同じcoherent logical changeでMarkdownとJSON artifactを生成する。選択済み既存resourceをread-only取得した場合は必要な非ARN current identifierも`observed.*`へ生成する。
 - infrastructure taskは成功したAWS mutation後にmodelのobserved identifierを更新し、Markdownのidentifier rowと全参照元を生成する。
 - infrastructure `update` phaseはhuman-changed model propertiesをimmutable inputとし、deploy前にMarkdownを生成する。成功したAWS mutation後だけobserved identifierを更新し、Markdownを再生成する。

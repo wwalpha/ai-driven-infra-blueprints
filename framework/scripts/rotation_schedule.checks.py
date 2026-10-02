@@ -170,24 +170,25 @@ def main():
         SYNC.sync(root, True, "dev", "123456789012")
         assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
         saved = {file: file.read_bytes() for file in path.parent.glob("*.md")}
-        # Rejected Secret generation retains a link to the old KMS anchor. The
-        # otherwise-valid KMS rename must not break that saved link.
+        # Rejected Secret generation retains its old link, while valid KMS saves.
         del values["desired.resource.002.parentReference"]
         key = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in key.items()}
         key["display.resource.001.label"] = "app-dev-renamed"
         save()
-        rejects(lambda: SYNC.sync(root, True, "dev", "123456789012"), "Secret1Rotation", "parentReference", "candidate breaks saved reference")
-        assert saved == {file: file.read_bytes() for file in saved}
+        rejects(lambda: SYNC.sync(root, True, "dev", "123456789012"), "Secret1Rotation", "parentReference")
+        assert path.read_bytes() == saved[path]
+        assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
+        assert "kms-app-dev-renamed" in (path.parent / "kms.md").read_text()
         assert (models / "secretsmanager.properties").read_text() == HELPERS.text(values)
-        # With both services valid, move both links in the same generation.
+        # Repair only the source in a later task against the already saved KMS view.
         values["desired.resource.002.parentReference"] = "[Secret1](#secretsmanager-app-dev-secret-1)"
         values = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in values.items()}
         save()
-        SYNC.sync(root, True, "dev", "123456789012")
+        SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
         SYNC.sync(root, False, "dev", "123456789012")
         assert "kms-app-dev-key" not in path.read_text()
         assert path.read_text().count("[key-current](kms.md#kms-app-dev-renamed)") == 2
-    print("rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and saved-link protection)")
+    print("rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and deferred source repair)")
 
 
 if __name__ == "__main__":

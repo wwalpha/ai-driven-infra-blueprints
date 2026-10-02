@@ -11,7 +11,7 @@ import io
 import json
 import shutil
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 from design_catalog import property_paths_with_parents
@@ -41,14 +41,15 @@ def check_failure_counts() -> None:
                 raise ValueError("fixture render failure")
             return "generated\n"
 
-        # Five rejected references produce five diagnostics for one failed service.
+        # Retained references warn without adding a failed service or failure diagnostics.
         broken = {f"reference-{number}": docs / "service-09.md" for number in range(5)}
         for extra_inputs in (False, True):
             if extra_inputs:
                 (models / "invalid.properties").write_text("invalid properties\n")
                 (docs / "orphan.md").write_text("saved Markdown\n")
             for write in (False, True):
-                with patch.object(MODULE, "validate_required_properties"), \
+                warnings = io.StringIO()
+                with redirect_stderr(warnings), patch.object(MODULE, "validate_required_properties"), \
                      patch.object(MODULE, "markdown_for", side_effect=render), \
                      patch.object(MODULE, "rendered_design", return_value="generated\n"), \
                      patch.object(MODULE, "validate_views"), \
@@ -57,16 +58,17 @@ def check_failure_counts() -> None:
                     try:
                         MODULE.sync(root, write, "dev", "non-cde")
                     except ValueError as error:
-                        failed, diagnostics = (12, 16) if extra_inputs else (10, 14)
-                        assert str(error).splitlines()[0] == f"7 services succeeded; {failed} services failed; {diagnostics} diagnostics", error
+                        failed, diagnostics = (11, 11) if extra_inputs else (9, 9)
+                        assert str(error).splitlines()[0] == f"8 services succeeded; {failed} services failed; {diagnostics} diagnostics", error
                         assert len(str(error).splitlines()) == diagnostics + 1, error
-                        assert str(error).count("candidate breaks saved reference") == 5, error
+                        assert "saved reference" not in str(error), error
+                        assert warnings.getvalue().count("saved reference needs repair") == (5 if write else 0)
                         if extra_inputs:
                             assert "invalid or duplicate model property" in str(error), error
                             assert "authoritative model missing" in str(error), error
                     else:
                         raise AssertionError("partial generation failure accepted")
-    print("Failure counts: PASS (17 models, 7 successes, 10 failed services, 14 diagnostics, invalid/missing models, read/write)")
+    print("Failure counts: PASS (17 models, 8 successes, 9 failed services, 9 diagnostics, invalid/missing models, read/write)")
 
 
 def check_required_preflight() -> None:
