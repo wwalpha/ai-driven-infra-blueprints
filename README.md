@@ -306,6 +306,46 @@ python framework/scripts/blueprint-loop.py --mode local
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
+### Local loopの時間計測
+
+追加指定なしでも、実行ごとにOS一時directoryの`blueprint-loop-*`へ計測ログを保存し、開始時に絶対pathを表示します。継続保存したい場合はrepository外の親directoryを指定します。
+
+```console
+python framework/scripts/blueprint-loop.py --mode local --log-dir /tmp/blueprint-loop-logs
+```
+
+Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換えてください。一時directoryはOSが削除する場合があるため、長期保存にはrepository外の専用directoryを使用します。各実行は別directoryを作り、以前のログを上書きしません。
+
+| File | 内容 |
+| --- | --- |
+| `timing.jsonl` | loopとcheckの開始・終了UTC時刻、経過秒数、PID、終了code、成否。30秒ごとの稼働記録も含む |
+| `01-validate-blueprint.py.log`など | check別のstdout/stderr。実行中から直接fileへ保存し、check終了時にterminalにも表示 |
+
+所要時間はmonotonic clockで計測します。terminalにはcheckの開始・終了と、30秒ごとのcheck名・経過秒数・PIDが表示されます。稼働表示は子プロセスの未終了を示し、処理の進捗率を示しません。強制終了やOS停止では`loop_end`を残せない場合があります。`loop_end`がなければ未完了として扱います。
+
+2026-10-02にこのframework repository（Mac、未初期化template、既存の全15 focused check）で変更前のlocal loopを計測した結果は、全体38.6秒、repository validator 0.56秒でした。主な内訳は`design_catalog.checks.py`が14.2秒、`model_design.checks.py`が9.6秒、`policy_tables.checks.py`が5.0秒です。別のprofile実行では、`design_catalog.checks.py`の42ケースがmodel検証を子プロセスで繰り返し起動し、その待機が12.8秒を占めました。30〜60分の現象はこの環境では未再現です。consumer repositoryや別OSの時間とは区別してください。
+
+同日の`viewcard-code`の読み取り計測では、全体202.2秒、repository validator 164.6秒、17 focused checkの合計37.7秒でした。設計Markdownは97 file、modelは99 fileあり、変更対象以外も含めて全targetを検証します。この時点のvalidatorは既存1451件の診断でFAILし、focused checkも3件がFAILしました（consumer側の2 checkのassert guard不足、IAM fixture不整合、当該PythonのPyYAML不足）。性能調査でこれらは修正していません。計測前後のrepository file内容は一致しました。30〜60分の現象はこの計測でも未再現です。
+
+`viewcard-code`のdev/cdeだけを別途read-onlyでprofileすると、`validate_views`が33回、`linked_resource`が6306回、`expanded_design`が1757回呼ばれ、参照先Markdownの再解析が繰り返されていました。`formal_property`は496495回呼ばれ、Pythonで全resource prefixを順番に調べる処理がprofile上で26.1秒を占めました（profileの計測負荷を含み、これらの時間は親子関係があるため合算できません）。このprefix判定だけを、起動時に構築したtupleに対する標準の`str.startswith(tuple)`へ変更しました。未知prefix・display alias・完全修飾propertyの扱いを維持し、全体の検証結果をcacheで省略しません。参照先の再解析を減らす変更は未実施です。
+
+prefix判定の176入力×500回×3試行の比較では、中央値が0.517秒から0.028秒となり、この判定部分だけ約18.5倍速くなりました。loop全体の高速化倍率やconsumerへ同期後の所要時間を示す値ではありません。
+
+Python checkの処理にはLLMのmodel/reasoning設定を渡していません。luna/maxで遅く見える場合も、まず`timing.jsonl`の実行時間とCopilot側のmodel request・tool待機・再実行の時間を分けて確認します。特定checkだけが遅ければ、例えば次のように標準のprofilerでそのcheckを計測できます。check名とrepository外の保存先は実測結果に合わせて置き換えます。元のloopが終了してから実行してください。
+
+```console
+python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/design_catalog.checks.py
+python -m pstats /tmp/design-catalog.prof
+```
+
+### VS Code GitHub Copilot Autopilotで待機が止まる場合
+
+1. **実行中のloopを増やさない。** 起動時のログdirectoryを控え、同じ実行の`timing.jsonl`とcheck別`.log`を確認します。toolのtimeoutだけではPythonの停止と断定しません。PIDを確認する際はcommandと開始時刻も照合します。実行中は検証inputを編集しません。
+2. **コマンド追跡の終了を切り分ける。** VS Codeの`chat.tools.terminal.enforceTimeoutFromModel`（Experimental）は、agent指定timeoutでコマンドの追跡を終了し、それまでの出力を返す設定です。利用中の版にこの設定があれば、追跡timeoutが原因と確認できた場合に限りworkspace単位で`false`を比較検証し、確認後は元へ戻します。session切断を直す設定ではありません。[公式設定一覧](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-tools)
+3. **通常のterminalから実行する。** 長時間checkはhumanがVS Codeの通常terminalまたはOSのterminalで上記commandを実行し、Copilotには表示されたログpathの確認を依頼します。これでagentのtool待機への依存を減らします。OSのsleepやterminal終了に対する存続は別途確認が必要です。
+4. **session停止の証拠を確認する。** `Developer: Set Log Level`でGitHub Copilot / GitHub Copilot Chatを一時的にTraceにし、`Output: Show Output Channels`から同じ時刻のerrorを確認します。Agent Debug Logsがある版ではmodel requestとtool callも照合し、request limit、通信error、extension/terminal異常を分けます。`chat.agent.maxRequests`はrequest回数の上限であり、実行時間の上限ではありません。回数上限が実際に報告された場合だけ設定を見直します。[公式診断手順](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting)、[request設定](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-behavior)
+5. **同じtaskで結果を確認する。** 切断後は`tasks/active.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
+
 local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
 設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。

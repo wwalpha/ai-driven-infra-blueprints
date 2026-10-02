@@ -74,6 +74,16 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 `framework/scripts/blueprint-loop.py`はrepository validatorの成否にかかわらず、`framework/scripts/*.checks.py`を名前順に全件実行する。Python最適化によるassert無効化を防ぎ、全失敗を報告する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
 
+### 時間計測と長時間実行
+
+- local loopは実行ごとにrepository外のOS一時directoryへ`blueprint-loop-*`directoryを作成し、絶対pathを開始時に表示する。`--log-dir <repository外のdirectory>`で保存先の親directoryを指定できる。同時・再実行時も既存ログを上書きしない。一時directoryはOSの清掃対象なので、継続保存が必要な場合はrepository外の保存先を指定する。
+- `timing.jsonl`へUTC時刻、repository、Python launcher、loop/checkのPID、開始・終了、check別・全体の経過秒数、終了code、成否を逐次記録する。所要時間にはmonotonic clockを使用し、失敗後も全checkを実行する。checkのstdout/stderrはcheck別`.log`へ直接保存し、check終了時にterminalへ表示する。
+- checkが30秒以上動いている場合は30秒ごとにcheck名・経過時間・PIDをterminalと`timing.jsonl`へ表示・保存する。これは子プロセスが未終了であることを示す稼働表示であり、処理の進捗率やCopilot sessionの延命を保証しない。
+- エージェントはlocal loopを一度だけ起動し、既存実行のログとPIDを追跡する。toolの待機・追跡timeoutだけで再起動しない。check終了までrepositoryのinputを変更せず、同じrepositoryのloopを重複起動しない。無変更・未完了の実行へfocused checkやfull loopを追加しない。
+- session切断時は同じactive taskを読み直し、開始時のログpathを確認する。`loop_end`の成否・check終了code・全checkの実行と検証中のinput不変を確認する。`loop_end`欠落は未完了であり、heartbeatがあるだけではPASSにしない。PIDは再利用されるためcommand・実行開始時刻も照合する。実プロセスが終了済みで、完了記録がない場合だけ全loopを再実行する。inputが変わった場合は以前のPASSを流用しない。
+- VS Code Copilotのコマンド追跡が長時間実行に追いつかない場合は、humanが通常のterminalから同じlocal loopを実行し、エージェントは保存済みログを確認する。設定・session error・terminal追跡の切り分けはREADMEの手順に従い、検証を省略して回避しない。
+- この時間計測ログはnon-scenario taskで明示的に許可されたローカル診断出力として扱い、`tasks/`や`tests/results/`へ保存・commitしない。
+
 ## Design task completion
 
 1. active promptで指定された`model/**`の正本propertiesを更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。

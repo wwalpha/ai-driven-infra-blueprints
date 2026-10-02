@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from design_layout import LAYOUTS, expanded_design, expanded_display_rows, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
+from design_layout import DISPLAY_PROPERTY_ALIASES, LAYOUTS, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
 
 
@@ -770,6 +770,13 @@ def check_resource_name_headings() -> None:
 
 
 def main() -> None:
+    for kind in LAYOUTS:
+        assert formal_property(kind + ".Name", "S3.Bucket") == kind + ".Name"
+        assert formal_property(kind + "Extra.Name", "S3.Bucket") == "S3.Bucket." + kind + "Extra.Name"
+    for alias in DISPLAY_PROPERTY_ALIASES:
+        assert formal_property(alias, "S3.Bucket") == alias
+    assert formal_property("BucketName", "S3.Bucket") == "S3.Bucket.BucketName"
+    assert formal_property("BucketName", "") == "BucketName"
     check_resource_name_headings()
     assert not layout_errors(REPOSITORY)
     policy_rows = [

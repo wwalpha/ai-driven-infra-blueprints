@@ -12,6 +12,7 @@ from security_group_tables import security_group_table_lines
 
 LAYOUT_PATH = Path(__file__).resolve().parents[1] / "rules" / "resource-layout.json"
 LAYOUTS = json.loads(LAYOUT_PATH.read_text(encoding="utf-8"))
+RESOURCE_PROPERTY_PREFIXES = tuple(name + "." for name in LAYOUTS)
 GROUPED = {name: rule for name, rule in LAYOUTS.items() if isinstance(rule, dict)}
 GROUPED_RESOURCE_TYPES = {
     rule["parent"]: {name for name, child in GROUPED.items() if child["parent"] == rule["parent"]}
@@ -302,9 +303,7 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
 
 def formal_property(display: str, resource_type: str) -> str:
     """Restore the resource type omitted from a detail table's Property column."""
-    if display in DISPLAY_PROPERTY_ALIASES or any(
-        display.startswith(name + ".") for name in LAYOUTS
-    ):
+    if display in DISPLAY_PROPERTY_ALIASES or display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display
 
