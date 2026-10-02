@@ -14,6 +14,8 @@ import sys
 import tempfile
 import time
 
+from validation_scope import active_scope
+
 
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
                  directory: Path, heartbeat_seconds: float = 30) -> int:
@@ -104,10 +106,25 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("local",), required=True)
+    parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all validator tests")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
+    try:
+        full = active_scope(root, args.all) is None
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    checks = sorted((root / "framework" / "scripts").glob("*.checks.py"))
+    if not full:
+        changed = set()
+        for arguments in (["diff", "--name-only"], ["diff", "--cached", "--name-only"], ["ls-files", "--others", "--exclude-standard"]):
+            result = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True)
+            if result.returncode != 0:
+                parser.error("cannot determine changed paths for focused checks")
+            changed.update(result.stdout.splitlines())
+        checks = [path for path in checks if path.relative_to(root).as_posix() in changed
+                  or path.with_name(path.name.replace(".checks.py", ".py")).relative_to(root).as_posix() in changed]
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         parser.error("--log-dir must be outside the repository")
@@ -119,10 +136,11 @@ def main() -> int:
             str(root / "framework" / "scripts" / "validate-blueprint.py"),
             "--repository-root",
             str(root),
+            *(["--all"] if full else []),
         ],
         *(
             [sys.executable, str(path)]
-            for path in sorted((root / "framework" / "scripts").glob("*.checks.py"))
+            for path in checks
         ),
     ]
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0",

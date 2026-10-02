@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import fnmatch
 import json
@@ -56,6 +57,7 @@ from design_layout import (
 )
 from security_group_tables import security_group_table_lines
 from model_design import entries, naming_errors, properties
+from validation_scope import active_scope, reference_lines, scoped_files
 
 
 REQUIRED_RULES = {
@@ -152,7 +154,9 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, scope=None) -> None:
+        self.scope = scope
+        self.generated_models_checked = False
         self.root = root
         self.errors: list[str] = []
         self.checks = 0
@@ -176,25 +180,31 @@ class Validator:
             self.errors.append(message)
 
     def relative(self, path: Path) -> str:
-        return path.relative_to(self.root).as_posix()
+        return path.resolve().relative_to(self.root.resolve()).as_posix()
 
     def run(self) -> int:
         self.check_structure()
         self.check_task_scope()
         self.check_tasks()
         self.check_project_topology()
+        self.check_validation_scope()
         self.check_task_type_requirements()
         self.check_initialized_paths()
         self.check_catalog()
         self.check_resource_layout()
-        self.check_designs()
-        self.check_observed_values()
+        if self.scope is None:
+            self.check_designs()
+            self.check_observed_values()
+        elif not self.errors:
+            self.check_scoped_designs()
         self.check_iac_selection()
-        self.check_cloudformation_yaml_rules()
-        self.check_cloudformation_environment_parameters()
-        self.check_scenarios()
-        self.check_results()
-        self.check_scenario_changes()
+        if self.scope is None or self.task_type == "infrastructure":
+            self.check_cloudformation_yaml_rules()
+            self.check_cloudformation_environment_parameters()
+        if self.scope is None or self.task_type == "scenario-test":
+            self.check_scenarios()
+            self.check_results()
+            self.check_scenario_changes()
         self.check_acceptance_checks()
 
         if self.errors:
@@ -211,7 +221,7 @@ class Validator:
         print(f"- task requirements: {', '.join(self.requirement_ids)}")
         print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
-        print("- task scope, catalog integrity, service models, IaC selection, and scenario/result structure: valid")
+        print(f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}")
         return 0
 
     def check_structure(self) -> None:
@@ -554,20 +564,61 @@ class Validator:
         self.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
         self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
+    def check_validation_scope(self) -> None:
+        if self.scope is None:
+            return
+        for environment, target, service in sorted(self.scope):
+            self.check((environment, target) in self.accounts, f"validation target is not defined in project.json: {environment}/{target}")
+            for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
+                relative = f"{base}/{environment}/{target}/{service}{suffix}"
+                self.check((self.root / relative).is_file(), f"validation input missing: {relative}")
+        for changed in sorted(self.changed_paths):
+            for base in ("model/", "docs/designs/"):
+                if changed.startswith(base):
+                    parts = Path(changed.removeprefix(base)).parts
+                    identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
+                    self.check(identity in self.scope, f"changed design path is outside validation scope: {changed}")
+
+    def check_scoped_designs(self) -> None:
+        groups = {}
+        for environment, target, service in sorted(self.scope):
+            groups.setdefault((environment, target), set()).add((environment, target, service))
+
+        def validate(scope):
+            validator = Validator(self.root, scope)
+            validator.accounts = self.accounts
+            validator.schema_catalog = DesignSchemaCatalog(self.root)
+            validator.check_designs()
+            validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
+            return validator
+
+        with ThreadPoolExecutor(max_workers=min(4, len(groups) or 1)) as executor:
+            for validator in executor.map(validate, groups.values()):
+                self.checks += validator.checks
+                self.errors.extend(validator.errors)
+        self.generated_models_checked = True
+
     def check_generated_service_models(self) -> None:
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(self.root / "framework" / "scripts" / "sync-model.py"),
-                "--repository-root",
-                str(self.root),
-            ],
-            cwd=self.root,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.check(result.returncode == 0, result.stdout.strip() or result.stderr.strip() or "generated service model check failed")
+        if self.generated_models_checked:
+            return
+        self.generated_models_checked = True
+        if self.scope == set():
+            return
+        command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root)]
+        commands = []
+        if self.scope is None:
+            commands.append([*command, "--all"])
+        else:
+            groups = {}
+            for environment, target, service in sorted(self.scope):
+                groups.setdefault((environment, target), []).append(service)
+            for (environment, target), services in groups.items():
+                selector = "--alias" if self.accounts[environment, target]["alias"] else "--aws-account-id"
+                commands.append([*command, "--environment", environment, selector, target,
+                                 *(arg for service in services for arg in ("--service", service))])
+        for command in commands:
+            result = subprocess.run(command, cwd=self.root, check=False, capture_output=True, text=True)
+            self.check(result.returncode == 0, result.stdout.strip() + "\n" + result.stderr.strip() or "generated service model check failed")
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
         errors = snapshot_errors(self.root)
@@ -711,6 +762,8 @@ class Validator:
         if self.template_mode:
             return
         for (environment, target_directory), values in self.accounts.items():
+            if self.scope is not None and not any(item[:2] == (environment, target_directory) for item in self.scope):
+                continue
             paths = [
                 self.root / "docs" / "designs" / environment / target_directory,
                 self.root / "model" / environment / target_directory,
@@ -754,10 +807,10 @@ class Validator:
                 self.check(line.startswith(prefix), f"catalog prefix mismatch: {self.relative(path)}: {line}")
 
     def design_files(self) -> list[Path]:
-        return sorted(path for path in (self.root / "docs" / "designs").rglob("*.md") if path.name != STACK_DESIGN)
+        return [path for path in scoped_files(self.root, "docs/designs", ".md", self.scope) if path.name != STACK_DESIGN]
 
     def stack_design_files(self) -> list[Path]:
-        return sorted((self.root / "docs" / "designs").rglob(STACK_DESIGN))
+        return [path for path in scoped_files(self.root, "docs/designs", ".md", self.scope) if path.name == STACK_DESIGN]
 
     def check_target_file(self, path: Path, base: Path) -> tuple[str, str] | None:
         parts = path.relative_to(base).parts
@@ -772,7 +825,7 @@ class Validator:
         self.check_generated_service_models()
         self.check_stack_designs()
         markdown_paths = self.design_files()
-        properties_paths = sorted(path for path in (self.root / "model").rglob("*.properties") if path.stem != Path(STACK_DESIGN).stem)
+        properties_paths = [path for path in scoped_files(self.root, "model", ".properties", self.scope) if path.stem != Path(STACK_DESIGN).stem]
         markdown = {
             path.relative_to(self.root / "docs" / "designs").with_suffix("").as_posix()
             for path in markdown_paths
@@ -791,8 +844,8 @@ class Validator:
         self.check_design_overviews()
         self.check_resource_names(service_metadata)
         self.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs)
-        self.check_design_links(identifier_outputs)
-        self.check_design_artifacts()
+        self.check_design_links(identifier_outputs, markdown_paths)
+        self.check_design_artifacts(None if self.scope is None else markdown_paths)
 
     def check_stack_designs(self, paths: list[Path] | None = None) -> None:
         names: set[tuple[str, str, str]] = set()
@@ -1654,9 +1707,20 @@ class Validator:
             )
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None) -> None:
+        sources = self.design_files() if paths is None else paths
+        references = {path.resolve() for path in sources}
+        fragments = {}
+        for source in sources:
+            for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
+                target, separator, fragment = raw.partition("#")
+                if separator and not raw.startswith(("http://", "https://", "mailto:")):
+                    linked = (source.parent / target if target else source).resolve()
+                    if linked.is_file() and linked.suffix == ".md" and linked.is_relative_to(self.root / "docs/designs"):
+                        references.add(linked)
+                        fragments.setdefault(linked, set()).add(fragment)
         anchors = {
-            path.resolve(): set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
-            for path in self.design_files()
+            path: set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
+            for path in references
         }
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
         configured_names: dict[tuple[Path, str], dict[str, str]] = {}
@@ -1665,8 +1729,9 @@ class Validator:
         type_names: dict[tuple[Path, str], str] = {}
         name_properties = {"CodeCommit.Repository.RepositoryName", "CodeBuild.Project.Name"}
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
-        for path in self.design_files():
-            source_lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
+        source_paths = {path.resolve() for path in sources}
+        for path in sorted(references):
+            source_lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines()) if path in source_paths else reference_lines(path, fragments.get(path, set()))
             try:
                 identities = resource_logical_ids(source_lines)
             except ValueError:
@@ -1684,7 +1749,7 @@ class Validator:
                         hidden_ids[path.resolve(), pending_anchor] = identities[heading.groups()]
             pending_anchor = ""
             current: tuple[Path, str] | None = None
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = source_lines
             try:
                 lines, children = expanded_design(lines)
                 for anchor, child in children.items():
@@ -1694,7 +1759,7 @@ class Validator:
                         if value != child["logicalId"]:
                             hidden_ids[path.resolve(), anchor] = child["logicalId"]
             except ValueError as error:
-                if paths is None or path in paths:
+                if path in source_paths:
                     self.check(False, f"invalid grouped design: {self.relative(path)}: {error}")
             for line in lines:
                 if anchor := ANCHOR_PATTERN.fullmatch(line):
@@ -1715,7 +1780,7 @@ class Validator:
                         or cells[1] == "SecretsManager.Secret.Name"
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
-        for source in self.design_files() if paths is None else paths:
+        for source in sources:
             for line in source.read_text(encoding="utf-8").splitlines():
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
@@ -1904,7 +1969,7 @@ class Validator:
         self.check(artifacts == self.markdown_design_artifacts, "design JSON artifacts must match Markdown links")
 
     def check_observed_values(self, paths: list[Path] | None = None) -> None:
-        for path in (self.root / "model").rglob("*.properties") if paths is None else paths:
+        for path in scoped_files(self.root, "model", ".properties", self.scope) if paths is None else paths:
             for line in path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("observed."):
                     self.check(
@@ -1936,6 +2001,8 @@ class Validator:
             self.check(len(parts) >= 3, f"CloudFormation parameter must be scoped by environment/target directory: {self.relative(path)}")
             if len(parts) >= 3:
                 target = (parts[0], parts[1])
+                if self.scope is not None and not any(item[:2] == target for item in self.scope):
+                    continue
                 self.check(target in self.accounts, f"CloudFormation target is not defined: {self.relative(path)}")
                 if target in self.accounts:
                     self.check(self.accounts[target]["engine"] == "cloudformation", f"CloudFormation is not selected: {self.relative(path)}")
@@ -1949,6 +2016,8 @@ class Validator:
                 self.check(len(parts) >= 3, f"Terraform composition must be scoped by environment/target directory: {self.relative(path)}")
                 if len(parts) >= 3:
                     target = (parts[0], parts[1])
+                    if self.scope is not None and not any(item[:2] == target for item in self.scope):
+                        continue
                     self.check(target in self.accounts, f"Terraform target is not defined: {self.relative(path)}")
                     if target in self.accounts:
                         self.check(self.accounts[target]["engine"] == "terraform", f"Terraform is not selected: {self.relative(path)}")
@@ -2303,6 +2372,7 @@ class Validator:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
+    parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
     return parser.parse_args()
 
 
@@ -2312,7 +2382,11 @@ def main() -> int:
     if not (root / ".git").exists():
         print(f"repository root is invalid: {root}", file=sys.stderr)
         return 2
-    return Validator(root).run()
+    try:
+        return Validator(root, active_scope(root, args.all)).run()
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"Blueprint repository validation: FAIL\n- {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

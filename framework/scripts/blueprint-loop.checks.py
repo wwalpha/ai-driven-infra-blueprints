@@ -96,13 +96,14 @@ def main() -> None:
         scripts = root / "framework" / "scripts"
         scripts.mkdir(parents=True)
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
+        shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
         (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
         (scripts / "a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
         (scripts / "b.checks.py").write_text(
             "from pathlib import Path\nPath('continued').write_text('yes', encoding='utf-8')\n",
             encoding="utf-8",
         )
-        command = [sys.executable, "-O", str(scripts / SCRIPT.name), "--mode", "local", "--log-dir", str(log_parent)]
+        command = [sys.executable, "-O", str(scripts / SCRIPT.name), "--mode", "local", "--all", "--log-dir", str(log_parent)]
         environment = {**os.environ, "PYTHONOPTIMIZE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True)
         assert result.returncode != 0
@@ -132,6 +133,31 @@ def main() -> None:
         rejected = subprocess.run([*command[:-1], str(root / 'logs')], capture_output=True, text=True)
         assert rejected.returncode != 0 and "outside the repository" in rejected.stderr
         assert not (root / "logs").exists()
+
+        # A normal design edit runs the validator only; changed validator code selects its own check.
+        (root / "tasks").mkdir()
+        active = root / "tasks/active.md"
+        active.write_text("## Validation scope\n- `dev/cde/ec2`\n")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
+        (root / "continued").unlink()
+        model = root / "model/dev/cde/ec2.properties"
+        model.parent.mkdir(parents=True)
+        model.write_text("design change\n")
+        scoped_command = [argument for argument in command if argument != "--all"]
+        result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, text=True)
+        assert result.returncode == 0 and "PASS (0 focused check scripts)" in result.stdout, result.stdout + result.stderr
+        assert not (root / "continued").exists(), "unrelated check ran for a design edit"
+        (scripts / "a.py").write_text("# validator change\n")
+        result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, text=True)
+        assert result.returncode == 0 and "PASS (1 focused check scripts)" in result.stdout
+        assert not (root / "continued").exists()
+        active.write_text("# missing scope\n")
+        before = set(log_parent.glob("blueprint-loop-*"))
+        result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, text=True)
+        assert result.returncode and "validation scope missing" in result.stderr
+        assert set(log_parent.glob("blueprint-loop-*")) == before, "missing scope started validation"
     print("blueprint-loop: PASS")
 
 

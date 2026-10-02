@@ -939,6 +939,8 @@ def main():
         assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
         # The CLI returns failure while persisting an unrelated successful service.
+        (root / "tasks").mkdir()
+        (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n")
         (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
                                  "--repository-root", str(root), "--write", "--environment", "dev",

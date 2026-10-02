@@ -17,7 +17,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-local loopはglobal checks、task type checks、active task Acceptance checks、focused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
+local loopは必要な共通checks、active taskで明示されたtarget/service checks、task type checks、active task Acceptance checks、変更した検証プログラムに対応するfocused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -72,7 +72,26 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-`framework/scripts/blueprint-loop.py`はrepository validatorの成否にかかわらず、`framework/scripts/*.checks.py`を名前順に全件実行する。Python最適化によるassert無効化を防ぎ、全失敗を報告する。focused checkが一件でも失敗または未実行ならlocal loopをPASSにしない。
+### 明示した検証範囲
+
+active taskに`## Validation scope`を置き、各entryを``- `<environment>/<target-directory>/<service-id>` ``とする。aliasがあればtarget directoryはalias、なければAWS account IDを使う。サービスはmodelのfile stem（EC2なら`ec2`）で指定する。environmentだけ、accountだけ、serviceだけの指定、未知target、欠落model/Markdownは停止する。Allowed pathsや変更fileから検証対象を推測しない。scope外の設計変更も拒否する。
+
+```md
+## Validation scope
+
+- `dev/cde/ec2`
+- `dev/non-cde/ec2`
+- `stg/cde/ec2`
+- `stg/non-cde/ec2`
+```
+
+対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
+
+複数targetは最大4並列で検証し、全workerの終了を待って指定順で診断を集約する。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
+
+frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示する。全体検証は`blueprint-loop.py --mode local --all`、`validate-blueprint.py --repository-root <root> --all`、またはscopeの単独``- `all` ``で明示する。scope不足から全体検証へ自動で切り替えない。
+
+`framework/scripts/blueprint-loop.py`は通常設計変更では検証プログラムの全テストを実行しない。変更された`*.checks.py`および変更された同名`*.py`に対応するcheckだけを名前順に実行する。全体検証を明示した場合だけ`*.checks.py`を全件実行する。validatorが失敗しても選択したfocused checksを継続し、Python最適化によるassert無効化を防ぐ。選択したcheckに失敗・未実行があればPASSにしない。
 
 ### 時間計測と長時間実行
 

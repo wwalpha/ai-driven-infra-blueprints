@@ -281,6 +281,10 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 
 - Task type: `design`
 
+## Validation scope
+
+- `<environment>/<target-directory>/<service-id>`
+
 ## Required changes
 
 - [R1] 確定済み詳細設計を保存する。
@@ -298,10 +302,27 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 - `tasks/active.md`
 ```
 
-local loop:
+local loopはactive taskの`## Validation scope`を必須とし、対象serviceのmodel・生成Markdown/JSON・schema・命名・参照を検証します。参照先serviceはリンクに必要な情報だけを読み、対象外の既存設計エラーを失敗理由にしません。task契約・変更範囲・topology・catalog完全性の共通checkは維持します。複数targetは最大4並列です。通常設計変更では検証プログラムの全テストを実行せず、検証プログラム変更時は対応するfocused checkだけを実行します。
+
+今回の4targetのEC2ならscopeを次のように指定します。
+
+```md
+## Validation scope
+
+- `dev/cde/ec2`
+- `dev/non-cde/ec2`
+- `stg/cde/ec2`
+- `stg/non-cde/ec2`
+```
 
 ```console
 python framework/scripts/blueprint-loop.py --mode local
+```
+
+対象指定が不足・不正なら停止します。frameworkのみのgovernanceではscopeを単独``- `framework` ``とします。全体検証と全検証テストが必要な場合だけ`--all`（またはscopeを単独``- `all` ``）を明示します。
+
+```console
+python framework/scripts/blueprint-loop.py --mode local --all
 ```
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
@@ -325,7 +346,7 @@ Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換�
 
 2026-10-02にこのframework repository（Mac、未初期化template、既存の全15 focused check）で変更前のlocal loopを計測した結果は、全体38.6秒、repository validator 0.56秒でした。主な内訳は`design_catalog.checks.py`が14.2秒、`model_design.checks.py`が9.6秒、`policy_tables.checks.py`が5.0秒です。別のprofile実行では、`design_catalog.checks.py`の42ケースがmodel検証を子プロセスで繰り返し起動し、その待機が12.8秒を占めました。30〜60分の現象はこの環境では未再現です。consumer repositoryや別OSの時間とは区別してください。
 
-同日の`viewcard-code`の読み取り計測では、全体202.2秒、repository validator 164.6秒、17 focused checkの合計37.7秒でした。設計Markdownは97 file、modelは99 fileあり、変更対象以外も含めて全targetを検証します。この時点のvalidatorは既存1451件の診断でFAILし、focused checkも3件がFAILしました（consumer側の2 checkのassert guard不足、IAM fixture不整合、当該PythonのPyYAML不足）。性能調査でこれらは修正していません。計測前後のrepository file内容は一致しました。30〜60分の現象はこの計測でも未再現です。
+同日の`viewcard-code`の読み取り計測では、全体202.2秒、repository validator 164.6秒、17 focused checkの合計37.7秒でした。設計Markdownは97 file、modelは99 fileあり、変更前は変更対象以外も含めて全targetを検証していました。この時点のvalidatorは既存1451件の診断でFAILし、focused checkも3件がFAILしました（consumer側の2 checkのassert guard不足、IAM fixture不整合、当該PythonのPyYAML不足）。性能調査でこれらは修正していません。計測前後のrepository file内容は一致しました。30〜60分の現象はこの計測でも未再現です。
 
 `viewcard-code`のdev/cdeだけを別途read-onlyでprofileすると、`validate_views`が33回、`linked_resource`が6306回、`expanded_design`が1757回呼ばれ、参照先Markdownの再解析が繰り返されていました。`formal_property`は496495回呼ばれ、Pythonで全resource prefixを順番に調べる処理がprofile上で26.1秒を占めました（profileの計測負荷を含み、これらの時間は親子関係があるため合算できません）。このprefix判定だけを、起動時に構築したtupleに対する標準の`str.startswith(tuple)`へ変更しました。未知prefix・display alias・完全修飾propertyの扱いを維持し、全体の検証結果をcacheで省略しません。参照先の再解析を減らす変更は未実施です。
 
@@ -346,6 +367,6 @@ python -m pstats /tmp/design-catalog.prof
 4. **session停止の証拠を確認する。** `Developer: Set Log Level`でGitHub Copilot / GitHub Copilot Chatを一時的にTraceにし、`Output: Show Output Channels`から同じ時刻のerrorを確認します。Agent Debug Logsがある版ではmodel requestとtool callも照合し、request limit、通信error、extension/terminal異常を分けます。`chat.agent.maxRequests`はrequest回数の上限であり、実行時間の上限ではありません。回数上限が実際に報告された場合だけ設定を見直します。[公式診断手順](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting)、[request設定](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-behavior)
 5. **同じtaskで結果を確認する。** 切断後は`tasks/active.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
 
-local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、schema-backed design value、service model、observed ARN、IaC engine selection、scenario/result structureを検証します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
+local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、指定target/serviceのdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultは該当taskまたは明示全体検証で確認します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
 設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。
