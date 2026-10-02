@@ -1,10 +1,10 @@
-# active task対象だけの並列検証
+# Security Group・Glueの命名規則追加と名称チェック除外
 
 ## Task contract
 
 - Task type: `governance`
-- Target: frameworkのlocal loop・service model検証
-- Goal: active taskで明示したenvironment/target-directory/serviceだけを検証し、複数targetを並列実行する。今回の回帰対象はdev/cde、dev/non-cde、stg/cde、stg/non-cdeのEC2だけ。
+- Target: frameworkのAWS resource命名規則と共通命名検証
+- Goal: Security Groupの任意Nameタグに既存GroupNameと同じ規則、Glue Catalogにglct規則を追加し、Secrets Manager・Glue Database・Glue Tableの名称を命名規則チェック対象外にする。
 
 ## Validation scope
 
@@ -12,40 +12,27 @@
 
 ## Required changes
 
-- [R1] 明示scopeを共通化し、指定不足・不明target・検証範囲外の設計変更を拒否する。対象serviceのmodel、生成Markdown/JSON、schema、命名、参照を検証し、別serviceは参照解決情報だけを読む。
-- [R2] 複数targetの検証を並列化する。通常設計では全検証テストを実行せず、全体検証は明示指定時だけ実行する。task契約と変更範囲の共通checkを維持する。
-- [R3] 4targetのEC2、対象外エラー、リンク不整合、指定不足と明示全体検証の回帰check、運用ルールと設計handoffを更新する。
+- [R1] `EC2.SecurityGroup`のName tagへGroupNameと同じpatternを登録し、`Glue.Catalog.Name`へ`glct-{{application}}-{{environment}}-{{purpose}}`を登録する。
+- [R2] `SecretsManager.Secret.Name`、`Glue.Database.DatabaseInput.Name`、`Glue.Table.TableInput.Name`を命名規則coverage checkから除外する。提示された名称形式とTableの業務名保持をruleへ記載し、名称確定・provider schema・Name tagの検証は維持する。
+- [R3] 追加規則と除外のformal/short property、生成・設計検証、除外境界の回帰checkを実行する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/validation_scope.py`
-- [R1] `changed:framework/scripts/validate-blueprint.py`
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R2] `changed:framework/scripts/blueprint-loop.py`
-- [R2] `check:framework.focused-check-runner`
-- [R3] `changed:framework/scripts/validation_scope.checks.py`
-- [R3] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R1] `changed:framework/rules/aws-resource-naming.md`
+- [R2] `changed:framework/scripts/model_design.py`
 - [R3] `changed:framework/scripts/model_design.checks.py`
-- [R3] `changed:framework/rules/loop-engineering.md`
-- [R3] `changed:framework/prompts/chatbot/service-design.md`
-- [R3] `changed:README.md`
+- [R3] `check:framework.focused-check-runner`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/validation_scope.py`
-- `framework/scripts/validation_scope.checks.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/blueprint-loop.py`
-- `framework/scripts/blueprint-loop.checks.py`
+- `framework/rules/aws-resource-naming.md`
+- `framework/scripts/model_design.py`
 - `framework/scripts/model_design.checks.py`
-- `framework/rules/loop-engineering.md`
-- `framework/prompts/chatbot/service-design.md`
-- `README.md`
 
 ## Out of scope
 
-- consumer repository、design/model、IaC、project.json、catalog/lock、scenario/resultは変更しない。
+- consumer repository、既存design/model、IaC、project.json、catalog/lock、scenario/resultは変更しない。
+- Security GroupのName tagを必須化せず、既存名称を自動変更しない。
 - AWS API、deploy/apply、別task作成・実行へ進まない。
-- framework修正に対応するfocused checksとgovernance local loop、差分checkを実行する。通常設計の全check自動実行と区別する。
+- 対応するfocused checksを含むgovernance local loopと差分checkを実行して終了する。

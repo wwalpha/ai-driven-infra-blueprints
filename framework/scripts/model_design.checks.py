@@ -562,6 +562,8 @@ def check_naming_exclusions():
         for kind, field in (("IAM.ManagedPolicy", "ManagedPolicyName"), ("IAM.User", "UserName"), ("IAM.InstanceProfile", "InstanceProfileName"),
                             ("Config.ConfigurationRecorder", "Name"), ("Config.DeliveryChannel", "Name"),
                             ("Glue.Connection", "ConnectionInput.Name"), ("GuardDuty.Detector", "Name"),
+                            ("Glue.Database", "DatabaseInput.Name"), ("Glue.Table", "TableInput.Name"),
+                            ("SecretsManager.Secret", "Name"),
                             ("Route53.HostedZone", "Name"), ("Route53.RecordSet", "Name")):
             service = kind.split(".")[0].lower()
             path = root / f"docs/designs/dev/123456789012/{service}.md"
@@ -574,6 +576,9 @@ def check_naming_exclusions():
                 "Config.DeliveryChannel": [("S3BucketName", "`example`", "配信先のバケット")],
                 "Glue.Connection": [("CatalogId", "`123456789012`", "カタログのID"),
                                     ("ConnectionInput", '`{"Name":"example","ConnectionType":"JDBC"}`', "接続の設定")],
+                "Glue.Database": [("CatalogId", "`123456789012`", "カタログのID")],
+                "Glue.Table": [("CatalogId", "`123456789012`", "カタログのID"),
+                               ("DatabaseName", "`example`", "所属するデータベース")],
                 "GuardDuty.Detector": [("Enable", "`true`", "検出の有効化")],
                 "Route53.RecordSet": [("Type", "`A`", "レコードの種類")],
             }
@@ -603,13 +608,34 @@ def check_naming_exclusions():
     schema = validator_module.DesignSchemaCatalog(ROOT)
     assert schema.literal_errors("Config.ConfigurationRecorder", "Name", "UNSET")
     assert schema.literal_errors("Route53.HostedZone", "Name", "x" * 1025)
+    for kind, field in (("SecretsManager.Secret", "Name"), ("Glue.Database", "DatabaseInput.Name"), ("Glue.Table", "TableInput.Name")):
+        assert schema.literal_errors(kind, field, "UNSET")
     try:
         schema.property_schema("GuardDuty.Detector", "Name")
     except KeyError:
         pass
     else:
         raise AssertionError("naming exemption added an unsupported GuardDuty property")
-    print("Naming exclusions: PASS (9 properties; design, generation, value/schema checks and coverage boundaries)")
+    print("Naming exclusions: PASS (12 properties; design, generation, value/schema checks and coverage boundaries)")
+
+
+def check_security_group_and_glue_catalog_naming():
+    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    group_pattern = "{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg"
+    assert f"| `EC2.SecurityGroup` | `GroupName` | `{group_pattern}` |" in text
+    assert f"| `EC2.SecurityGroup` | Name tag | `{group_pattern}` |" in text
+    assert "| `Glue.Catalog` | `Name` | `glct-{{application}}-{{environment}}-{{purpose}}` |" in text
+    for kind, fields in (
+        ("EC2.SecurityGroup", [("GroupName", "dev-app-glue-data-01-sg")]),
+        ("EC2.SecurityGroup", [("Tags[].Key", "Name"), ("Tags[].Value", "dev-app-glue-data-01-sg")]),
+        ("Glue.Catalog", [("Name", "glct-app-dev-data")]),
+    ):
+        for prefix in ("", kind + "."):
+            rows = [[str(number), prefix + field, f"`{value}`", "名称"]
+                    for number, (field, value) in enumerate(fields, 1)]
+            assert not naming_errors(ROOT, kind, rows), kind
+    assert not naming_errors(ROOT, "EC2.SecurityGroup", [])
+    print("Security Group and Glue Catalog naming: PASS (exact patterns, formal/short properties, optional Name tag)")
 
 
 def check_security_naming():
@@ -713,6 +739,7 @@ def main():
     check_nameless_logical_id_label()
     check_stack_policy()
     check_security_naming()
+    check_security_group_and_glue_catalog_naming()
     check_naming_exclusions()
     check_codebuild_required_name()
     check_iam_role_name()

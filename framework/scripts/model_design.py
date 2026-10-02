@@ -23,12 +23,15 @@ NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
     "Config.DeliveryChannel.Name",
     "Glue.Connection.ConnectionInput.Name",
+    "Glue.Database.DatabaseInput.Name",
+    "Glue.Table.TableInput.Name",
     "GuardDuty.Detector.Name",
     "IAM.ManagedPolicy.ManagedPolicyName",
     "IAM.User.UserName",
     "IAM.InstanceProfile.InstanceProfileName",
     "Route53.HostedZone.Name",
     "Route53.RecordSet.Name",
+    "SecretsManager.Secret.Name",
 }
 
 
