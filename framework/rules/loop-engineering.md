@@ -50,6 +50,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - 各serviceのpolicy anchorと所有resource、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMを含む全policyでProperty、JSON、Version、Idの独立metadata行を省略する。信頼ポリシーのVersionはJSONに存在する場合だけ1列表へ表示し、JSONと照合する。元の設定rowの正式propertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名key、全serviceの3列一覧を維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
 - IAM inline policyのStatement内のSidが存在する場合は文字列かつ16文字以内であり、超過を自動修正していない
 - IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
+- `IAM.Role.RoleName`が正確に1 rowあり、確定済みnon-empty literalである。一覧のResourceName、詳細heading、anchor、参照linkはRoleNameを使用し、Name tag・表示label・role path・内部logical IDで代替しない
 - resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
 - `EC2.VPCEndpoint`／`EC2.Instance`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する

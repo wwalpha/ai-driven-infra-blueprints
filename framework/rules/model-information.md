@@ -11,6 +11,7 @@
 - infrastructure taskは成功したAWS mutation後にmodelのobserved identifierを更新し、Markdownのidentifier rowと全参照元を生成する。
 - infrastructure `update` phaseはhuman-changed model propertiesをimmutable inputとし、deploy前にMarkdownを生成する。成功したAWS mutation後だけobserved identifierを更新し、Markdownを再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
+- `IAM.Role`の表示名は正式な`IAM.Role.RoleName`の確定済みdesired rowだけから導出し、一覧・詳細heading・参照linkに使用する。RoleNameは正確に1 rowを必須とし、欠落・重複・空値・未確定値を拒否する。Name tagや`display.resource.*.label`で代替せず、内部logical IDとpolicy artifactの命名を維持する。
 - `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、No.は生成する。一覧Commentは`display.resource.<番号>.comment`、Stack一覧Commentは`display.stack.<番号>.comment`を正本とする。AWS propertyとしては扱わない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
 - `EC2.VPCEndpoint`／`EC2.Instance`のName tagは各resource typeの正式な`Tags[].Key=Name`と対応する`Tags[].Value`をdesired rowへ保持する。設計専用`.Name`を追加しない。Name tagは必須であり、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しない。一覧・heading・通常の参照linkとanchorはそのValueを使用し、内部logical IDは非表示metadata、identifier参照は既存のdesired logical reference／observed IDの分離を維持する。VPC／Subnet／RouteTable／Flow Logの.Name表示は維持する。
@@ -58,6 +59,8 @@ display.stack.002.comment=月次集計jobを配置するstack
 `display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型では、同じservice内に同型の独立resourceが1件だけあり、選択済みName tagと既存の確定済み表示labelもなければ、resource typeを表示名として導出する。この場合`display.resource.<番号>.label`を必須とせず、型名をlabelへ重複保存しない。詳細headingは`### <catalog-resource-type>`、一覧・通常の参照linkもresource type、anchorは型名由来とする。同型複数件を区別するhuman-confirmedな表示名、または既存の確定済み表示名は`display.resource.<番号>.label`へ保持する。型名表示でも非表示logical IDを必須とし、既存値を維持して型名から推測しない。名称propertyの省略・必須Name tag不足には適用しない。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
 
 JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複JSON key・不正な定数・object以外を拒否する。artifact hashは生成時に照合可能な派生値であり、設計値の正本にしない。
+
+名称propertyがない型のhuman-confirmedな`display.resource.<番号>.label`は、内部logical IDと同じ文字列でも表示名として有効とする。validatorは同じ番号の`desired.resource.<番号>.resourceType`・`logicalId`・明示labelを対応する詳細headingと照合する。labelがない内部IDの流用、別resource typeや別logical IDのlabelによる代替は拒否する。非表示logical ID markerを必須とし、表示label由来anchor、desired／observedのnamespaceと値を維持する。表示labelからName tagやcatalog property、IaC設定を作らない。
 
 サービス別の短縮property、CodePipeline index／Configuration展開、CodeBuild変数、GuardDuty Features、CloudTrail記録対象、Security Group横書きrule、KMS Aliasの親内表示、policy表は既存表示ruleに従ってmodelから生成する。検証parserは表示を正式propertyへ展開してlosslessな一致を確認するためだけに使用する。
 

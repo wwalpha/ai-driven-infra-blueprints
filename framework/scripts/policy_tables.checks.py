@@ -78,7 +78,7 @@ def main():
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | RoleName | `role-{logical_id.lower()}` | ロールの名前 |
+| 1 | RoleName | `{logical_id}` | ロールの名前 |
 | 2 | AssumeRolePolicyDocument | [FlowLogsTrust](iam/{file_id}-trust-policy.json) | 信頼ポリシー |
 | 3 | Policies[].PolicyName | `Logging` | ポリシーの名前 |
 | 4 | Policies[].PolicyDocument | [Logging](iam/{file_id}-logging.json) | 権限ポリシー |
@@ -201,7 +201,7 @@ def main():
         assert write.returncode == 0, write.stderr
         assert path.read_text(encoding="utf-8") == rendered
 
-        # Optional RoleName and inline policies are not invented by the renderer.
+        # The policy-only renderer does not invent omitted Role settings.
         minimal = text[:text.index('<a id="iam-roleb"')]
         minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("| RoleName |", "| Policies[]"))) + "\n"
         path.write_text(minimal, encoding="utf-8")

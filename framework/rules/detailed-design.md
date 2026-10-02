@@ -81,6 +81,7 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
 - 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがcatalogにない型で、選択済みName tagと既存の確定済み表示名もなく、同じservice file内で同型の独立resourceが1件だけなら、resource typeを表示名として見出し・一覧・通常の参照linkへ使う。追加の表示名を質問せず、anchorもresource typeから生成する。同型複数件はそれぞれを区別できるhuman-confirmedな表示名を要求し、不足時は停止する。既存の確定済み表示名・logical IDは維持する。名称propertyの省略や必須Name tagの不足にこの規則を適用しない。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
 - 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。型名表示ではmarkerを必須とし、logical IDをresource typeから推測しない。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
+- 名称propertyがない型では、humanが確定した`display.resource.<番号>.label`が内部logical IDと同じ文字列でも表示名として許可する。対応する正本modelの`desired.resource.<番号>.resourceType`・`logicalId`と明示labelを詳細headingへ照合し、一致するresourceだけに適用する。label欠落による内部IDの流用は拒否する。この場合も非表示logical ID markerを必須とし、anchorは表示label由来、desired logical reference／observed current identifierの分離を維持する。名称property・必須Name tagの代替、catalog propertyやName tagの追加には使用しない。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のresource名は同じtableの`.Name` valueと完全一致させる。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
@@ -276,7 +277,7 @@ python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-di
 
 IAM Roleの4列のresource-detail tableと独立policy JSON artifactを維持し、各Roleの設定表の直後に信頼ポリシーとinline policyのStatement表を生成する。Roleの設定はmodel propertiesの正式row、policy本文はそのrowの`document`を正本とする。Statement表はJSONの派生表示であり、独立した設計入力にしない。
 
-- `## リソース一覧`内の`### IAM.Role`も共通の3列形式とし、ResourceNameにはRole詳細headingのidentifierを表示する。RoleNameとpolicy名・linkは詳細blockに保持し、一覧へ複製しない。`Comment`はRoleの用途説明を保持する。
+- `## リソース一覧`内の`### IAM.Role`も共通の3列形式とし、ResourceNameには同じRole設定表の確定済み`RoleName`をsame-file anchorへのlinkとして表示する。詳細headingは`### IAM.Role: <RoleName>`、anchorと通常の参照linkの表示textもRoleNameから生成する。`RoleName`は正確に1 rowを必須とし、欠落・重複・空値・未確定値を拒否する。Name tag、表示label、role path、内部logical IDで代替しない。RoleNameの別columnやpolicy名・linkは一覧へ追加せず、`Comment`はRoleの用途説明を保持する。
 - `Path`、`ManagedPolicyArns`、`PermissionsBoundary`など選択済みの他のRole設定は既存の4列表に保持する。IAM.ManagedPolicyとIAM.InstanceProfileの独立resource表示も維持する。
 - 信頼ポリシーの表示名は`AssumeRolePolicyDocument`のJSONリンクの表示textを使用する。`FlowLogsTrust`は文書上の表示名であり、架空の`TrustPolicyName` propertyや独立IAM resourceを追加しない。inline policyの表示名は直前の`Policies[].PolicyName`を使用する。
 - policy anchorは`<role-anchor>-trust`、`<role-anchor>-inline-<policy-name-artifact-id>`とする。inline suffixの正規化は既存のartifact命名と同じ処理を使い、別Roleの同名policyを混同しない。同一Roleで正規化後のanchorが衝突する場合は停止する。

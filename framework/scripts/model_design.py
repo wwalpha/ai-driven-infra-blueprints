@@ -100,13 +100,14 @@ def naming_targets(root: Path) -> dict[str, set[str]]:
 
 
 def naming_errors(root: Path, kind: str, rows: list[list[str]]) -> list[str]:
-    if kind == "CodeBuild.Project":
-        names = [row[2].strip("`\"") for row in rows if row[1].removeprefix(kind + ".") == "Name"]
+    if kind in {"CodeBuild.Project", "IAM.Role"}:
+        field = "RoleName" if kind == "IAM.Role" else "Name"
+        names = [row[2].strip("`\"") for row in rows if row[1].removeprefix(kind + ".") == field]
         if len(names) != 1:
-            return ["CodeBuild.Project.Name must appear exactly once"]
+            return [f"{kind}.{field} must appear exactly once"]
         value = names[0]
         if not value.strip() or value.strip().lower() in {"unset", "pending", "pending_deploy", "tbd", "n/a", "none", "未確定"} or value.startswith("[") or "{{" in value:
-            return ["CodeBuild.Project.Name must be confirmed and non-empty"]
+            return [f"{kind}.{field} must be confirmed and non-empty"]
     targets = naming_targets(root)
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}

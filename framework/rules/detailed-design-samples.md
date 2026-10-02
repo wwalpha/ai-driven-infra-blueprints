@@ -50,6 +50,28 @@
 
 ## Resource名のheadingと内部ID
 
+IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical IDは非表示metadataに保持する。
+
+```md
+### IAM.Role
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-dev-worker-role](#iam-app-dev-worker-role) | workerがデータを読み取るための実行権限 |
+
+## リソース詳細
+
+<!-- resource-logical-id: WorkerRole -->
+<a id="iam-app-dev-worker-role"></a>
+
+### IAM.Role: app-dev-worker-role
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | RoleName | `app-dev-worker-role` | workerの実行権限を識別するロール名 |
+| 2 | AssumeRolePolicyDocument | [WorkerTrust](iam/worker-role-trust-policy.json) | workerからの引受を許可する信頼ポリシー |
+```
+
 ```md
 <!-- resource-logical-id: CoreSystemNightlyProcessingCompletedDetect0200To0455Schedule -->
 <a id="scheduler-ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455"></a>

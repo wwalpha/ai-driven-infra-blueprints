@@ -55,7 +55,7 @@ from design_layout import (
     catalog_order_errors,
 )
 from security_group_tables import security_group_table_lines
-from model_design import naming_errors
+from model_design import entries, naming_errors, properties
 
 
 REQUIRED_RULES = {
@@ -1110,7 +1110,15 @@ class Validator:
             try:
                 identities = resource_logical_ids(lines)
                 lines = security_group_table_lines(lines)
-            except ValueError as error:
+                model_path = (self.root / "model" / path.relative_to(self.root / "docs/designs")).with_suffix(".properties")
+                values = properties(model_path.read_text(encoding="utf-8")) if model_path.is_file() else {}
+                labels = {
+                    (resource.get("resourceType"), resource.get("logicalId"), label)
+                    for identity, resource in entries(values, "desired.resource.")
+                    if (label := values.get(f"display.resource.{identity}.label"))
+                    and label not in {"UNSET", "PENDING_DEPLOY"}
+                }
+            except (OSError, ValueError) as error:
                 self.check(False, f"invalid resource identity: {self.relative(path)}: {error}")
                 continue
             anchor = ""
@@ -1134,7 +1142,8 @@ class Validator:
                 if name is None:
                     if display == resource_type:
                         self.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(self.root, resource_type), f"resource type display requires a single nameless independent resource: {self.relative(path)}: {resource_type}")
-                    self.check(current in identities and (display == resource_type or display != identities[current]), f"resource without a name requires a display label or resource type and hidden logical ID: {self.relative(path)}: {display}")
+                    confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(self.root, resource_type)
+                    self.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {self.relative(path)}: {display}")
                 if path in service_metadata:
                     expected = resource_anchor(service_metadata[path][0], display)
                     self.check(anchor == expected, f"resource anchor must use display name: {self.relative(path)}: expected {expected}")
@@ -1713,6 +1722,8 @@ class Validator:
                     label, target_text, fragment = link.groups()
                     target = (source if not target_text else source.parent / target_text).resolve()
                     self.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {self.relative(source)}: {label}")
+                    if role_name := configured_names.get((target, fragment), {}).get("IAM.Role.RoleName"):
+                        self.check(label == role_name, f"IAM Role link must display RoleName: {self.relative(source)}: {label}")
                     if tagged := tagged_names.get((target, fragment)):
                         kind, name = tagged
                         observed = resources.get((target, fragment), ("", {}))[1].values()

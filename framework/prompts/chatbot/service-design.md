@@ -207,6 +207,8 @@ IAM Roleのtrust policyは、Role logical IDをlower-kebab-caseへ正規化し�
 
 IAM Role以外のpolicyは`<!-- policy-tables:start -->`と`<!-- policy-tables:end -->`で囲み、JSONリンクの表示名と、所有resourceとartifact IDから作るanchorを保持してください。VPC endpoint、KMS、IAMを含む全policyで派生表示のProperty、JSON、Version、Idの独立metadata行を省略し、anchor、見出し、Statement表または設定表を生成してください。元の設定rowのPropertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名keyは保持してください。policy表と設定値はresource詳細内に置き、一覧へ列を追加しないでください。S3 BucketPolicyはBucketへ所属させ、KMS Aliasと独立policyの既存表示関係を維持してください。
 
+IAM Roleの一覧のResourceName、詳細heading、anchor、参照linkには、同じ設定表の確定済みRoleNameを使用してください。RoleNameは正確に1 rowを必須とし、欠落・重複・空値・未確定値を拒否します。Name tag、表示label、role path、内部logical IDで代替せず、内部logical IDとpolicy artifactの命名は維持してください。
+
 IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/rules/detailed-design.md`のIAM Role policy tablesに従ってNo.・ResourceName・Commentの3列の一覧と、各Roleの設定表直後のpolicy Statement表も出力してください。CommentにはRoleの用途を日本語で記載し、再生成時も保持します。表は1 Statementを1行とし、複数Actionはcell内改行、Conditionは演算子・完全なkey・値を同じcellへ保持します。信頼ポリシーJSONにVersionがある場合は見出し直後の`Version`の1列表へ値を1行で表示し、その後にStatement表を置いてください。Versionがない場合は補完しません。Version/Idの独立metadata行は省略し、JSONに存在するStatement内のSid、Principal種別、NotAction、NotResource等は省略・補完せず、各Roleの表示範囲を`<!-- iam-policy-tables:start -->`と`<!-- iam-policy-tables:end -->`で囲んでください。信頼ポリシーの表示名はJSONリンクのtext、inline policy名はPolicyNameを使用し、別Roleの同名policyには別anchorを使用します。policy表はJSONの派生表示とし、保存時に決定的生成と照合します。
 
 `Events.Rule.Name`と`Events.Rule.State`を必ず一度だけ記載し、表示順はpropertiesに従ってください。NameまたはStateが未確定なら確認し、Stateを`ENABLED`などで補完してはいけません。

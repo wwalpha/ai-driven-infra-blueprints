@@ -161,6 +161,76 @@ def check_nameless_type_display():
     print("Nameless type display: PASS (generation, import, identity, references, single/multiple and named types)")
 
 
+def check_nameless_logical_id_label():
+    spec = importlib.util.spec_from_file_location("label_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
+        path = root / "docs/designs/dev/123456789012/guardduty.md"
+        source = root / "model/dev/123456789012/guardduty.properties"
+        source.parent.mkdir(parents=True)
+        kind = "GuardDuty.MalwareProtectionPlan"
+        assert not resource_has_name_property(root, kind)
+        values = {}
+        for number, label in enumerate(("BuildProtectionPlan", "QuarantineProtectionPlan"), 1):
+            anchor = resource_anchor("guardduty", label)
+            rows = [("MalwareProtectionPlanId", f"[{label}](#{anchor})", "検査planを識別するID"),
+                    ("ProtectedResource.S3Bucket.BucketName", "`app-dev-data`", "検査対象のbucket"),
+                    ("Role", "`scan-role`", "検査に使用するrole")]
+            item = model("guardduty", kind, label.lower(), rows, label, label)
+            item.update({"observed.row.001-001.property": kind + ".MalwareProtectionPlanId",
+                         "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
+                         "display.resource.001.comment": f"{label}の対象bucketを検査するplan"})
+            values.update({key.replace(".001", f".{number:03d}", 1): value for key, value in item.items()})
+        source.write_text(text(values), encoding="utf-8")
+        output = roundtrip(path, values, root)
+        metadata = {path: ("guardduty", (kind,))}
+
+        def failures(model_values, markdown=output):
+            source.write_text(text(model_values), encoding="utf-8")
+            path.write_text(markdown, encoding="utf-8")
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata, [path])
+            return validator.errors
+
+        assert not failures(values), failures(values)
+        assert properties(SYNC.imported_model(path, root)) == values
+        for identity, label in (("001", "BuildProtectionPlan"), ("002", "QuarantineProtectionPlan")):
+            assert f"<!-- resource-logical-id: {label} -->" in output
+            assert f"[{label}](#guardduty-{label.lower()})" in output
+            assert values[f"desired.row.{identity}-001.value"] == f"[{label}](#guardduty-{label.lower()})"
+            assert values[f"observed.row.{identity}-001.value"] == "`PENDING_DEPLOY`"
+            key = f"display.resource.{identity}.label"
+            invalid = [{name: value for name, value in values.items() if name != key}]
+            invalid += [{**values, key: value} for value in ("", "UNSET", "PENDING_DEPLOY", "wrong-label")]
+            invalid += [{**values, f"desired.resource.{identity}.{field}": value}
+                        for field, value in (("resourceType", "GuardDuty.Detector"), ("logicalId", "OtherPlan"))]
+            for bad in invalid:
+                errors = failures(bad)
+                assert any("resource without a name requires a display label" in error for error in errors), errors
+            assert any("hidden logical ID" in error for error in failures(values, output.replace(f"<!-- resource-logical-id: {label} -->", "")))
+        assert any("anchor must use display name" in error for error in failures(values, output.replace("guardduty-buildprotectionplan", "guardduty-wrong")))
+        # Resource entry numbers belong to the model, not the Markdown order.
+        renumbered = {key.replace(".001", ".007", 1): value for key, value in values.items()}
+        assert not failures(renumbered), failures(renumbered)
+        named = {key: value.replace(kind, "SNS.Topic") for key, value in values.items()}
+        assert any("resource without a name requires a display label" in error for error in failures(named, output.replace(kind, "SNS.Topic")))
+        failures(values)
+        source.unlink()
+        validator = validator_module.Validator(root)
+        validator.check_resource_names(metadata, [path])
+        assert any("resource without a name requires a display label" in error for error in validator.errors)
+        assert not failures(values), failures(values)
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        assert source.read_text() == text(values)
+        assert path.read_text() == output
+    print("Nameless logical ID label: PASS (explicit labels, missing labels, identity, hidden IDs, anchors and namespaces)")
+
+
 def check_required_name_tag(kind):
     spec = importlib.util.spec_from_file_location("endpoint_validator", Path(__file__).with_name("validate-blueprint.py"))
     validator_module = importlib.util.module_from_spec(spec)
@@ -348,6 +418,75 @@ def check_codebuild_required_name():
     print(f"CodeBuild required Name checks: PASS ({len(invalid)} rejected cases; design, generation and saved view)")
 
 
+def check_iam_role_name():
+    spec = importlib.util.spec_from_file_location("iam_validator", Path(__file__).with_name("validate-blueprint.py"))
+    validator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator_module)
+    kind, name, logical_id = "IAM.Role", "app-dev-worker-role", "WorkerRole"
+    name_row = ("RoleName", f"`{name}`", "workerの実行権限を識別するロール名")
+    trust_row = ("AssumeRolePolicyDocument", "[WorkerTrust](iam/worker-role-trust-policy.json)", "workerからの引受を許可する信頼ポリシー")
+    document = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
+    invalid = [[], [name_row, name_row], [("Tags[].Key", "`Name`", "タグのキー"), ("Tags[].Value", f"`{name}`", "タグの値")]]
+    invalid += [[("RoleName", value, "未確定の名前")] for value in
+                ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#iam-{name})")]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        source = root / "model/dev/123456789012/iam.properties"
+        source.parent.mkdir(parents=True)
+        values = model("iam", kind, name, [name_row, trust_row], logical_id, "fallback-label")
+        values["desired.row.001-002.document"] = document
+        source.write_text(text(values))
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        assert SYNC.sync(root, False, "dev", "123456789012") == 0
+        path = root / "docs/designs/dev/123456789012/iam.md"
+        output = path.read_text()
+        assert f"| 1 | [{name}](#iam-{name}) |" in output
+        assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
+        assert f"<!-- resource-logical-id: {logical_id} -->" in output
+        projected = properties(SYNC.model_for(path, root))
+        assert projected["desired.resource.001.logicalId"] == logical_id
+        assert projected["desired.row.001-001.value"] == f"`{name}`"
+        assert source.read_text() == text(values)
+        metadata = {path: ("iam", (kind,))}
+        outputs = validator_module.Validator(root).catalog_design_properties()[2]
+
+        def failures(markdown):
+            path.write_text(markdown)
+            validator = validator_module.Validator(root)
+            validator.check_resource_names(metadata, [path])
+            validator.check_design_overviews([path])
+            validator.check_design_links(outputs)
+            return validator.errors
+
+        assert not failures(output), failures(output)
+        reference = path.with_name("reference.md")
+        for label in (name, logical_id, "wrong-name", "/service-role/" + name):
+            reference.write_text(f"参照: [{label}](iam.md#iam-{name})\n")
+            errors = failures(output)
+            assert bool(errors) == (label != name), (label, errors)
+        reference.unlink()
+        assert failures(output.replace(f"[{name}](#iam-{name})", f"[{logical_id}](#iam-{name})"))
+        assert failures(output.replace(f"### IAM.Role: {name}", f"### IAM.Role: {logical_id}"))
+        for bad_names in invalid:
+            bad_rows = [*bad_names, trust_row]
+            formal_rows = [[str(i), kind + "." + field, value, comment] for i, (field, value, comment) in enumerate(bad_rows, 1)]
+            assert naming_errors(root, kind, formal_rows), bad_names
+            assert naming_errors(root, kind, [[row[0], row[1].removeprefix(kind + "."), *row[2:]] for row in formal_rows]), bad_names
+            bad = model("iam", kind, name, bad_rows, logical_id, name)
+            try:
+                markdown_for(path, bad, root)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid IAM RoleName accepted: {bad_names}")
+            rendered = output[:output.index("| 1 | RoleName |")]
+            rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"
+            assert any("IAM.Role.RoleName" in error for error in failures(rendered)), bad_names
+    print(f"IAM RoleName checks: PASS ({len(invalid)} rejected cases; generation, names, links and model)")
+
+
 def check_naming_exclusions():
     spec = importlib.util.spec_from_file_location("naming_validator", Path(__file__).with_name("validate-blueprint.py"))
     validator_module = importlib.util.module_from_spec(spec)
@@ -505,10 +644,12 @@ def check_stack_policy():
 
 def main():
     check_nameless_type_display()
+    check_nameless_logical_id_label()
     check_stack_policy()
     check_security_naming()
     check_naming_exclusions()
     check_codebuild_required_name()
+    check_iam_role_name()
     for kind in ("EC2.VPCEndpoint", "EC2.Instance"):
         check_required_name_tag(kind)
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
