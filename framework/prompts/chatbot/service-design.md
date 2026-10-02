@@ -2,6 +2,10 @@
 
 この prompt は Microsoft Copilot で、初回の詳細設計をAWS service ownership boundaryごと、または密接に関連する複数serviceの質問batchとして作成するために使用する。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## User input
 
 - Design target: `{{設計対象の機能またはservice}}`
@@ -272,15 +276,15 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 
 1. `AGENTS.md`、`README.md`、存在する場合は`tasks/active.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
-3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。`## Validation scope`へ保存対象ごとの``- `<environment>/<target-directory>/<service-id>` ``を列挙する（aliasがあるtarget directoryはalias）。指定不足は停止し、全体検証へ切り替えない。Required changes、対応するAcceptance checks、正本の`model/**`、生成対象の`docs/designs/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
+3. 最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。`## Validation scope`へ保存対象ごとの``- `<environment>/<target-directory>/<service-id>` ``を列挙する（aliasがあるtarget directoryはalias）。生成scopeの指定不足は停止する。task loopのvalidationは生成scopeと独立に全serviceへ行う。Required changes、対応するAcceptance checks、正本の`model/**`、生成対象の`docs/designs/**`、`tasks/active.md`だけをAllowed pathsへ記載する。
 4. 作成対象の選択済み名称property／必須.Name／必須またはhuman-selectedなName tagに対応する命名ルールがあることを確認する。名称を持たないSecurity Hub CSPM（SecurityHub.Hub）などは対象外とする。rule欠落はtype／propertyを明示して停止し、patternを推測しない。指定された全model propertiesを先に保存する。model更新が失敗したらMarkdown／JSONを変更せず停止する。
 5. aliasがあるtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --alias <alias> --service <service-id>`、aliasがないtargetは`python3 framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id> --service <service-id>`を実行する。service単位に正本propertiesのschema/catalog必須root propertyを生成前に検証し、不足時はMarkdown／JSON artifactの一時生成にも進まない。propertiesは設計入力として保持し、不足resource／propertyを報告する。必須項目が揃ったserviceだけ一時生成・検証し、成功したserviceのMarkdown／JSONを保存する。失敗serviceの保存済みMarkdown／JSONは保持し、他serviceの処理を続ける。失敗が残る場合は完了扱いにせず、propertiesの正本から修正・再実行する。Markdownをmodelへ逆反映しない。
-6. `python3 framework/scripts/blueprint-loop.py --mode local`でactive taskに列挙したtarget/serviceだけを検証する。複数targetは並列実行する。別serviceは参照解決情報だけを読み、対象外の既存設計エラーや検証プログラムの全テストを通常設計の失敗理由にしない。全体検証は明示依頼時だけ`--all`を指定する。`git diff --check`も実行し、結果を報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
+6. `python3 framework/scripts/blueprint-loop.py --mode task`で実repository内の全serviceの設計/model、generated Markdown／JSON、schema、命名、参照、active task contractとtask固有checkを検証する。frameworkが未変更ならframework self-testを実行しない。`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`の変更時は全regressionも実行する。framework変更taskでは`--mode full`を使用する。loop内の`git diff --check`も成功したことを報告して終了する。IaC実装、AWS resource作成、deploy/apply、scenario-testへ進まない。
 
 既存AWS configuration branchがある場合は、上記4の代わりに次をCodex反映依頼へ明示する。
 
 1. chatbotで確定したtarget service、catalog resource type、materials property、出力pathを列挙する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`を含め、`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含め、それ以外の別service、未選択resource type、未選択propertyへscopeを広げない。
-2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。
+2. aliasがあるtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`、aliasがないtargetは`python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`を実行し、caller accountとregionが一致した場合だけ続行する。失敗時はcredential、profile、account、regionを推測または切り替えず停止する。preflightはtargetの`awsProfile`があれば自動使用する。以下のすべてのAWS CLIにも同じ`--profile`と対象regionを渡し、SDKにはprofileとregionを明示する。設定と異なる明示profileは拒否し、未設定時だけ従来の認証方法を維持する。
 3. API catalogの`Macie.ClassificationJob`は`aws macie2 list-classification-jobs`で候補を取得する。CFn由来のcatalog resource typeだけを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. Macie Jobはhumanの選択後に`aws macie2 describe-classification-job --job-id <選択したjobId>`で選択済みroot propertyとjobIdだけを取得する。CFn由来resourceは選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。

@@ -331,6 +331,16 @@ def check_inputs():
         args = run.call_args.args[0]
         assert args[:5] == ["aws", "--region", "ap-northeast-1", "--profile", "test"]
         assert "--no-paginate" not in args
+        configured = {**TARGET, "awsProfile": "configured"}
+        for explicit in (None, "configured"):
+            backend = M.AwsBackend(ROOT, "dev", "123456789012", configured, explicit)
+            backend.aws("describe-stacks")
+            assert run.call_args.args[0][:5] == ["aws", "--region", "ap-northeast-1", "--profile", "configured"]
+        run.reset_mock()
+        rejects(lambda: M.AwsBackend(ROOT, "dev", "123456789012", configured, "other"), "does not match target awsProfile")
+        run.assert_not_called()
+        M.AwsBackend(ROOT, "dev", "123456789012", TARGET).aws("list-exports")
+        assert "--profile" not in run.call_args.args[0]
 
 
 def check_session_cli():
@@ -343,7 +353,7 @@ def check_session_cli():
         (root / "framework/rules").mkdir()
         (root / "framework/rules/aws-resource-naming.md").write_text(
             "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
-        (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}))
+        (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}]}))
         (root / "tasks").mkdir()
         contract = root / "tasks/active.md"
         contract.write_text("\n".join(["- Task type: `infrastructure`", "- Infrastructure phase: `deploy`",
@@ -371,6 +381,7 @@ def check_session_cli():
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file)]
         backends = []
         def backend_factory(root, environment, directory, target, profile, approvals):
+            assert target["awsProfile"] == "dev-profile"
             backend = StubAws(destructive=True)
             backend.root, backend.approvals = root, set(approvals)
             backend.validate = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
@@ -381,8 +392,13 @@ def check_session_cli():
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
                     patch.object(M, "AwsBackend", side_effect=backend_factory), \
                     patch.object(shutil, "which", return_value="mock-command"), \
-                    patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}', stderr="")):
-                return M.main(argv + list(options), root=root)
+                    patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}', stderr="")) as run:
+                result = M.main(argv + list(options), root=root)
+                if run.called:
+                    assert run.call_args.args[0][:3] == ["mock-command", "--profile", "dev-profile"]
+                return result
+        assert invoke(["--profile", "other"]) == 2
+        assert not backends and not state_file.exists()
         assert invoke() == 2
         session = json.loads(state_file.read_text())
         assert session["states"]["A"]["status"] == "BLOCKED"

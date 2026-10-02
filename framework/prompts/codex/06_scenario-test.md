@@ -2,6 +2,10 @@
 
 このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## User input
 
 - Scenario ID: `{{lower-kebab-case ID}}`
@@ -45,6 +49,8 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 
 ## Define and execute
 
+AWS実行前に`check-deploy-context.py --environment <environment>`へ`--alias <alias>`または`--aws-account-id <account-id>`と`--read-only`を渡し、target、caller account、regionを確認する。targetの`awsProfile`があればpreflightが自動使用する。scenarioのすべてのAWS CLI／SDKと子processでも同じprofileを使用し、`scenario-testing.md`の実行ルールに従う。未設定時は従来の認証方法を維持する。
+
 1. `framework/rules/scenario-testing.md`に従い、scenario definitionと必要最小限のtest implementationを作成または更新する。
 2. expected behaviorを実際に観測できる手順を使用し、deploy完了statusや静的設定だけをPASS根拠にしない。
 3. prerequisites不足またはcredential/permission不足は`BLOCKED`、実行して合格条件を満たさない場合は`FAIL`とする。
@@ -55,7 +61,7 @@ failure時もdesign変更、IaC修正、redeploy、別task作成を行わない�
 
 ## Verify and finish
 
-1. `python framework/scripts/blueprint-loop.py --mode local`
+1. `python framework/scripts/blueprint-loop.py --mode task`
 2. `git diff --check`
 
 scenario ID、target、実行手順、status、expected/actual behavior、evidence、cleanup、blockerを完了報告に記載する。

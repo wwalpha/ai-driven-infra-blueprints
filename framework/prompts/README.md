@@ -97,13 +97,13 @@ Existing AWS values: EC2.VPCの現在値を使用
 framework/prompts/codex/01_initialize.mdを使ってください。
 ```
 
-CodexからProject name、Environment ID、environment内のlogical target数、必要な場合はTarget alias、AWS account ID、AWS region、IaC engineを一つずつ質問されるため、順番に回答する。
+CodexからProject name、Environment ID、environment内のlogical target数、必要な場合はTarget alias、AWS account ID、AWS region、IaC engine、任意のAWS profileを一つずつ質問されるため、順番に回答する。
 
 ### `codex/02_add-target.md`
 
 - Description: 初期化済みrepositoryへ、確定済みのenvironment／alias（必要な場合）／AWS account targetを1件追加する。
 - Timing: `project.json`は存在するが、必要なtargetがまだ登録されていないとき。
-- How to use: promptをCodexへ渡し、Environment ID、既存environmentがalias方式の場合はTarget alias、AWS account ID、region、IaC engineを順に回答する。一回の実行で追加するtargetは1件だけとする。
+- How to use: promptをCodexへ渡し、Environment ID、既存environmentがalias方式の場合はTarget alias、AWS account ID、region、IaC engine、任意のAWS profileを順に回答する。一回の実行で追加するtargetは1件だけとする。
 
 使用例:
 
@@ -162,7 +162,7 @@ AWS profile:
 
 - Description: humanが既存model propertiesへ作成したuncommitted diffを確定済みdesignとして受け取り、Markdown生成、IaC反映、deploy/applyまでを行う。
 - Timing: 既存詳細設計をhumanが直接修正し、その差分をcommit前にCloudFormation／TerraformとAWS resourceへ反映するとき。
-- How to use: promptの使用だけを指示する。Codexが変更済み詳細設計のpathからenvironment、AWS account、Design scopeを取得し、対応する既存IaCからDeployment scopeを特定する。delete/replacement許可の省略時は`none`、AWS profileの省略時はdefault credential chainを使用する。複数targetの設計差分が混在する場合は変更せず停止し、deployment unitの不足項目だけ必要に応じて質問する。
+- How to use: promptの使用だけを指示する。Codexが変更済み詳細設計のpathからenvironment、AWS account、Design scopeを取得し、対応する既存IaCからDeployment scopeを特定する。delete/replacement許可の省略時は`none`、AWS profileの省略時はtargetの`awsProfile`、未設定ならdefault credential chainを使用する。設定と異なる明示profileは実行前に拒否する。複数targetの設計差分が混在する場合は変更せず停止し、deployment unitの不足項目だけ必要に応じて質問する。
 
 使用例:
 

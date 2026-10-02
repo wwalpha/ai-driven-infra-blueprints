@@ -15,6 +15,7 @@
 - 各scenario directoryに`scenario.md`を置き、`- Scenario ID: <scenario-id>`を正確に1件記載する。
 - scenario definitionにはpurpose、prerequisites、required resources、expected behavior、execution procedure、pass/fail criteria、cleanup、AWS mutationの有無、destructive operationの有無を記載する。
 - test implementationはShell、Python、AWS CLI、manual procedureなど必要な形式をscenario directory内で使用できる。
+- AWS実行前に対象targetを`check-deploy-context.py --read-only`で検証する。`awsProfile`があればscenarioのすべてのAWS CLI／SDKと子processで同じprofileを使用する。CLIには`--profile`と対象region、SDKにはprofileとregionを明示し、`AWS_PROFILE`が必要なtoolにはprocess単位で渡す。設定と異なる明示profileは拒否し、未設定時は従来の認証方法を維持する。認証失敗時に別profileへfallbackしない。
 - scenario testは静的設定だけでなくexpected behaviorを検証する。
 
 ## Current result

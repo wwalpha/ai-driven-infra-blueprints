@@ -1,9 +1,12 @@
 # CloudFormation Rules
 
+対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
+
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
+- 対象targetの`awsProfile`があればpreflightとcontrollerが自動使用する。直接のAWS CLI（validate-template、list/get/describe、observed値取得を含む）にも同じ`--profile`と対象regionを渡す。設定と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
 - CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。`ImportValue`の値に`!Sub`を使用しない。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
 - CloudFormation YAMLではYAML anchor/aliasとhash merge（`<<:`）を使用しない。同一の信頼ポリシー、IAM/KMSなどの権限Policy、その他の設定ブロックは各resourceに元の値を明示する。同一内容を理由に共有を要求せず、Roleごとの設計JSON artifactと参照を維持する。
 - CloudFormation YAMLの`Resources`配下は、resourceと次のresourceの間に1行以上の空行を入れる。

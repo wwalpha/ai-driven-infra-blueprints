@@ -2,6 +2,10 @@
 
 このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformを変更せずにdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。IaC修正とapplication behavior検証は行わない。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## User input
 
 - Target environment: `{{project.jsonのenvironment}}`
@@ -9,7 +13,7 @@
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
 - Deployment scope: `{{対象のStackNameまたはTerraform root/resource。複数可}}`
 - Authorized delete/replacement: `none`
-- AWS profile: `{{使用するprofile名。default credential chainの場合は空}}`
+- AWS profile: `{{任意。省略時はtargetのawsProfile、未設定ならdefault credential chain}}`
 
 ## Resolve missing input
 
@@ -20,7 +24,7 @@ AWS APIを実行する前にUser inputを確認する。placeholder、空、不�
 3. Target AWS account
 4. Deployment scope
 
-environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。delete/replacementは、対象resourceと理由がUser inputに明記されている場合だけ事前承認済みとして扱う。事前承認がない場合は`none`のままchange setまたはplanを作成し、未承認のdelete/replacementを検出した場合だけ作成後にhumanへ確認する。AWS profileがplaceholderまたは空の場合はdefault credential chainを使用し、profile名を質問しない。
+environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。delete/replacementは、対象resourceと理由がUser inputに明記されている場合だけ事前承認済みとして扱う。事前承認がない場合は`none`のままchange setまたはplanを作成し、未承認のdelete/replacementを検出した場合だけ作成後にhumanへ確認する。AWS profileがplaceholderまたは空の場合はtargetの`awsProfile`を使用し、未設定ならdefault credential chainを使用する。profile名を質問しない。設定と異なる明示profileは実行前に拒否する。
 
 `project.json`、対象の承認済み詳細設計、対応するservice model、または対象IaCが存在しない場合は、値を推測せず停止する。
 
@@ -60,7 +64,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 対象IaCにuncommitted changeがある場合はdeploy対象revisionが一意でないため停止する。unrelatedなworktree変更は上書きまたは巻き戻さない。
 
-credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定しない。repository rootから次を実行する。AWS profileが空の場合は`--profile`を省略する。
+credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定しない。repository rootから次を実行する。追加inputがなければ`--profile`を省略してよい。scriptはtargetの`awsProfile`を自動使用する。
 
 aliasがあるtargetでは次を実行する。
 
@@ -74,7 +78,7 @@ aliasがないtargetでは次を実行する。
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
-scriptが終了code 0を返した場合だけ、出力されたregionとIaC engineを使用して続行する。失敗時は推測、credential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
+scriptが終了code 0を返した場合だけ、出力されたregion、profile（設定時）、IaC engineを使用して続行する。直接のAWS CLIにも同じ`--profile`を渡し、SDKにも同じprofileを明示する。Terraformのprovider／AWS backendには`terraform.md`に従いprocess単位で同じ`AWS_PROFILE`を渡す。失敗時は推測、credential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
 
 preflight成功後、対象stackまたはTerraform stateと既存resourceをread-onlyで確認する。CloudFormationのcross-stack参照では`describe-stacks`でproducerのOutputs、`list-exports`で同じaccount・regionのdeploy済みexportsを調べ、export名、値、`ExportingStackId`を照合する。engine切替、state/backendの不明点、対象IaCと承認済みdesignの不一致があれば停止する。
 
@@ -164,7 +168,7 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 ## Verify and finish
 
 1. 対象IaCに変更がないことを確認する。
-2. `python framework/scripts/blueprint-loop.py --mode local`
+2. `python framework/scripts/blueprint-loop.py --mode task`
 3. `git diff --check`
 
 target、account、region、engine、preflight結果、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。

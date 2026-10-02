@@ -184,7 +184,12 @@
   "SSO.PermissionSet": "independent",
   "Scheduler.Schedule": "independent",
   "SecretsManager.ResourcePolicy": "independent",
-  "SecretsManager.RotationSchedule": "independent",
+  "SecretsManager.RotationSchedule": {
+    "parent": "SecretsManager.Secret",
+    "parentProperty": "SecretId",
+    "maxCount": 1,
+    "identityProperty": null
+  },
   "SecretsManager.Secret": "independent",
   "SecurityHub.FindingAggregator": "independent",
   "SecurityHub.Hub": "independent",

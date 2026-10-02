@@ -12,6 +12,7 @@ from pathlib import Path
 
 from design_layout import DISPLAY_PROPERTY_ALIASES, LAYOUTS, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
+from model_design import pipeline_rows
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -130,6 +131,82 @@ GUARDDUTY = """# GuardDuty 詳細設計
 | 3 | Features.S3_DATA_EVENTS | `ENABLED` | S3の監視 |
 | 4 | Features.EKS_AUDIT_LOGS | `DISABLED` | EKSの監視 |
 """
+
+
+def check_secret_rotation_display() -> None:
+    text = """# Secrets Manager 詳細設計
+
+- Design service ID: `secretsmanager`
+- Owned catalog resource types: `SecretsManager.Secret`, `SecretsManager.RotationSchedule`
+
+## リソース一覧
+
+### SecretsManager.Secret
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-dev-key](#secretsmanager-app-dev-key) | 定期更新する連携用key |
+| 2 | [app-dev-token](#secretsmanager-app-dev-token) | 連携用token |
+
+## リソース詳細
+
+<!-- resource-logical-id: AppKey -->
+<a id="secretsmanager-app-dev-key"></a>
+
+### SecretsManager.Secret: app-dev-key
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `app-dev-key` | secretの名前 |
+| 2 | Id | `PENDING_DEPLOY` | secretのID |
+| 3 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | 更新直後のrotation実行設定 |
+| 4 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
+
+<!-- resource-logical-id: AppToken -->
+<a id="secretsmanager-app-dev-token"></a>
+
+### SecretsManager.Secret: app-dev-token
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Name | `app-dev-token` | secretの名前 |
+| 2 | Id | `PENDING_DEPLOY` | secretのID |
+"""
+    catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/secretsmanager.md"
+        path.parent.mkdir(parents=True)
+
+        def errors(content):
+            path.write_text(content, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+            validator.check_design_tables({path: ("secretsmanager", ("SecretsManager.Secret", "SecretsManager.RotationSchedule"))}, *catalog)
+            validator.check_design_overviews()
+            return validator.errors
+
+        assert not errors(text), errors(text)
+        model = MODEL.model_for(path, REPOSITORY)
+        assert "desired.resource.003" not in model
+        assert "desired.row.001-003.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
+        assert "desired.row.001-004.value=`30`" in model
+        assert "SecretsManager.RotationSchedule.SecretId" not in model
+        values = MODEL.properties(MODEL.imported_model(path, REPOSITORY))
+        rendered = MODEL.markdown_for(path, values, REPOSITORY)
+        assert rendered == text
+        assert not errors(rendered), errors(rendered)
+        assert MODEL.model_for(path, REPOSITORY) == model
+        for invalid, message in (
+            (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
+            (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
+            (text.replace("RotationRules.AutomaticallyAfterDays", "SecretId"), "must be omitted"),
+            (text.replace("RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"), "duplicate property"),
+            (text.replace("`30`", "`invalid`"), "provider schema violation"),
+            (text.replace("### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"), "resource overview types"),
+        ):
+            failures = errors(invalid)
+            assert any(message in error for error in failures), (message, failures)
 
 
 def check_codebuild_variable_display() -> None:
@@ -472,6 +549,12 @@ def check_codepipeline_display() -> None:
     assert expanded.count("CodePipeline.Pipeline.Stages[].Actions[].Configuration |") == 3
     assert '`{"BranchName":"dev","PollForSourceChanges":"false","RepositoryName":"[repo](codecommit.md#codecommit-repo)"}`' in expanded
     assert "Stages[1]" not in expanded and "Actions[2]" not in expanded
+    formal_rows = [
+        [cells[0], cells[1].removeprefix("CodePipeline.Pipeline."), *cells[2:]]
+        for line in expanded.splitlines()
+        if len(cells := [cell.strip() for cell in line.strip("|").split("|")]) == 4 and cells[0].isdigit()
+    ]
+    assert [(row[1], row[2]) for row in pipeline_rows(formal_rows)] == rows
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         target = root / "docs/designs/dev/123456789012"
@@ -787,6 +870,7 @@ def main() -> None:
         '| 2 | AssumeRolePolicyDocument | [trust](trust.json) | 信頼policy |',
     ]
     assert resources_in(policy_rows)[0].policies[0].property_name == "IAM.Role.AssumeRolePolicyDocument"
+    check_secret_rotation_display()
     check_codebuild_variable_display()
     check_codebuild_vpc_display()
     check_guardduty_feature_display()

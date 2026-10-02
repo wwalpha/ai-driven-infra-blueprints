@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from issue_gate import require_target_no_issues
 
 
 class DeployContextError(RuntimeError):
@@ -78,6 +79,12 @@ def load_target(
     }
     if alias:
         resolved["alias"] = alias
+    if "awsProfile" in target:
+        profile = target["awsProfile"]
+        if (not isinstance(profile, str) or not profile or profile != profile.strip()
+                or profile == "UNSET" or any(char in profile for char in "\r\n\0")):
+            raise DeployContextError("target AWS profile is invalid")
+        resolved["awsProfile"] = profile
     return resolved
 
 
@@ -90,6 +97,15 @@ def check_deploy_context(
     read_only: bool = False,
 ) -> dict[str, str]:
     target = load_target(root, environment, account_id, alias)
+    if not read_only:
+        try:
+            require_target_no_issues(root, (environment, alias or target["awsAccountId"]))
+        except (OSError, ValueError) as error:
+            raise DeployContextError(str(error)) from error
+    configured_profile = target.get("awsProfile")
+    if configured_profile and profile is not None and profile != configured_profile:
+        raise DeployContextError("explicit AWS profile does not match target awsProfile")
+    profile = configured_profile or profile
     required_commands = ["aws"]
     if not read_only:
         required_commands.append(
@@ -165,6 +181,8 @@ def main() -> int:
         print(f"- alias: {args.alias}")
     print(f"- AWS account: {target['awsAccountId']}")
     print(f"- AWS region: {target['awsRegion']}")
+    if target.get("awsProfile") or args.profile:
+        print(f"- AWS profile: {target.get('awsProfile') or args.profile}")
     print(f"- IaC engine: {target['iacEngine']}")
     return 0
 

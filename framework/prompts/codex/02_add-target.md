@@ -4,6 +4,10 @@
 
 humanへJSONの作成・編集を依頼してはいけない。値を推測せず、質問、確認、file変更はこのmigration task内で完結させる。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## First response
 
 prompt実行後の最初の応答ではfileを変更せず、追加するEnvironment IDだけを質問する。
@@ -33,6 +37,7 @@ Step 1: Environment
 3. AWS account ID
 4. AWS region
 5. IaC engine
+6. AWS profile（任意。不要なら省略してtarget追加を進める）
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
@@ -54,6 +59,7 @@ file変更前に次を確認する。
 - AWS account IDが12桁
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
+- 任意のAWS profileを指定した場合は、前後の空白、改行、NUL、`UNSET`を含まない空でない文字列。profileの存在確認やAWS接続はこのtaskでは行わない
 - target directoryとなるaliasまたはAWS account IDが同じenvironmentに存在しない
 - aliasは同じenvironment内で一意なlower-kebab-caseで、12桁の数字だけではない
 - 同じenvironment/AWS account IDの既存targetがある場合はIaC engineが一致する
@@ -86,11 +92,13 @@ file変更前に次を確認する。
   "alias": "<confirmed-optional-alias>",
   "awsAccountId": "<confirmed-12-digit-account-id>",
   "awsRegion": "<confirmed-region>",
-  "iacEngine": "<cloudformation-or-terraform>"
+  "iacEngine": "<cloudformation-or-terraform>",
+  "awsProfile": "<confirmed-optional-profile>"
 }
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。
+AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 
 ## Create target paths
 
@@ -126,7 +134,7 @@ infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 
 ## Verify and finish
 
-1. `python framework/scripts/blueprint-loop.py --mode local`
+1. `python framework/scripts/blueprint-loop.py --mode task`
 2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 

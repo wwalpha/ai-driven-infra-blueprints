@@ -8,6 +8,7 @@ if not __debug__:
 
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -82,9 +83,10 @@ def main() -> None:
             MODULE.subprocess,
             "run",
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
-        ):
+        ) as run:
             MODULE.check_deploy_context(root, "production", account_id="210987654321")
             assert commands == ["aws", "cfn-lint"]
+            assert "--profile" not in run.call_args.args[0]
 
         commands = []
         with mock.patch.object(
@@ -121,6 +123,48 @@ def main() -> None:
             raise AssertionError("aliased target was selected without its alias")
 
         topology = json.loads((root / "project.json").read_text(encoding="utf-8"))
+        topology["targets"][1]["awsProfile"] = "stg-cde"
+        topology["targets"][2]["awsProfile"] = "stg-non-cde"
+        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"AWS_PROFILE": "ambient"}), mock.patch.object(
+            MODULE.shutil, "which", return_value="/mock/aws"
+        ), mock.patch.object(
+            MODULE.subprocess, "run",
+            return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', ""),
+        ) as run:
+            for alias in ("cde", "non-cde"):
+                for read_only in (False, True):
+                    target = MODULE.check_deploy_context(root, "stg", alias=alias, read_only=read_only)
+                    assert target["awsProfile"] == f"stg-{alias}"
+                    assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", f"stg-{alias}"]
+            MODULE.check_deploy_context(root, "stg", alias="cde", profile="stg-cde")
+            run.reset_mock()
+            try:
+                MODULE.check_deploy_context(root, "stg", alias="cde", profile="other")
+            except MODULE.DeployContextError as error:
+                assert "does not match target awsProfile" in str(error)
+            else:
+                raise AssertionError("conflicting AWS profile was accepted")
+            run.assert_not_called()
+            run.return_value = subprocess.CompletedProcess([], 1, "", "profile not found")
+            try:
+                MODULE.check_deploy_context(root, "stg", alias="cde")
+            except MODULE.DeployContextError as error:
+                assert "profile not found" in str(error)
+            else:
+                raise AssertionError("failed configured profile was accepted")
+            assert run.call_count == 1
+            assert run.call_args.args[0][2] == "stg-cde"
+
+        for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
+            topology["targets"][1]["awsProfile"] = invalid
+            (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+            try:
+                MODULE.load_target(root, "stg", alias="cde")
+            except MODULE.DeployContextError as error:
+                assert "AWS profile is invalid" in str(error)
+            else:
+                raise AssertionError(f"invalid AWS profile was accepted: {invalid!r}")
         topology["targets"][0]["awsRegion"] = "Tokyo"
         (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
         try:

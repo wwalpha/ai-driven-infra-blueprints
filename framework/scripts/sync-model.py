@@ -17,6 +17,7 @@ from pathlib import Path
 
 from design_catalog import design_material_files
 from validation_scope import active_scope, reference_lines, scoped_files
+from issue_gate import require_no_issues
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties
@@ -285,6 +286,8 @@ def sync(
     scope = {(environment, target_directory, service) for service in services} if services is not None else None
     if services is not None and (not environment or not target_directory):
         raise ValueError("service selection requires environment and target directory")
+    if write:
+        require_no_issues(root, scope, target=(environment, target_directory) if environment else None)
     markdown_paths = [
         path
         for path in scoped_files(root, "docs/designs", ".md", scope)

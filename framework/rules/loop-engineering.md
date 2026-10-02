@@ -13,11 +13,34 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - infrastructure behaviorの変更を理由にscenario testへ進まない。
 - test failureをdesign変更、IaC変更、redeployで自動修正しない。
 
+## Unresolved issue gate
+
+- issue一覧は`issues/<environment>/<target-directory>/issues.md`とする。target directoryはproject.jsonのalias、aliasなしはAWS account IDとする。fileがない場合または空の場合は未解決issueなしとして扱う。
+- 一覧に残っている番号付きissue（`1. ...`）はすべて未解決とする。修復・再検証が成功したissueだけを明示された修復scope内で一覧から除去する。解決履歴はGitで保持し、一覧削除・書換えだけで修復済みと扱わない。issueが0件なら`未解決issueなし`と記載してよい。
+- serviceは`### <service-id>`、`<!-- issue-service: <service-id> -->`、または同じtargetのmodel properties／詳細設計Markdownへの根拠linkで特定する。AWS serviceの表示名だけでは推測しない。所属を特定できないissueや番号付きissue／0件宣言のない不正な一覧はtarget全体を停止する。
+- 対象environment/target/serviceに未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenario・target migrationなど他taskを開始・継続しない。別environment、別target、別serviceは停止しない。複数serviceを変更・実装・deployする場合は関係する全serviceをValidation scopeへ明記し、一件でもblockedならそのtaskを停止する。全体validationとtask対象を混同しない。
+- issue調査のread-only操作と、humanが明示したissue修復だけを許可する。新しいtask typeは作らず、design／infrastructureなど既存task boundaryとAWS execution許可を維持する。frameworkだけのgovernance／catalog-maintenanceはservice対象taskではないため、consumer issueでは停止しない。
+- 修復taskのGoalとRequired changesに対象issue、原因、修復scopeを記載する。同じactive contractに次のsectionを置く。entryは明示されたValidation scopeの部分集合だけとし、`all`／`framework`による修復例外は禁止する。例外はそのserviceのissue修復と再検証だけに適用し、機能追加・通常の設計・別issueの修復などを混ぜない。修復task完了後に停止中の他taskを自動再開しない。
+
+```md
+## Issue remediation
+
+- `dev/cde/ec2`
+```
+
+- 対象を確定した時点、task開始前、再開時、設計保存前、AWS mutation前に最新のissue一覧を確認する。開始前は次のcheckを実行する。このcheckは古いactive contractの修復例外を使わない。修復依頼なら停止理由を確認し、humanの依頼scopeに限った修復contractを作成して既存workflowで処理する。既存のactive contractが残っていても、chat-only設計相談のissue停止を解除しない。
+
+```text
+python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
+```
+
+`--service`は関係する全serviceについて繰り返す。task validator、`sync-model.py --write`、deploy contextは共通issue判定を実行する。AWS read-only contextはissue調査に使用できるが、通常taskの続行許可を意味しない。deploy/applyは既存preflightに加え、実行直前にも同じissue checkを再実行する。実行直前のcheckには`--task`を付け、同じactive contractのIssue remediationを用いる。通常taskは修復例外なしで再確認する。
+
 ## Local loop
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-local loopは必要な共通checks、active taskで明示されたtarget/service checks、task type checks、active task Acceptance checks、変更した検証プログラムに対応するfocused check scriptsの順で実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
+通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、全serviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -72,7 +95,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-### 明示した検証範囲
+### 生成scopeとlegacy validation scope
 
 active taskに`## Validation scope`を置き、各entryを``- `<environment>/<target-directory>/<service-id>` ``とする。aliasがあればtarget directoryはalias、なければAWS account IDを使う。サービスはmodelのfile stem（EC2なら`ec2`）で指定する。environmentだけ、accountだけ、serviceだけの指定、未知target、欠落model/Markdownは停止する。Allowed pathsや変更fileから検証対象を推測しない。scope外の設計変更も拒否する。
 
@@ -85,13 +108,20 @@ active taskに`## Validation scope`を置き、各entryを``- `<environment>/<ta
 - `stg/non-cde/ec2`
 ```
 
-対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
+`sync-model.py --write`と互換用`--mode local`は指定scopeを使用する。新しい`--mode task`／`--mode full`はvalidatorへ`--all`を渡し、repository内の全serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを毎回検証する。通常taskのvalidationをservice単位へ縮小しない。以下の限定検証の説明はlegacy `local` interfaceと生成scopeだけに適用する。対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
 
 複数targetは最大4並列で検証し、全workerの終了を待って指定順で診断を集約する。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
 
-frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示する。全体検証は`blueprint-loop.py --mode local --all`、`validate-blueprint.py --repository-root <root> --all`、またはscopeの単独``- `all` ``で明示する。scope不足から全体検証へ自動で切り替えない。
+frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。生成scopeの単独``- `all` ``も維持する。`task`／`full`はscopeの指定を確認し、`--contract-scope`で既存のtarget/input存在・変更scope制約を維持したうえで実設計全体を検証し、scopeが`all`でもframework regressionとは独立に扱う。
 
-`framework/scripts/blueprint-loop.py`は通常設計変更では検証プログラムの全テストを実行しない。変更された`*.checks.py`および変更された同名`*.py`に対応するcheckだけを名前順に実行する。全体検証を明示した場合だけ`*.checks.py`を全件実行する。validatorが失敗しても選択したfocused checksを継続し、Python最適化によるassert無効化を防ぐ。選択したcheckに失敗・未実行があればPASSにしない。
+### 通常taskとframework regression
+
+- 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。実repositoryの`validate-blueprint.py --all`、その内部の`sync-model.py --all`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
+- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。通常taskのvalidationに加え、`framework/scripts/*.checks.py`全件を名前順に実行する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
+- `task`／`local`でも、unstaged、staged、untrackedの変更pathが`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`にあれば全regressionを自動追加する。scriptsだけでなくrules、materials（catalog/schema snapshot）、将来のschema/catalog directory、promptと配布skillも対象にする。削除・rename元も検出する。Gitで変更を判定できなければ停止し、regressionを省略しない。commit済み変更の再検証には明示的な`full`を使用する。
+- 互換用`--mode local`は既存のactive scopeによる実設計検証を維持する。`--mode local --all`、legacy scopeの`all`は従来どおり全体検証＋全regressionとする。`--all` optionは互換用に残す。通常taskのrepository内呼び出し元は`task`へ移行する。
+- validatorが失敗してもregressionと差分checkを継続する。Python最適化によるassert無効化を防ぐ。選択したcheckの失敗・未実行はFAILとする。
+- CloudFormationの`cfn-lint`、deploy context、`aws cloudformation validate-template`、change set／change summary、delete/replacement確認、AWS account/region確認、およびTerraformのfmt/init/validate/plan/applyの既存必須手順は各phaseのrules/promptどおり維持する。loopはこれらの実IaC/deployment手順を代替せず、implementとdeployを統合しない。
 
 ### 時間計測と長時間実行
 
@@ -164,4 +194,4 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 
 validate/plan後に全deploymentを一律停止するhuman reviewは要求しない。未承認のdelete/replacementに対するplan固有のhuman確認と、Codex sandbox/OS permission controlは別の仕組みであり、permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
 
-local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、focused check script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。
+local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、framework regression script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。

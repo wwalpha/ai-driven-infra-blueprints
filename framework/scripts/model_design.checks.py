@@ -1018,6 +1018,30 @@ def main():
         pipeline["desired.row.001-010.value"] = "`purpose`"
         pipeline["desired.row.001-010.comment"] = "タグのキー"
         roundtrip(base / "codepipeline.md", pipeline, ROOT)
+        trailing_names = model("codepipeline", "CodePipeline.Pipeline", "cpln-app-dev-build", [
+            ("Name", "`cpln-app-dev-build`", "pipelineの名前"),
+            ("RoleArn", "[PipelineRole](iam.md#iam-pipeline-role)", "実行に使用するロール"),
+            ("Stages[].Actions[].ActionTypeId.Provider", "`CodeCommit`", "source provider"),
+            ("Stages[].Actions[].Configuration", '`{"BranchName":"main","PollForSourceChanges":"false"}`', "BranchName: 対象branch / PollForSourceChanges: polling設定"),
+            ("Stages[].Actions[].Name", "`SourceAction`", "入力を取得するaction"),
+            ("Stages[].Name", "`Source`", "入力を取得するstage"),
+            ("Stages[].Actions[].ActionTypeId.Provider", "`CodeBuild`", "build provider"),
+            ("Stages[].Actions[].Configuration", '`{"ProjectName":"one"}`', "ProjectName: 実行するproject"),
+            ("Stages[].Actions[].InputArtifacts[].Name", "`source-one`", "最初の入力artifact"),
+            ("Stages[].Actions[].InputArtifacts[].Name", "`source-two`", "次の入力artifact"),
+            ("Stages[].Actions[].Name", "`BuildAction`", "最初のbuild"),
+            ("Stages[].Actions[].ActionTypeId.Provider", "`CodeBuild`", "test provider"),
+            ("Stages[].Actions[].Configuration", '`{"ProjectName":"two"}`', "ProjectName: 実行するproject"),
+            ("Stages[].Actions[].Name", "`TestAction`", "次のbuild"),
+            ("Stages[].Name", "`BuildAndTest`", "buildを実行するstage"),
+            ("Tags[].Key", "`purpose`", "タグのキー"),
+            ("Tags[].Value", "`build`", "タグの値"),
+        ])
+        output = roundtrip(base / "codepipeline.md", trailing_names, ROOT)
+        assert "Stages[1].Actions.Name | `SourceAction`" in output
+        assert "Stages[2].Actions[1].Name | `BuildAction`" in output
+        assert "Stages[2].Actions[2].Name | `TestAction`" in output
+        assert output.index("Stages[1].Actions.Name") < output.index("Stages[1].Name") < output.index("Stages[2].Actions[1].Name")
         hub = model("securityhub", "SecurityHub.Hub", "security-hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub", "security-hub")
         roundtrip(base / "securityhub.md", hub, ROOT)
         s3 = model("s3", "S3.Bucket", "app-dev-data", [("BucketName", "`app-dev-data`", "データを保管する名前"), ("Region", "`ap-northeast-1`", "配置するregion"), ("BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm", "`aws:kms`", "暗号化方式")])
@@ -1041,6 +1065,16 @@ def main():
         assert "| Direction | IpProtocol | Port |" in output
         assert "<!-- security-group-id:" in output and "<!-- rule-id:" in output
         assert "### EC2.SecurityGroupIngress" not in output
+        for direction in ("Ingress", "Egress"):
+            variant = sg.copy()
+            if direction == "Egress":
+                variant = {key: value.replace("EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress").replace("SourceSecurityGroupId", "DestinationSecurityGroupId") for key, value in variant.items()}
+                variant["desired.row.002-005.comment"] = COMMENTS["DestinationSecurityGroupId"]
+                variant["observed.row.002-005.comment"] = COMMENTS["DestinationSecurityGroupId"]
+            for identifier in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "sgr-00000001", "`sgr-00000001`"):
+                variant["observed.row.002-001.value"] = identifier
+                output = roundtrip(base / "security_group.md", variant, ROOT)
+                assert f"<!-- rule-id: {identifier} -->" in output
     print("model_design: PASS (authoritative updates, service rollback, naming coverage and service displays)")
 
 

@@ -2,6 +2,10 @@
 
 このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## User input
 
 - Target environment: `{{project.jsonのenvironment}}`
@@ -95,7 +99,7 @@ static validationが失敗した場合は根本原因を調査する。確定済
 ## Verify and finish
 
 1. 選択済みIaCのlocal static validationを再確認する。
-2. `python framework/scripts/blueprint-loop.py --mode local`
+2. `python framework/scripts/blueprint-loop.py --mode task`
 3. `git diff --check`
 
 target、account、region、engine、変更file、implementation unitとdependency、validation結果、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。

@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 
 from model_design import properties, stack_model, markdown_for
+from issue_gate import require_target_no_issues
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
@@ -164,13 +165,21 @@ def fingerprint(value):
 
 class AwsBackend:
     def __init__(self, root, environment, directory, target, profile=None, approvals=()):
+        configured_profile = target.get("awsProfile")
+        if configured_profile and profile is not None and profile != configured_profile:
+            raise Blocked("explicit AWS profile does not match target awsProfile")
         self.root, self.environment, self.directory = root, environment, directory
-        self.target, self.profile, self.approvals = target, profile, set(approvals)
+        self.target, self.profile, self.approvals = target, configured_profile or profile, set(approvals)
         self.templates = {}
         self.states = {}
         self.save = lambda: None
 
     def aws(self, operation, *arguments):
+        if operation in {"create-change-set", "execute-change-set"}:
+            try:
+                require_target_no_issues(self.root, (self.environment, self.directory))
+            except (OSError, ValueError) as error:
+                raise Blocked(str(error)) from error
         command = ["aws", "--region", self.target["awsRegion"]]
         if self.profile:
             command += ["--profile", self.profile]
@@ -345,7 +354,8 @@ def main(argv=None, root=None):
         target = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias, args.profile)
         if target["iacEngine"] != "cloudformation":
             raise Blocked("controller requires CloudFormation target")
-        lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, target]) + ".lock")
+        lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
+        lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock")
         try:
             lock = lock_path.open("x")
         except FileExistsError as error:

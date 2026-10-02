@@ -17,6 +17,16 @@ def design_material_files(root: Path) -> list[Path]:
     return sorted([*material_files(root), *(root / "framework/materials/api").glob("*.properties")])
 
 
+def property_paths_with_parents(paths: set[str]) -> set[str]:
+    """Include each dotted ancestor and array container without changing inputs."""
+    present = set()
+    for path in paths:
+        while path:
+            present.update((path, path.removesuffix("[]")))
+            path = path.rpartition(".")[0]
+    return present
+
+
 class DesignSchemaCatalog(CloudFormationSchemaCatalog):
     def __init__(self, root: Path) -> None:
         super().__init__(root)

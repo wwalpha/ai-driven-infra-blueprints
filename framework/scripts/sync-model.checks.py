@@ -14,6 +14,7 @@ import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
+from design_catalog import property_paths_with_parents
 
 
 SCRIPT = Path(__file__).with_name("sync-model.py")
@@ -122,8 +123,79 @@ def check_required_preflight() -> None:
     print("Required-property preflight: PASS (new/existing, read/write, direct renderer, partial success)")
 
 
+def check_required_property_parents() -> None:
+    paths = {"ConnectionInput.PhysicalConnectionRequirements.SubnetId", "Rules[].Target.Name", "ConnectionInputName"}
+    assert property_paths_with_parents(paths) == {
+        *paths, "ConnectionInput", "ConnectionInput.PhysicalConnectionRequirements", "Rules", "Rules[]", "Rules[].Target",
+    }
+    assert "ConnectionInput" not in property_paths_with_parents({"ConnectionInputName"})
+    assert not property_paths_with_parents(set())
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(SCRIPT.parents[1], root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
+            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        model = root / "model/dev/123456789012/glue.properties"
+        model.parent.mkdir(parents=True)
+        values = {
+            "desired.service.glue.serviceId": "glue",
+            "desired.service.glue.ownedCatalogResourceTypes": "Glue.Connection",
+            "desired.resource.001.resourceType": "Glue.Connection",
+            "desired.resource.001.logicalId": "Connection",
+            "desired.resource.001.anchor": "glue-sample",
+            "display.service.title": "# AWS Glue 詳細設計",
+            "display.resource.001.comment": "データ取得に使用する接続",
+        }
+        for number, (field, value) in enumerate((
+            ("ConnectionInput.Name", "`sample`"),
+            ("Name", "[Connection](#glue-sample)"),
+            ("CatalogId", "`123456789012`"),
+            ("ConnectionInput.ConnectionType", "`JDBC`"),
+            ("ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone", "`ap-northeast-1a`"),
+            ("ConnectionInput.ValidateCredentials", "`true`"),
+        ), 1):
+            key = f"001-{number:03d}"
+            comment = "一意に識別するID" if field == "Name" else "接続の設定"
+            values.update({f"desired.row.{key}.property": "Glue.Connection." + field,
+                           f"desired.row.{key}.value": value, f"desired.row.{key}.comment": comment})
+        values.update({"observed.row.001-002.property": "Glue.Connection.Name",
+                       "observed.row.001-002.value": "`sample`", "observed.row.001-002.comment": "一意に識別するID"})
+        source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+        model.write_text(source)
+        design = root / "docs/designs/dev/123456789012/glue.md"
+        MODULE.validate_required_properties(values, root)
+        assert MODULE.sync(root, True, "dev", "123456789012") == 0
+        assert model.read_text() == source
+        assert "| ConnectionInput |" not in design.read_text()  # Presence is inferred without inventing a row.
+
+        def design_errors(content):
+            design.write_text(content)
+            validator = MODULE.view_validator(root, root)
+            validator.check_design_tables({design: ("glue", ("Glue.Connection",))}, *validator.catalog_design_properties())
+            return validator.errors
+
+        original = design.read_text()
+        assert not design_errors(original), design_errors(original)
+        for missing in ("ConnectionInput", "CatalogId"):
+            removed = {key.rsplit(".", 1)[0] for key, value in values.items()
+                       if key.endswith(".property") and (value == f"Glue.Connection.{missing}" or value.startswith(f"Glue.Connection.{missing}."))}
+            incomplete = {key: value for key, value in values.items() if key.rsplit(".", 1)[0] not in removed}
+            try:
+                MODULE.validate_required_properties(incomplete, root)
+            except ValueError as error:
+                assert f"required provider schema property missing: Glue.Connection.{missing}" in str(error)
+            else:
+                raise AssertionError("missing required property accepted")
+            content = "\n".join(line for line in original.splitlines()
+                                if f" | {missing} |" not in line and f" | {missing}." not in line) + "\n"
+            assert any(f"Glue.Connection.{missing}" in error and "required provider schema property missing" in error for error in design_errors(content))
+        assert any("provider schema violation" in error for error in design_errors(original.replace("`true`", "`not-a-boolean`")))
+    print("Required-property parents: PASS (Glue generation, design validation and true missing inputs)")
+
+
 def main() -> None:
     check_required_preflight()
+    check_required_property_parents()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         materials = root / "framework" / "materials" / "aws"

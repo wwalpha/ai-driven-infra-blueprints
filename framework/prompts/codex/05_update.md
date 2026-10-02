@@ -2,10 +2,14 @@
 
 このpromptは、人間が既存のmodel propertiesを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、Markdown生成、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## Optional user input
 
 - Authorized delete/replacement: 省略時は`none`
-- AWS profile: 省略時はdefault credential chain
+- AWS profile: 任意。省略時はtargetの`awsProfile`、未設定ならdefault credential chain。設定と異なる明示profileは拒否する
 
 通常はどちらも入力不要とする。delete/replacementは対象resourceと理由が明記されている場合だけ事前承認済みとして扱う。事前承認がなくてもchange setまたはplanは作成し、未承認のdelete/replacementを検出した場合だけ`04_deploy.md`のhuman確認待ちへ進む。
 
@@ -78,7 +82,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 
 ## Preflight and deploy
 
-credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。AWS profileが指定されていない場合は`--profile`を省略する。
+credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。追加inputがなければ`--profile`を省略してよい。scriptはtargetの`awsProfile`を自動使用する。
 
 aliasがあるtargetでは次を実行する。
 
@@ -92,7 +96,7 @@ aliasがないtargetでは次を実行する。
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
-scriptが終了code 0を返した場合だけ続行する。失敗時はcredential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
+scriptが終了code 0を返した場合だけ、出力されたprofile（設定時）をすべての後続AWS実行で使用して続行する。CLI／SDKにはprofileを明示し、Terraformのprovider／AWS backendには`terraform.md`に従いprocess単位で同じ`AWS_PROFILE`を渡す。失敗時はcredential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
 
 CloudFormationのcross-stack参照を同じtaskで扱う場合は、preflight後に`describe-stacks`と`list-exports`でproducer stackのOutputsとdeploy済みexportsをread-onlyで照合する。既存exportがあればその名前・値を確認してconsumer templateの参照と文字列中の該当箇所を`!ImportValue`へ変更し、static validation、change set確認、consumer deployへ進む。exportがなければproducer templateに必要なOutput/Exportだけを追加し、static validation、change set確認、producer deploy、terminal successと実際のexport確認を先に行う。その後に初めて未着手NOT_STARTEDのconsumer templateを`!ImportValue`へ変更し、同じcontroller sessionのresumeでstatic validation、change set確認、consumer deployへ進む。controllerは準備済み・実行済みunitのIaC変更を拒否する。両stackがDeployment scopeに含まれない場合はscopeを推測で広げず停止する。
 
@@ -112,7 +116,7 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 
 1. task開始時のhuman design diffと比較し、generated current value以外のintended designをCodexが変更していないことを確認する。
 2. 選択済みIaCのsyntax/static validationを再確認する。
-3. `python framework/scripts/blueprint-loop.py --mode local`
+3. `python framework/scripts/blueprint-loop.py --mode task`
 4. `git diff --check`
 
 target、Design scope、表示生成、IaC変更、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。

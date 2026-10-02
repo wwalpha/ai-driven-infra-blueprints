@@ -12,6 +12,20 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
+`project.json`の各targetには任意の`awsProfile`を設定できます。initialization／target追加時にprofile名を指定し、不要なら項目を省略します。
+
+```json
+{
+  "environment": "dev",
+  "awsAccountId": "123456789012",
+  "awsRegion": "ap-northeast-1",
+  "iacEngine": "cloudformation",
+  "awsProfile": "dev-admin"
+}
+```
+
+設定時はpreflightとCloudFormation controllerが自動使用し、直接のAWS CLIにも`--profile`を付けます（[AWS CLIのnamed profile](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)）。SDKにはprofileを明示し、Terraformは対象processの`AWS_PROFILE`へ渡します（[AWS providerの認証設定](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#authentication-and-configuration)）。profile未設定時は従来の明示profile／default credential chainを維持します。設定済みprofileと異なる明示profileは実行前に停止します。account／regionの確認も引き続き行います。
+
 一つのenvironmentにtargetが一件だけならaliasを使用しません。複数の論理配置先がある場合は全targetへhuman-confirmed aliasを設定し、異なるaliasへ同じAWS account IDを設定できます。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値は禁止します。target directoryはaliasがあればalias、なければAWS account IDです。
 
 ## Repository instructions
@@ -39,7 +53,11 @@ repositoryを変更する新しい依頼を受けた場合、Codexは`tasks/acti
 
 read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
 
-active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、focused check scriptを実行し、未対応または未実行のrequirementがある場合はFAILします。
+active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、必要なframework regressionと差分checkを実行し、未対応または未実行のrequirementがある場合はFAILします。
+
+## 未解決issueによるtask停止
+
+対象environment／target／serviceの`issues/<environment>/<target-directory>/issues.md`に未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenarioなど他taskは実施できません。issue調査とhumanが明示した修復だけを許可します。別環境・別target・別serviceは停止しません。task開始前に`framework/scripts/issue_gate.py`で関係する全serviceを確認します。修復契約、一覧形式と停止条件は[Unresolved issue gate](framework/rules/loop-engineering.md#unresolved-issue-gate)に従います。
 
 ## Context priority
 
@@ -302,28 +320,21 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 - `tasks/active.md`
 ```
 
-local loopはactive taskの`## Validation scope`を必須とし、対象serviceのmodel・生成Markdown/JSON・schema・命名・参照を検証します。参照先serviceはリンクに必要な情報だけを読み、対象外の既存設計エラーを失敗理由にしません。task契約・変更範囲・topology・catalog完全性の共通checkは維持します。複数targetは最大4並列です。通常設計変更では検証プログラムの全テストを実行せず、検証プログラム変更時は対応するfocused checkだけを実行します。
-
-今回の4targetのEC2ならscopeを次のように指定します。
-
-```md
-## Validation scope
-
-- `dev/cde/ec2`
-- `dev/non-cde/ec2`
-- `stg/cde/ec2`
-- `stg/non-cde/ec2`
-```
+通常taskは実repository全体の設計/model、生成Markdown/JSON一致、ownership、stack、catalog/schema、命名、policy、reference/link、artifact、active task contractとtask固有checkを検証します。`validate-blueprint.py --all`と内部の`sync-model.py --all`は毎回実行します。unstaged/staged両方の`git diff --check`もloop内で実行します。CloudFormation/Terraformとdeployの既存必須手順は各phaseのrules/promptどおり別途維持します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode local
+python framework/scripts/blueprint-loop.py --mode task
 ```
 
-対象指定が不足・不正なら停止します。frameworkのみのgovernanceではscopeを単独``- `framework` ``とします。全体検証と全検証テストが必要な場合だけ`--all`（またはscopeを単独``- `all` ``）を明示します。
+frameworkが未変更なら`*.checks.py`のself-testを省略します。`framework/**`全体（scripts/rules/materials/schema/catalog/prompts等）、`.agents/**`、`AGENTS.md`、`README.md`のunstaged/staged/untracked変更がある場合は全self-testを自動追加します。framework変更taskやcommit済みframework変更の再検証は明示的に次を実行します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode local --all
+python framework/scripts/blueprint-loop.py --mode full
 ```
+
+`full`は通常taskのvalidationに加え、全`framework/scripts/*.checks.py`を実行します。実設計の全体検証とframework regressionは別の責務です。framework未変更の`task`はValidation scopeが`all`でもself-testを実行しません。
+
+生成対象は引き続きactive taskの`## Validation scope`で指定します。`sync-model.py --write`はそのscopeだけを生成し、通常taskの検証は全serviceに行い、target/input存在と変更scope制約も`--contract-scope`で維持します。互換用`--mode local`は従来のscope検証を維持し、`--mode local --all`とlegacy scopeの`all`は全体検証＋全self-testを維持します。通常taskのpromptは`task`へ移行済みです。
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
@@ -332,7 +343,7 @@ command例はPython 3 launcherを`python`と表記する。WindowsでPython Laun
 追加指定なしでも、実行ごとにOS一時directoryの`blueprint-loop-*`へ計測ログを保存し、開始時に絶対pathを表示します。継続保存したい場合はrepository外の親directoryを指定します。
 
 ```console
-python framework/scripts/blueprint-loop.py --mode local --log-dir /tmp/blueprint-loop-logs
+python framework/scripts/blueprint-loop.py --mode task --log-dir /tmp/blueprint-loop-logs
 ```
 
 Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換えてください。一時directoryはOSが削除する場合があるため、長期保存にはrepository外の専用directoryを使用します。各実行は別directoryを作り、以前のログを上書きしません。
@@ -367,6 +378,6 @@ python -m pstats /tmp/design-catalog.prof
 4. **session停止の証拠を確認する。** `Developer: Set Log Level`でGitHub Copilot / GitHub Copilot Chatを一時的にTraceにし、`Output: Show Output Channels`から同じ時刻のerrorを確認します。Agent Debug Logsがある版ではmodel requestとtool callも照合し、request limit、通信error、extension/terminal異常を分けます。`chat.agent.maxRequests`はrequest回数の上限であり、実行時間の上限ではありません。回数上限が実際に報告された場合だけ設定を見直します。[公式診断手順](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting)、[request設定](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-behavior)
 5. **同じtaskで結果を確認する。** 切断後は`tasks/active.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
 
-local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、指定target/serviceのdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultは該当taskまたは明示全体検証で確認します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
+local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、`task`／`full`では全serviceのdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultのrepository整合性も全体検証に含み、実IaC/deploymentの必須validationは各phaseで別途実行します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
 設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。

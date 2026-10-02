@@ -23,7 +23,7 @@ from policy_tables import (
 )
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
-from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files
+from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files, property_paths_with_parents
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
     CLOUDTRAIL_DATA_RESOURCE,
@@ -58,6 +58,7 @@ from design_layout import (
 from security_group_tables import security_group_table_lines
 from model_design import entries, naming_errors, properties
 from validation_scope import active_scope, reference_lines, scoped_files
+from issue_gate import require_no_issues
 
 
 REQUIRED_RULES = {
@@ -154,8 +155,9 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None) -> None:
         self.scope = scope
+        self.contract_scope = contract_scope
         self.generated_models_checked = False
         self.root = root
         self.errors: list[str] = []
@@ -188,6 +190,7 @@ class Validator:
         self.check_tasks()
         self.check_project_topology()
         self.check_validation_scope()
+        self.check_issue_gate()
         self.check_task_type_requirements()
         self.check_initialized_paths()
         self.check_catalog()
@@ -419,6 +422,18 @@ class Validator:
                 forbidden = self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
                 self.check(not forbidden, f"{self.task_type} task boundary violation: {changed}")
 
+    def check_issue_gate(self) -> None:
+        if not self.task_type:
+            return
+        try:
+            scope = active_scope(self.root)
+            service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.changed_paths)
+            if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
+                scope = set()  # Framework-wide validation does not target consumer services.
+            require_no_issues(self.root, scope)
+        except (OSError, ValueError) as error:
+            self.check(False, str(error))
+
     def check_task_type_requirements(self) -> None:
         changed = self.changed_paths - {"tasks/active.md"}
         if self.task_type == "initialization":
@@ -531,7 +546,7 @@ class Validator:
         prompt = path.read_text(encoding="utf-8")
         self.check("Task typeは`design`" in prompt, "service design prompt lacks design task contract")
         self.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
-        self.check("blueprint-loop.py --mode local" in prompt, "service design prompt lacks local validation")
+        self.check("blueprint-loop.py --mode task" in prompt, "service design prompt lacks local validation")
         self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
         required_existing_resource_contract = {
             "--read-only": "service design prompt lacks read-only AWS context preflight",
@@ -565,9 +580,10 @@ class Validator:
         self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
     def check_validation_scope(self) -> None:
-        if self.scope is None:
+        scope = self.contract_scope if self.contract_scope is not None else self.scope
+        if scope is None:
             return
-        for environment, target, service in sorted(self.scope):
+        for environment, target, service in sorted(scope):
             self.check((environment, target) in self.accounts, f"validation target is not defined in project.json: {environment}/{target}")
             for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
                 relative = f"{base}/{environment}/{target}/{service}{suffix}"
@@ -577,7 +593,7 @@ class Validator:
                 if changed.startswith(base):
                     parts = Path(changed.removeprefix(base)).parts
                     identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
-                    self.check(identity in self.scope, f"changed design path is outside validation scope: {changed}")
+                    self.check(identity in scope, f"changed design path is outside validation scope: {changed}")
 
     def check_scoped_designs(self) -> None:
         groups = {}
@@ -685,14 +701,14 @@ class Validator:
         environment_targets: dict[str, list[dict[str, str]]] = {}
         account_engines: dict[tuple[str, str], str] = {}
         required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
-        allowed = required | {"alias"}
+        allowed = required | {"alias", "awsProfile"}
         for index, target_values in enumerate(targets, 1):
             self.check(isinstance(target_values, dict), f"target {index} must be an object")
             if not isinstance(target_values, dict):
                 continue
             self.check(
                 required <= set(target_values) <= allowed,
-                f"target {index} must contain {sorted(required)} and optional alias only",
+                f"target {index} must contain {sorted(required)} and optional alias/awsProfile only",
             )
             if not required <= set(target_values):
                 continue
@@ -707,6 +723,13 @@ class Validator:
             alias = target_values.get("alias", "")
             target_directory = alias or account
             target = f"{environment}/{target_directory}"
+            if "awsProfile" in target_values:
+                profile = target_values["awsProfile"]
+                self.check(
+                    bool(profile) and profile == profile.strip() and profile != "UNSET"
+                    and not any(char in profile for char in "\r\n\0"),
+                    f"invalid AWS profile: {target}",
+                )
             self.check("UNSET" not in values and all(values), f"target contains unset value: {target}")
             self.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")
             self.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account: {target}")
@@ -1469,12 +1492,12 @@ class Validator:
                             )
                         }
                         for resource_type in schema_types:
-                            present = {
+                            present = property_paths_with_parents({
                                 self.resource_property_path(resource_type, row[1])
                                 for row in rows
                                 if resource_type
                                 in catalog_property_owners.get(row[1], set())
-                            }
+                            })
                             selected_required = self.schema_catalog.required_design_properties(resource_type)
                             missing = (
                                 selected_required
@@ -2373,6 +2396,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
+    parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
     return parser.parse_args()
 
 
@@ -2383,7 +2407,8 @@ def main() -> int:
         print(f"repository root is invalid: {root}", file=sys.stderr)
         return 2
     try:
-        return Validator(root, active_scope(root, args.all)).run()
+        return Validator(root, active_scope(root, args.all),
+                         active_scope(root) if args.contract_scope else None).run()
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Blueprint repository validation: FAIL\n- {error}", file=sys.stderr)
         return 1

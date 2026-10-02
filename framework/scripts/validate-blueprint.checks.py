@@ -218,6 +218,7 @@ def check_optional_alias_targets() -> None:
                 {
                     "environment": "dev",
                     "alias": "cde",
+                    "awsProfile": "dev-cde",
                     "awsAccountId": "123456789012",
                     "awsRegion": "ap-northeast-1",
                     "iacEngine": "cloudformation",
@@ -225,6 +226,7 @@ def check_optional_alias_targets() -> None:
                 {
                     "environment": "dev",
                     "alias": "non-cde",
+                    "awsProfile": "dev-non-cde",
                     "awsAccountId": "123456789012",
                     "awsRegion": "ap-northeast-1",
                     "iacEngine": "cloudformation",
@@ -293,6 +295,15 @@ def check_optional_alias_targets() -> None:
                 "AWS region is required",
             ),
         ]
+        for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
+            invalid_targets.append((
+                [{**topology["targets"][0], "awsProfile": invalid}, *topology["targets"][1:]],
+                "values must be strings" if not isinstance(invalid, str) else "invalid AWS profile",
+            ))
+        invalid_targets.append((
+            [{**topology["targets"][0], "profile": "unsupported"}, *topology["targets"][1:]],
+            "optional alias/awsProfile only",
+        ))
         for targets, expected_error in invalid_targets:
             (root / "project.json").write_text(
                 json.dumps({"projectName": "test", "targets": targets}) + "\n",

@@ -8,10 +8,12 @@
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
+- 対象environment/target/serviceに未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenarioなど他taskを開始または継続しない。issue調査とhumanが明示した修復だけを許可する。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、修復以外の変更を混ぜない。
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - 人間向けの現行設計は`docs/designs/<environment>/<target-directory>/`、同じserviceのdesired/observedを保持する機械可読modelは`model/<environment>/<target-directory>/`に置く。
 - `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
 - initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project.json`とする。
+- `project.json`の各targetは任意の`awsProfile`を持てる。設定時はそのprofileを対象targetのAWS CLI／SDK、Terraformのprovider／AWS backendに使用する。未設定時は明示profile、それもなければdefault credential chainを維持する。設定値と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
 - `framework/materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
 - 変更前にactive promptとtask typeに関係する`framework/rules/*.md`を読む。
 - 人間が決めていないresource選択やparameter値を推測しない。不足値は明示して停止する。
@@ -63,6 +65,7 @@
 - 一つのenvironmentにtargetが一件だけならaliasを持たせない。複数targetがある場合は全targetにhuman-confirmed aliasを必須とし、同じAWS account IDを複数aliasへ設定してよい。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値を禁止する。
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとし、同じAWS account IDを持つalias間で統一する。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
+- `awsProfile`は確定済みの空でない文字列とし、前後の空白、改行、NUL、`UNSET`を禁止する。指定しない場合はkey自体を省略し、credential値を保存しない。profileはtargetごとに設定でき、alias／account／region／IaC engineの制約を変更しない。
 - `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
 
 ## Generated service model

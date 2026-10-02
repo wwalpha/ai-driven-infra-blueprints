@@ -1,5 +1,7 @@
 # Detailed Design Rules
 
+対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
+
 ## 正本と更新順
 
 catalog propertiesを項目の正本、model propertiesを設計値の正本とする。Markdownに表示される全項目・値・名称・説明はmodelから生成し、service固有表現はこのruleに従う。JSON artifactもmodelの`document`から生成する。model propertiesの更新に失敗したらMarkdownを更新しない。service単位で生成・検証し、成功したserviceの生成物を保存する。失敗serviceの保存済み生成物を維持し、他serviceの処理を続ける。詳細は`framework/rules/model-information.md`に従う。
@@ -17,6 +19,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 
 - 取得対象はchatbotが確定したtarget AWS service、catalog resource type、propertyに限定する。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では詳細設計専用の`.Name` propertyを含め、`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含め、それ以外の別service、同じresource typeの未選択property、materialsにないpropertyへ自動的にscopeを広げない。
 - repository変更前に`project.json`のtarget、credentialのcaller account、regionをread-only preflightで検証する。
+- 対象targetの`awsProfile`があればpreflightとすべての既存resource取得で使用する。AWS CLIには同じ`--profile`と対象region、SDKにはprofileとregionを明示する。設定と異なる明示profileは拒否し、未設定時だけ従来の明示profile／default credential chainを使用する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
 - humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を直接差分反映する。前4種類は`.Name`へ、`EC2.VPCEndpoint`／`EC2.Instance`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型は下記の型名表示規則を適用し、同型1件なら表示名を質問せずresource typeを使う。複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
@@ -177,6 +180,8 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。ただし未作成のSecurity Group ruleのIdは複数rowで`PENDING_DEPLOY`となるため、確定済みlogical IDとanchorで区別する。
 - 外部からの参照は子のanchorへ維持する。親へのlinkに置換したり、先頭の子を代表として選んだりしない。
 - 各子のpropertyはその子自身のprovider schemaで検証する。所属親が異なる型、独立heading、欠落した識別情報、子の個数超過、重複、参照切れをlocal loopで拒否する。
+
+Secrets Managerは`SecretsManager.Secret`と所属する単一の`SecretsManager.RotationSchedule`を一つの詳細tableへまとめ、両者の一覧は`SecretsManager.Secret`だけにする。Secretの全rowの後にRotationScheduleの正式property名を持つrowを置き、独立heading・table・一覧は作らない。`SecretsManager.RotationSchedule.SecretId`は包含するSecretから解決してrowを省略し、identityなしのchildとして親model内へ正式propertyを保持する。RotationSchedule未選択のSecretへrowを追加しない。
 
 KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alias.TargetKeyId` rowは省略する。KeyId、Keyの設定、AliasNameの順とし、複数AliasではAliasName rowと識別markerをそれぞれ保持する。Key一覧の`AliasNames`列には対応するalias名を表示できる。
 

@@ -1,10 +1,10 @@
-# Security Group・Glueの命名規則追加と名称チェック除外
+# Secrets ManagerのSecretとRotationScheduleの表示統合
 
 ## Task contract
 
 - Task type: `governance`
-- Target: frameworkのAWS resource命名規則と共通命名検証
-- Goal: Security Groupの任意Nameタグに既存GroupNameと同じ規則、Glue Catalogにglct規則を追加し、Secrets Manager・Glue Database・Glue Tableの名称を命名規則チェック対象外にする。
+- Target: frameworkのSecrets Manager詳細設計表示
+- Goal: Secretと所属RotationScheduleを一つの詳細tableへ統合し、両者の一覧はSecretだけにする。
 
 ## Validation scope
 
@@ -12,27 +12,52 @@
 
 ## Required changes
 
-- [R1] `EC2.SecurityGroup`のName tagへGroupNameと同じpatternを登録し、`Glue.Catalog.Name`へ`glct-{{application}}-{{environment}}-{{purpose}}`を登録する。
-- [R2] `SecretsManager.Secret.Name`、`Glue.Database.DatabaseInput.Name`、`Glue.Table.TableInput.Name`を命名規則coverage checkから除外する。提示された名称形式とTableの業務名保持をruleへ記載し、名称確定・provider schema・Name tagの検証は維持する。
-- [R3] 追加規則と除外のformal/short property、生成・設計検証、除外境界の回帰checkを実行する。
+- [R1] RotationScheduleをSecret配下の単一childとして表示定義し、一覧・詳細の独立表示を禁止する。
+- [R2] 正式property、親所属、設定値を保つ表示生成・model往復・検証を機械確認し、full local loopを実行する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/aws-resource-naming.md`
-- [R2] `changed:framework/scripts/model_design.py`
-- [R3] `changed:framework/scripts/model_design.checks.py`
-- [R3] `check:framework.focused-check-runner`
+- [R1] `changed:framework/rules/resource-layout.json`
+- [R1] `changed:framework/rules/detailed-design.md`
+- [R1] `check:framework.resource-layout`
+- [R2] `changed:framework/scripts/design_layout.checks.py`
 
 ## Allowed paths
 
+
 - `tasks/active.md`
-- `framework/rules/aws-resource-naming.md`
+- `AGENTS.md`
+- `README.md`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validate-blueprint.checks.py`
+- `framework/scripts/check-deploy-context.py`
+- `framework/scripts/check-deploy-context.checks.py`
+- `framework/scripts/cloudformation-deploy.py`
+- `framework/scripts/cloudformation-deploy.checks.py`
+- `framework/prompts/codex/*.md`
+- `framework/prompts/chatbot/service-design.md`
+- `framework/prompts/README.md`
+- `framework/rules/cloudformation.md`
+- `framework/rules/terraform.md`
+- `framework/rules/detailed-design.md`
+- `framework/rules/scenario-testing.md`
+- `framework/rules/loop-engineering.md`
+- `framework/scripts/blueprint-loop.py`
+- `framework/scripts/blueprint-loop.checks.py`
+- `framework/scripts/issue_gate.py`
+- `framework/scripts/issue_gate.checks.py`
+- `framework/scripts/sync-model.py`
 - `framework/scripts/model_design.py`
 - `framework/scripts/model_design.checks.py`
+- `framework/scripts/design_layout.checks.py`
+- `framework/scripts/design_catalog.py`
+- `framework/scripts/sync-model.checks.py`
+- `framework/rules/resource-layout.json`
 
 ## Out of scope
 
-- consumer repository、既存design/model、IaC、project.json、catalog/lock、scenario/resultは変更しない。
-- Security GroupのName tagを必須化せず、既存名称を自動変更しない。
-- AWS API、deploy/apply、別task作成・実行へ進まない。
-- 対応するfocused checksを含むgovernance local loopと差分checkを実行して終了する。
+- 前taskの未commit差分は保持する。以前から許容されたpathを今回の修正対象へ広げない。
+- 今回の編集は上記Required changesの3 fileとactive contractだけに限定する。
+- 実design/model、project.json、IaC、catalog/schema、issue一覧、scenario/result、consumer repositoryは変更しない。
+- AWS API、deploy/apply、別task作成・実行は行わない。
+- SecretsManager.ResourcePolicyの表示方針は変更しない。fixture/logはrepository外の一時directoryに保存する。

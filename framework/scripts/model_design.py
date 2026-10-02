@@ -15,7 +15,7 @@ from design_layout import (
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
-from design_catalog import DesignSchemaCatalog, design_material_files
+from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents
 
 
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
@@ -171,8 +171,8 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
             if any(row[1].startswith(child + ".") for row in rows)
         }
         for schema_kind in sorted(kinds):
-            present = {prop.removeprefix(schema_kind + ".") for prop in properties
-                       if prop.startswith(schema_kind + ".")}
+            present = property_paths_with_parents({prop.removeprefix(schema_kind + ".") for prop in properties
+                                                  if prop.startswith(schema_kind + ".")})
             missing = catalog.required_design_properties(schema_kind) - present - IMPLICIT_GROUPED_PROPERTIES.get(schema_kind, set())
             errors.extend(f"{resource['logicalId']}: required provider schema property missing: {schema_kind}.{prop}"
                           for prop in sorted(missing))
@@ -236,52 +236,52 @@ def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
 
 
 def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
-    stages: list[list[list[list[str]]]] = []
-    stage_rows = []
-    action_rows = []
+    action_counts: list[int] = []
     seen_stage: set[str] = set()
     seen_action: set[str] = set()
     result = []
     trailing = []
+    ordered = []
+    name_last = False
     for row in rows:
         field = row[1]
         if not field.startswith("Stages[]."):
-            (trailing if stages else result).append(row)
+            (trailing if action_counts else result).append(row)
             continue
         if trailing:
             raise ValueError("CodePipeline stage rows must be contiguous")
         field = field.removeprefix("Stages[].")
         action = field.startswith("Actions[].")
         field = field.removeprefix("Actions[].")
-        if not stages or (not action and field in seen_stage):
-            stage_rows, action_rows, seen_stage, seen_action = [], [], set(), set()
-            stages.append([stage_rows])
+        if not action_counts:
+            # Catalog order ends each stage with Name; legacy models put it first.
+            name_last = action
+        if not action_counts or (name_last and "Name" in seen_stage) or (not action and field in seen_stage):
+            seen_stage, seen_action = set(), set()
+            action_counts.append(0)
         if action:
-            if not action_rows or field in seen_action:
-                action_rows, seen_action = [], set()
-                stages[-1].append(action_rows)
+            if not seen_action or ("[]" not in field and field in seen_action):
+                seen_action = set()
+                action_counts[-1] += 1
             seen_action.add(field)
-            action_rows.append([row[0], field, *row[2:]])
         else:
             seen_stage.add(field)
-            stage_rows.append([row[0], field, *row[2:]])
-    for stage, blocks in enumerate(stages, 1):
-        for action, block in enumerate(blocks):
-            prefix = f"Stages[{stage}]."
-            if action:
-                prefix += "Actions." if len(blocks) == 2 else f"Actions[{action}]."
-            for identity, field, value, comment in block:
-                if field != "Configuration":
-                    result.append([identity, prefix + field, value, comment])
-                    continue
-                config = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
-                if not isinstance(config, dict) or not config or any(not isinstance(item, str) for item in config.values()):
-                    raise ValueError("CodePipeline Configuration must be a non-empty string object")
-                comments = dict(part.split(": ", 1) for part in comment.split(" / ") if ": " in part)
-                if set(comments) != set(config):
-                    raise ValueError("CodePipeline Configuration requires a comment for each key")
-                for key, item in config.items():
-                    result.append([identity, prefix + "Configuration." + key, item if LINK.fullmatch(item) else f"`{item}`", comments[key]])
+        ordered.append((len(action_counts), action_counts[-1] if action else 0, [row[0], field, *row[2:]]))
+    for stage, action, (identity, field, value, comment) in ordered:
+        prefix = f"Stages[{stage}]."
+        if action:
+            prefix += "Actions." if action_counts[stage - 1] == 1 else f"Actions[{action}]."
+        if field != "Configuration":
+            result.append([identity, prefix + field, value, comment])
+            continue
+        config = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        if not isinstance(config, dict) or not config or any(not isinstance(item, str) for item in config.values()):
+            raise ValueError("CodePipeline Configuration must be a non-empty string object")
+        comments = dict(part.split(": ", 1) for part in comment.split(" / ") if ": " in part)
+        if set(comments) != set(config):
+            raise ValueError("CodePipeline Configuration requires a comment for each key")
+        for key, item in config.items():
+            result.append([identity, prefix + "Configuration." + key, item if LINK.fullmatch(item) else f"`{item}`", comments[key]])
     return result + trailing
 
 
@@ -320,7 +320,7 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
         values = {row[1].removeprefix(child["resourceType"] + "."): row[2] for row in child_rows}
         direction = "Inbound" if child["resourceType"].endswith("Ingress") else "Outbound"
         identifier = values.pop("Id")
-        values["Direction"] = f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --><!-- rule-id: {literal(identifier)} -->'
+        values["Direction"] = f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --><!-- rule-id: {identifier} -->'
         rules.append(values)
     for rule in rules:
         first, last = rule.pop("FromPort", None), rule.pop("ToPort", None)

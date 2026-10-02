@@ -4,6 +4,10 @@
 
 humanへJSONの作成・編集を依頼してはいけない。質問、回答、正規化、file作成はこのinitialization task内で完結させる。
 
+## Unresolved issue gate
+
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+
 ## First response
 
 prompt実行後の最初の応答ではfileを変更せず、Project nameだけを質問する。
@@ -36,6 +40,7 @@ Project nameを入力してください。
 4. 各targetについてAWS account IDを一つずつ確認する。同じAWS account IDを異なるaliasへ設定してよい
 5. 各targetについてAWS regionを一つずつ確認する
 6. 各targetについてIaC engineを一つずつ確認する
+7. 各targetについてAWS profileを任意項目として一つずつ確認する。不要なら省略でき、未設定でも初期化を進める
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。aliasはhumanが入力した値だけを使用し、`cde`、`non-cde`などの固定候補を持たない。
 
@@ -66,6 +71,7 @@ file変更前に次を確認する。
 - 一件だけのenvironmentではaliasがなく、複数targetのenvironmentでは全targetに一意で有効なaliasがある
 - target directoryとなる`alias`または`awsAccountId`が同じenvironment内で重複していない
 - 同じenvironment/AWS account IDのtargetは同じIaC engineを使用する
+- 任意のAWS profileを指定した場合は、前後の空白、改行、NUL、`UNSET`を含まない空でない文字列。profileの存在確認やAWS接続はこのtaskでは行わない
 
 不足または不正な値が残る場合は変更せず停止する。
 
@@ -98,13 +104,15 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
       "alias": "<confirmed-optional-alias>",
       "awsAccountId": "<confirmed-12-digit-account-id>",
       "awsRegion": "<confirmed-region>",
-      "iacEngine": "<cloudformation-or-terraform>"
+      "iacEngine": "<cloudformation-or-terraform>",
+      "awsProfile": "<confirmed-optional-profile>"
     }
   ]
 }
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
+AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 
 ## Create target paths
 
@@ -153,7 +161,7 @@ infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 
 ## Verify and finish
 
-1. `python framework/scripts/blueprint-loop.py --mode local`
+1. `python framework/scripts/blueprint-loop.py --mode task`
 2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 

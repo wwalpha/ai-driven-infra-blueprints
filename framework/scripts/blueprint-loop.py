@@ -17,6 +17,24 @@ import time
 from validation_scope import active_scope
 
 
+def changed_paths(root: Path) -> set[str]:
+    changed = set()
+    for arguments in (["diff", "--no-renames", "--name-only", "-z"],
+                      ["diff", "--cached", "--no-renames", "--name-only", "-z"],
+                      ["ls-files", "--others", "--exclude-standard", "-z"]):
+        result = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise ValueError("cannot determine changed paths for framework regression")
+        changed.update(path for path in result.stdout.split("\0") if path)
+    return changed
+
+
+def framework_changed(paths: set[str]) -> bool:
+    # Shared distribution inputs; cover all framework dependencies without a resolver.
+    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md"}
+               for path in paths)
+
+
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
                  directory: Path, heartbeat_seconds: float = 30) -> int:
     started = time.perf_counter()
@@ -36,7 +54,7 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                python=sys.executable, step_count=len(commands))
         try:
             for index, command in enumerate(commands, 1):
-                step = Path(command[1]).name
+                step = "git-diff-check" if command[0] == "git" else Path(command[1]).name
                 output = directory / f"{index:02d}-{step}.log"
                 step_started = time.perf_counter()
                 record("step_start", step=step, output=str(output))
@@ -92,7 +110,8 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
             if failed:
                 print(f"Blueprint local loop: FAIL ({', '.join(failed)})", flush=True)
                 return 1
-            print(f"Blueprint local loop: PASS ({len(commands) - 1} focused check scripts)", flush=True)
+            count = sum(command[1].endswith(".checks.py") for command in commands)
+            print(f"Blueprint local loop: PASS ({count} framework regression scripts)", flush=True)
             return 0
         except KeyboardInterrupt:
             status = "interrupted"
@@ -105,26 +124,24 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("local",), required=True)
-    parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all validator tests")
+    parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
+                        help="task: whole-repository validation; full: also all regression tests; local: legacy scoped validation")
+    parser.add_argument("--all", action="store_true", help="Compatibility option: whole-repository validation and all regression tests")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
     try:
-        full = active_scope(root, args.all) is None
+        scope = active_scope(root, args.all or (args.mode == "full" and not (root / "tasks/active.md").is_file()))
+        changed = changed_paths(root)
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    checks = sorted((root / "framework" / "scripts").glob("*.checks.py"))
-    if not full:
-        changed = set()
-        for arguments in (["diff", "--name-only"], ["diff", "--cached", "--name-only"], ["ls-files", "--others", "--exclude-standard"]):
-            result = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True)
-            if result.returncode != 0:
-                parser.error("cannot determine changed paths for focused checks")
-            changed.update(result.stdout.splitlines())
-        checks = [path for path in checks if path.relative_to(root).as_posix() in changed
-                  or path.with_name(path.name.replace(".checks.py", ".py")).relative_to(root).as_posix() in changed]
+    full_validation = args.mode != "local" or scope is None
+    regression = (args.mode == "full" or args.all or framework_changed(changed)
+                  or (args.mode == "local" and scope is None))
+    checks = sorted((root / "framework" / "scripts").glob("*.checks.py")) if regression else []
+    print(f"Validation: {'all' if full_validation else 'active scope'}; "
+          f"framework regression: {'all' if regression else 'skipped (shared framework unchanged)'}", flush=True)
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         parser.error("--log-dir must be outside the repository")
@@ -136,12 +153,15 @@ def main() -> int:
             str(root / "framework" / "scripts" / "validate-blueprint.py"),
             "--repository-root",
             str(root),
-            *(["--all"] if full else []),
+            *(["--all"] if full_validation else []),
+            *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
         ],
         *(
             [sys.executable, str(path)]
             for path in checks
         ),
+        ["git", "diff", "--check"],
+        ["git", "diff", "--cached", "--check"],
     ]
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0",
                    "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
