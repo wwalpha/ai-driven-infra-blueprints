@@ -1131,7 +1131,7 @@ class Validator:
                     return
                 resource_type, display = current
                 try:
-                    name = resource_display_name(resource_type, rows)
+                    name = resource_display_name(resource_type, rows, display)
                 except ValueError as error:
                     self.check(False, f"{self.relative(path)}: {error}")
                     return

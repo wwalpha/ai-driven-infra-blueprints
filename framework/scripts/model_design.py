@@ -341,6 +341,17 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
     return output
 
 
+def resource_display_rows(values: dict[str, str], identity: str, resource: dict[str, str], root: Path) -> list[list[str]]:
+    """Include a Key's own grouped aliases when resolving its display name."""
+    rows = resource_rows(values, identity, resource["resourceType"], root)
+    if resource["resourceType"] == "KMS.Key":
+        for child_id, child in entries(values, "desired.resource."):
+            link = LINK.fullmatch(child.get("parentReference", ""))
+            if child["resourceType"] == "KMS.Alias" and link and not link.group(2) and link.group(3) == resource["anchor"]:
+                rows += resource_rows(values, child_id, child["resourceType"], root)
+    return rows
+
+
 def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     """Produce the complete base view; policy tables are rendered afterwards."""
     validate_required_properties(values, root)
@@ -372,7 +383,9 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
             raise ValueError(f"resource is outside service ownership: {kind}")
         rows = resource_rows(values, identity, kind, root)
         rule_table = GROUPED.get(kind, {}).get("display") == "rule-table"
-        configured_name = None if rule_table else resource_display_name(kind, rows)
+        configured_name = None if rule_table else resource_display_name(
+            kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label")
+        )
         name = resource["logicalId"] if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
         type_display = not rule_table and configured_name is None and (name is None or name == kind)
         if type_display:

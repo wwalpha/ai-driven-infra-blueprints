@@ -59,6 +59,71 @@ def roundtrip(path, values, root):
     return path.read_text(encoding="utf-8")
 
 
+def check_kms_alias_display():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        path = root / "docs/designs/dev/123456789012/kms.md"
+        name, logical_id = "venus-dev-log-cde", "CdeLogKey"
+        anchor = resource_anchor("kms", name)
+        values = model("kms", "KMS.Key", name, [("KeyId", f"[{logical_id}](#{anchor})", "一意に識別するID")], logical_id)
+        values.update({"desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
+                       "observed.row.001-001.property": "KMS.Key.KeyId",
+                       "observed.row.001-001.value": "`PENDING_DEPLOY`",
+                       "observed.row.001-001.comment": "一意に識別するID"})
+
+        def add_alias(identity, alias):
+            values.update({f"desired.resource.{identity}.resourceType": "KMS.Alias",
+                           f"desired.resource.{identity}.logicalId": "Alias" + identity,
+                           f"desired.resource.{identity}.anchor": resource_anchor("kms", alias),
+                           f"desired.resource.{identity}.parentProperty": "KMS.Alias.TargetKeyId",
+                           f"desired.resource.{identity}.parentReference": f"[{logical_id}](#{anchor})",
+                           f"desired.row.{identity}-001.property": "KMS.Alias.AliasName",
+                           f"desired.row.{identity}-001.value": f"`{alias}`",
+                           f"desired.row.{identity}-001.comment": "keyを識別するalias"})
+
+        add_alias("002", "alias/" + name)
+        output = roundtrip(path, values, root)
+        assert f"| 1 | [{name}](#{anchor}) |" in output
+        assert f"### KMS.Key: {name}" in output
+        assert "`alias/venus-dev-log-cde`" in output
+        assert "<!-- resource-logical-id: CdeLogKey -->" in output
+        assert properties(SYNC.imported_model(path, root)) == values
+        metadata = {path: ("kms", ("KMS.Key", "KMS.Alias"))}
+        validator = SYNC.view_validator(root, root)
+        validator.check_resource_names(metadata, [path])
+        validator.check_design_overviews([path])
+        validator.check_design_links(validator.catalog_design_properties()[2], [path])
+        assert not validator.errors, validator.errors
+        path.write_text(output.replace(f"### KMS.Key: {name}", "### KMS.Key: CDE用ログキー（log）"))
+        validator = SYNC.view_validator(root, root)
+        validator.check_resource_names(metadata, [path])
+        assert any("heading must display resource name" in error for error in validator.errors), validator.errors
+
+        add_alias("003", "alias/venus-dev-audit-cde")
+        for label in (None, "CDE用ログキー（log）"):
+            invalid = dict(values)
+            if label:
+                invalid["display.resource.001.label"] = label
+            try:
+                markdown_for(path, invalid, root)
+            except ValueError as error:
+                assert "multiple aliases" in str(error), error
+            else:
+                raise AssertionError("ambiguous KMS alias was selected automatically")
+        values["display.resource.001.label"] = name
+        roundtrip(path, values, root)
+        assert properties(SYNC.imported_model(path, root)) == values
+        assert resource_display_name("KMS.Key", []) is None
+        for alias in ("alias/", "venus-dev-log-cde"):
+            try:
+                resource_display_name("KMS.Key", [["1", "KMS.Alias.AliasName", alias, "alias"]])
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid AliasName was used as a Key display name")
+
+
 def check_nameless_type_display():
     spec = importlib.util.spec_from_file_location("nameless_validator", Path(__file__).with_name("validate-blueprint.py"))
     validator_module = importlib.util.module_from_spec(spec)
@@ -643,6 +708,7 @@ def check_stack_policy():
 
 
 def main():
+    check_kms_alias_display()
     check_nameless_type_display()
     check_nameless_logical_id_label()
     check_stack_policy()
@@ -928,9 +994,9 @@ def main():
         s3 = model("s3", "S3.Bucket", "app-dev-data", [("BucketName", "`app-dev-data`", "データを保管する名前"), ("Region", "`ap-northeast-1`", "配置するregion"), ("BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm", "`aws:kms`", "暗号化方式")])
         output = roundtrip(base / "s3.md", s3, ROOT)
         assert "BucketEncryption[].SSEAlgorithm" in output
-        kms = model("kms", "KMS.Key", "data-key", [("KeyId", "[Key](#kms-data-key)", "一意に識別するID")], "Key", "data-key")
+        kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", "[Key](#kms-app-dev-data)", "一意に識別するID")], "Key")
         kms["desired.service.kms.ownedCatalogResourceTypes"] = "KMS.Key,KMS.Alias"
-        kms.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "一意に識別するID", "desired.resource.002.resourceType": "KMS.Alias", "desired.resource.002.logicalId": "Alias", "desired.resource.002.anchor": "kms-alias-app-dev-data", "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.002.parentReference": "[Key](#kms-data-key)", "desired.row.002-001.property": "KMS.Alias.AliasName", "desired.row.002-001.value": "`alias/app-dev-data`", "desired.row.002-001.comment": "keyを識別するalias"})
+        kms.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "一意に識別するID", "desired.resource.002.resourceType": "KMS.Alias", "desired.resource.002.logicalId": "Alias", "desired.resource.002.anchor": "kms-alias-app-dev-data", "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.002.parentReference": "[Key](#kms-app-dev-data)", "desired.row.002-001.property": "KMS.Alias.AliasName", "desired.row.002-001.value": "`alias/app-dev-data`", "desired.row.002-001.comment": "keyを識別するalias"})
         output = roundtrip(base / "kms.md", kms, ROOT)
         assert "### KMS.Alias" not in output and "<!-- logical-id: Alias -->" in output
         sg = model("security_group", "EC2.SecurityGroup", "dev-app-data-01-sg", [("Id", "[Group](#security_group-dev-app-data-01-sg)", GROUP_COMMENTS["Id"]), ("GroupDescription", "`Data access`", GROUP_COMMENTS["GroupDescription"]), ("GroupName", "`dev-app-data-01-sg`", GROUP_COMMENTS["GroupName"]), ("VpcId", "[vpc-app-dev](vpc.md#vpc-vpc-app-dev)", GROUP_COMMENTS["VpcId"]), ("Tags[].Key", '"purpose"', GROUP_COMMENTS["Tags[].Key"]), ("Tags[].Value", '"data"', GROUP_COMMENTS["Tags[].Value"]), ("SecurityGroupIngress[].IpProtocol", "`tcp`", COMMENTS["IpProtocol"]), ("SecurityGroupIngress[].FromPort", "`443`", COMMENTS["FromPort"]), ("SecurityGroupIngress[].ToPort", "`443`", COMMENTS["ToPort"]), ("SecurityGroupIngress[].CidrIp", "`10.1.0.0/16`", COMMENTS["CidrIp"]), ("SecurityGroupEgress[].IpProtocol", "`-1`", COMMENTS["IpProtocol"]), ("SecurityGroupEgress[].CidrIp", "`0.0.0.0/0`", COMMENTS["CidrIp"])], "Group")

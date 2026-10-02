@@ -213,9 +213,9 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 ```md
 <!-- resource-logical-id: S3FILETRANSFERKEY01 -->
-<a id="kms-s3-file-transfer-key"></a>
+<a id="kms-venus-dev-s3-file-transfer"></a>
 
-### KMS.Key: s3-file-transfer-key
+### KMS.Key: venus-dev-s3-file-transfer
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |

@@ -135,8 +135,19 @@ def resource_has_name_property(root: Path, resource_type: str) -> bool:
                for line in path.read_text(encoding="utf-8").splitlines())
 
 
-def resource_display_name(resource_type: str, rows: list[list[str]]) -> str | None:
+def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
+    if resource_type == "KMS.Key":
+        aliases = [row[2].strip("`\"") for row in rows if row[1] == "KMS.Alias.AliasName"]
+        if aliases:
+            if any(not alias.startswith("alias/") or not alias.removeprefix("alias/").strip() for alias in aliases):
+                raise ValueError("KMS Key display requires a confirmed AliasName beginning with alias/")
+            names = {alias.removeprefix("alias/") for alias in aliases}
+            if len(names) == 1:
+                return next(iter(names))
+            if selected_label in names:
+                return selected_label
+            raise ValueError("KMS Key has multiple aliases; select an alias without alias/ in display label")
     fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
     if resource_type in REQUIRED_NAME_TAG_TYPES:
         keys = [index for index, row in enumerate(rows)

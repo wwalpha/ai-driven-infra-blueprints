@@ -135,6 +135,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 
 - 表示関係の正本は`framework/rules/resource-layout.json`とする。S3 BucketPolicyとSubnet Route Table Associationのようにidentityを持たない単一の子は、親resourceのrowとして保持する。
 - KMS Aliasのようにidentityを持つ子は、Markdownの同一table内でも独立した`desired.resource.<番号>.resourceType`、`logicalId`、`anchor`と自身の`desired.row.*`を生成する。親の次に子を出現順で並べる。Markdown内の非表示markerは構造として解釈し、rowのcommentには日本語説明だけを保持する。
+- KMS Keyの表示名は`parentReference`で所属を確認したAliasの`AliasName`から先頭`alias/`を除いて導出する。aliasが1種類なら派生表示名をlabelへ保存しない。複数種類なら確定済み`display.resource.*.label`がいずれかのalias由来名称と一致することを要求する。明示migrationで複数aliasの表示を読み込む場合は選択された表示名をlabelへ保持する。AliasNameのdesired valueやKeyIdのdesired/observedを変換しない。
 - 子の`desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId`と`parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`を生成する。省略した親propertyはこのlogical referenceから復元し、physical KeyIdや先頭Aliasによる補完をしない。これはdesiredの所属関係であり、observed値を追加しない。
 - Alias参照は子のanchorとAliasNameをそのまま保持し、KeyIdへの変換やobserved namespaceへの分離をしない。子の移動時はparentReferenceだけが新しい所属親を指し、確定済みlogical IDとanchorは維持する。
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from design_catalog import design_material_files
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
-from model_design import properties, entries, markdown_for, resource_rows, validate_required_properties
+from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -234,9 +234,11 @@ def imported_model(path: Path, root: Path) -> str:
             for resource in resources_in(without_policy_tables(source))
         )}
         for identity, resource in entries(values, "desired.resource."):
-            rows = resource_rows(values, identity, resource["resourceType"], root)
-            if resource_display_name(resource["resourceType"], rows) is None and GROUPED.get(resource["resourceType"], {}).get("display") != "rule-table":
-                label = headings.get(resource["anchor"])
+            rows = resource_display_rows(values, identity, resource, root)
+            label = headings.get(resource["anchor"])
+            configured_name = resource_display_name(resource["resourceType"], rows, label)
+            multiple_aliases = resource["resourceType"] == "KMS.Key" and len({row[2] for row in rows if row[1] == "KMS.Alias.AliasName"}) > 1
+            if (configured_name is None or multiple_aliases) and GROUPED.get(resource["resourceType"], {}).get("display") != "rule-table":
                 if label is None:
                     raise ValueError(f"confirmed display label required for grouped resource: {resource['logicalId']}")
                 if label != resource["resourceType"]:
