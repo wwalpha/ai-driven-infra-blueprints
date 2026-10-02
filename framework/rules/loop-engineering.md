@@ -40,7 +40,7 @@ python framework/scripts/issue_gate.py --environment <environment> --target-dire
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、全serviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
+通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、Validation scopeのserviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -96,7 +96,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-### 生成scopeとlegacy validation scope
+### 生成・検証scope
 
 active taskに`## Validation scope`を置き、各entryを``- `<environment>/<target-directory>/<service-id>` ``とする。aliasがあればtarget directoryはalias、なければAWS account IDを使う。サービスはmodelのfile stem（EC2なら`ec2`）で指定する。environmentだけ、accountだけ、serviceだけの指定、未知target、欠落model/Markdownは停止する。Allowed pathsや変更fileから検証対象を推測しない。scope外の設計変更も拒否する。
 
@@ -109,18 +109,19 @@ active taskに`## Validation scope`を置き、各entryを``- `<environment>/<ta
 - `stg/non-cde/ec2`
 ```
 
-`sync-model.py --write`と互換用`--mode local`は指定scopeを使用する。新しい`--mode task`／`--mode full`はvalidatorへ`--all`を渡し、repository内の全serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを毎回検証する。通常taskのvalidationをservice単位へ縮小しない。以下の限定検証の説明はlegacy `local` interfaceと生成scopeだけに適用する。対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
+`sync-model.py --write`と`--mode task`／`--mode local`／`--mode full`は同じValidation scopeを使用する。validatorからmodel照合まで対象serviceを維持し、暗黙に`--all`へ広げない。対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
 
 複数targetは最大4並列で検証し、全workerの終了を待って指定順で診断を集約する。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
 
-frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。生成scopeの単独``- `all` ``も維持する。`task`／`full`はscopeの指定を確認し、`--contract-scope`で既存のtarget/input存在・変更scope制約を維持したうえで実設計全体を検証し、scopeが`all`でもframework regressionとは独立に扱う。
+frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。全serviceの実設計検証は明示した`--all`またはValidation scopeの単独``- `all` ``だけで行う。scopeが欠落している場合は`full`でも停止し、全体検証へfallbackしない。日次の全体検証は別途設定したscheduleで実行する。対象限定検証の後に「念のため」の全体検証を追加しない。
+
 
 ### 通常taskとframework regression
 
-- 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。実repositoryの`validate-blueprint.py --all`、その内部の`sync-model.py --all`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
-- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。通常taskのvalidationに加え、`framework/scripts/*.checks.py`全件を名前順に実行する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
+- 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。Validation scopeを引き継ぐ`validate-blueprint.py`と、その内部のservice指定`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
+- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を名前順に実行する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
 - `task`／`local`でも、unstaged、staged、untrackedの変更pathが`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`にあれば全regressionを自動追加する。scriptsだけでなくrules、materials（catalog/schema snapshot）、将来のschema/catalog directory、promptと配布skillも対象にする。削除・rename元も検出する。Gitで変更を判定できなければ停止し、regressionを省略しない。commit済み変更の再検証には明示的な`full`を使用する。
-- 互換用`--mode local`は既存のactive scopeによる実設計検証を維持する。`--mode local --all`、legacy scopeの`all`は従来どおり全体検証＋全regressionとする。`--all` optionは互換用に残す。通常taskのrepository内呼び出し元は`task`へ移行する。
+- `--mode local`も`task`と同じ対象限定検証として有効とする。skillが`local`を指定する場合はその実行でよく、追加の`task`／`full`を要求しない。明示`--all`は全体検証＋全regression、`local`のscope `all`も従来どおり全体検証＋全regressionとする。`full`単独やframework変更によるregression追加は実設計scopeを広げない。
 - validatorが失敗してもregressionと差分checkを継続する。Python最適化によるassert無効化を防ぐ。選択したcheckの失敗・未実行はFAILとする。
 - CloudFormationの`cfn-lint`、deploy context、`aws cloudformation validate-template`、change set／change summary、delete/replacement確認、AWS account/region確認、およびTerraformのfmt/init/validate/plan/applyの既存必須手順は各phaseのrules/promptどおり維持する。loopはこれらの実IaC/deployment手順を代替せず、implementとdeployを統合しない。
 

@@ -321,7 +321,7 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 - `tasks/active.md`
 ```
 
-通常taskは実repository全体の設計/model、生成Markdown/JSON一致、ownership、stack、catalog/schema、命名、policy、reference/link、artifact、active task contractとtask固有checkを検証します。`validate-blueprint.py --all`と内部の`sync-model.py --all`は毎回実行します。unstaged/staged両方の`git diff --check`もloop内で実行します。CloudFormation/Terraformとdeployの既存必須手順は各phaseのrules/promptどおり別途維持します。
+通常taskはValidation scopeに指定したserviceの設計/model、生成Markdown/JSON一致、ownership、stack、catalog/schema、命名、policy、reference/link、artifact、active task contractとtask固有checkを検証します。validatorからmodel照合まで指定serviceを引き継ぎます。共通の契約・変更範囲・project topology・catalog整合性チェックは維持します。参照先はlink解決に必要な情報だけを読み、参照先service全体は検証しません。unstaged/staged両方の`git diff --check`もloop内で実行します。CloudFormation/Terraformとdeployの既存必須手順は各phaseのrules/promptどおり別途維持します。
 
 ```console
 python framework/scripts/blueprint-loop.py --mode task
@@ -335,7 +335,7 @@ python framework/scripts/blueprint-loop.py --mode full
 
 `full`は通常taskのvalidationに加え、全`framework/scripts/*.checks.py`を実行します。実設計の全体検証とframework regressionは別の責務です。framework未変更の`task`はValidation scopeが`all`でもself-testを実行しません。
 
-生成対象は引き続きactive taskの`## Validation scope`で指定します。`sync-model.py --write`はそのscopeだけを生成し、通常taskの検証は全serviceに行い、target/input存在と変更scope制約も`--contract-scope`で維持します。互換用`--mode local`は従来のscope検証を維持し、`--mode local --all`とlegacy scopeの`all`は全体検証＋全self-testを維持します。通常taskのpromptは`task`へ移行済みです。
+生成と検証の対象はactive taskの`## Validation scope`で統一します。`task`／`local`／`full`はいずれもそのscopeを使用し、`full`単独では全serviceへ広げません。`local`を指定するskillも対象限定検証だけで完了できます。scope欠落時は停止します。全体検証は明示した`--all`またはscopeの`all`だけで実行します。`--all`と`local`のscope `all`は全self-testも実行します。日次の全体検証は別途設定済みのscheduleに任せ、対象限定検証の後に「念のため」の全体検証を追加しません。
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。
 
@@ -379,6 +379,6 @@ python -m pstats /tmp/design-catalog.prof
 4. **session停止の証拠を確認する。** `Developer: Set Log Level`でGitHub Copilot / GitHub Copilot Chatを一時的にTraceにし、`Output: Show Output Channels`から同じ時刻のerrorを確認します。Agent Debug Logsがある版ではmodel requestとtool callも照合し、request limit、通信error、extension/terminal異常を分けます。`chat.agent.maxRequests`はrequest回数の上限であり、実行時間の上限ではありません。回数上限が実際に報告された場合だけ設定を見直します。[公式診断手順](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting)、[request設定](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-behavior)
 5. **同じtaskで結果を確認する。** 切断後は`tasks/active.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
 
-local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、`task`／`full`では全serviceのdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultのrepository整合性も全体検証に含み、実IaC/deploymentの必須validationは各phaseで別途実行します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
+local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、Validation scope内のdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultのrepository整合性も全体検証に含み、実IaC/deploymentの必須validationは各phaseで別途実行します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
 設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。

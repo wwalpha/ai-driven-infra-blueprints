@@ -123,7 +123,7 @@ display.resource.001.comment=通信ログを保存するLog Group
 ## Task contract
 - Task type: `design`
 ## Validation scope
-- `all`
+- `dev/123456789012/logs`
 ## Required changes
 - [R1] ログの保持期間を変更する。
 ## Acceptance checks
@@ -144,7 +144,7 @@ display.resource.001.comment=通信ログを保存するLog Group
         def run():
             result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True)
             assert "START validate-blueprint.py" in result.stdout
-            assert "validation scope: all" in result.stdout or result.returncode != 0
+            assert "validation scope: dev/123456789012/logs" in result.stdout or result.returncode != 0
             assert "START git-diff-check" in result.stdout
             assert "framework regression: skipped" in result.stdout
             assert "START blueprint-loop.checks.py" not in result.stdout
@@ -164,24 +164,31 @@ display.resource.001.comment=通信ログを保存するLog Group
             assert result.returncode != 0 and diagnostic in result.stdout, (label, result.stdout, result.stderr)
         model.write_text(good_model)
         design.write_text(good_design)
-        # Scope=all must not couple whole-repository validation to regression.
-        # A second, untouched service is still validated by the task mode.
+        # Contract scope remains enforced before design validation.
         contract = active.read_text()
-        active.write_text(contract.replace("- `all`", "- `dev/999999999999/logs`"))
+        active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/999999999999/logs`"))
         result = run()
         assert result.returncode != 0 and "validation target is not defined" in result.stdout, result.stdout
-        active.write_text(contract.replace("- `all`", "- `dev/123456789012/ec2`"))
+        active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/123456789012/ec2`"))
         result = run()
         assert result.returncode != 0 and "changed design path is outside validation scope" in result.stdout, result.stdout
         active.write_text(contract)
-        active.write_text(active.read_text().replace("- `all`", "- `dev/123456789012/logs`"))
         (design.parent / "ec2.md").write_text("invalid unrelated service\n")
         (model.parent / "ec2.properties").write_text("invalid unrelated service\n")
         subprocess.run(["git", "add", "docs/designs/dev/123456789012/ec2.md", "model/dev/123456789012/ec2.properties"], cwd=root, check=True)
         subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "unrelated service"], cwd=root, check=True)
         result = run()
+        assert result.returncode == 0, result.stdout + result.stderr
+        # The selected service still fails even with invalid unrelated input present.
+        model.write_text(good_model.replace("value=14", "value=7"))
+        result = run()
+        assert result.returncode != 0 and "generated Markdown is stale" in result.stdout, result.stdout
+        model.write_text(good_model)
+        active.write_text(contract.replace("- `dev/123456789012/logs`", "- `all`"))
+        result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True)
         assert result.returncode != 0 and "ec2" in result.stdout, result.stdout
-    print("task-service-validation: PASS (valid design, mismatch, name, schema, reference, contract scope, whole repository)")
+        assert "Validation: all" in result.stdout and "framework regression: skipped" in result.stdout
+    print("task-service-validation: PASS (scoped design, excluded error, mismatch, name, schema, reference, contract scope, explicit all)")
 
 
 def main() -> None:
@@ -224,7 +231,7 @@ def main() -> None:
         assert all("timestamp" in event for event in history)
         assert "AssertionError" in (failed_directory / "02-a.checks.py.log").read_text()
 
-        (scripts / "validate-blueprint.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+        (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' in sys.argv\n", encoding="utf-8")
         (scripts / "a.checks.py").write_text("assert True\n", encoding="utf-8")
         result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
@@ -237,6 +244,7 @@ def main() -> None:
         assert rejected.returncode != 0 and "outside the repository" in rejected.stderr
         assert not (root / "logs").exists()
 
+        (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' not in sys.argv\n", encoding="utf-8")
         # A normal design edit skips regression; any shared framework change selects all checks.
         (root / "tasks").mkdir()
         active = root / "tasks/active.md"
@@ -252,6 +260,10 @@ def main() -> None:
         result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, text=True)
         assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
         assert not (root / "continued").exists(), "unrelated check ran for a design edit"
+        task_command = scoped_command.copy()
+        task_command[task_command.index("local")] = "task"
+        result = subprocess.run(task_command, cwd=root, env=environment, capture_output=True, text=True)
+        assert result.returncode == 0 and "Validation: active scope" in result.stdout, result.stdout
         full_command = scoped_command.copy()
         full_command[full_command.index("local")] = "full"
         result = subprocess.run(full_command, cwd=root, env=environment, capture_output=True, text=True)
@@ -300,6 +312,10 @@ def main() -> None:
         result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, text=True)
         assert result.returncode and "validation scope missing" in result.stderr
         assert set(log_parent.glob("blueprint-loop-*")) == before, "missing scope started validation"
+        active.unlink()
+        result = subprocess.run(full_command, cwd=root, env=environment, capture_output=True, text=True)
+        assert result.returncode and "validation scope missing" in result.stderr
+        assert set(log_parent.glob("blueprint-loop-*")) == before, "full mode implicitly widened missing scope"
     print("blueprint-loop: PASS")
 
 

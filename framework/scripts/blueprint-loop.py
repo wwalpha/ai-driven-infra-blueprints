@@ -125,18 +125,18 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
-                        help="task: whole-repository validation; full: also all regression tests; local: legacy scoped validation")
-    parser.add_argument("--all", action="store_true", help="Compatibility option: whole-repository validation and all regression tests")
+                        help="task/local: active-scope validation; full: also all regression tests")
+    parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all regression tests")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
     try:
-        scope = active_scope(root, args.all or (args.mode == "full" and not (root / "tasks/active.md").is_file()))
+        scope = active_scope(root, args.all)
         changed = changed_paths(root)
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    full_validation = args.mode != "local" or scope is None
+    full_validation = scope is None
     regression = (args.mode == "full" or args.all or framework_changed(changed)
                   or (args.mode == "local" and scope is None))
     checks = sorted((root / "framework" / "scripts").glob("*.checks.py")) if regression else []
