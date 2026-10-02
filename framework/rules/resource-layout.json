@@ -188,7 +188,7 @@
     "parent": "SecretsManager.Secret",
     "parentProperty": "SecretId",
     "maxCount": 1,
-    "identityProperty": null
+    "identityProperty": "Id"
   },
   "SecretsManager.Secret": "independent",
   "SecurityHub.FindingAggregator": "independent",

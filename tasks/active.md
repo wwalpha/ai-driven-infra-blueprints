@@ -1,10 +1,10 @@
-# 通常taskのservice限定検証
+# Secrets Manager RotationScheduleの生成・解析契約修復
 
 ## Task contract
 
 - Task type: `governance`
-- Target: frameworkのlocal loop、検証scopeと運用規則
-- Goal: 通常taskはValidation scopeだけを検証し、実設計の全体検証は明示指定の日次実行などに限定する。
+- Target: fw内のRotationSchedule grouped child生成・解析・model照合
+- Goal: 確定表示名、identity、observed値、正式SecretIdと親metadataを保持し、生成・解析・検証の不整合を修復する。
 
 ## Validation scope
 
@@ -12,31 +12,34 @@
 
 ## Required changes
 
-- [R1] task/local/fullからvalidatorとmodel照合へ指定scopeを維持し、暗黙の全体検証をなくす。共通契約・変更範囲・catalog整合性は維持する。
-- [R2] ルール・README・設計prompt・配布skillの説明を統一し、対象検証後の念のための全体検証を禁止する。
-- [R3] 実validator/generatorを使い対象外エラーの隔離、対象内エラーの失敗、明示all、scope欠落の停止を回帰検証する。
+- [R1] 現行コードでfixture再現後、RotationScheduleの親内表示、identity、正式SecretIdと親metadataの整合を生成・解析・照合で統一する。不足・矛盾はresource/property付きで拒否する。
+- [R2] 直接関係する表示・model規則を統一し、具体的表示例を変更前に提示する。
+- [R3] 単一・複数親、重複、不正参照、再解析・照合、既存grouping、Secrets Manager/KMS同時生成と既存リンク保護をfixtureで回帰検証する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/scripts/blueprint-loop.py`
-- [R2] `changed:framework/rules/loop-engineering.md`
-- [R2] `changed:README.md`
-- [R2] `changed:framework/prompts/chatbot/service-design.md`
-- [R2] `changed:.agents/skills/implement/SKILL.md`
-- [R3] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R1] `changed:framework/scripts/model_design.py`
+- [R1] `changed:framework/scripts/design_layout.py`
+- [R2] `changed:framework/rules/resource-layout.json`
+- [R2] `changed:framework/rules/detailed-design.md`
+- [R2] `changed:framework/rules/model-information.md`
+- [R3] `changed:framework/scripts/rotation_schedule.checks.py`
+- [R3] `changed:framework/scripts/design_layout.checks.py`
 
 ## Allowed paths
 
 - `tasks/active.md`
-- `framework/scripts/blueprint-loop.py`
-- `framework/scripts/blueprint-loop.checks.py`
-- `framework/rules/loop-engineering.md`
-- `framework/prompts/chatbot/service-design.md`
-- `.agents/skills/*/SKILL.md`
-- `README.md`
+- `framework/scripts/model_design.py`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/sync-model.py`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/rotation_schedule.checks.py`
+- `framework/scripts/design_layout.checks.py`
+- `framework/rules/resource-layout.json`
+- `framework/rules/detailed-design.md`
+- `framework/rules/model-information.md`
 
 ## Out of scope
 
-- consumer repositoryへの同期、design/model/IaC/catalog変更、AWS操作、日次scheduleの作成・変更は行わない。
-- framework scopeのlocal loopとframework回帰を実行する。実repositoryの全service検証は追加しない。
-- fixture/logはrepository外の一時directoryに置く。
+- consumer repositoryへのアクセス・変更・同期、catalog/provider schema変更、IaC、AWS、deploy、scenario、別taskを行わない。
+- fixtureはrepository外の一時directoryに生成する。full loopと差分checkを実行して終了する。

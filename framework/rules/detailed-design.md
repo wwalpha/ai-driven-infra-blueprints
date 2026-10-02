@@ -174,14 +174,14 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 
 - 統合定義の`parent`は包含するresource type、`parentProperty`は子から親への正式property、`maxCount`は親あたりの子の最大数（`null`は複数可）、`identityProperty`は子を識別する先頭propertyとする。`display: rule-table`はSecurity GroupのDirection付き横書き表を指定する。
 - 通常の統合では親の全rowの後に子のrowを同じtableへ置き、No.はtable全体で連番にする。`display: rule-table`では後述の単一rule tableへ1 ruleを1 rowで置く。どちらも子ごとの独立heading・table・一覧は作らない。独立resourceとして設計する子のresource typeも`Owned catalog resource types`へ含める。
-- `parentProperty`のrowは省略し、包含する親へのlogical referenceとして解決する。外部の既存親を参照する子だけの設計はこの形式では表現せず、対応する親の設計または別の表示contractが必要であることを報告する。
+- `parentProperty`のrowはRotationScheduleのSecretIdを除き省略し、包含する親へのlogical referenceとして解決する。外部の既存親を参照する子だけの設計はこの形式では表現せず、対応する親の設計または別の表示contractが必要であることを報告する。
 - `identityProperty`がない単一の子は親のmodelへrowを保持する。既存のS3 BucketPolicyはこの形式を維持する。
 - `identityProperty`がある子は、そのpropertyのrowから次の子のidentity rowまでを一つのinstanceとする。identity rowの`Source / Comment`先頭に`<a id="<resource-name由来のanchor>"></a><!-- logical-id: <logical-id> -->`を置き、その後に日本語で属性の意味を記載する。`KMS.Alias`のanchorはAliasNameから共通規則で生成する。`display: rule-table`のruleには名称propertyがないため、従来の内部identity markerとcurrent IDの非表示markerを各rule rowの`Direction` cellへ維持し、表示用linkを作らない。この非表示markerは参照・識別用の構造情報であり、説明文やAWS propertyではない。
-- 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。ただし未作成のSecurity Group ruleのIdは複数rowで`PENDING_DEPLOY`となるため、確定済みlogical IDとanchorで区別する。
+- 子のlogical IDは既存の確定値を保持する。新規で未確定ならhumanへ確認し、順番やAliasNameから推測して作らない。親子を通じてanchorとlogical IDを重複させず、同じ子のidentity valueを複数の親へ重複配置しない。ただし未作成のSecurity Group ruleとRotationScheduleのIdは複数rowで`PENDING_DEPLOY`となるため、確定済みlogical IDとanchorで区別する。
 - 外部からの参照は子のanchorへ維持する。親へのlinkに置換したり、先頭の子を代表として選んだりしない。
 - 各子のpropertyはその子自身のprovider schemaで検証する。所属親が異なる型、独立heading、欠落した識別情報、子の個数超過、重複、参照切れをlocal loopで拒否する。
 
-Secrets Managerは`SecretsManager.Secret`と所属する単一の`SecretsManager.RotationSchedule`を一つの詳細tableへまとめ、両者の一覧は`SecretsManager.Secret`だけにする。Secretの全rowの後にRotationScheduleの正式property名を持つrowを置き、独立heading・table・一覧は作らない。`SecretsManager.RotationSchedule.SecretId`は包含するSecretから解決してrowを省略し、identityなしのchildとして親model内へ正式propertyを保持する。RotationSchedule未選択のSecretへrowを追加しない。
+Secrets Managerは`SecretsManager.Secret`と所属する単一の`SecretsManager.RotationSchedule`を一つの詳細tableへまとめ、両者の一覧は`SecretsManager.Secret`だけにする。Secretの全rowの後にRotationScheduleの正式property名を持つrowを置き、独立heading・table・一覧は作らない。`SecretsManager.RotationSchedule.Id`を子の先頭rowとし、Source / Commentを`<a id="<表示名由来anchor>"></a><!-- logical-id: <logical-id> --> <確定済み表示名>：<属性の説明>`とする。表示名はhuman-confirmedなlabel（例: `app-dev-key_rotate`）を使用し、Secret名から自動補完しない。子は独立したmodel resourceとしてidentityとIdのobserved値を保持する。正式な`SecretsManager.RotationSchedule.SecretId` rowをcatalog順で一度だけ表示し、desiredの参照先は親metadataと同一のSecret、observedは親のcurrent identifier／`PENDING_DEPLOY`とする。親の説明用rowは追加しない。親metadataと正式rowの欠落・矛盾、不正な親型、同一親への複数所属を拒否する。RotationSchedule未選択のSecretへrowを追加しない。
 
 KMSは`KMS.Key`のtable内に0個以上の`KMS.Alias`をまとめる。`KMS.Alias.TargetKeyId` rowは省略する。KeyId、Keyの設定、AliasNameの順とし、複数AliasではAliasName rowと識別markerをそれぞれ保持する。Key一覧の`AliasNames`列には対応するalias名を表示できる。
 

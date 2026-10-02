@@ -12,7 +12,7 @@ from design_layout import (
     CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
     resource_name_fields, resource_anchor, resource_has_name_property,
-    positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES,
+    positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
 from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents
@@ -412,12 +412,26 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         identity, resource, name, rows = item
         if resource["resourceType"] not in GROUPED:
             continue
+        kind = resource["resourceType"]
+        rule = GROUPED[kind]
+        for field in ("parentReference", "parentProperty"):
+            if not resource.get(field):
+                raise ValueError(f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})")
         link = LINK.fullmatch(resource["parentReference"])
-        rule = GROUPED[resource["resourceType"]]
         parent = by_anchor.get(link.group(3)) if link and not link.group(2) else None
-        if not parent or parent[1]["resourceType"] != rule["parent"] or resource["parentProperty"] != resource["resourceType"] + "." + rule["parentProperty"]:
-            raise ValueError(f"invalid grouped parent: {identity}")
+        if not parent or parent[1]["resourceType"] != rule["parent"] or link.group(1) != parent[1]["logicalId"] or resource["parentProperty"] != kind + "." + rule["parentProperty"]:
+            raise ValueError(f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})")
+        if kind == ROTATION_SCHEDULE:
+            parent_rows = [row for row_id, row in entries(values, "desired.row.")
+                           if row_id.startswith(identity + "-") and row.get("property") == resource["parentProperty"]]
+            if len(parent_rows) != 1 or parent_rows[0].get("value") != resource["parentReference"]:
+                raise ValueError(f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference")
+            if not rows or rows[0][1] != kind + ".Id":
+                raise ValueError(f"{kind}: {resource['logicalId']}: required first property: {kind}.Id")
         grouped.setdefault(parent[0], []).append(item)
+        maximum = rule["maxCount"]
+        if maximum is not None and sum(child[1]["resourceType"] == kind for child in grouped[parent[0]]) > maximum:
+            raise ValueError(f"{kind}: {resource['logicalId']}: too many grouped children for {parent[1]['logicalId']}: {resource['parentProperty']}")
     output = [values["display.service.title"], "", f"- Design service ID: `{service}`",
               "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned), "", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
@@ -435,10 +449,12 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
             output += sg_tables(rows, [(child, child_rows) for _, child, _, child_rows in children])
         else:
             display = display_rows(kind, rows)
-            for _, child, _, child_rows in children:
+            for _, child, child_name, child_rows in children:
                 child_display = display_rows(child["resourceType"], child_rows)
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
+                if child["resourceType"] == ROTATION_SCHEDULE:
+                    child_display[0][3] = child_name + "：" + child_display[0][3]
                 child_display[0][3] = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> ' + child_display[0][3]
                 display += child_display
             output += row_table(display)

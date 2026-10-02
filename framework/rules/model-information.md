@@ -188,3 +188,7 @@ desired.row.001-002.comment=ログを保持する日数
 display.service.title=# CloudWatch Logs 詳細設計
 display.resource.001.comment=VPCの通信ログを保存するLog Group
 ```
+
+## RotationSchedule grouped identity
+
+`SecretsManager.RotationSchedule`は親Secretと同じMarkdown tableに表示するが、独立した`desired.resource.*`、確定済み`display.resource.*.label`、表示名由来anchor、非表示logical IDを保持する。`parentProperty=SecretsManager.RotationSchedule.SecretId`と同model内のSecretへの`parentReference`を必須とし、正式なSecretIdのdesired rowも同じlogical referenceを一度だけ持つ。Idのdesiredは自身へのlogical reference、IdとSecretIdのobservedはcurrent identifier／`PENDING_DEPLOY`を保持する。Id rowの表示名prefixとidentity markerは再解析時に構造情報として取り出し、属性commentやdesired.noteへ混入させない。正式SecretId rowのcommentとobservedもlosslessに照合し、親metadataからの補完で正本rowを省略しない。親Secretごとに最大1件とし、別親の同じ`PENDING_DEPLOY`値はidentityの重複と扱わない。

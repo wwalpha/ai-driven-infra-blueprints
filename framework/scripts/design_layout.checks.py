@@ -159,8 +159,10 @@ def check_secret_rotation_display() -> None:
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
 | 2 | Id | `PENDING_DEPLOY` | secretのID |
-| 3 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | 更新直後のrotation実行設定 |
-| 4 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
+| 3 | SecretsManager.RotationSchedule.Id | `PENDING_DEPLOY` | <a id="secretsmanager-app-dev-key_rotate"></a><!-- logical-id: AppKeyRotation --> app-dev-key_rotate：rotationのID |
+| 4 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | 更新直後のrotation実行設定 |
+| 5 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
+| 6 | SecretsManager.RotationSchedule.SecretId | [PENDING_DEPLOY](#secretsmanager-app-dev-key) | 対象secretのID |
 
 <!-- resource-logical-id: AppToken -->
 <a id="secretsmanager-app-dev-token"></a>
@@ -188,10 +190,11 @@ def check_secret_rotation_display() -> None:
 
         assert not errors(text), errors(text)
         model = MODEL.model_for(path, REPOSITORY)
-        assert "desired.resource.003" not in model
-        assert "desired.row.001-003.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
-        assert "desired.row.001-004.value=`30`" in model
-        assert "SecretsManager.RotationSchedule.SecretId" not in model
+        assert "desired.resource.004" not in model
+        assert "desired.row.002-002.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
+        assert "desired.row.002-003.value=`30`" in model
+        assert "desired.row.002-004.value=[AppKey](#secretsmanager-app-dev-key)" in model
+        assert "observed.row.002-004.value=PENDING_DEPLOY" in model
         values = MODEL.properties(MODEL.imported_model(path, REPOSITORY))
         rendered = MODEL.markdown_for(path, values, REPOSITORY)
         assert rendered == text
@@ -200,7 +203,7 @@ def check_secret_rotation_display() -> None:
         for invalid, message in (
             (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
             (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
-            (text.replace("RotationRules.AutomaticallyAfterDays", "SecretId"), "must be omitted"),
+            (text.replace("[PENDING_DEPLOY](#secretsmanager-app-dev-key)", "[PENDING_DEPLOY](#secretsmanager-app-dev-token)"), "must reference enclosing"),
             (text.replace("RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"), "duplicate property"),
             (text.replace("`30`", "`invalid`"), "provider schema violation"),
             (text.replace("### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"), "resource overview types"),

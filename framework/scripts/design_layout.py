@@ -30,6 +30,8 @@ RESOURCE_ID = re.compile(r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]
 CHILD = re.compile(
     r'^<a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
 )
+ROTATION_SCHEDULE = "SecretsManager.RotationSchedule"
+CHILD_NAME = re.compile(r'^([^<>|`\n：]+)：')
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
@@ -604,7 +606,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                 if parent_type != rule["parent"]:
                     raise ValueError(f"grouped resource has wrong parent: {resource_type}: {parent_type}")
                 grouped_started = True
-                if prop == f'{resource_type}.{rule["parentProperty"]}':
+                if prop == f'{resource_type}.{rule["parentProperty"]}' and resource_type != ROTATION_SCHEDULE:
                     raise ValueError(f"{prop} must be omitted from its enclosing {parent_type} table")
                 identity = rule["identityProperty"]
                 if identity:
@@ -613,7 +615,14 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                             raise ValueError(f"grouped identity row requires anchor and logical ID: {prop}")
                         anchor, logical_id = marker.groups()
                         name = cells[2].strip("`")
+                        if resource_type == ROTATION_SCHEDULE:
+                            label = CHILD_NAME.match(cells[3][marker.end():])
+                            if not label or label.group(1).strip() in {"", "UNSET", "PENDING_DEPLOY"}:
+                                raise ValueError(f"{resource_type}: {logical_id}: confirmed display name required on {prop}")
+                            name = label.group(1)
                         valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name, resource_type)}
+                        if resource_type == ROTATION_SCHEDULE:
+                            valid_anchors = {resource_anchor(service_id, name, resource_type)}
                         if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)
@@ -627,6 +636,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                             "parentLogicalId": parent_id, "parentAnchor": parent_anchor,
                             "parentProperty": f'{resource_type}.{rule["parentProperty"]}', "rows": [],
                         }
+                        if resource_type == ROTATION_SCHEDULE:
+                            active_child["displayName"] = name
                         children[anchor] = active_child
                         table_children.append(active_child)
                         counts[resource_type] = counts.get(resource_type, 0) + 1
@@ -634,6 +645,15 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                         raise ValueError(f"grouped child rows must start with {resource_type}.{identity}")
                     if marker:
                         cells[3] = cells[3][marker.end():]
+                        if resource_type == ROTATION_SCHEDULE:
+                            cells[3] = cells[3][label.end():]
+                    if resource_type == ROTATION_SCHEDULE:
+                        if any(row[1] == prop for row in active_child["rows"]) and "[]" not in prop:
+                            raise ValueError(f"{resource_type}: {active_child['logicalId']}: duplicate property: {prop}")
+                        if prop == active_child["parentProperty"]:
+                            reference = re.fullmatch(r"\[[^\]]+\]\(#([^)]*)\)", cells[2])
+                            if not reference or reference.group(1) != parent_anchor:
+                                raise ValueError(f"{resource_type}: {active_child['logicalId']}: {prop} must reference enclosing {parent_type}: {parent_id}")
                     active_child["rows"].append(cells)
                 else:
                     if marker or "<!-- logical-id:" in cells[3]:
@@ -658,6 +678,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
         for number, cells in enumerate(parent_rows, 1):
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
+            if child["resourceType"] == ROTATION_SCHEDULE and not any(row[1] == child["parentProperty"] for row in child["rows"]):
+                raise ValueError(f"{child['resourceType']}: {child['logicalId']}: required property missing: {child['parentProperty']}")
             result.extend(("", f'<a id="{child["anchor"]}"></a>',
                            f'### {child["resourceType"]}: {child["logicalId"]}', "", HEADER, ALIGNMENT))
             for number, cells in enumerate(child["rows"], 1):

@@ -238,6 +238,8 @@ def imported_model(path: Path, root: Path) -> str:
             (resource.anchor, resource.resource_type, resource.logical_id)
             for resource in resources_in(without_policy_tables(source))
         )}
+        _, children = expanded_design(without_policy_tables(source))
+        headings.update({anchor: child["displayName"] for anchor, child in children.items() if "displayName" in child})
         for identity, resource in entries(values, "desired.resource."):
             rows = resource_display_rows(values, identity, resource, root)
             label = headings.get(resource["anchor"])
