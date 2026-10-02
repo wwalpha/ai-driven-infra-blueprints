@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 
 from model_design import properties, stack_model, markdown_for
+from model_files import read_model
 from issue_gate import require_target_no_issues
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
@@ -29,7 +30,7 @@ class Blocked(RuntimeError):
 
 def load_units(root, environment, directory, scope):
     source = root / "model" / environment / directory / "cloudformation-stacks.properties"
-    values = properties(source.read_text(encoding="utf-8"))
+    values = properties(read_model(source))
     limit, stacks = stack_model(values)
     design = root / "docs/designs" / environment / directory / "cloudformation-stacks.md"
     if design.read_text(encoding="utf-8") != markdown_for(design, values, root):

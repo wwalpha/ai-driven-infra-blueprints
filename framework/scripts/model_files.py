@@ -1,0 +1,144 @@
+"""Read one service model through its optional part index; split or locate keys."""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+MAX_LINES = 600
+PART_LINES = 550
+INDEX_HEADER = "# model-index: 1"
+PART_PREFIX = "# part: "
+
+
+def model_parts(path: Path) -> list[Path]:
+    if path.is_symlink() or path.with_suffix("").is_symlink():
+        raise ValueError(f"model files must not use symlinks: {path}")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    indexed = bool(lines and lines[0] == INDEX_HEADER)
+    if any(line.startswith(("# model-index:", PART_PREFIX)) for line in lines) and not indexed:
+        raise ValueError(f"invalid model index: {path}")
+    parts = []
+    if indexed:
+        if len(lines) > MAX_LINES or any(line.strip() and not line.startswith("#") for line in lines):
+            raise ValueError(f"model index must contain comments only, at most {MAX_LINES} lines: {path}")
+        for line in lines[1:]:
+            if not line.startswith(PART_PREFIX):
+                continue
+            expected = f"{path.stem}/part-{len(parts) + 1:03d}.properties"
+            if line.removeprefix(PART_PREFIX) != expected:
+                raise ValueError(f"invalid or duplicate model part; expected {expected}: {path}")
+            part = path.parent / expected
+            if part.is_symlink() or not part.is_file():
+                raise ValueError(f"missing or unsafe model part: {part}")
+            parts.append(part)
+        if not parts:
+            raise ValueError(f"model index has no parts: {path}")
+    extras = set(path.with_suffix("").rglob("*.properties")) - set(parts)
+    if extras:
+        raise ValueError(f"unlisted model parts: {sorted(str(part) for part in extras)}")
+    return parts if indexed else [path]
+
+
+def read_model(path: Path) -> str:
+    from model_design import properties
+    parts = model_parts(path)
+    contents = []
+    for part in parts:
+        content = part.read_text(encoding="utf-8")
+        if part != path and (len(content.splitlines()) > MAX_LINES or INDEX_HEADER in content.splitlines()):
+            raise ValueError(f"invalid or oversized model part: {part}")
+        if part != parts[-1] and not content.endswith("\n"):
+            raise ValueError(f"model part must end with a newline: {part}")
+        contents.append(content)
+    text = "".join(contents)
+    properties(text)  # Reject duplicate keys across parts as well as malformed values.
+    return text
+
+
+def model_file_contents(path: Path, text: str) -> dict[Path, str]:
+    from model_design import properties
+    properties(text)
+    lines = text.splitlines(keepends=True)
+    if len(lines) <= MAX_LINES:
+        return {path: text}
+    output = {}
+    index = [INDEX_HEADER]
+    for start in range(0, len(lines), PART_LINES):
+        part = path.with_suffix("") / f"part-{len(output) + 1:03d}.properties"
+        output[part] = "".join(lines[start:start + PART_LINES])
+        index.append(PART_PREFIX + part.relative_to(path.parent).as_posix())
+    # ponytail: one index level; nested indexes if a service needs more than 599 parts.
+    if len(index) > MAX_LINES:
+        raise ValueError("service model requires more than 599 parts")
+    output[path] = "\n".join(index) + "\n"  # Publish the index after its data files.
+    return output
+
+
+def service_model_path(path: Path, base: Path) -> Path:
+    """Map a part back to its service entrance for scope and task boundaries."""
+    relative = path.relative_to(base)
+    if len(relative.parts) == 4:
+        return base / relative.parent.with_suffix(".properties")
+    return path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("model", type=Path, help="Service entrance .properties file")
+    operation = parser.add_mutually_exclusive_group(required=True)
+    operation.add_argument("--split", action="store_true")
+    operation.add_argument("--find", help="Find a property key or identifier without printing whole files")
+    args = parser.parse_args()
+    try:
+        path = args.model.absolute()
+        text = read_model(path)
+        parts = model_parts(path)
+        if args.find is not None:
+            for part in parts:
+                for number, line in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):
+                    if "=" in line and args.find in line:
+                        print(f"{part}:{number}: {line.partition('=')[0]}")
+            return 0
+        # Splitting changes authoritative files only in an explicit design/migration scope.
+        root = path.parents[3]
+        if path.relative_to(root).parts[0] != "model" or len(path.relative_to(root).parts) != 4:
+            raise ValueError("split input must be model/<environment>/<target>/<service>.properties")
+        contract = (root / "tasks/active.md").read_text(encoding="utf-8")
+        if not any(f"- Task type: `{kind}`" in contract.splitlines() for kind in ("design", "migration")):
+            raise ValueError("splitting requires an explicit design or migration task")
+        from validation_scope import active_scope
+        from issue_gate import require_no_issues
+        identity = tuple(path.relative_to(root / "model").with_suffix("").parts)
+        scope = active_scope(root)
+        if scope is not None and identity not in scope:
+            raise ValueError("split service is outside active task validation scope")
+        require_no_issues(root, {identity})
+        output = model_file_contents(path, text)
+        obsolete = set(parts) - output.keys() - {path}
+        if "## Allowed paths\n" not in contract:
+            raise ValueError("split task must declare Allowed paths")
+        allowed = contract.split("## Allowed paths\n", 1)[1].split("\n## ", 1)[0]
+        patterns = re.findall(r"^- `([^`]+)`$", allowed, re.MULTILINE)
+        if any(not any(fnmatch.fnmatchcase(file.relative_to(root).as_posix(), pattern) for pattern in patterns)
+               for file in set(output) | obsolete):
+            raise ValueError("split output is outside active task Allowed paths")
+        spec = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.save_files(output)
+        for part in obsolete:
+            part.unlink()
+        print(f"Service model split: PASS ({path}; {len(output)} files)")
+        return 0
+    except (OSError, ValueError, IndexError) as error:
+        print(f"Service model files: FAIL: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

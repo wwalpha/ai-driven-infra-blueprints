@@ -26,7 +26,7 @@ SPEC.loader.exec_module(SYNC)
 
 
 def model(service, kind, name, rows, logical_id=None, label=None):
-    anchor = service + "-" + name
+    anchor = resource_anchor(service, name, kind)
     result = {
         f"desired.service.{service}.serviceId": service,
         f"desired.service.{service}.ownedCatalogResourceTypes": kind,
@@ -57,6 +57,110 @@ def roundtrip(path, values, root):
     expected = {key: value for key, value in values.items() if not key.startswith("display.")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
+
+
+def check_config_typed_anchors():
+    recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
+    recorder_anchor = "config-configuration-recorder-default"
+    channel_anchor = "config-delivery-channel-default"
+    assert resource_anchor("config", "default", recorder) == recorder_anchor
+    assert resource_anchor("config", "default", channel) == channel_anchor
+    assert resource_anchor("config", "DEFAULT", recorder) == recorder_anchor
+    assert resource_anchor("s3", "app/data", "S3.Bucket") == "s3-app-data"
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
+            {"environment": "dev", "alias": alias, "awsAccountId": "123456789012",
+             "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+            for alias in ("cde", "non-cde")
+        ]}) + "\n", encoding="utf-8")
+        path = root / "docs/designs/dev/cde/config.md"
+        values = model("config", recorder, "default", [
+            ("Name", "`default`", "構成情報を記録するrecorderの名前"),
+            ("Id", f"[Recorder](#{recorder_anchor})", "recorderを識別するID"),
+            ("RoleARN", "`AWSServiceRoleForConfig`", "記録に使用するservice linked role"),
+        ], "Recorder")
+        values.update({
+            "desired.service.config.ownedCatalogResourceTypes": recorder + "," + channel,
+            "desired.resource.001.anchor": recorder_anchor,
+            "observed.row.001-002.property": recorder + ".Id",
+            "observed.row.001-002.value": "`default`",
+            "observed.row.001-002.comment": values["desired.row.001-002.comment"],
+            "desired.resource.002.resourceType": channel,
+            "desired.resource.002.logicalId": "Channel",
+            "desired.resource.002.anchor": channel_anchor,
+            "display.resource.002.comment": "構成情報をS3へ配信するchannel",
+            "desired.row.002-001.property": channel + ".Name",
+            "desired.row.002-001.value": "`default`",
+            "desired.row.002-001.comment": "構成情報を配信するchannelの名前",
+            "desired.row.002-002.property": channel + ".S3BucketName",
+            "desired.row.002-002.value": "`config-records`",
+            "desired.row.002-002.comment": "構成情報を保存するS3 bucketの名前",
+        })
+        output = roundtrip(path, values, root)
+        assert properties(SYNC.imported_model(path, root)) == values
+        for kind, anchor, logical_id in ((recorder, recorder_anchor, "Recorder"), (channel, channel_anchor, "Channel")):
+            assert f"### {kind}: default" in output
+            assert f"| 1 | [default](#{anchor}) |" in output
+            assert SYNC.linked_resource(path, f"[default](#{anchor})") == (kind, logical_id)
+        metadata = {path: ("config", (recorder, channel))}
+        catalog = SYNC.view_validator(root, root).catalog_design_properties()
+
+        def failures(markdown):
+            path.write_text(markdown, encoding="utf-8")
+            validator = SYNC.view_validator(root, root)
+            validator.check_resource_names(metadata, [path])
+            validator.check_design_tables(metadata, *catalog, [path])
+            validator.check_design_overviews([path])
+            validator.check_design_links(catalog[2], [path])
+            return validator.errors
+
+        assert not failures(output), failures(output)
+        for key, wrong in (("001", "config-default"), ("001", channel_anchor),
+                           ("002", "config-default"), ("002", recorder_anchor)):
+            invalid = {**values, f"desired.resource.{key}.anchor": wrong}
+            try:
+                markdown_for(path, invalid, root)
+            except ValueError as error:
+                assert "anchor must be unique and match its name" in str(error)
+            else:
+                raise AssertionError("untyped or wrong-type Config anchor accepted")
+            correct = values[f"desired.resource.{key}.anchor"]
+            assert any("anchor must use display name" in error for error in failures(output.replace(correct, wrong)))
+
+        # Case normalization still rejects collisions within the same type.
+        collision = {key: value for key, value in values.items() if not key.startswith(("desired.resource.002.", "desired.row.002-"))}
+        collision["desired.service.config.ownedCatalogResourceTypes"] = recorder
+        for key, value in list(values.items()):
+            if key.startswith(("desired.resource.001.", "desired.row.001-", "observed.row.001-")):
+                collision[key.replace("001", "002", 1)] = value.replace("Recorder", "SecondRecorder") if key.endswith(("logicalId", "value")) else value
+        collision["desired.row.002-001.value"] = "`DEFAULT`"
+        try:
+            markdown_for(path, collision, root)
+        except ValueError as error:
+            assert "anchor must be unique and match its name" in str(error)
+        else:
+            raise AssertionError("same-type normalized anchor collision accepted")
+
+        assert not failures(output), failures(output)
+        hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [
+            ("EnableDefaultStandards", "`true`", "標準を有効にする設定"),
+        ], "Hub")
+        hub["desired.note.001.text"] = f"記録先: [default](config.md#{recorder_anchor})"
+        hub["desired.note.002.text"] = f"配信先: [default](config.md#{channel_anchor})"
+        roundtrip(path.with_name("securityhub.md"), hub, root)
+        validator = SYNC.view_validator(root, root)
+        validator.check_design_links(catalog[2])
+        assert not validator.errors, validator.errors
+        source = root / "model/dev/cde/config.properties"
+        source.parent.mkdir(parents=True)
+        source.write_text(text(values), encoding="utf-8")
+        assert SYNC.sync(root, True, "dev", "cde", services=["config"]) == 0
+        assert SYNC.sync(root, False, "dev", "cde", services=["config"]) == 0
+        assert source.read_text(encoding="utf-8") == text(values)
+        assert path.read_text(encoding="utf-8") == output
+    print("Config anchors: PASS (same-name resources, typed links, roundtrip, namespaces and collision rejection)")
 
 
 def check_kms_alias_display():
@@ -734,6 +838,7 @@ def check_stack_policy():
 
 
 def main():
+    check_config_typed_anchors()
     check_kms_alias_display()
     check_nameless_type_display()
     check_nameless_logical_id_label()

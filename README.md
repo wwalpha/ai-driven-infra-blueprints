@@ -43,6 +43,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: 設計値の正本model propertiesからMarkdown／JSON artifactを決定的に生成・検証する
+- `framework/scripts/model_files.py`: 600行超のmodel propertiesを約550行のpartとservice入口indexへ分割する。`<service.properties> --find '<key-or-logical-id>'`で対象fileと行を検索する。物理分割は明示design/migration taskで`<service.properties> --split`を実行する
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる

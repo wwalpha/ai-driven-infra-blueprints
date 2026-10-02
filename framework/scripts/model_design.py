@@ -398,7 +398,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         if not name or name in {"UNSET", "PENDING_DEPLOY"}:
             raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
         anchor = resource["anchor"]
-        if anchor != resource_anchor(service, name) or anchor in by_anchor:
+        if anchor != resource_anchor(service, name, kind) or anchor in by_anchor:
             raise ValueError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
         errors = naming_errors(root, kind, rows)
         if errors:

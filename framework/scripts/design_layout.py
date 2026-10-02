@@ -64,9 +64,12 @@ def is_service_role_reference(prop: str, value: str) -> bool:
     ))
 
 
-def resource_anchor(service_id: str, name: str) -> str:
+def resource_anchor(service_id: str, name: str, resource_type: str = "") -> str:
     """Use the displayed resource name as the navigation identity."""
-    return service_id + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
+    kind = {"Config.ConfigurationRecorder": "configuration-recorder",
+            "Config.DeliveryChannel": "delivery-channel"}.get(resource_type)
+    prefix = f"{service_id}-{kind}" if kind else service_id
+    return prefix + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
 
 
 def resource_heading_lines(lines: list[str]) -> list[str]:
@@ -610,7 +613,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                             raise ValueError(f"grouped identity row requires anchor and logical ID: {prop}")
                         anchor, logical_id = marker.groups()
                         name = cells[2].strip("`")
-                        valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name)}
+                        valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name, resource_type)}
                         if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)

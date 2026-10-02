@@ -74,5 +74,6 @@
 - 設計変更は最初に`model/**`へ反映し、`framework/scripts/sync-model.py --write`でMarkdown／JSON artifactを生成する。Markdownを先に修正してmodelへ逆反映しない。
 - CloudFormation stackの管理対象はtarget別`model/<environment>/<target-directory>/cloudformation-stacks.properties`を詳細設計の正本とし、同名のMarkdownを生成する。templateとstackは一対一に限定しない。deploy時はStackNameでAWS実体を照合し、設計外stackを自動採用しない。
 - 一つのservice propertiesにintended designを`desired.*`、generated current valueを`observed.*`として保持する。
+- service propertiesは1 file最大600行、600行超は約550行ずつに分割する（末尾fileは短くてよい）。`<service-id>.properties`をindex入口、`<service-id>/part-001.properties`以降を本文とし、一つの論理service modelとして扱う。保存形式・分割・key/identifier検索は`framework/rules/model-information.md`に従い、入口indexから必要なpartだけを読む。catalog propertiesは分割しない。
 - design task、infrastructure `update` phase、成功したAWS mutation後は先に同じservice modelを更新し、service単位で生成・検証し、成功したserviceのMarkdown／JSON artifactを保存する。失敗serviceの生成物は維持し、他serviceの処理を続ける。design taskで既存resourceを取得した場合は確認済みcurrent identifierを`observed.*`へ反映してよい。
 - local loopはpropertiesから生成したMarkdown／JSON artifactが保存済み表示と一致しない場合に失敗する。

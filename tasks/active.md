@@ -1,10 +1,10 @@
-# Secrets ManagerのSecretとRotationScheduleの表示統合
+# Service propertiesの行数制限・分割index
 
 ## Task contract
 
 - Task type: `governance`
-- Target: frameworkのSecrets Manager詳細設計表示
-- Goal: Secretと所属RotationScheduleを一つの詳細tableへ統合し、両者の一覧はSecretだけにする。
+- Target: frameworkのmodel service properties保存形式と読込・検索・検証
+- Goal: token節約のため600行を超えるservice propertiesを約550行のfileへ分割し、service入口indexとkey検索で対象を特定できるようにする。
 
 ## Validation scope
 
@@ -12,52 +12,49 @@
 
 ## Required changes
 
-- [R1] RotationScheduleをSecret配下の単一childとして表示定義し、一覧・詳細の独立表示を禁止する。
-- [R2] 正式property、親所属、設定値を保つ表示生成・model往復・検証を機械確認し、full local loopを実行する。
+- [R1] model propertiesの最大600行、分割目安550行（末尾は短くてよい）、service入口indexとpart保存先・検索手順を規定する。
+- [R2] indexとpartsを一つのserviceとして読み、生成・scope・task境界・名称・observed・CloudFormation stack読込・issue根拠を維持する。欠落・重複key・不正参照・未登録part・行数超過を拒否する。
+- [R3] 既存の保存処理を再利用する明示分割commandと、key/identifierからfile・行を特定する検索commandを提供する。sync-modelの通常生成では正本modelを変更しない。
+- [R4] 分割前後の全key/value・順序・desired/observed、service生成往復・検索・scope・異常系を回帰checkで確認し、full local loopを完了する。
 
 ## Acceptance checks
 
-- [R1] `changed:framework/rules/resource-layout.json`
-- [R1] `changed:framework/rules/detailed-design.md`
-- [R1] `check:framework.resource-layout`
-- [R2] `changed:framework/scripts/design_layout.checks.py`
+- [R1] `changed:framework/rules/model-information.md`
+- [R1] `changed:AGENTS.md`
+- [R2] `changed:framework/scripts/sync-model.py`
+- [R2] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:framework/scripts/validation_scope.py`
+- [R2] `changed:framework/scripts/cloudformation-deploy.py`
+- [R2] `changed:framework/scripts/issue_gate.py`
+- [R2] `check:framework.generated-service-model`
+- [R3] `exists:framework/scripts/model_files.py`
+- [R3] `changed:README.md`
+- [R4] `exists:framework/scripts/model_files.checks.py`
 
 ## Allowed paths
-
 
 - `tasks/active.md`
 - `AGENTS.md`
 - `README.md`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/validate-blueprint.checks.py`
-- `framework/scripts/check-deploy-context.py`
-- `framework/scripts/check-deploy-context.checks.py`
-- `framework/scripts/cloudformation-deploy.py`
-- `framework/scripts/cloudformation-deploy.checks.py`
-- `framework/prompts/codex/*.md`
-- `framework/prompts/chatbot/service-design.md`
-- `framework/prompts/README.md`
-- `framework/rules/cloudformation.md`
-- `framework/rules/terraform.md`
-- `framework/rules/detailed-design.md`
-- `framework/rules/scenario-testing.md`
+- `framework/rules/model-information.md`
 - `framework/rules/loop-engineering.md`
-- `framework/scripts/blueprint-loop.py`
-- `framework/scripts/blueprint-loop.checks.py`
-- `framework/scripts/issue_gate.py`
-- `framework/scripts/issue_gate.checks.py`
-- `framework/scripts/sync-model.py`
+- `framework/rules/detailed-design.md`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/design_layout.checks.py`
 - `framework/scripts/model_design.py`
 - `framework/scripts/model_design.checks.py`
-- `framework/scripts/design_layout.checks.py`
-- `framework/scripts/design_catalog.py`
+- `framework/scripts/sync-model.py`
 - `framework/scripts/sync-model.checks.py`
-- `framework/rules/resource-layout.json`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/validation_scope.py`
+- `framework/scripts/cloudformation-deploy.py`
+- `framework/scripts/issue_gate.py`
+- `framework/scripts/model_files.py`
+- `framework/scripts/model_files.checks.py`
 
 ## Out of scope
 
-- 前taskの未commit差分は保持する。以前から許容されたpathを今回の修正対象へ広げない。
-- 今回の編集は上記Required changesの3 fileとactive contractだけに限定する。
-- 実design/model、project.json、IaC、catalog/schema、issue一覧、scenario/result、consumer repositoryは変更しない。
-- AWS API、deploy/apply、別task作成・実行は行わない。
-- SecretsManager.ResourcePolicyの表示方針は変更しない。fixture/logはrepository外の一時directoryに保存する。
+- 前taskのAWS Config anchor・sync-model集計修復の未commit差分は保持する。
+- このrepositoryに600行超のpropertiesはないため、実design/modelやconsumer repositoryの分割は実行しない。framework対応とrepository外fixture検証だけを行う。
+- catalog properties、catalog/schema、project.json、IaC、issue一覧、scenario/resultは変更しない。
+- AWS API、deploy/apply、別task作成・実行は行わない。fixture/logはrepository外の一時directoryへ保存する。

@@ -742,7 +742,7 @@ def check_config_firehose_references() -> None:
         path.parent.mkdir(parents=True)
         source = design("config", "Config.ConfigurationRecorder", [
             ("Id", "`PENDING_DEPLOY`"), ("RoleName", "`AWSServiceRoleForConfig`"),
-        ]).replace('<a id="config-resource">', '<!-- resource-logical-id: ConfigRecorder -->\n<a id="config-recorder">').replace("ConfigurationRecorder: Resource", "ConfigurationRecorder: recorder")
+        ]).replace('<a id="config-resource">', '<!-- resource-logical-id: ConfigRecorder -->\n<a id="config-configuration-recorder-recorder">').replace("ConfigurationRecorder: Resource", "ConfigurationRecorder: recorder")
         path.write_text(source, encoding="utf-8")
         values = MODEL.properties(MODEL.model_for(path, REPOSITORY))
         values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})

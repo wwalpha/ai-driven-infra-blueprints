@@ -312,6 +312,7 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 - link は relative path を使う。
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
 - anchorはService IDとlowercase resource表示名を`-`で結ぶ。表示名内の`[a-z0-9_.-]`以外の連続文字を`-`へ置き換え、表示名部分の前後の`-`を除く。正規化後のanchor衝突は停止し、内部IDで補正しない。内部logical IDを表示用linkのanchor生成元にしない。
+- `Config.ConfigurationRecorder`と`Config.DeliveryChannel`は同一service内で同名が有効なため、名称にかかわらずService IDと正規化表示名の間へそれぞれ`configuration-recorder`、`delivery-channel`を挿入する。両方のNameが`default`なら`config-configuration-recorder-default`と`config-delivery-channel-default`とする。Name値・一覧ResourceName・詳細heading・linkの表示textは`default`を維持し、型はcatalog resource typeから決定する。非表示logical IDとdesired/observedの分離を維持し、旧`config-default`や型違いのanchorは拒否する。同型内の正規化衝突は引き続き停止する。
 - `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では`.Name` valueをlogical IDとし、anchorにも同じvalueをlowercaseで使用する。
 - 別fileの例: `[role-app-dev-flow-logs](iam.md#iam-role-app-dev-flow-logs)`。
 - 同じfileの例: `[flow-log-app-dev-vpc](#vpc-flow-log-app-dev-vpc)`。

@@ -6,6 +6,7 @@ import re
 import sys
 
 from validation_scope import active_scope
+from model_files import service_model_path
 
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
@@ -55,14 +56,17 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
             services.add(heading)
         if not services:
             for link in re.findall(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]*)?\)", text):
+                link = re.sub(r":\d+$", "", link)
                 linked = (path.parent / link).resolve()
                 for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
                     try:
-                        parts = linked.relative_to((root / base).resolve()).parts
+                        base_path = (root / base).resolve()
+                        source = service_model_path(linked, base_path) if base == "model" else linked
+                        parts = source.relative_to(base_path).parts
                     except ValueError:
                         continue
                     if len(parts) == 3 and parts[:2] == (environment, target) and linked.suffix == suffix:
-                        services.add(linked.stem)
+                        services.add(source.stem)
         result.append((number, services))
 
     for line in contents.splitlines():

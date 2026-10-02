@@ -21,6 +21,7 @@ from issue_gate import require_no_issues
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties
+from model_files import read_model, model_parts, model_file_contents
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -311,7 +312,8 @@ def sync(
         expected_models = {(models / path.relative_to(docs)).with_suffix(".properties"): imported_model(path, root) for path in markdown_paths}
         if any(path.is_file() for path in expected_models):
             raise ValueError("Markdown import must not overwrite an existing authoritative model")
-        save_files(expected_models)
+        save_files({file: content for path, text in expected_models.items()
+                    for file, content in model_file_contents(path, text).items()})
         print(f"Service model import: PASS ({len(expected_models)} files); verify and generate Markdown next")
         return 0
     destinations = {}
@@ -319,7 +321,7 @@ def sync(
     for path in model_paths:
         destination = (docs / path.relative_to(models)).with_suffix(".md")
         try:
-            destinations[destination] = properties(path.read_text(encoding="utf-8"))
+            destinations[destination] = properties(read_model(path))
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
     for path in sorted(set(markdown_paths) - {(docs / path.relative_to(models)).with_suffix(".md") for path in model_paths}):
@@ -345,7 +347,10 @@ def sync(
                         linked = (path.parent / target_text if target_text else path).resolve()
                         if linked.suffix == ".md" and linked.is_relative_to(docs) and linked.is_file():
                             views.add(linked)
-            for path in [*model_paths, *views]:
+            model_inputs = {file for path in model_paths
+                            if (docs / path.relative_to(models)).with_suffix(".md") in destinations
+                            for file in [path, *model_parts(path)]}
+            for path in [*model_inputs, *views]:
                 destination = stage / path.relative_to(root)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, destination)
@@ -457,7 +462,10 @@ def sync(
         for path in saved:
             print(f"Design Markdown sync: PASS ({path.relative_to(root)})")
     if failures:
-        raise ValueError(f"{len(saved)} services succeeded; {len(failures)} services failed\n- " + "\n- ".join(failures))
+        failed_services = (set(markdown_paths) | {
+            (docs / path.relative_to(models)).with_suffix(".md") for path in model_paths
+        }) - saved.keys()
+        raise ValueError(f"{len(saved)} services succeeded; {len(failed_services)} services failed; {len(failures)} diagnostics\n- " + "\n- ".join(failures))
     print(f"Design Markdown sync: PASS ({len(saved)} services)")
     return 0
 

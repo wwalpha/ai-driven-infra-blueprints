@@ -57,6 +57,7 @@ from design_layout import (
 )
 from security_group_tables import security_group_table_lines
 from model_design import entries, naming_errors, properties
+from model_files import MAX_LINES, read_model, model_parts, service_model_path
 from validation_scope import active_scope, reference_lines, scoped_files
 from issue_gate import require_no_issues
 
@@ -190,6 +191,7 @@ class Validator:
         self.check_tasks()
         self.check_project_topology()
         self.check_validation_scope()
+        self.check_model_files()
         self.check_issue_gate()
         self.check_task_type_requirements()
         self.check_initialized_paths()
@@ -441,12 +443,14 @@ class Validator:
         elif self.task_type == "design":
             markdown = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".md")}
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
-            models = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
+            model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
+            models = {service_model_path(self.root / path, self.root / "model").relative_to(self.root).as_posix()
+                      for path in model_files}
             self.check(bool(markdown or artifacts), "design task must change detailed-design Markdown or JSON artifacts")
             self.check(bool(models), "design task must change authoritative service properties")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
-                self.check(expected in changed, f"changed design Markdown lacks changed service model: {path}")
+                self.check(expected in models, f"changed design Markdown lacks changed service model: {path}")
             for path in models:
                 expected = "docs/designs/" + path.removeprefix("model/").removesuffix(".properties") + ".md"
                 service = expected.removesuffix(".md") + "/"
@@ -458,7 +462,7 @@ class Validator:
                 parts = Path(path).parts
                 if len(parts) >= 6:
                     expected = f"model/{parts[2]}/{parts[3]}/{parts[4]}.properties"
-                    self.check(expected in changed, f"changed design JSON lacks changed service model: {path}")
+                    self.check(expected in models, f"changed design JSON lacks changed service model: {path}")
         elif self.task_type == "infrastructure":
             iac_changed = any(self.under(path, "infra") for path in changed)
             if self.infrastructure_phase == "implement":
@@ -594,6 +598,24 @@ class Validator:
                     parts = Path(changed.removeprefix(base)).parts
                     identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
                     self.check(identity in scope, f"changed design path is outside validation scope: {changed}")
+
+    def check_model_files(self) -> None:
+        base = self.root / "model"
+        listed = set()
+        for path in scoped_files(self.root, "model", ".properties", self.scope):
+            try:
+                read_model(path)
+                for file in {path, *model_parts(path)}:
+                    listed.add(file)
+                    self.check(len(file.read_text(encoding="utf-8").splitlines()) <= MAX_LINES,
+                               f"model file exceeds {MAX_LINES} lines; split with model_files.py: {self.relative(file)}")
+            except (OSError, ValueError) as error:
+                self.check(False, f"invalid service model: {self.relative(path)}: {error}")
+        for path in base.rglob("*.properties"):
+            parts = path.relative_to(base).parts
+            if self.scope is not None and (len(parts) < 3 or (parts[0], parts[1], Path(parts[2]).stem) not in self.scope):
+                continue
+            self.check(path in listed, f"model properties must be a service entrance or its indexed part: {self.relative(path)}")
 
     def check_scoped_designs(self) -> None:
         groups = {}
@@ -977,7 +999,11 @@ class Validator:
     def model_service_metadata(
         self, path: Path, catalog_types: set[str]
     ) -> tuple[str, tuple[str, ...]] | None:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        try:
+            lines = read_model(path).splitlines()
+        except (OSError, ValueError) as error:
+            self.check(False, f"invalid service model: {self.relative(path)}: {error}")
+            return None
         service_matches = [match for line in lines if (match := MODEL_SERVICE_ID_PATTERN.fullmatch(line))]
         owned_matches = [match for line in lines if (match := MODEL_OWNED_TYPES_PATTERN.fullmatch(line))]
         self.check(len(service_matches) == 1, f"model service ID must appear exactly once: {self.relative(path)}")
@@ -1187,7 +1213,7 @@ class Validator:
                 identities = resource_logical_ids(lines)
                 lines = security_group_table_lines(lines)
                 model_path = (self.root / "model" / path.relative_to(self.root / "docs/designs")).with_suffix(".properties")
-                values = properties(model_path.read_text(encoding="utf-8")) if model_path.is_file() else {}
+                values = properties(read_model(model_path)) if model_path.is_file() else {}
                 labels = {
                     (resource.get("resourceType"), resource.get("logicalId"), label)
                     for identity, resource in entries(values, "desired.resource.")
@@ -1221,7 +1247,7 @@ class Validator:
                     confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(self.root, resource_type)
                     self.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {self.relative(path)}: {display}")
                 if path in service_metadata:
-                    expected = resource_anchor(service_metadata[path][0], display)
+                    expected = resource_anchor(service_metadata[path][0], display, resource_type)
                     self.check(anchor == expected, f"resource anchor must use display name: {self.relative(path)}: expected {expected}")
 
             for line in [*lines, "### end"]:
@@ -1240,7 +1266,7 @@ class Validator:
                         rows.append(cells)
                         if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
                             marker = CHILD.match(cells[3])
-                            expected = resource_anchor(service_metadata[path][0], self.unquoted(cells[2]))
+                            expected = resource_anchor(service_metadata[path][0], self.unquoted(cells[2]), "KMS.Alias")
                             self.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {self.relative(path)}: expected {expected}")
 
     def check_design_tables(
@@ -1528,7 +1554,7 @@ class Validator:
                     if path in service_metadata:
                         logical_id = heading_match.group(2)
                         if anchor_match is not None:
-                            expected = resource_anchor(service_metadata[path][0], logical_id)
+                            expected = resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1))
                             self.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {self.relative(path)}: expected {expected}")
                 if line.strip():
                     previous = line.strip()
@@ -1993,7 +2019,14 @@ class Validator:
 
     def check_observed_values(self, paths: list[Path] | None = None) -> None:
         for path in scoped_files(self.root, "model", ".properties", self.scope) if paths is None else paths:
-            for line in path.read_text(encoding="utf-8").splitlines():
+            if not path.is_file():
+                continue
+            try:
+                lines = read_model(path).splitlines()
+            except (OSError, ValueError) as error:
+                self.check(False, f"invalid service model: {self.relative(path)}: {error}")
+                continue
+            for line in lines:
                 if line.startswith("observed."):
                     self.check(
                         re.search(r"\barn:aws[a-z-]*:", line, re.IGNORECASE) is None,

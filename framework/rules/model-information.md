@@ -72,6 +72,21 @@ JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複J
 
 ## Properties format
 
+### File size and service index
+
+- modelの各properties fileは最大600行とする。600行以下は既存の単一fileを維持し、空行による水増しをしない。600行超の本文は約550行ずつに分割する。末尾partは500行未満でもよい。
+- service入口は引き続き`model/<environment>/<target-directory>/<service-id>.properties`とし、分割時は`# model-index: 1`と順序付きの`# part: <service-id>/part-001.properties`以降だけを持つindexとする。本文は同じtargetの`<service-id>/`配下に置き、index自身と各partも600行以下とする。
+- partは新serviceではない。index順に連結した一つの正本modelから、従来の同じservice Markdown／JSONを生成する。service ID、resource/row番号、logical ID、anchor、key/valueの内容・順序、desired/observedの分離を変更しない。indexのcommentはAWS propertyではなく保存形式のmetadataとする。
+- partの欠落、重複・不正な順序、別serviceへの参照、path traversal、symlink、nested index、index未登録part、連結後の重複key、600行超を拒否する。partをfile名から独立serviceへ推測しない。通常の`sync-model.py --write`はmodel/index/partを変更しない。
+- 新しいmodelを保存するときは`framework/scripts/model_files.py`の`model_file_contents(path, text)`で保存先を決定する。既存modelの物理分割は明示したdesignまたはmigration taskで、Validation scopeとAllowed pathsに入口・partを含めて次を実行する。設計変更を伴わない分割はmigrationとし、未解決issue gateを維持する。infrastructure updateのimmutable入力を自動分割しない。
+
+```console
+python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --split
+python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --find '<logical-id-or-property-key>'
+```
+
+- token節約のため、最初に入口indexを読み、検索結果のfile・行を使って必要なpartだけを読む。`--find`はkeyまたはidentifierを含む一致行の位置を`絶対file path:行番号:key`として出力し、長いJSONなどの値を一括出力しない。分割後の設計編集は対象partへ行い、同じservice scopeで全partと生成表示の一致を検証する。
+
 Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 
 `CodeCommit.Repository.RepositoryId`は非表示propertyとしてmodelへ生成せず、identifier output参照判定からも除外する。RepositoryNameとresource anchorによる参照はdesiredへ保持する。catalogを変更しない。

@@ -24,6 +24,51 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def check_failure_counts() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(SCRIPT.parents[1], root / "framework")
+        models = root / "model/dev/non-cde"
+        docs = root / "docs/designs/dev/non-cde"
+        models.mkdir(parents=True)
+        docs.mkdir(parents=True)
+        for number in range(17):
+            (models / f"service-{number:02d}.properties").write_text("fixture.value=test\n")
+            (docs / f"service-{number:02d}.md").write_text("generated\n")
+
+        def render(path, values, stage):
+            if int(path.stem.removeprefix("service-")) < 9:
+                raise ValueError("fixture render failure")
+            return "generated\n"
+
+        # Five rejected references produce five diagnostics for one failed service.
+        broken = {f"reference-{number}": docs / "service-09.md" for number in range(5)}
+        for extra_inputs in (False, True):
+            if extra_inputs:
+                (models / "invalid.properties").write_text("invalid properties\n")
+                (docs / "orphan.md").write_text("saved Markdown\n")
+            for write in (False, True):
+                with patch.object(MODULE, "validate_required_properties"), \
+                     patch.object(MODULE, "markdown_for", side_effect=render), \
+                     patch.object(MODULE, "rendered_design", return_value="generated\n"), \
+                     patch.object(MODULE, "validate_views"), \
+                     patch.object(MODULE, "broken_design_links", side_effect=[{}, broken, {}]), \
+                     redirect_stdout(io.StringIO()):
+                    try:
+                        MODULE.sync(root, write, "dev", "non-cde")
+                    except ValueError as error:
+                        failed, diagnostics = (12, 16) if extra_inputs else (10, 14)
+                        assert str(error).splitlines()[0] == f"7 services succeeded; {failed} services failed; {diagnostics} diagnostics", error
+                        assert len(str(error).splitlines()) == diagnostics + 1, error
+                        assert str(error).count("candidate breaks saved reference") == 5, error
+                        if extra_inputs:
+                            assert "invalid or duplicate model property" in str(error), error
+                            assert "authoritative model missing" in str(error), error
+                    else:
+                        raise AssertionError("partial generation failure accepted")
+    print("Failure counts: PASS (17 models, 7 successes, 10 failed services, 14 diagnostics, invalid/missing models, read/write)")
+
+
 def check_required_preflight() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -115,7 +160,7 @@ def check_required_preflight() -> None:
             try:
                 MODULE.sync(root, True, "dev", "123456789012")
             except ValueError as error:
-                assert "1 services succeeded; 1 services failed" in str(error), error
+                assert "1 services succeeded; 1 services failed; 1 diagnostics" in str(error), error
             else:
                 raise AssertionError("partial failure accepted")
         assert design.with_name("cloudformation-stacks.md").is_file()
@@ -194,6 +239,7 @@ def check_required_property_parents() -> None:
 
 
 def main() -> None:
+    check_failure_counts()
     check_required_preflight()
     check_required_property_parents()
     with tempfile.TemporaryDirectory() as directory:

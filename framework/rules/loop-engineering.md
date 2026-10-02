@@ -82,6 +82,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 - `CodeBuild.Project.Name`がresourceごとに1 rowだけ存在し、確定済みnon-empty literalである。設計検証とmodel生成の共通名称検証で欠落・空値・未確定値・重複を拒否し、Name tagや表示labelで代替していない
 - CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
 - generated ARNが`model/`に存在しない
+- modelのservice入口indexと各partが600行以下であり、partの欠落・不正参照・未登録・重複keyがない。全partを同じserviceとしてscope・task境界・生成一致・observedを検証する
 - scenario/result structureとmetadataが有効
 - formatting/static checkが成功する
 
