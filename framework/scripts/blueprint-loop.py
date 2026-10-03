@@ -229,6 +229,13 @@ def staged_snapshot(root, args, directory, environment):
             saved = snapshot / "framework/scripts" / name
             if not saved.is_file() or saved.read_bytes() != source.read_bytes():
                 raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
+    # .lock is local configuration, outside the staged task tree.
+    source_lock = root / ".lock"
+    if source_lock.is_symlink():
+        raise ValueError("repo .lock must be a regular file")
+    saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
+    if saved_lock is not None:
+        (snapshot / ".lock").write_bytes(saved_lock)
     process = subprocess.Popen(command, cwd=snapshot, env=environment,
                                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
     try:
@@ -242,11 +249,12 @@ def staged_snapshot(root, args, directory, environment):
             process.wait()
         raise
     current_tree = index_tree(root, directory)
-    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head
+    current_lock = source_lock.read_bytes() if source_lock.is_file() else None
+    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
     metadata.update(returncode=result, source_unchanged=unchanged)
     (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     if not unchanged:
-        print("Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.", flush=True)
+        print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
         return 1
     return result
 
@@ -295,7 +303,7 @@ def main() -> int:
     if regression and not args.staged and (not args.affected or
             set(checks) == set((root / "framework/scripts").glob("*.checks.py"))):
         try:
-            authorize_full_regression()
+            authorize_full_regression(root)
         except KeyboardInterrupt:
             print("Full regression authorization cancelled; no checks started.", file=sys.stderr)
             return 130

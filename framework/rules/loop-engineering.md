@@ -130,10 +130,10 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 #### Windows全回帰の入力ガード
 
 - Windowsの全回帰は、明示した`full`／`--all`、framework変更による自動追加、`--affected`で選んだ結果が全件の場合のいずれでも、検証process起動前に人間のパスワード入力を要求する。対象限定検証と明示対応表で一部だけに絞った回帰は入力不要とする。staged検証ではsnapshot内のrunnerが同じガードを使用する。Windowsでは現行runner／guardをstageし、workspaceと内容が一致しない旧entrypointのdispatchを拒否する。
-- 人間が一度だけ管理者権限のWindows consoleで`python -I -B framework/scripts/regression_guard.py --install`を実行して登録する。Windowsが返す共通application data directoryの`BlueprintRegressionGuard/`へ照合プログラムとsalt付きPBKDF2-HMAC-SHA256の`.lock`を設置し、ownerをAdministrators、書込み権限をAdministrators／SYSTEM、Usersを読取り・実行だけに設定する。repo内にpassword/hashの正本を置かず、配置先・認証情報を引数や環境変数で変更できない。
-- 登録は管理者console、全回帰は非昇格consoleで実行する。エージェントを管理者として起動しない。保護されたhelperをisolated Pythonで起動し、hash照合もpassword入力もそのhelper内だけで行う。入力は対話consoleだけから受け取り、passwordをチャット、command引数、環境変数、ログへ渡さない。
-- 未登録、ACL／owner／inheritance不正、redirect、hash不正、非対話入力、不一致、入力キャンセルでは停止し、全回帰・通常検証・差分checkを起動せずPASSにしない。認証は当該起動だけに適用し、解除flagや再利用tokenを保存しない。登録値の変更・helperの更新は人間が管理者として既存設置directoryを削除し、再登録する。エージェントは登録、再登録、ACL緩和、ガードの無効化、回帰script全件の直接起動による迂回を行わない。
-- この権限分離は保護された登録値と照合処理に適用する。repoのrunnerを編集できるprocessによる任意Python実行全体をOSレベルで制限する仕組みではない。macOSなどWindows以外の認証・権限設定は今回の対象外で、従来のlocal loopを維持する。
+- 人間がrepository rootで`python -I -B framework/scripts/regression_guard.py --install`を実行し、repo直下の`.lock`一つだけへsalt付きPBKDF2-HMAC-SHA256のhashを登録する。管理者権限、ProgramData、別helper設置、ACL設定は使用しない。既存の`.lock`は上書きしない。
+- 全回帰開始前に当該repoの`.lock`へ毎回入力を照合する。未登録、不正形式、redirect、非対話入力、不一致、入力キャンセルでは検証processを起動せずPASSにしない。passwordをチャット、引数、環境変数、ログへ渡さず、解除flag／token／認証済み状態を保存しない。エージェントは実passwordを登録・取得せず、ガードを迂回しない。
+- `.lock`はtask artifactではなくローカル設定とし、validatorのchanged task pathsからrepo直下の`.lock`だけを除外する。staged snapshotには同じ登録値を引き継ぎ、source `.lock`変更でも終了結果をstaleにする。実password/hashの登録値を完了報告やログへ表示しない。
+- 旧版のProgramData内`.lock`はrepo直下へコピーすれば同じpasswordで使用できる。修正版はProgramDataを参照せず、既存の外部fileの削除は行わない。repo fileを変更できる権限からの分離とWindows以外のガード有効化は行わない。
 
 - 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。Validation scopeを引き継ぐ`validate-blueprint.py`と、その内部のservice指定`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
 - framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を最大2並列で実行し、診断と失敗一覧を名前順に集約する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。

@@ -298,7 +298,7 @@ class Validator:
             self.git_paths(["diff", "--name-only"])
             | self.git_paths(["diff", "--cached", "--name-only"])
             | self.git_paths(["ls-files", "--others", "--exclude-standard"])
-        )
+        ) - {".lock"}  # Per-repository password configuration is not a task artifact.
         if not self.changed_paths:
             return
         if not prompt.is_file():

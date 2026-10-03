@@ -164,6 +164,8 @@ display.resource.001.comment=通信ログを保存するLog Group
 
         result = run()
         assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
+        # A local password registration does not become a design-task scope error.
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
         warm = run()
         assert warm.returncode == 0 and "0 executed, 1 reused" in warm.stdout, warm.stdout + warm.stderr
         fresh = subprocess.run([*command, "--fresh", "--validation-jobs", "1", "--profile"],
@@ -290,7 +292,7 @@ def check_staged_snapshot():
         for name in (SCRIPT.name, "validation_scope.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         # These isolated runner fixtures exercise orchestration after authorization.
-        (scripts / "regression_guard.py").write_text("def authorize_full_regression(): pass\n", encoding="utf-8")
+        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (root / "tasks").mkdir()
         active = root / "tasks/active.md"
         contract = "- Task type: `governance`\n## Validation scope\n- `framework`\n"
@@ -314,6 +316,10 @@ def check_staged_snapshot():
         MODULE.git(root, "add", ".")
         active.write_text("dirty workspace contract", encoding="utf-8")
         (root / "untracked.txt").write_text("not staged", encoding="utf-8")
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+        validator.write_text(validator.read_text(encoding="utf-8") +
+                            "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture registration'}\n", encoding="utf-8")
+        MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
         log_parent = Path(temporary) / "logs"
         command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--staged", "--base", base,
                    "--log-dir", str(log_parent)]
@@ -353,6 +359,15 @@ def check_staged_snapshot():
                     raise AssertionError("old staged guard bypassed Windows authorization")
         finally:
             guard.write_bytes(original_guard)
+        # Changing the source password registration makes a staged result stale.
+        original_validator = validator.read_text(encoding="utf-8")
+        validator.write_text(original_validator +
+                            f"Path({str(root / '.lock')!r}).write_text('changed', encoding='utf-8')\n", encoding="utf-8")
+        MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        assert result.returncode == 1 and "HEAD/index/.lock changed" in result.stdout, result.stdout + result.stderr
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+        validator.write_text(original_validator, encoding="utf-8")
         # A concurrent index edit cannot be reported as current validation success.
         validator.write_text(validator.read_text(encoding="utf-8") +
             f"subprocess.run(['git','add','tasks/active.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
@@ -440,7 +455,7 @@ def main() -> None:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
         shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
-        (scripts / "regression_guard.py").write_text("def authorize_full_regression(): pass\n", encoding="utf-8")
+        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
         (scripts / "a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
         (scripts / "b.checks.py").write_text(
