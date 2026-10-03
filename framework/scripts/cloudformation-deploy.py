@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -12,9 +14,12 @@ import sys
 import tempfile
 import time
 import uuid
+import zipfile
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
-from model_design import properties, stack_model, markdown_for
+from model_design import (properties, stack_model, markdown_for, deployment_settings,
+                          deployment_bucket, ARTIFACT_PROPERTIES)
 from model_files import read_model
 from issue_gate import require_target_no_issues
 
@@ -38,7 +43,18 @@ def load_units(root, environment, directory, scope):
     by_name = {stack["name"]: stack for _, stack in stacks}
     if not scope or len(set(scope)) != len(scope) or set(scope) - by_name.keys():
         raise Blocked("Deployment scope must contain unique designed StackName values")
-    return limit, [stack for _, stack in stacks if stack["name"] in scope]
+    settings, artifacts = deployment_settings(values)
+    selected = [dict(stack) for _, stack in stacks if stack["name"] in scope]
+    for unit in selected:
+        if settings:
+            unit.update(settings)
+            unit["templateBucket"] = deployment_bucket(settings["templateBucket"], design, root)
+        assigned = [dict(artifact) for _, artifact in artifacts if artifact["stack"] == unit["name"]]
+        for artifact in assigned:
+            artifact["bucket"] = deployment_bucket(artifact["bucket"], design, root)
+        if assigned:
+            unit["artifacts"] = assigned
+    return limit, selected
 
 
 def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep, drain_only=False):
@@ -105,14 +121,19 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
         sleep(5)
 
 
-def import_names(template, parameters, pseudo):
-    """Resolve only stack-independent intrinsic expressions; unknown expressions block."""
+def resolve_value(value, parameters, pseudo, exports=None):
+    """Resolve the same explicit inputs for imports and artifact destinations."""
     def resolve(value):
         if isinstance(value, str):
             return value
         if not isinstance(value, dict) or len(value) != 1:
             raise Blocked("cannot resolve ImportValue expression")
         key, argument = next(iter(value.items()))
+        if key == "Fn::ImportValue" and exports is not None:
+            name = resolve(argument)
+            if name in exports:
+                return exports[name]
+            raise Blocked(f"unresolved artifact bucket export: {name}")
         if key == "Ref" and argument in parameters | pseudo:
             return (parameters | pseudo)[argument]
         if key == "Fn::Join" and isinstance(argument, list) and len(argument) == 2:
@@ -129,12 +150,17 @@ def import_names(template, parameters, pseudo):
                 return substitutions[key]
             return re.sub(r"\$\{([^}]+)\}", replace, text)
         raise Blocked(f"unsupported ImportValue expression: {key}")
+    return resolve(value)
+
+
+def import_names(template, parameters, pseudo):
+    """Resolve only stack-independent intrinsic expressions; unknown expressions block."""
     names = set()
     def visit(value):
         if isinstance(value, dict):
             for key, child in value.items():
                 if key == "Fn::ImportValue":
-                    name = resolve(child)
+                    name = resolve_value(child, parameters, pseudo)
                     if not isinstance(name, str) or not name:
                         raise Blocked("ImportValue name must be nonempty")
                     names.add(name)
@@ -172,11 +198,14 @@ class AwsBackend:
         self.root, self.environment, self.directory = root, environment, directory
         self.target, self.profile, self.approvals = target, configured_profile or profile, set(approvals)
         self.templates = {}
+        self.validated_digests = {}
+        self.expected_digests = {}
+        self.workdir = None
         self.states = {}
         self.save = lambda: None
 
-    def aws(self, operation, *arguments):
-        if operation in {"create-change-set", "execute-change-set"}:
+    def aws(self, operation, *arguments, service="cloudformation"):
+        if operation in {"create-change-set", "execute-change-set", "put-object"}:
             try:
                 require_target_no_issues(self.root, (self.environment, self.directory))
             except (OSError, ValueError) as error:
@@ -184,7 +213,7 @@ class AwsBackend:
         command = ["aws", "--region", self.target["awsRegion"]]
         if self.profile:
             command += ["--profile", self.profile]
-        result = subprocess.run(command + ["cloudformation", operation, *arguments, "--output", "json", "--no-cli-pager"],
+        result = subprocess.run(command + [service, operation, *arguments, "--output", "json", "--no-cli-pager"],
                                 capture_output=True, text=True, timeout=60)
         if result.returncode:
             raise Blocked(result.stderr.strip())
@@ -195,9 +224,24 @@ class AwsBackend:
         parameters = self.root / "infra/cloudformation/parameters" / self.environment / self.directory / unit["parameters"]
         return template, parameters
 
+    def source_path(self, artifact):
+        path = (self.root / artifact["source"]).resolve()
+        if not path.is_relative_to(self.root.resolve()) or not path.is_relative_to((self.root / "infra/cloudformation/artifacts").resolve()) or not path.is_file():
+            raise Blocked(f"artifact source is missing or escapes its directory: {artifact['source']}")
+        if artifact["property"] in {"Code", "Content"} and (path.suffix != ".zip" or not zipfile.is_zipfile(path)):
+            raise Blocked("Lambda artifact must be a prebuilt ZIP file")
+        return path
+
+    def input_digest(self, unit):
+        paths = [*self.paths(unit), *[self.source_path(a) for a in unit.get("artifacts", [])]]
+        return fingerprint([hashlib.sha256(path.read_bytes()).hexdigest() for path in paths])
+
     def validate(self, unit):
         from cfnlint.decode import decode
         template, parameters = self.paths(unit)
+        digest = self.input_digest(unit)
+        if unit["name"] in self.expected_digests and self.expected_digests[unit["name"]] != digest:
+            raise Blocked("deployment inputs changed before validation")
         result = subprocess.run(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(template)],
                                 capture_output=True, text=True)
         if result.returncode:
@@ -205,7 +249,6 @@ class AwsBackend:
         document, errors = decode(str(template))
         if errors or not isinstance(document, dict) or document.get("Transform"):
             raise Blocked("invalid/transform template; imports must be resolvable before change set")
-        self.aws("validate-template", "--template-body", "file://" + str(template))
         inputs = json.loads(parameters.read_text(encoding="utf-8"))
         if not isinstance(inputs, list) or not all(isinstance(item, dict) and isinstance(item.get("ParameterKey"), str)
                                                  and isinstance(item.get("ParameterValue"), str) for item in inputs):
@@ -214,6 +257,144 @@ class AwsBackend:
             raise Blocked("duplicate parameter key")
         defaults = {key: str(value["Default"]) for key, value in document.get("Parameters", {}).items() if "Default" in value}
         self.templates[unit["name"]] = (document, defaults | {item["ParameterKey"]: item["ParameterValue"] for item in inputs})
+        for artifact in unit.get("artifacts", []):
+            self.source_path(artifact)
+            resource = document.get("Resources", {}).get(artifact["resource"], {})
+            if (resource.get("Type"), artifact["property"]) not in ARTIFACT_PROPERTIES:
+                raise Blocked("artifact resource/type/property does not match the declared template")
+        if not unit.get("artifacts") and template.stat().st_size > 1024 * 1024:
+            raise Blocked("template exceeds the 1 MiB CloudFormation limit")
+        if self.input_digest(unit) != digest:
+            raise Blocked("deployment inputs changed during validation")
+        self.validated_digests[unit["name"]] = digest
+
+    def verify_object(self, obj):
+        arguments = ["--bucket", obj["bucket"], "--key", obj["key"], "--expected-bucket-owner", self.target["awsAccountId"],
+                     "--checksum-mode", "ENABLED"]
+        if obj.get("version"):
+            arguments += ["--version-id", obj["version"]]
+        current = self.aws("head-object", *arguments, service="s3api")
+        if current.get("ChecksumSHA256") != obj["checksum"] or current.get("ContentLength") != obj["size"]:
+            raise Blocked("S3 artifact checksum/size changed; upload or execution blocked")
+        return current
+
+    def upload(self, path, bucket, prefix):
+        location = self.aws("get-bucket-location", "--bucket", bucket, "--expected-bucket-owner", self.target["awsAccountId"], service="s3api")
+        region = location.get("LocationConstraint") or "us-east-1"
+        if ("eu-west-1" if region == "EU" else region) != self.target["awsRegion"]:
+            raise Blocked("deployment bucket region does not match target")
+        contents = path.read_bytes()
+        digest = hashlib.sha256(contents)
+        obj = {"bucket": bucket, "key": prefix + digest.hexdigest() + path.suffix,
+               "checksum": base64.b64encode(digest.digest()).decode(), "size": len(contents)}
+        try:
+            current = self.verify_object(obj)
+        except Blocked as error:
+            if not any(code in str(error) for code in ("(404)", "(NoSuchKey)", "(NotFound)")):
+                raise
+            try:
+                current = self.aws("put-object", "--bucket", bucket, "--key", obj["key"], "--body", str(path),
+                    "--expected-bucket-owner", self.target["awsAccountId"], "--if-none-match", "*",
+                    "--checksum-algorithm", "SHA256", "--checksum-sha256", obj["checksum"], service="s3api")
+            except Blocked as error:
+                if "(PreconditionFailed)" not in str(error):
+                    raise
+                current = self.verify_object(obj)
+        if current.get("VersionId") not in {None, "null"}:
+            obj["version"] = current["VersionId"]
+        self.verify_object(obj)
+        return obj
+
+    def artifact_bindings(self, unit, document, parameters):
+        pseudo = {"AWS::AccountId": self.target["awsAccountId"], "AWS::Region": self.target["awsRegion"], "AWS::StackName": unit["name"]}
+        # Resolve every mapping before the first upload, including bucket/prefix consistency.
+        bindings = []
+        exports = {e["Name"]: e["Value"] for e in self.aws("list-exports").get("Exports", [])} if unit.get("artifacts") else {}
+        for artifact in unit.get("artifacts", []):
+            resource = document["Resources"][artifact["resource"]]
+            container = resource["Properties"]
+            parts = artifact["property"].split(".")
+            for part in parts[:-1]:
+                container = container[part]
+            value = container[parts[-1]]
+            fields = ARTIFACT_PROPERTIES[(resource["Type"], artifact["property"])]
+            if fields:
+                if not isinstance(value, dict) or not {fields[0], fields[1]} <= value.keys():
+                    raise Blocked("artifact property must already declare its S3 bucket and key")
+                bucket = resolve_value(value[fields[0]], parameters, pseudo, exports)
+                key = resolve_value(value[fields[1]], parameters, pseudo, exports)
+            else:
+                uri = resolve_value(value, parameters, pseudo, exports)
+                match = re.fullmatch(r"s3://([^/]+)/(.+)", uri)
+                if not match:
+                    raise Blocked("artifact property must declare an S3 URI")
+                bucket, key = match.groups()
+            if bucket != artifact["bucket"] or not key.startswith(artifact["keyPrefix"]):
+                raise Blocked("artifact bucket/keyPrefix differs from the approved template")
+            bindings.append((artifact, container, parts[-1], fields))
+        return bindings
+
+    def template_arguments(self, unit, state):
+        """Prepare only declared S3 references in a copy outside the repository."""
+        if state.get("delivery"):
+            delivery = state["delivery"]
+            document, parameters = self.templates[unit["name"]]
+            self.artifact_bindings(unit, document, parameters)
+            if self.input_digest(unit) != delivery["inputDigest"]:
+                raise Blocked("prepared deployment inputs changed")
+            path = Path(delivery["path"])
+            if hashlib.sha256(path.read_bytes()).hexdigest() != delivery["templateSha256"]:
+                raise Blocked("prepared deployment template changed")
+            for obj in delivery["objects"]:
+                self.verify_object(obj)
+            return delivery["arguments"]
+        path, _ = self.paths(unit)
+        document, parameters = self.templates[unit["name"]]
+        document = copy.deepcopy(document)
+        objects = []
+        input_digest = self.input_digest(unit)
+        if unit["name"] in self.validated_digests and self.validated_digests[unit["name"]] != input_digest:
+            raise Blocked("deployment inputs changed after validation")
+        bindings = self.artifact_bindings(unit, document, parameters)
+        if bindings:
+            if self.workdir is None:
+                raise Blocked("artifact packaging requires the external deployment session directory")
+            for artifact, container, prop, fields in bindings:
+                obj = self.upload(self.source_path(artifact), artifact["bucket"], artifact["keyPrefix"])
+                objects.append(obj)
+                if fields:
+                    container[prop][fields[1]] = obj["key"]
+                    container[prop].pop(fields[2], None)
+                    if obj.get("version"):
+                        container[prop][fields[2]] = obj["version"]
+                else:
+                    container[prop] = f"s3://{obj['bucket']}/{obj['key']}"
+            self.workdir.mkdir(parents=True, exist_ok=True)
+            path = self.workdir / (unit["name"] + ".json")
+            path.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            result = subprocess.run(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(path)], capture_output=True, text=True)
+            if result.returncode:
+                raise Blocked("packaged template cfn-lint failed: " + result.stdout + result.stderr)
+        size = path.stat().st_size
+        if size > 1024 * 1024:
+            raise Blocked("template exceeds the 1 MiB CloudFormation limit")
+        arguments = ["--template-body", "file://" + str(path)]
+        if size > 51200:
+            if not unit.get("templateBucket") or not unit.get("templateKeyPrefix"):
+                raise Blocked("large template requires designed TemplateBucket and TemplateKeyPrefix")
+            obj = self.upload(path, unit["templateBucket"], unit["templateKeyPrefix"])
+            objects.append(obj)
+            suffix = "amazonaws.com.cn" if self.target["awsRegion"].startswith("cn-") else "amazonaws.com"
+            url = f"https://s3.{self.target['awsRegion']}.{suffix}/{obj['bucket']}/{quote(obj['key'], safe='/')}"
+            if obj.get("version"):
+                url += "?" + urlencode({"versionId": obj["version"]})
+            arguments = ["--template-url", url]
+        if self.input_digest(unit) != input_digest:
+            raise Blocked("deployment inputs changed while preparing artifacts")
+        state["delivery"] = {"inputDigest": input_digest, "path": str(path), "arguments": arguments,
+                             "templateSha256": hashlib.sha256(path.read_bytes()).hexdigest(), "objects": objects}
+        self.save()
+        return arguments
 
     def check_imports(self, unit):
         document, parameters = self.templates[unit["name"]]
@@ -235,6 +416,7 @@ class AwsBackend:
 
     def prepare(self, unit, state):
         self.check_imports(unit)  # Also recheck when resuming an approved change set.
+        arguments = self.template_arguments(unit, state)
         if not state.get("changeSetId"):
             try:
                 stack = self.aws("describe-stacks", "--stack-name", unit["name"])["Stacks"][0]
@@ -244,13 +426,14 @@ class AwsBackend:
                 stack = None
             if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:
                 raise Blocked(f"stack not updateable: {stack['StackStatus']}")
-            template, parameters = self.paths(unit)
+            _, parameters = self.paths(unit)
+            self.aws("validate-template", *arguments)
             state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
             self.save()
             response = self.aws("create-change-set", "--stack-name", unit["name"],
                 "--change-set-name", state["changeSetId"],
                 "--change-set-type", "UPDATE" if stack else "CREATE",
-                "--template-body", "file://" + str(template), "--parameters", "file://" + str(parameters),
+                *arguments, "--parameters", "file://" + str(parameters),
                 "--capabilities", "CAPABILITY_NAMED_IAM")
             state["changeSetId"] = response["Id"]
             self.save()
@@ -280,6 +463,7 @@ class AwsBackend:
 
     def execute(self, unit, state):
         # Re-fetch the exact immutable approval artifact immediately before execution.
+        self.template_arguments(unit, state)
         current = self.describe_change_set(unit, state)
         if current["Status"] != "CREATE_COMPLETE" or current["ExecutionStatus"] != "AVAILABLE" or \
                 fingerprint(current.get("Changes", [])) != state["changeDigest"]:
@@ -365,8 +549,10 @@ def main(argv=None, root=None):
         limit, units = load_units(root, args.environment, directory, args.stack)
         backend = AwsBackend(root, args.environment, directory, target, args.profile, args.approve_change_set)
         digest = fingerprint([str(root), target, args.environment, phase, limit, units])
-        unit_digests = {unit["name"]: fingerprint([hashlib.sha256(path.read_bytes()).hexdigest()
-                                                for path in backend.paths(unit)]) for unit in units}
+        backend.workdir = state_path.with_name(state_path.name + ".files").resolve()
+        if backend.workdir.is_relative_to(root):
+            raise Blocked("deployment files directory must be outside repository")
+        unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
         if args.resume:
             session = json.loads(state_path.read_text(encoding="utf-8"))
             if session["inputDigest"] != digest:
@@ -385,6 +571,7 @@ def main(argv=None, root=None):
             if len(matches) != 1 or matches[0]["status"] != "BLOCKED" or not matches[0].get("changeDigest"):
                 raise Blocked("approve only the saved blocked change set after human confirmation")
         backend.states = session["states"]
+        backend.expected_digests = session["unitDigests"]
         def save():
             temporary = state_path.with_suffix(state_path.suffix + ".tmp")
             temporary.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")

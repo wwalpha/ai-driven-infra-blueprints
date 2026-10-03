@@ -208,3 +208,24 @@ display.resource.001.comment=VPCの通信ログを保存するLog Group
 ## RotationSchedule grouped identity
 
 `SecretsManager.RotationSchedule`は親Secretと同じMarkdown tableに表示するが、独立した`desired.resource.*`、確定済み`display.resource.*.label`、表示名由来anchor、非表示logical IDを保持する。`parentProperty=SecretsManager.RotationSchedule.SecretId`と同model内のSecretへの`parentReference`を必須とし、正式なSecretIdのdesired rowも同じlogical referenceを一度だけ持つ。Idのdesiredは自身へのlogical reference、IdとSecretIdのobservedはcurrent identifier／`PENDING_DEPLOY`を保持する。Id rowの表示名prefixとidentity markerは再解析時に構造情報として取り出し、属性commentやdesired.noteへ混入させない。正式SecretId rowのcommentとobservedもlosslessに照合し、親metadataからの補完で正本rowを省略しない。親Secretごとに最大1件とし、別親の同じ`PENDING_DEPLOY`値はidentityの重複と扱わない。
+
+## CloudFormation S3配置
+
+`cloudformation-stacks.properties`の任意設定。配置bucketは同targetの`S3.Bucket`のanchorを指し、link表示名はそのmodelの確定済みBucketNameと一致させる。以下の名前・pathは形式例であり、実targetではhumanが確定した値を使用する。
+
+```properties
+desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.deployment.templateKeyPrefix=cloudformation/templates/
+desired.artifact.001.stack=cfn-stack-app-dev-job-01
+desired.artifact.001.resource=FunctionA
+desired.artifact.001.property=Code
+desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip
+desired.artifact.001.bucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.artifact.001.keyPrefix=lambda/functions/
+```
+
+- TemplateBucket／TemplateKeyPrefixは一対で省略可能。大きいtemplateのdeployで必要になった時に未設定なら停止する。
+- artifact entryは全6 fieldを必須とし、同じstack/resource/propertyへの重複を拒否する。複数entryで同じsourceを使える。異なるbucketも各entryで明示する。
+- keyPrefixは末尾`/`付きの相対prefix。segmentは英数字、underscore、hyphenだけを許可する。sourceはrepository相対fileであり、ビルドcommand、directory、credential、statusを記載しない。
+- 対応表はS3 key/versionを内容hashへ置換するdeploy入力を表す。実行ごとのhashやversionはrepository外sessionだけに保存する。S3 bucketの設定・名前はS3 modelを正本とし、stack modelには参照だけを持つ。
+- 生成Markdownの`## S3配置`にTemplateBucket／TemplateKeyPrefixを表示し、`### 配置ファイル`へ対応表を生成する。再解析とmodel一致検証を行い、Markdownから逆反映しない。未設定の既存model／Markdown形式を維持する。

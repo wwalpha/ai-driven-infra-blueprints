@@ -82,11 +82,90 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
             path = Path(stack[field])
             if path.name != stack[field] or "\\" in stack[field] or path.suffix not in suffixes:
                 raise ValueError(f"invalid stack {field} filename: {stack[field]}")
+    deployment_settings(values)
     unknown = [key for key in values if key.startswith("desired.") and
-               not key.startswith("desired.stack.") and key != "desired.deployment.maxConcurrentStacks"]
+               not key.startswith(("desired.stack.", "desired.artifact.")) and
+               key not in {"desired.deployment." + field for field in
+                           ("maxConcurrentStacks", "templateBucket", "templateKeyPrefix")}]
     if unknown:
         raise ValueError(f"unknown stack design fields: {unknown}")
     return limit, sorted(stacks, key=lambda entry: (int(entry[1]["deployOrder"]), entry[1]["name"]))
+
+
+ARTIFACT_FIELDS = ("stack", "resource", "property", "source", "bucket", "keyPrefix")
+ARTIFACT_PROPERTIES = {
+    ("AWS::Lambda::Function", "Code"): ("S3Bucket", "S3Key", "S3ObjectVersion"),
+    ("AWS::Lambda::LayerVersion", "Content"): ("S3Bucket", "S3Key", "S3ObjectVersion"),
+    ("AWS::StepFunctions::StateMachine", "DefinitionS3Location"): ("Bucket", "Key", "Version"),
+    ("AWS::ApiGateway::RestApi", "BodyS3Location"): ("Bucket", "Key", "Version"),
+    ("AWS::Glue::Job", "Command.ScriptLocation"): None,
+}
+
+
+def deployment_settings(values: dict[str, str]) -> tuple[dict[str, str], list[tuple[str, dict[str, str]]]]:
+    settings = {field: values["desired.deployment." + field] for field in
+                ("templateBucket", "templateKeyPrefix") if "desired.deployment." + field in values}
+    if settings and set(settings) != {"templateBucket", "templateKeyPrefix"}:
+        raise ValueError("TemplateBucket and TemplateKeyPrefix must be specified together")
+    artifacts = entries(values, "desired.artifact.")
+    names = {stack.get("name") for _, stack in entries(values, "desired.stack.")}
+    destinations = set()
+    for identity, artifact in artifacts:
+        if set(artifact) != set(ARTIFACT_FIELDS) or not all(artifact.values()):
+            raise ValueError(f"artifact {identity} requires only {list(ARTIFACT_FIELDS)}")
+        if artifact["stack"] not in names or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", artifact["resource"]):
+            raise ValueError(f"invalid artifact stack/resource: {identity}")
+        if artifact["property"] not in {prop for _, prop in ARTIFACT_PROPERTIES}:
+            raise ValueError(f"unsupported artifact property: {artifact['property']}")
+        source = Path(artifact["source"])
+        if source.is_absolute() or ".." in source.parts or "\\" in artifact["source"] or not artifact["source"].startswith("infra/cloudformation/artifacts/"):
+            raise ValueError("artifact source must be a file under infra/cloudformation/artifacts/")
+        destination = tuple(artifact[field] for field in ("stack", "resource", "property"))
+        if destination in destinations:
+            raise ValueError(f"duplicate artifact destination: {destination}")
+        destinations.add(destination)
+    if settings:
+        validate_bucket_reference(settings["templateBucket"])
+        validate_key_prefix(settings["templateKeyPrefix"])
+    for _, artifact in artifacts:
+        validate_bucket_reference(artifact["bucket"])
+        validate_key_prefix(artifact["keyPrefix"])
+        if any("|" in value or "\n" in value or "\r" in value for value in artifact.values()):
+            raise ValueError("artifact fields must be single table cells")
+    return settings, artifacts
+
+
+def validate_bucket_reference(value: str) -> None:
+    link = LINK.fullmatch(value)
+    if not link or link.group(2) != "s3.md" or not re.fullmatch(r"[a-z0-9_.-]+", link.group(3)):
+        raise ValueError("deployment bucket must reference s3.md in the same target")
+
+
+def validate_key_prefix(value: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/", value) or len(value) > 800:
+        raise ValueError("deployment keyPrefix must be an explicit relative prefix ending in /")
+
+
+def deployment_bucket(reference: str, path: Path, root: Path) -> str:
+    """Resolve the confirmed name from the referenced authoritative S3 model."""
+    from model_files import read_model
+    validate_bucket_reference(reference)
+    link = LINK.fullmatch(reference)
+    target_path = path.parent.relative_to(root / "docs/designs")
+    try:
+        values = properties(read_model(root / "model" / target_path / "s3.properties"))
+    except OSError as error:
+        raise ValueError("deployment bucket requires an existing authoritative S3 model") from error
+    resources = [(identity, resource) for identity, resource in entries(values, "desired.resource.")
+                 if resource.get("resourceType") == "S3.Bucket" and resource.get("anchor") == link.group(3)]
+    if len(resources) != 1:
+        raise ValueError("deployment bucket reference must identify one S3.Bucket")
+    rows = entries(values, "desired.row.")
+    names = [literal(row.get("value", "")) for identity, row in rows
+             if identity.startswith(resources[0][0] + "-") and row.get("property") == "S3.Bucket.BucketName"]
+    if len(names) != 1 or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", names[0]) or link.group(1) != names[0]:
+        raise ValueError("deployment bucket requires the matching confirmed BucketName")
+    return names[0]
 
 
 def naming_targets(root: Path) -> dict[str, set[str]]:
@@ -366,13 +445,30 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         for _, stack in stacks:
             if errors := naming_errors(root, "CloudFormation.Stack", [["1", "StackName", stack["name"], "名前"]]):
                 raise ValueError("; ".join(errors))
+        settings, artifacts = deployment_settings(values)
+        delivery = []
+        if settings or artifacts:
+            delivery = ["", "## S3配置", ""]
+            if settings:
+                delivery += ["| Property | Value |", "| --- | --- |"]
+                delivery += [f"| {field[0].upper() + field[1:]} | {value} |" for field, value in settings.items()]
+            if artifacts:
+                delivery += ["", "### 配置ファイル", "",
+                    "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
+                    "| ---: | --- | --- | --- | --- | --- | --- |"]
+                delivery += ["| " + " | ".join([str(number)] + [artifact[field] for field in ARTIFACT_FIELDS]) + " |"
+                             for number, (_, artifact) in enumerate(artifacts, 1)]
+            if settings:
+                deployment_bucket(settings["templateBucket"], path, root)
+            for _, artifact in artifacts:
+                deployment_bucket(artifact["bucket"], path, root)
         return "\n".join(["# CloudFormation stack 詳細設計", "",
             f"<!-- max-concurrent-stacks: {limit} -->", "",
             "## Stack一覧", "", "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",
             "| ---: | ---: | --- | --- | --- | --- |", *[
                 "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],
                     stack["parameters"], values[f"display.stack.{identity}.comment"]]) + " |"
-                for number, (identity, stack) in enumerate(stacks, 1)]]) + "\n"
+                for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")

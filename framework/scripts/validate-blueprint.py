@@ -904,8 +904,15 @@ class Validator:
                 f"stack design requires CloudFormation target: {self.relative(path)}",
             )
             try:
+                from design_layout import stack_delivery
+                from model_design import deployment_settings, deployment_bucket
                 stack_deployment_policy(path)
                 stacks = stack_design(path)
+                values = stack_delivery(path) | {f"desired.stack.{number:03d}.name": stack["name"]
+                                               for number, stack in enumerate(stacks, 1)}
+                settings, artifacts = deployment_settings(values)
+                for reference in ([settings["templateBucket"]] if settings else []) + [a["bucket"] for _, a in artifacts]:
+                    deployment_bucket(reference, path, self.root)
             except ValueError as error:
                 self.check(False, f"invalid stack design: {self.relative(path)}: {error}")
                 continue

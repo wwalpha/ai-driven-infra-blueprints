@@ -88,6 +88,8 @@ CloudFormationでは`list-stacks`でtarget account/regionのstackを確認し、
 
 CloudFormationでは正本stack propertiesと生成Markdownの一致を確認し、StackNameをdeployment identityとしてTemplate、stack固有Parameters、DeployOrder、MaxConcurrentStacksを解決する。同じtemplateの全StackNameを個別unitとして保持する。resource所有、parameter、既存stackとの照合は既存設計とIaCから確認し、曖昧なら停止する。Deployment scopeを自動拡張しない。順序と並列数はcontrollerで強制し、LLMがdependency順を再計算しない。
 
+同stack modelの任意TemplateBucket／TemplateKeyPrefixとartifact対応表を`cloudformation.md`のS3 deployment artifactsに従って読む。配置先は同targetのS3 modelの確定済みBucketNameから解決する。sourceは事前にビルドしたローカルfileとし、deploy中にビルド・対応表・元IaCを変更しない。今回のscopeの宣言済み成果物配置はAWS execution許可に含む。必要bucketが未作成なら停止し、bucket作成やscope拡張を自動実行しない。
+
 Terraformでは対象root、workspace、backend、variable inputを既存IaCから特定する。不足または不一致があれば停止する。
 
 初回のpreflightはtargetにつき一回だけ実行する。CloudFormation controllerは起動ごとに同じcheck-deploy-contextの結果を再確認する。
@@ -108,7 +110,7 @@ CloudFormationの場合:
 
 aliasがある場合はTarget alias行も追加し、その値をbacktickで囲む。
 
-2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeのcfn-lint、validate-templateはcontrollerが先に行い、各unitでImportValue実Export確認、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。これらのCLIをpromptから別方式で実行して二重管理しない。
+2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeのcfn-lintとsource／入力hashを先に確認し、各unitの順番でImportValue実Export確認、宣言済み成果物のS3配置、実行用template検証、validate-template、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。templateは51,200 bytes以下なら直接送信、超過〜1 MiBなら指定bucketへ配置して同じS3 URLをvalidate-templateとchange setへ渡す。上限超過または必要設定不足・upload失敗ではchange setを作成しない。これらのCLIをpromptから別方式で実行して二重管理しない。
 
 ```console
 python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]
@@ -119,7 +121,7 @@ python framework/scripts/cloudformation-deploy.py --environment <environment> --
 4. 未承認delete/replacementがあればcontrollerはBLOCKEDとして同じchange set IDと変更のfingerprintをrepository外sessionへ保持し、他のRUNNING stackをterminalまで確認する。次の`Confirm unapproved delete/replacement`の影響説明・human確認を行う。`--approve-change-set`は人間がそのchange set全体を承認した場合だけ渡す。事前承認も実change setの全破壊変更との一致を確認してから同じ方法で再開する。
 5. 承認後は同じtaskと同じsessionへ`--resume --approve-change-set <保存されたchange-set-id>`を追加する。controllerが同一ID、CREATE_COMPLETE/AVAILABLE、変更fingerprintを再取得・照合して実行する。変更/失効なら以前の承認で実行しない。成功済みstackを再実行しない。
 6. GROUP_COMPLETEでは同groupのSUCCESS stackごとに既存`observed-values.md`のOutputs優先・PhysicalResourceId fallback・catalog対応・全参照伝播を行い、sync-modelで生成・検証する。必要なExportの実名・値を確認する。controllerはobserved値の対応付けやmodel更新を再実装しない。これらが完了した場合だけ同じcommandへ`--resume`を追加し次groupへ進む。failure/blockerがあれば後続groupへ進まず、成功分のobservedだけ反映する。
-7. sessionはtarget/design/scopeとstackごとのtemplate/parameterのdigestを保持する。deploy phaseではIaCの変更を一切許さず、update phaseでは未着手NOT_STARTED stackの承認済み設計内のIaC変更だけを再検証して受け付ける。準備済み・実行済みstackのIaCとtarget/design/scopeの変更は再開を拒否する。status/StackId/ARN/履歴はmodelやGitへ保存しない。sessionは同taskの継続用であり成功済みstackを自動rollback/delete/redeployしない。RUNNING取得エラーでは新規起動を止めterminal確認を続ける。controllerへの割り込み後は同じsessionだけで再開し、別sessionの同時実行を行わない。target lockで重複controllerを拒否する。異常終了でlockが残った場合は実行中controllerがないことを確認してからlockだけを除去し、同じsessionを再開する。
+7. sessionはtarget/design/scopeとstackごとのtemplate/parameter/sourceのdigestと配置先bucket/key/version/checksum、実行用template hashを保持する。元IaCを変更しない実行用copyはrepository外sessionに隣接する`.files` directoryへ保存する。配置済みobjectとcopyも再開・execution前に再照合し、以前の承認で変更済み成果物を実行しない。deploy phaseではIaCの変更を一切許さず、update phaseでは未着手NOT_STARTED stackの承認済み設計内のIaC変更だけを再検証して受け付ける。準備済み・実行済みstackのIaCとtarget/design/scopeの変更は再開を拒否する。status/StackId/ARN/履歴はmodelやGitへ保存しない。sessionは同taskの継続用であり成功済みstackを自動rollback/delete/redeployしない。RUNNING取得エラーでは新規起動を止めterminal確認を続ける。controllerへの割り込み後は同じsessionだけで再開し、別sessionの同時実行を行わない。target lockで重複controllerを拒否する。異常終了でlockが残った場合は実行中controllerがないことを確認してからlockだけを除去し、同じsessionを再開する。
 
 Terraformの場合:
 

@@ -5,6 +5,9 @@ if not __debug__:
 
 import importlib.util
 import json
+import hashlib
+import base64
+import zipfile
 import tempfile
 import io
 import shutil
@@ -14,7 +17,8 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from model_design import markdown_for, stack_model
+from model_design import markdown_for, stack_model, deployment_settings, deployment_bucket, properties
+from design_layout import stack_delivery
 
 SPEC = importlib.util.spec_from_file_location("controller", Path(__file__).with_name("cloudformation-deploy.py"))
 M = importlib.util.module_from_spec(SPEC)
@@ -146,6 +150,9 @@ class StubAws(M.AwsBackend):
             {"ResourceChange": {"LogicalResourceId": "App", "ResourceType": "AWS::S3::Bucket",
                                 "Action": "Remove" if destructive else "Add"}}]}
 
+    def template_arguments(self, unit, state):
+        return ["--template-body", "file://" + str(self.paths(unit)[0])]
+
     def aws(self, operation, *arguments):
         self.calls.append((operation, arguments))
         if operation == "list-exports":
@@ -157,6 +164,8 @@ class StubAws(M.AwsBackend):
         if operation == "describe-change-set":
             return json.loads(json.dumps(self.change))
         if operation == "execute-change-set":
+            return {}
+        if operation == "validate-template":
             return {}
         raise AssertionError(operation)
 
@@ -279,7 +288,7 @@ def check_template_validation():
             backend.validate(unit)
             assert backend.templates["A"][1] == {"Prefix": "Network"}
             assert run.call_args.args[0] == ["cfn-lint", "--regions", "ap-northeast-1", "--template", str(template)]
-            assert calls == [("validate-template", ("--template-body", "file://" + str(template)))]
+            assert not calls  # AWS validation happens at the unit's turn, after its bucket exists.
             document["Transform"] = "AWS::Serverless-2016-10-31"
             rejects(lambda: backend.validate(unit), "transform template")
 
@@ -341,6 +350,265 @@ def check_inputs():
         run.assert_not_called()
         M.AwsBackend(ROOT, "dev", "123456789012", TARGET).aws("list-exports")
         assert "--profile" not in run.call_args.args[0]
+
+
+class DeliveryAws(StubAws):
+    template_arguments = M.AwsBackend.template_arguments
+
+    def __init__(self, root, workdir, destructive=False):
+        super().__init__(destructive=destructive)
+        self.root, self.workdir = root, workdir
+        self.objects, self.region, self.fail = {}, "ap-northeast-1", None
+        self.export_values = {}
+
+    def aws(self, operation, *arguments, service="cloudformation"):
+        if service == "cloudformation":
+            if operation == "list-exports" and self.export_values:
+                self.calls.append((operation, arguments))
+                return {"Exports": [{"Name": name, "Value": value} for name, value in self.export_values.items()]}
+            return super().aws(operation, *arguments)
+        self.calls.append((operation, arguments))
+        if self.fail == operation:
+            raise M.Blocked("simulated S3 permission/upload failure")
+        assert arguments[arguments.index("--expected-bucket-owner") + 1] == TARGET["awsAccountId"]
+        if operation == "get-bucket-location":
+            return {"LocationConstraint": self.region}
+        bucket, key = (arguments[arguments.index(flag) + 1] for flag in ("--bucket", "--key"))
+        if operation == "put-object":
+            assert arguments[arguments.index("--if-none-match") + 1] == "*"
+            if (bucket, key) in self.objects:
+                raise M.Blocked("(PreconditionFailed)")
+            data = Path(arguments[arguments.index("--body") + 1]).read_bytes()
+            checksum = base64.b64encode(hashlib.sha256(data).digest()).decode()
+            assert checksum == arguments[arguments.index("--checksum-sha256") + 1]
+            self.objects[bucket, key] = {"ChecksumSHA256": checksum, "ContentLength": len(data), "VersionId": "version+1", "data": data}
+        if (bucket, key) not in self.objects:
+            raise M.Blocked("(404)")
+        return self.objects[bucket, key]
+
+
+def check_delivery():
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        root = base / "repo"
+        backend = DeliveryAws(root, base / "session.files")
+        unit = units(10)[0]
+        template, params = backend.paths(unit)
+        template.parent.mkdir(parents=True)
+        params.parent.mkdir(parents=True)
+        params.write_text("[]", encoding="utf-8")
+        backend.templates["A"] = ({"Resources": {}}, {})
+        settings = {"templateBucket": "app-dev-assets", "templateKeyPrefix": "templates/"}
+        # Measure UTF-8 bytes, with the exact 51,200 byte boundary and 1 MiB maximum.
+        for size, mode in ((51200, "--template-body"), (51201, "--template-url"), (1024 * 1024, "--template-url")):
+            template.write_bytes(("# あ\n".encode() * (size // 6)) + b" " * (size % 6))
+            assert template.stat().st_size == size
+            state = {"status": "NOT_STARTED"}
+            assert backend.prepare(unit | settings, state) == "READY"
+            validations = [args for op, args in backend.calls if op == "validate-template"]
+            creates = [args for op, args in backend.calls if op == "create-change-set"]
+            assert validations[-1][0] == mode
+            assert validations[-1][1] == creates[-1][creates[-1].index(mode) + 1]
+            if mode == "--template-url":
+                assert validations[-1][1].endswith("?versionId=version%2B1")
+            count = sum(op == "put-object" for op, _ in backend.calls)
+            assert backend.prepare(unit | settings, state) == "READY"
+            assert sum(op == "put-object" for op, _ in backend.calls) == count
+        template.write_bytes(b" " * (1024 * 1024 + 1))
+        rejects(lambda: backend.prepare(unit | settings, {}), "1 MiB")
+        template.write_bytes(b" " * 51201)
+        rejects(lambda: backend.prepare(unit, {}), "requires designed TemplateBucket")
+        template.write_text("Resources: {}\n", encoding="utf-8")
+        backend.calls.clear()
+        assert backend.prepare(unit, {}) == "READY"
+        assert not any(op in {"get-bucket-location", "head-object", "put-object"} for op, _ in backend.calls)
+
+        source = root / "infra/cloudformation/artifacts/function-a.zip"
+        source.parent.mkdir(parents=True)
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("index.py", "def handler(event, context): return event\n")
+        def artifact(name, bucket="app-dev-assets", prop="Code", filename="function-a.zip"):
+            return {"stack": "A", "resource": name, "property": prop,
+                    "source": "infra/cloudformation/artifacts/" + filename, "bucket": bucket, "keyPrefix": "lambda/"}
+        resources = {name: {"Type": "AWS::Lambda::Function", "Properties": {"Handler": "index.handler",
+                     "Code": {"S3Bucket": bucket, "S3Key": "lambda/current.zip"}}}
+                     for name, bucket in (("First", "app-dev-assets"), ("Second", "app-dev-assets"), ("Third", "app-dev-other"))}
+        document = {"Resources": resources}
+        template.write_text(json.dumps(document), encoding="utf-8")
+        original = template.read_bytes()
+        backend.templates["A"] = (document, {})
+        prepared = unit | {"artifacts": [artifact("First"), artifact("Second"), artifact("Third", "app-dev-other")]}
+        backend.calls.clear()
+        state = {"status": "NOT_STARTED"}
+        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+            assert backend.prepare(prepared, state) == "READY"
+        packaged = json.loads(Path(state["delivery"]["path"]).read_text())
+        first, second, third = [packaged["Resources"][name]["Properties"]["Code"] for name in ("First", "Second", "Third")]
+        assert first["S3Key"] == second["S3Key"] == third["S3Key"]
+        assert first["S3Bucket"] != third["S3Bucket"] and first["S3ObjectVersion"] == "version+1"
+        assert sum(op == "put-object" for op, _ in backend.calls) == 2  # Shared ZIP reused within a bucket.
+        assert template.read_bytes() == original and document["Resources"]["First"]["Properties"]["Code"]["S3Key"] == "lambda/current.zip"
+        assert packaged["Resources"]["First"]["Properties"]["Handler"] == "index.handler"
+        assert max(i for i, (op, _) in enumerate(backend.calls) if op == "put-object") < next(i for i, (op, _) in enumerate(backend.calls) if op == "create-change-set")
+        resumed = DeliveryAws(root, base / "session.files")
+        resumed.objects, resumed.templates = backend.objects, backend.templates
+        assert resumed.prepare(prepared, state) == "READY"
+        assert not any(op in {"put-object", "create-change-set"} for op, _ in resumed.calls)
+        obj = state["delivery"]["objects"][0]
+        resumed.objects[obj["bucket"], obj["key"]]["ChecksumSHA256"] = "changed"
+        rejects(lambda: resumed.prepare(prepared, state), "checksum/size changed")
+        resumed.objects[obj["bucket"], obj["key"]]["ChecksumSHA256"] = obj["checksum"]
+        old = source.read_bytes()
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("index.py", "changed code")
+        rejects(lambda: resumed.prepare(prepared, state), "inputs changed")
+        source.write_bytes(old)
+        copy_path = Path(state["delivery"]["path"])
+        old_copy = copy_path.read_bytes()
+        copy_path.write_text("{}")
+        rejects(lambda: resumed.prepare(prepared, state), "template changed")
+        copy_path.write_bytes(old_copy)
+
+        # All declared destinations are checked before uploading anything.
+        for changed in ({"bucket": "wrong-bucket"}, {"keyPrefix": "wrong/"}):
+            resumed.calls.clear()
+            bad = unit | {"artifacts": [artifact("First") | changed]}
+            rejects(lambda: resumed.prepare(bad, {}), "differs from the approved template")
+            assert not any(op in {"put-object", "create-change-set"} for op, _ in resumed.calls)
+        fresh = DeliveryAws(root, base / "fresh.files")
+        fresh.templates = backend.templates
+        fresh.region = "us-east-1"
+        rejects(lambda: fresh.prepare(prepared, {}), "region does not match")
+        fresh.region, fresh.fail = "ap-northeast-1", "put-object"
+        rejects(lambda: fresh.prepare(prepared, {}), "upload failure")
+        assert not any(op == "create-change-set" for op, _ in fresh.calls)
+        fresh.fail = None
+        source.unlink()
+        rejects(lambda: fresh.prepare(prepared, {}), "source is missing")
+        source.write_text("not a zip")
+        rejects(lambda: fresh.prepare(prepared, {}), "prebuilt ZIP")
+        source.unlink()
+        source.symlink_to(base / "outside.zip")
+        (base / "outside.zip").write_bytes(old)
+        rejects(lambda: fresh.source_path(artifact("First")), "escapes")
+        source.unlink()
+        source.write_bytes(old)
+
+        # Layer, Glue script and Step Functions definition use the same explicit mapping.
+        script = source.with_name("job.py")
+        script.write_text("print('job')")
+        definition = source.with_name("state.json")
+        definition.write_text('{"StartAt":"End","States":{"End":{"Type":"Succeed"}}}')
+        other = {"Resources": {
+            "Layer": {"Type": "AWS::Lambda::LayerVersion", "Properties": {"Content": {"S3Bucket": "app-dev-assets", "S3Key": "lambda/current.zip"}}},
+            "Job": {"Type": "AWS::Glue::Job", "Properties": {"Command": {"Name": "glueetl", "ScriptLocation": "s3://app-dev-assets/lambda/job.py"}}},
+            "State": {"Type": "AWS::StepFunctions::StateMachine", "Properties": {"DefinitionS3Location": {"Bucket": "app-dev-assets", "Key": "lambda/state.json"}}}}}
+        template.write_text(json.dumps(other))
+        fresh.templates["A"] = (other, {})
+        mapped = unit | {"artifacts": [artifact("Layer", prop="Content"), artifact("Job", prop="Command.ScriptLocation", filename="job.py"),
+                                       artifact("State", prop="DefinitionS3Location", filename="state.json")]}
+        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+            assert fresh.prepare(mapped, {}) == "READY"
+        result = json.loads((fresh.workdir / "A.json").read_text())["Resources"]
+        assert result["Job"]["Properties"]["Command"]["Name"] == "glueetl"
+        assert result["State"]["Properties"]["DefinitionS3Location"]["Version"] == "version+1"
+
+        # Model -> generated view -> projection retains settings and explicit file bindings.
+        values = {f"desired.stack.001.{field}": value for field, value in unit.items()}
+        values["display.stack.001.comment"] = "アプリケーションを配置するstack"
+        reference = "[app-dev-assets](s3.md#s3-app-dev-assets)"
+        values.update({"desired.deployment.templateBucket": reference, "desired.deployment.templateKeyPrefix": "templates/"})
+        values.update({"desired.artifact.007." + field: value for field, value in artifact("First").items()})
+        values["desired.artifact.007.bucket"] = reference
+        (root / "framework/rules").mkdir(parents=True)
+        (root / "framework/rules/aws-resource-naming.md").write_text("| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+        design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+        design.parent.mkdir(parents=True)
+        model = root / "model/dev/123456789012/s3.properties"
+        model.parent.mkdir(parents=True)
+        model.write_text("desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=Assets\n"
+                         "desired.resource.001.anchor=s3-app-dev-assets\ndesired.row.001-001.property=S3.Bucket.BucketName\n"
+                         "desired.row.001-001.value=`app-dev-assets`\n")
+        design.write_text(markdown_for(design, values, root))
+        projected = stack_delivery(design) | {key: value for key, value in values.items() if key.startswith("desired.stack.")}
+        settings, files = deployment_settings(projected)
+        assert settings == deployment_settings(values)[0] and [a for _, a in files] == [a for _, a in deployment_settings(values)[1]]
+        source_model = model.with_name("cloudformation-stacks.properties")
+        source_model.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+        _, loaded = M.load_units(root, "dev", "123456789012", ["A"])
+        assert loaded[0]["templateBucket"] == "app-dev-assets" and loaded[0]["artifacts"][0]["bucket"] == "app-dev-assets"
+        rejects(lambda: deployment_bucket("[wrong](s3.md#s3-app-dev-assets)", design, root), "confirmed BucketName")
+        rejects(lambda: deployment_settings(values | {"desired.deployment.templateBucket": "guessed-bucket"}), "reference s3.md")
+        missing = dict(values)
+        del missing["desired.deployment.templateKeyPrefix"]
+        rejects(lambda: deployment_settings(missing), "specified together")
+        for field, invalid in (("source", "../secret"), ("keyPrefix", "../"), ("stack", "unknown"), ("property", "Other")):
+            rejects(lambda: deployment_settings(values | {"desired.artifact.007." + field: invalid}), "artifact" if field not in {"keyPrefix"} else "keyPrefix")
+        duplicate = values | {key.replace(".007.", ".008."): value for key, value in values.items() if key.startswith("desired.artifact.")}
+        rejects(lambda: deployment_settings(duplicate), "duplicate artifact destination")
+        # Exercise the actual scoped staging/generation path, including a referenced S3 model.
+        spec = importlib.util.spec_from_file_location("delivery_sync", ROOT / "framework/scripts/sync-model.py")
+        sync = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sync)
+        shutil.copytree(ROOT / "framework", root / "framework", dirs_exist_ok=True)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
+        values["desired.stack.001.name"] = values["desired.artifact.007.stack"] = "cfn-stack-app-dev-job-01"
+        source_model.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+        (design.parent / "s3.md").write_text('# S3 詳細設計\n<a id="s3-app-dev-assets"></a>\n')
+        saved_model = model.read_bytes()
+        with redirect_stdout(io.StringIO()):
+            assert sync.sync(root, True, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
+            assert sync.sync(root, False, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
+        assert model.read_bytes() == saved_model
+        assert deployment_settings(properties(sync.model_for(design, root)))[0] == deployment_settings(values)[0]
+        only_artifacts = {key: value for key, value in values.items() if not key.startswith("desired.deployment.template")}
+        design.write_text(markdown_for(design, only_artifacts, root))
+        assert "| Property | Value |" not in design.read_text()
+        assert deployment_settings(stack_delivery(design) | {"desired.stack.001.name": values["desired.stack.001.name"]})[1]
+
+        # A producer Export changing after packaging cannot redirect the preserved bucket expression.
+        template.write_text(json.dumps(document))
+        document["Resources"]["First"]["Properties"]["Code"]["S3Bucket"] = {"Fn::ImportValue": "AssetsBucket"}
+        backend.templates["A"] = (document, {})
+        backend.export_values = {"AssetsBucket": "app-dev-assets"}
+        one = unit | {"artifacts": [artifact("First")]}
+        blocked = {"status": "NOT_STARTED"}
+        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+            assert backend.prepare(one, blocked) == "READY"
+        backend.export_values["AssetsBucket"] = "other-bucket"
+        rejects(lambda: backend.execute(one, blocked), "differs from the approved template")
+        assert not any(op == "execute-change-set" for op, _ in backend.calls)
+
+        # A small bootstrap stack can run before a later large template needs its bucket.
+        bootstrap = DeliveryAws(root, base / "bootstrap.files")
+        scoped = units(10, 20)
+        scoped[0]["template"], scoped[1]["template"] = "bucket.yaml", "large.yaml"
+        scoped[1].update(settings)
+        for entry, size in zip(scoped, (20, 51201)):
+            file, inputs = bootstrap.paths(entry)
+            file.write_bytes(b" " * size)
+            inputs.write_text("[]")
+        with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda _: ({"Resources": {}}, []))}), \
+                patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+            for entry in scoped:
+                bootstrap.validate(entry)
+        assert not bootstrap.calls
+        original_aws, bucket_created = bootstrap.aws, [False]
+        def ordered_aws(operation, *args, **kwargs):
+            if kwargs.get("service") == "s3api":
+                assert bucket_created[0], "bucket used before producer completed"
+            return original_aws(operation, *args, **kwargs)
+        bootstrap.aws = ordered_aws
+        def complete(entry, state):
+            if entry["name"] == "A":
+                bucket_created[0] = True
+            return "CREATE_COMPLETE"
+        bootstrap.poll = complete
+        session = states(scoped)
+        assert M.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
+        assert session["B"]["status"] == "NOT_STARTED" and not any(op == "put-object" for op, _ in bootstrap.calls)
+        assert finish(scoped, 1, session, bootstrap) == "COMPLETE"
+        assert any(op == "put-object" for op, _ in bootstrap.calls)
 
 
 def check_session_cli():
@@ -425,5 +693,6 @@ check_scheduler()
 check_aws_adapter()
 check_template_validation()
 check_inputs()
+check_delivery()
 check_session_cli()
-print("CloudFormation controller checks: PASS (8 required cases, blockers, rollback drain, exact change set approvals, scope and schema)")
+print("CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)")

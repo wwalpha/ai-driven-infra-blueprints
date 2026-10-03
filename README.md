@@ -404,3 +404,26 @@ python -m pstats /tmp/design-catalog.prof
 local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、Validation scope内のdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultのrepository整合性も全体検証に含み、実IaC/deploymentの必須validationは各phaseで別途実行します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
 設計更新の順序は「catalog選択項目と命名ルールを確認 → model propertiesを更新 → 全対象のMarkdown／JSONを一時生成・検証 → 全件成功後に保存」です。生成失敗時は保存済み表示を変更せず、propertiesを正本として修正・再実行します。通常のsyncでMarkdownからmodelを上書きしません。旧形式の採用は明示されたmigration taskの`sync-model.py --import-markdown --write`だけに限定し、既存modelを上書きしません。
+
+### CloudFormationのtemplateとローカル成果物のS3配置
+
+controllerは、送信するtemplateが51,200 bytes以下なら従来どおり直接渡し、超過〜1 MiBなら指定bucketへ配置してS3 URLから変更セットを作成します。1 MiB超は停止します。小さいtemplateには配置bucket設定は不要です。
+
+配置先はtargetの`cloudformation-stacks.properties`へ次のように指定します。以下は形式例で、bucket名・StackName・sourceは実際の設計で確定します。bucketの名前・設定はS3 modelが正本で、ここでは参照だけを保持します。
+
+```properties
+desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.deployment.templateKeyPrefix=cloudformation/templates/
+desired.artifact.001.stack=cfn-stack-app-dev-job-01
+desired.artifact.001.resource=FunctionA
+desired.artifact.001.property=Code
+desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip
+desired.artifact.001.bucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.artifact.001.keyPrefix=lambda/functions/
+```
+
+Lambdaごとの使用fileはresource／propertyとsourceの対応で判定します。複数Lambdaが同じZIPを使う場合も各対応を明記します。配置先が異なる場合は各entryのbucketを指定します。元templateのS3 bucketとkey prefixが一致しなければ停止します。宣言のない既存S3参照は維持します。
+
+ローカル成果物を配置した後、宣言済みS3 key/versionだけを内容hashへ置換した実行用copyをrepository外に生成します。Lambda ZIPの配置とCFn templateのS3送信は独立しており、ZIPを配置して小さいtemplateを直接送信できます。ビルド、bucket作成、権限追加、過去成果物削除はdeploy中に自動実行しません。初回のbucket作成は小さいtemplateから行い、成功後に利用stackを実行します。
+
+全scopeをローカル検証し、各stackの順番でupload／checksum確認、AWS template検証、変更セット作成・実行を行います。sessionと隣接する`.files` directoryは同じtaskの再開まで保持してください。入力file、実行用copy、配置済みobjectが変わっていれば再開・実行を停止します。対応property、権限、保持方針の詳細は[CloudFormation rules](framework/rules/cloudformation.md#s3-deployment-artifacts)、正本形式は[model rules](framework/rules/model-information.md#cloudformation-s3配置)を参照してください。

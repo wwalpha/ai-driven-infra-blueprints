@@ -96,3 +96,17 @@ failure/rollbackまたはblocker/未承認delete/replacementを検出したら�
 active promptが対象を限定している場合は、implement phaseでは一部のtemplate、deploy phaseでは一部のstack/resourceだけを処理して終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
 
 deploy/update後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをOutputs、必要な場合だけstack resourceから取得し、詳細設計のmodelのidentifier output／全参照元のobserved valueを先に更新し、Markdownを生成する。表示同期とlocal loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。
+
+## S3 deployment artifacts
+
+- 配置先とローカルfileの対応はtargetの`cloudformation-stacks.properties`を正本とする。`desired.deployment.templateBucket`は同targetのS3設計へのBucketName表示link、`templateKeyPrefix`は確定済みprefixとし、両方を指定するか両方を省略する。bucket名をproject設定やmodel間で複製しない。
+- `desired.artifact.<id>`は`stack`、`resource`、`property`、`source`、`bucket`、`keyPrefix`をすべて明示する。stackは設計済みStackName、resourceはtemplate内logical ID、bucketは同targetのS3設計へのlinkとする。sourceはrepository相対の`infra/cloudformation/artifacts/**`内のfileだけとし、directory、外部path、外部へ抜けるsymlinkを拒否する。ファイル名からresourceを推測しない。複数Lambdaが同じsourceを明示してよい。
+- Lambda Function `Code`／LayerVersion `Content`はビルド済みZIP、Glue Job `Command.ScriptLocation`はscript、StepFunctions StateMachine `DefinitionS3Location`とApiGateway RestApi `BodyS3Location`は定義fileを扱う。container image、nested stack、Transform、未知propertyを推測対応しない。declared artifactのないS3参照は既存配置済みfileの参照として維持する。
+- 元templateは正式なS3 bucket/key（またはS3 URI）を宣言し、resource type/property、解決したbucket名、keyPrefixを対応表と照合する。parameter/default、Ref、Sub、Join、確認済みImportValueで確定できない値は停止する。実行用copyで変更できるのは宣言済みpropertyのS3 key/versionまたはS3 URIだけとし、bucketの式やその他設定、元IaC／parameter／modelを変更しない。元keyは指定prefix内の設計済み値とし、対応表は内容hash付きkeyへの置換を許可する設計入力である。
+- 全scopeのcfn-lint／file／入力hashの確認を先に行う。AWS validate-templateは各stackの順番になってから実行する。producer成功・observed反映後のgroupで配置用bucketを使えるようにし、bucket未作成のままconsumerへ進まない。
+- S3配置は同target account・region、同じprofileを使用する。GetBucketLocationとexpected-bucket-ownerで確認し、指定済みbucketを自動作成・別bucketへfallbackしない。初回bucket作成stackは51,200 bytes以下のtemplateを直接送信し、成功後に利用stackを実行する。scope外bootstrapを自動実行しない。
+- CLIの`put-object --if-none-match '*'`とSHA256 checksumで、`<keyPrefix><内容SHA256><file拡張子>`へ配置する。同じbucket/keyに同一checksum／sizeのfileがあれば再利用し、不一致や権限不足では上書きせず停止する。同じsource・prefixを複数resourceが使う場合は共用する。version付きobjectはLambda／Layer／定義propertyとtemplate URLへversionも固定する。
+- controllerはrepository外sessionの隣の`.files` directoryへ実行用template copyを保存し、cfn-lintを再実行する。実際に送信するUTF-8 bytesが51,200 bytes以下ならtemplate-body、51,200 bytes超〜1 MiBなら指定bucketへ配置してtemplate-url、1 MiB超なら停止する。小さいtemplateにはTemplateBucket設定もS3操作も不要とする。validate-templateとcreate-change-setへ同じ入力を渡す。
+- 配置成功とchecksum／size確認の後だけchange setを作成する。sessionはsourceを含む入力hash、実行用template hash、bucket/key/version/checksumと同じchange set IDを保持し、再開時とexecution前に再照合する。ZIPの変更や配置済みobjectの変更を以前の承認で実行しない。upload中断後は同一hashのobjectを再利用できる。RUNNINGのstackは既存のdrain ruleで終状態まで確認する。
+- 実行者には配置bucketのGetBucketLocation、ListBucket、GetObject（version使用時はGetObjectVersion）、PutObjectを必要なprefixへ許可する。CloudFormation／関連serviceが成果物を取得できる権限も設計する。暗号化は設計済みbucket設定に従い、SSE-KMSではupload／checksum確認／service取得に必要なKMS権限を確定する。権限を自動追加せず、public化しない。
+- 過去成果物はrollbackで必要となるためdeploy時に自動削除しない。保持・lifecycleは明示されたS3設計で決める。status、URL、object version、checksumなどの実行snapshotをmodelやGitへ永続化しない。

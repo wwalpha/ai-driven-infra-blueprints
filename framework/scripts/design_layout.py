@@ -246,7 +246,8 @@ def stack_design(path: Path) -> list[dict[str, str]]:
     ]:
         raise ValueError("invalid CloudFormation stack design header")
     result = []
-    for line in lines[5:]:
+    end = lines.index("## S3配置") if "## S3配置" in lines else len(lines)
+    for line in lines[5:end]:
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if not line.startswith("|") or not line.endswith("|") or len(cells) != 6 or not all(cells):
             raise ValueError(f"invalid CloudFormation stack design row: {line}")
@@ -256,6 +257,49 @@ def stack_design(path: Path) -> list[dict[str, str]]:
         result.append(dict(zip(("deployOrder", "name", "template", "parameters", "comment"), cells[1:])))
     if not result:
         raise ValueError("CloudFormation stack design table must not be empty")
+    stack_delivery(path)
+    return result
+
+
+def stack_delivery(path: Path) -> dict[str, str]:
+    """Read only the generated delivery appendix; old stack views remain valid."""
+    from model_design import ARTIFACT_FIELDS
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    if "## S3配置" not in lines:
+        return {}
+    lines = lines[lines.index("## S3配置") + 1:]
+    if lines[:2] == ["| Property | Value |", "| --- | --- |"]:
+        index = 2
+    elif lines[:1] == ["### 配置ファイル"]:
+        index = 0
+    else:
+        raise ValueError("invalid S3 delivery settings header")
+    result = {}
+    while index < len(lines) and lines[index] != "### 配置ファイル":
+        cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
+        if not lines[index].startswith("|") or not lines[index].endswith("|") or len(cells) != 2 or cells[0] not in {"TemplateBucket", "TemplateKeyPrefix"} or not cells[1]:
+            raise ValueError("invalid S3 delivery setting")
+        key = "desired.deployment." + cells[0][0].lower() + cells[0][1:]
+        if key in result:
+            raise ValueError("duplicate S3 delivery setting")
+        result[key] = cells[1]
+        index += 1
+    if index < len(lines):
+        if lines[index:index + 3] != ["### 配置ファイル",
+                "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
+                "| ---: | --- | --- | --- | --- | --- | --- |"]:
+            raise ValueError("invalid S3 artifact table header")
+        rows = lines[index + 3:]
+        if not rows:
+            raise ValueError("empty S3 artifact table")
+        for number, line in enumerate(rows, 1):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if not line.startswith("|") or not line.endswith("|") or len(cells) != 7 or cells[0] != str(number) or not all(cells):
+                raise ValueError("invalid S3 artifact table row")
+            result.update({f"desired.artifact.{number:03d}.{field}": value
+                           for field, value in zip(ARTIFACT_FIELDS, cells[1:])})
+    if not result:
+        raise ValueError("empty S3 delivery settings")
     return result
 
 
