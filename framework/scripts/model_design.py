@@ -12,7 +12,7 @@ from design_layout import (
     CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
     resource_name_fields, resource_anchor, resource_has_name_property, resource_mode,
-    positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE,
+    positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE, LAMBDA_PERMISSION,
     CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, subnet_list_items,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
@@ -549,7 +549,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         parent = by_anchor.get(link.group(3)) if link and not link.group(2) else None
         if not parent or parent[1]["resourceType"] != rule["parent"] or link.group(1) != parent[1]["logicalId"] or resource["parentProperty"] != kind + "." + rule["parentProperty"]:
             raise ValueError(f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})")
-        if kind == ROTATION_SCHEDULE:
+        if kind in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
             parent_rows = [row for row_id, row in entries(values, "desired.row.")
                            if row_id.startswith(identity + "-") and row.get("property") == resource["parentProperty"]]
             if len(parent_rows) != 1 or parent_rows[0].get("value") != resource["parentReference"]:
@@ -584,6 +584,15 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                 child_display = display_rows(child["resourceType"], child_rows)
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
+                if child["resourceType"] == LAMBDA_PERMISSION:
+                    hidden = [row[1:] for row in child_rows if row[1] in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]
+                    child_display = [row for row in child_display if row[1] not in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]
+                    metadata = json.dumps([child_name, hidden], ensure_ascii=False, separators=(",", ":"))
+                    for char in "<>|()":
+                        metadata = metadata.replace(char, "\\u%04x" % ord(char))
+                    for row in child_display:
+                        row[1] = row[1].removeprefix("Lambda.")
+                    child_display[0][3] = f"<!-- lambda-permission: {metadata} --> " + child_display[0][3]
                 if child["resourceType"] == ROTATION_SCHEDULE:
                     child_display[0][3] = child_name + "：" + child_display[0][3]
                 child_display[0][3] = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> ' + child_display[0][3]

@@ -32,6 +32,8 @@ CHILD = re.compile(
     r'^<a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
 )
 ROTATION_SCHEDULE = "SecretsManager.RotationSchedule"
+LAMBDA_PERMISSION = "Lambda.Permission"
+PERMISSION_METADATA = re.compile(r'^<!-- lambda-permission: (.+?) -->\s*')
 CHILD_NAME = re.compile(r'^([^<>|`\n：]+)：')
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
@@ -420,6 +422,8 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
 
 def formal_property(display: str, resource_type: str) -> str:
     """Restore the resource type omitted from a detail table's Property column."""
+    if resource_type == "Lambda.Function" and display.startswith("Permission."):
+        return "Lambda." + display
     if display in DISPLAY_PROPERTY_ALIASES or display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display
@@ -533,6 +537,54 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
     return result
 
 
+def permission_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Restore hidden permission rows before the shared grouped-child parser."""
+    result = []
+    index = 0
+    order = catalog_property_order(Path(__file__).resolve().parents[2], LAMBDA_PERMISSION)
+    while index < len(rows):
+        cells = rows[index]
+        if not cells[1].startswith(LAMBDA_PERMISSION + "."):
+            if "<!-- lambda-permission:" in cells[3]:
+                raise ValueError("Lambda Permission metadata must be on Permission.Action")
+            result.append(cells)
+            index += 1
+            continue
+        child = CHILD.match(cells[3])
+        marker = PERMISSION_METADATA.match(cells[3][child.end():]) if child else None
+        if cells[1] != LAMBDA_PERMISSION + ".Action" or not marker:
+            raise ValueError("Permission.Action requires complete identity and Lambda Permission metadata")
+        try:
+            label, hidden = json.loads(marker.group(1))
+            if (not isinstance(label, str) or not CHILD_NAME.fullmatch(label + "：") or
+                    not isinstance(hidden, list) or len(hidden) != 2 or
+                    any(not isinstance(row, list) or len(row) != 3 or
+                        any(not isinstance(cell, str) or any(char in cell for char in "|\n\r<>") for cell in row) for row in hidden) or
+                    [row[0] for row in hidden] != [LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"]):
+                raise ValueError("invalid hidden rows")
+        except (ValueError, TypeError) as error:
+            raise ValueError("invalid Lambda Permission metadata") from error
+        block = [[cells[0], *row] for row in hidden]
+        block[0][3] = child.group(0) + label + "：" + block[0][3]
+        cells = cells.copy()
+        cells[3] = cells[3][child.end() + marker.end():]
+        while True:
+            if cells[1] not in order or cells[1] in {row[1] for row in block}:
+                raise ValueError("invalid or duplicate Lambda Permission property")
+            if "<!-- lambda-permission:" in cells[3] or "<!-- logical-id:" in cells[3]:
+                raise ValueError("Lambda Permission identity must be on its first Action row")
+            block.append(cells)
+            index += 1
+            if index == len(rows) or not rows[index][1].startswith(LAMBDA_PERMISSION + ".") or CHILD.match(rows[index][3]):
+                break
+            cells = rows[index]
+        visible = block[2:]
+        if visible != sorted(visible, key=lambda row: order[row[1]]):
+            raise ValueError("Lambda Permission rows must follow catalog file order")
+        result += sorted(block, key=lambda row: order[row[1]])
+    return result
+
+
 def expanded_display_rows(lines: list[str]) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     lines = resource_heading_lines(lines)
@@ -565,6 +617,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 raise ValueError("resource table row must have four cells")
             row_numbers.append(cells[0])
             display_property = cells[1]
+            if resource_type == "Lambda.Function" and display_property.startswith("Lambda.Permission."):
+                raise ValueError("Lambda Permission must use Permission.* display properties")
+            if resource_type == "Lambda.Function" and display_property in {"Permission.Id", "Permission.FunctionName"}:
+                raise ValueError("Lambda Permission Id and FunctionName must not be displayed")
             prop = formal_property(cells[1], resource_type)
             if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(display_property, resource_type):
                 raise ValueError("Subnet list source marker requires an indexed Subnet row")
@@ -669,6 +725,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             else:
                 rows.append(cells)
             index += 1
+        if resource_type == "Lambda.Function" and any(row[1].startswith(LAMBDA_PERMISSION + ".") or "<!-- lambda-permission:" in row[3] for row in rows):
+            rows = permission_rows(rows)
+            changed = True
+            kind = "Lambda Permission"
         if resource_type == "CodePipeline.Pipeline":
             rows = pipeline_display_rows(rows)
             changed = True
@@ -755,7 +815,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                 if parent_type != rule["parent"]:
                     raise ValueError(f"grouped resource has wrong parent: {resource_type}: {parent_type}")
                 grouped_started = True
-                if prop == f'{resource_type}.{rule["parentProperty"]}' and resource_type != ROTATION_SCHEDULE:
+                if prop == f'{resource_type}.{rule["parentProperty"]}' and resource_type not in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                     raise ValueError(f"{prop} must be omitted from its enclosing {parent_type} table")
                 identity = rule["identityProperty"]
                 if identity:
@@ -764,13 +824,13 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                             raise ValueError(f"grouped identity row requires anchor and logical ID: {prop}")
                         anchor, logical_id = marker.groups()
                         name = cells[2].strip("`")
-                        if resource_type == ROTATION_SCHEDULE:
+                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                             label = CHILD_NAME.match(cells[3][marker.end():])
                             if not label or label.group(1).strip() in {"", "UNSET", "PENDING_DEPLOY"}:
                                 raise ValueError(f"{resource_type}: {logical_id}: confirmed display name required on {prop}")
                             name = label.group(1)
                         valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name, resource_type)}
-                        if resource_type == ROTATION_SCHEDULE:
+                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                             valid_anchors = {resource_anchor(service_id, name, resource_type)}
                         if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
@@ -785,7 +845,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                             "parentLogicalId": parent_id, "parentAnchor": parent_anchor,
                             "parentProperty": f'{resource_type}.{rule["parentProperty"]}', "rows": [],
                         }
-                        if resource_type == ROTATION_SCHEDULE:
+                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                             active_child["displayName"] = name
                         children[anchor] = active_child
                         table_children.append(active_child)
@@ -794,9 +854,9 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                         raise ValueError(f"grouped child rows must start with {resource_type}.{identity}")
                     if marker:
                         cells[3] = cells[3][marker.end():]
-                        if resource_type == ROTATION_SCHEDULE:
+                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                             cells[3] = cells[3][label.end():]
-                    if resource_type == ROTATION_SCHEDULE:
+                    if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                         if any(row[1] == prop for row in active_child["rows"]) and "[]" not in prop:
                             raise ValueError(f"{resource_type}: {active_child['logicalId']}: duplicate property: {prop}")
                         if prop == active_child["parentProperty"]:
@@ -827,7 +887,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
         for number, cells in enumerate(parent_rows, 1):
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
-            if child["resourceType"] == ROTATION_SCHEDULE and not any(row[1] == child["parentProperty"] for row in child["rows"]):
+            if child["resourceType"] in {ROTATION_SCHEDULE, LAMBDA_PERMISSION} and not any(row[1] == child["parentProperty"] for row in child["rows"]):
                 raise ValueError(f"{child['resourceType']}: {child['logicalId']}: required property missing: {child['parentProperty']}")
             result.extend(("", f'<a id="{child["anchor"]}"></a>',
                            f'### {child["resourceType"]}: {child["logicalId"]}', "", HEADER, ALIGNMENT))

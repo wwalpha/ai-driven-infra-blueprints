@@ -16,6 +16,7 @@ import tempfile
 import time
 
 from validation_scope import active_scope
+from regression_guard import authorize_full_regression
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -221,6 +222,20 @@ def staged_snapshot(root, args, directory, environment):
                "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
                *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
                *(["--profile"] if args.profile else [])]
+    if os.name == "nt":
+        # Never dispatch an older staged entrypoint that predates the password gate.
+        for name in ("blueprint-loop.py", "regression_guard.py"):
+            source = root / "framework/scripts" / name
+            saved = snapshot / "framework/scripts" / name
+            if not saved.is_file() or saved.read_bytes() != source.read_bytes():
+                raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
+    # .lock is local configuration, outside the staged task tree.
+    source_lock = root / ".lock"
+    if source_lock.is_symlink():
+        raise ValueError("repo .lock must be a regular file")
+    saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
+    if saved_lock is not None:
+        (snapshot / ".lock").write_bytes(saved_lock)
     process = subprocess.Popen(command, cwd=snapshot, env=environment,
                                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
     try:
@@ -234,11 +249,12 @@ def staged_snapshot(root, args, directory, environment):
             process.wait()
         raise
     current_tree = index_tree(root, directory)
-    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head
+    current_lock = source_lock.read_bytes() if source_lock.is_file() else None
+    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
     metadata.update(returncode=result, source_unchanged=unchanged)
     (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     if not unchanged:
-        print("Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.", flush=True)
+        print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
         return 1
     return result
 
@@ -284,6 +300,16 @@ def main() -> int:
         print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}", flush=True)
         omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
         print(f"Not executed: {', '.join(omitted) or 'none'}", flush=True)
+    if regression and not args.staged and (not args.affected or
+            set(checks) == set((root / "framework/scripts").glob("*.checks.py"))):
+        try:
+            authorize_full_regression(root)
+        except KeyboardInterrupt:
+            print("Full regression authorization cancelled; no checks started.", file=sys.stderr)
+            return 130
+        except (OSError, ValueError) as error:
+            print(f"Blueprint local loop: LOCKED ({error}); no checks started.", file=sys.stderr)
+            return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         parser.error("--log-dir must be outside the repository")

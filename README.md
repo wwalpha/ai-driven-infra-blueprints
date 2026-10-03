@@ -339,6 +339,22 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode full
 
 `full`は通常taskのvalidationに加え、全`framework/scripts/*.checks.py`を実行します。実設計の全体検証とframework regressionは別の責務です。framework未変更の`task`はValidation scopeが`all`でもself-testを実行しません。
 
+Windowsでは全回帰を開始する前にパスワード入力が必要です。自動追加と`--affected`で選んだ結果が全件になる場合にも適用し、未登録・不一致・キャンセル時は検証を起動せず停止します。通常の対象限定検証と一部に絞った回帰には入力を求めません。Windowsのstaged検証では現行`blueprint-loop.py`／`regression_guard.py`もstageし、workspaceと異なる旧entrypointを実行しません。
+
+人間がrepository rootで次を実行すると、repo直下の`.lock`一つだけへsalt付きpassword hashを保存します。管理者権限、ProgramDataへの設置、ACL設定は不要です。passwordは12文字以上とし、チャットやcommand引数へ渡さず、非表示の入力欄で入力します。
+
+```console
+python -I -B framework/scripts/regression_guard.py --install
+```
+
+既存の`.lock`は上書きしません。不一致・未登録・破損・非対話入力・キャンセル時は全回帰を開始しません。`.lock`はローカル設定としてtask変更範囲から除外し、staged検証にはその値を引き継ぎます。解除flagや再利用tokenは保存しません。repo内のfileを編集できる権限からの分離は行いません。Windows以外のガード有効化は今回の対象外です。
+
+旧版で登録済みなら、repository rootで次を実行すると同じpasswordを再利用できます（既存のrepo `.lock`がある場合は上書きしないでください）。修正版はProgramDataを参照しません。
+
+```powershell
+Copy-Item 'C:\ProgramData\BlueprintRegressionGuard\.lock' '.\.lock'
+```
+
 生成と検証の対象はactive taskの`## Validation scope`で統一します。`task`／`local`／`full`はいずれもそのscopeを使用し、`full`単独では全serviceへ広げません。`local`を指定するskillも対象限定検証だけで完了できます。scope欠落時は停止します。全体検証は明示した`--all`またはscopeの`all`だけで実行します。`--all`と`local`のscope `all`は全self-testも実行します。日次の全体検証は別途設定済みのscheduleに任せ、対象限定検証の後に「念のため」の全体検証を追加しません。
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。

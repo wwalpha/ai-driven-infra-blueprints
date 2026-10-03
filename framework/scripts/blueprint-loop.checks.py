@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
+from types import SimpleNamespace
 
 
 SCRIPT = Path(__file__).with_name("blueprint-loop.py")
@@ -163,6 +164,8 @@ display.resource.001.comment=通信ログを保存するLog Group
 
         result = run()
         assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
+        # A local password registration does not become a design-task scope error.
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
         warm = run()
         assert warm.returncode == 0 and "0 executed, 1 reused" in warm.stdout, warm.stdout + warm.stderr
         fresh = subprocess.run([*command, "--fresh", "--validation-jobs", "1", "--profile"],
@@ -288,6 +291,8 @@ def check_staged_snapshot():
         scripts.mkdir(parents=True)
         for name in (SCRIPT.name, "validation_scope.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
+        # These isolated runner fixtures exercise orchestration after authorization.
+        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (root / "tasks").mkdir()
         active = root / "tasks/active.md"
         contract = "- Task type: `governance`\n## Validation scope\n- `framework`\n"
@@ -311,6 +316,10 @@ def check_staged_snapshot():
         MODULE.git(root, "add", ".")
         active.write_text("dirty workspace contract", encoding="utf-8")
         (root / "untracked.txt").write_text("not staged", encoding="utf-8")
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+        validator.write_text(validator.read_text(encoding="utf-8") +
+                            "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture registration'}\n", encoding="utf-8")
+        MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
         log_parent = Path(temporary) / "logs"
         command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--staged", "--base", base,
                    "--log-dir", str(log_parent)]
@@ -325,6 +334,40 @@ def check_staged_snapshot():
         assert active.read_text(encoding="utf-8") == "dirty workspace contract"
         metadata = json.loads(next(log_parent.glob("*/snapshot.json")).read_text(encoding="utf-8"))
         assert metadata["base"] == base and metadata["source_unchanged"]
+        # Windows must reject an older staged guard before dispatching any child.
+        guard = scripts / "regression_guard.py"
+        original_guard = guard.read_bytes()
+        guard.write_text("# unstaged guard update\n", encoding="utf-8")
+        rejected_logs = Path(temporary) / "rejected-logs"
+        rejected_logs.mkdir()
+        args = SimpleNamespace(base=base, mode="task", jobs=2, validation_jobs=4,
+                               fresh=False, all=False, affected=False, profile=False)
+        real_popen = MODULE.subprocess.Popen
+
+        def git_only(command, *arguments, **options):
+            assert command[0] == "git", "old staged guard launched a validation child"
+            return real_popen(command, *arguments, **options)
+
+        try:
+            with patch.object(MODULE, "os", SimpleNamespace(name="nt", environ=os.environ)), \
+                 patch.object(MODULE.subprocess, "Popen", side_effect=git_only):
+                try:
+                    MODULE.staged_snapshot(root, args, rejected_logs, environment)
+                except ValueError as error:
+                    assert "current runner and regression guard" in str(error)
+                else:
+                    raise AssertionError("old staged guard bypassed Windows authorization")
+        finally:
+            guard.write_bytes(original_guard)
+        # Changing the source password registration makes a staged result stale.
+        original_validator = validator.read_text(encoding="utf-8")
+        validator.write_text(original_validator +
+                            f"Path({str(root / '.lock')!r}).write_text('changed', encoding='utf-8')\n", encoding="utf-8")
+        MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        assert result.returncode == 1 and "HEAD/index/.lock changed" in result.stdout, result.stdout + result.stderr
+        (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+        validator.write_text(original_validator, encoding="utf-8")
         # A concurrent index edit cannot be reported as current validation success.
         validator.write_text(validator.read_text(encoding="utf-8") +
             f"subprocess.run(['git','add','tasks/active.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
@@ -343,7 +386,57 @@ def check_staged_snapshot():
         assert result.returncode != 0 and "START validate-blueprint.py" not in result.stdout
 
 
+def check_regression_authorization():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "repository"
+        scripts = root / "framework/scripts"
+        scripts.mkdir(parents=True)
+        runner = scripts / SCRIPT.name
+        runner.write_text("# fixture\n", encoding="utf-8")
+        (scripts / "a.checks.py").write_text("# fixture\n", encoding="utf-8")
+        with patch.object(MODULE, "__file__", str(runner)), \
+             patch.object(MODULE, "active_scope", return_value={"framework"}), \
+             patch.object(MODULE, "changed_paths", return_value=set()) as changed, \
+             patch.object(MODULE, "authorize_full_regression", side_effect=ValueError("fixture locked")) as authorize, \
+             patch.object(MODULE, "run_commands", return_value=0) as run, \
+             patch.object(MODULE, "utf8_preflight"), \
+             redirect_stdout(io.StringIO()), patch.object(sys, "stderr", io.StringIO()):
+            logs = Path(temporary) / "logs"
+            for mode, paths, extra in (("full", set(), []), ("task", {"README.md"}, []),
+                                       ("local", set(), ["--all"]),
+                                       ("task", {"framework/scripts/shared.py"}, ["--affected"]),
+                                       ("task", {"framework/scripts/a.checks.py"}, ["--affected"])):
+                changed.return_value = paths
+                with patch.object(sys, "argv", [str(runner), "--mode", mode, "--log-dir", str(logs), *extra]):
+                    assert MODULE.main() == 2
+                run.assert_not_called()
+                assert not logs.exists(), "authorization failure started the loop"
+            authorize.side_effect = KeyboardInterrupt()
+            with patch.object(sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]):
+                assert MODULE.main() == 130
+            run.assert_not_called()
+            authorize.side_effect = None
+            authorize.reset_mock()
+            changed.return_value = set()
+            with patch.object(sys, "argv", [str(runner), "--mode", "task", "--log-dir", str(logs)]):
+                assert MODULE.main() == 0
+            authorize.assert_not_called()
+            assert len(run.call_args.args[1]) == 3
+            with patch.object(sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]):
+                assert MODULE.main() == 0
+            authorize.assert_called_once()
+            assert len(run.call_args.args[1]) == 4
+            # A proven leaf selection among multiple checks remains a focused run.
+            (scripts / "b.checks.py").write_text("# fixture\n", encoding="utf-8")
+            changed.return_value = {"framework/scripts/a.checks.py"}
+            authorize.reset_mock()
+            with patch.object(sys, "argv", [str(runner), "--mode", "task", "--affected", "--log-dir", str(logs)]):
+                assert MODULE.main() == 0
+            authorize.assert_not_called()
+
+
 def main() -> None:
+    check_regression_authorization()
     check_parallel_and_selection()
     check_fixture_independence()
     check_staged_snapshot()
@@ -362,6 +455,7 @@ def main() -> None:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
         shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
+        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
         (scripts / "a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
         (scripts / "b.checks.py").write_text(

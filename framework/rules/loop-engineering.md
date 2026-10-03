@@ -127,6 +127,14 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 
 ### 通常taskとframework regression
 
+#### Windows全回帰の入力ガード
+
+- Windowsの全回帰は、明示した`full`／`--all`、framework変更による自動追加、`--affected`で選んだ結果が全件の場合のいずれでも、検証process起動前に人間のパスワード入力を要求する。対象限定検証と明示対応表で一部だけに絞った回帰は入力不要とする。staged検証ではsnapshot内のrunnerが同じガードを使用する。Windowsでは現行runner／guardをstageし、workspaceと内容が一致しない旧entrypointのdispatchを拒否する。
+- 人間がrepository rootで`python -I -B framework/scripts/regression_guard.py --install`を実行し、repo直下の`.lock`一つだけへsalt付きPBKDF2-HMAC-SHA256のhashを登録する。管理者権限、ProgramData、別helper設置、ACL設定は使用しない。既存の`.lock`は上書きしない。
+- 全回帰開始前に当該repoの`.lock`へ毎回入力を照合する。未登録、不正形式、redirect、非対話入力、不一致、入力キャンセルでは検証processを起動せずPASSにしない。passwordをチャット、引数、環境変数、ログへ渡さず、解除flag／token／認証済み状態を保存しない。エージェントは実passwordを登録・取得せず、ガードを迂回しない。
+- `.lock`はtask artifactではなくローカル設定とし、validatorのchanged task pathsからrepo直下の`.lock`だけを除外する。staged snapshotには同じ登録値を引き継ぎ、source `.lock`変更でも終了結果をstaleにする。実password/hashの登録値を完了報告やログへ表示しない。
+- 旧版のProgramData内`.lock`はrepo直下へコピーすれば同じpasswordで使用できる。修正版はProgramDataを参照せず、既存の外部fileの削除は行わない。repo fileを変更できる権限からの分離とWindows以外のガード有効化は行わない。
+
 - 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。Validation scopeを引き継ぐ`validate-blueprint.py`と、その内部のservice指定`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
 - framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を最大2並列で実行し、診断と失敗一覧を名前順に集約する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
 - `task`／`local`でも、unstaged、staged、untrackedの変更pathが`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`にあれば全regressionを自動追加する。scriptsだけでなくrules、materials（catalog/schema snapshot）、将来のschema/catalog directory、promptと配布skillも対象にする。削除・rename元も検出する。Gitで変更を判定できなければ停止し、regressionを省略しない。commit済み変更の再検証には明示的な`full`を使用する。
