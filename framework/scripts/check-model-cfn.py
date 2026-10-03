@@ -68,6 +68,10 @@ def equal(left, right):
         return left.keys() == right.keys() and all(equal(left[k], right[k]) for k in left)
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(equal(a, b) for a, b in zip(left, right))
+    # YAML decoder scalars carry source marks as subclasses; compare their primitive types.
+    for kind in (bool, str, int, float):
+        if isinstance(left, kind) or isinstance(right, kind):
+            return isinstance(left, kind) and isinstance(right, kind) and left == right
     return type(left) is type(right) and left == right
 
 
@@ -92,6 +96,7 @@ class Comparison:
         self.units, self.resources, self.exports = {}, {}, defaultdict(list)
         self.matches, self.matching = {}, set()
         self.findings, self.checked, self.excluded = [], 0, []
+        self.stack_findings = []
         if decoder is None:
             from cfnlint.decode import decode
             decoder = decode
@@ -126,54 +131,88 @@ class Comparison:
         _, stacks = stack_model(properties(read_model(path)))
         for _, stack in stacks:
             name = stack["name"]
-            template = safe_path(self.root, self.root / "infra/cloudformation/templates" /
-                                 self.target.get("alias", "") / stack["template"])
-            inputs = safe_path(self.root, self.root / "infra/cloudformation/parameters" /
-                               self.environment / self.directory / stack["parameters"])
-            document, errors = self.decoder(str(template))
-            if errors or not isinstance(document, dict) or document.get("Transform"):
-                raise Unknown(f"invalid or Transform template: {template.relative_to(self.root)}")
-            declarations = document.get("Parameters", {})
-            supplied = read_json(inputs.read_text(encoding="utf-8"))
-            if not isinstance(supplied, list) or any(not isinstance(p, dict) or
-                    set(p) != {"ParameterKey", "ParameterValue"} or
-                    not isinstance(p["ParameterKey"], str) or not isinstance(p["ParameterValue"], str)
-                    for p in supplied):
-                raise Unknown(f"explicit parameter array required: {inputs.relative_to(self.root)}")
-            parameters = {p["ParameterKey"]: p["ParameterValue"] for p in supplied}
-            if len(parameters) != len(supplied) or parameters.keys() - declarations.keys():
-                raise Unknown(f"duplicate or undeclared parameter: {inputs.relative_to(self.root)}")
-            for key, declaration in declarations.items():
-                if key not in parameters:
-                    if "Default" not in declaration:
-                        raise Unknown(f"missing parameter: {name}/{key}")
-                    parameters[key] = declaration["Default"]
-                kind = declaration["Type"]
-                if kind.startswith("AWS::SSM::Parameter::Value"):
-                    raise Unknown(f"SSM parameter needs AWS current value: {name}/{key}")
-                if kind == "Number":
-                    parameters[key] = read_json(str(parameters[key]))
-                elif kind == "CommaDelimitedList" or kind.startswith("List<"):
-                    value = parameters[key]
-                    parameters[key] = [p.strip() for p in value.split(",")] if isinstance(value, str) else value
-                    if kind == "List<Number>":
-                        parameters[key] = [read_json(str(v)) for v in parameters[key]]
-                else:
-                    parameters[key] = str(parameters[key])
-            parameters.update({"AWS::AccountId": self.target["awsAccountId"],
-                               "AWS::Region": self.target["awsRegion"], "AWS::StackName": name})
-            self.units[name] = {"document": document, "parameters": parameters, "path": template}
+            document, template = None, path
+            try:
+                template = safe_path(self.root, self.root / "infra/cloudformation/templates" /
+                                     self.target.get("alias", "") / stack["template"])
+                document, errors = self.decoder(str(template))
+                if errors or not isinstance(document, dict) or document.get("Transform"):
+                    document = None  # Partial parse/Transform cannot establish resource coverage.
+                    raise Unknown(f"invalid or Transform template: {template.relative_to(self.root)}")
+                self.load_stack(stack, document, template)
+            except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+                self.stack_error(name, template, error, document)
         for name, unit in self.units.items():
             for output in unit["document"].get("Outputs", {}).values():
                 if "Export" in output:
-                    export = self.resolve(output["Export"]["Name"], name)
-                    if not isinstance(export, str):
-                        raise Unknown(f"non-string Export name: {name}")
-                    self.exports[export].append((name, output))
+                    try:
+                        export = self.resolve(output["Export"]["Name"], name)
+                        if not isinstance(export, str):
+                            raise Unknown(f"non-string Export name: {name}")
+                        self.exports[export].append((name, output))
+                    except (ValueError, KeyError, TypeError, IndexError) as error:
+                        self.stack_error(name, unit["path"], error, unit["document"], coverage=False)
         for name, unit in self.units.items():
             for logical_id, resource in unit["document"].get("Resources", {}).items():
-                if "Condition" not in resource or self.condition(resource["Condition"], name):
-                    self.resources[name, logical_id] = resource
+                try:
+                    if "Condition" not in resource or self.condition(resource["Condition"], name):
+                        self.resources[name, logical_id] = resource
+                except (ValueError, KeyError, TypeError, IndexError) as error:
+                    self.stack_error(name, unit["path"], error, {"Resources": {logical_id: resource}})
+
+    def stack_error(self, name, path, error, document, coverage=True):
+        resources = document.get("Resources", {}) if isinstance(document, dict) else None
+        if not isinstance(resources, dict) or any(not isinstance(r, dict) or not isinstance(r.get("Type"), str)
+                                                  for r in resources.values()):
+            resources = None
+        self.stack_findings.append(dict(status="unverified", stack=name, reason=str(error),
+            cfn=self.location(document, path), coverage=coverage,
+            resource_types=sorted({r.get("Type", "") for r in resources.values()}) if isinstance(resources, dict) else None,
+            logical_ids=list(resources) if isinstance(resources, dict) else None))
+
+    def load_stack(self, stack, document, template):
+        name = stack["name"]
+        for section in ("Parameters", "Resources", "Outputs"):
+            contents = document.get(section, {})
+            if not isinstance(contents, dict) or any(not isinstance(v, dict) for v in contents.values()):
+                raise Unknown(f"invalid {section} section: {name}")
+        if any(not isinstance(r.get("Type"), str) for r in document.get("Resources", {}).values()):
+            raise Unknown(f"invalid resource Type: {name}")
+        if any("Export" in o and (not isinstance(o["Export"], dict) or "Name" not in o["Export"])
+               for o in document.get("Outputs", {}).values()):
+            raise Unknown(f"invalid Export declaration: {name}")
+        inputs = safe_path(self.root, self.root / "infra/cloudformation/parameters" /
+                           self.environment / self.directory / stack["parameters"])
+        declarations = document.get("Parameters", {})
+        supplied = read_json(inputs.read_text(encoding="utf-8"))
+        if not isinstance(supplied, list) or any(not isinstance(p, dict) or
+                set(p) != {"ParameterKey", "ParameterValue"} or
+                not isinstance(p["ParameterKey"], str) or not isinstance(p["ParameterValue"], str)
+                for p in supplied):
+            raise Unknown(f"explicit parameter array required: {inputs.relative_to(self.root)}")
+        parameters = {p["ParameterKey"]: p["ParameterValue"] for p in supplied}
+        if len(parameters) != len(supplied) or parameters.keys() - declarations.keys():
+            raise Unknown(f"duplicate or undeclared parameter: {inputs.relative_to(self.root)}")
+        for key, declaration in declarations.items():
+            if key not in parameters:
+                if "Default" not in declaration:
+                    raise Unknown(f"missing parameter: {name}/{key}")
+                parameters[key] = declaration["Default"]
+            kind = declaration["Type"]
+            if kind.startswith("AWS::SSM::Parameter::Value"):
+                raise Unknown(f"SSM parameter needs AWS current value: {name}/{key}")
+            if kind == "Number":
+                parameters[key] = read_json(str(parameters[key]))
+            elif kind == "CommaDelimitedList" or kind.startswith("List<"):
+                value = parameters[key]
+                parameters[key] = [p.strip() for p in value.split(",")] if isinstance(value, str) else value
+                if kind == "List<Number>":
+                    parameters[key] = [read_json(str(v)) for v in parameters[key]]
+            else:
+                parameters[key] = str(parameters[key])
+        parameters.update({"AWS::AccountId": self.target["awsAccountId"],
+                           "AWS::Region": self.target["awsRegion"], "AWS::StackName": name})
+        self.units[name] = {"document": document, "parameters": parameters, "path": template}
 
     def condition(self, name, stack, seen=frozenset()):
         result = self.resolve({"Condition": name}, stack, seen)
@@ -204,6 +243,8 @@ class Comparison:
             if len(parts) == 2 and parts[0] in unit["document"].get("Resources", {}):
                 return Reference(stack, *parts)
         if key == "Fn::ImportValue":
+            if any(not error["coverage"] or error["stack"] not in self.units for error in self.stack_findings):
+                raise Unknown("Export names are incomplete; ImportValue cannot be resolved uniquely")
             export = self.resolve(argument, stack, seen)
             candidates = self.exports.get(export, []) if isinstance(export, str) else []
             marker = ("export", export)
@@ -235,6 +276,28 @@ class Comparison:
             return self.resolve(expression, stack, seen | {marker})
         if key == "Fn::If":
             return self.resolve(argument[1 if self.condition(argument[0], stack, seen) else 2], stack, seen)
+        if key == "Fn::FindInMap":
+            if not isinstance(argument, list) or len(argument) not in {3, 4}:
+                raise Unknown("FindInMap requires three keys and optional DefaultValue")
+            keys = self.resolve(argument[:3], stack, seen)
+            if any(not isinstance(part, str) for part in keys):
+                raise Unknown("FindInMap keys must resolve to strings")
+            if len(argument) == 4 and (not isinstance(argument[3], dict) or set(argument[3]) != {"DefaultValue"}):
+                raise Unknown("invalid FindInMap DefaultValue")
+            mappings = unit["document"].get("Mappings", {})
+            if not isinstance(mappings, dict):
+                raise Unknown("invalid FindInMap Mappings section")
+            mapping = mappings.get(keys[0])
+            if not isinstance(mapping, dict):
+                raise Unknown(f"missing FindInMap mapping: {keys[0]}")
+            row = mapping.get(keys[1], {})
+            if not isinstance(row, dict):
+                raise Unknown(f"invalid FindInMap row: {keys[0]}/{keys[1]}")
+            if keys[2] in row:
+                return row[keys[2]]
+            if len(argument) == 4:
+                return self.resolve(argument[3]["DefaultValue"], stack, seen)
+            raise Unknown(f"missing FindInMap key: {'/'.join(keys)}")
         resolved = self.resolve(argument, stack, seen)
         if key == "Fn::Equals":
             return equal(*resolved)
@@ -408,17 +471,39 @@ class Comparison:
 
     def run(self):
         self.load_stacks()
+        service_results = {}
         for service in self.services:
-            resources = entries(self.model(service), "desired.resource.")
-            if not resources:
-                self.finding("unverified", service, "", "resource", "service contains no resources")
-            for identity, resource in resources:
-                self.compare_resource(service, identity, resource)
-            self.check_extra_resources(service, resources)
+            start, checked = len(self.findings), self.checked
+            try:
+                resources = entries(self.model(service), "desired.resource.")
+                kinds, logical_ids = set(), set()
+                for _, resource in resources:
+                    if resource_mode(resource) != "CREATE" or resource["resourceType"] in self.catalog.api_schemas:
+                        continue
+                    logical_ids.add(resource["logicalId"])
+                    try:
+                        kinds.add(self.catalog.cloudformation_type(resource["resourceType"]))
+                    except ValueError:
+                        pass  # compare_resource records the unknown type without skipping healthy resources.
+                for error in self.stack_findings:
+                    if logical_ids and error["coverage"] and (error["resource_types"] is None or
+                            kinds.intersection(error["resource_types"]) or logical_ids.intersection(error["logical_ids"])):
+                        self.finding("unverified", service, error["stack"], "stack", error["reason"], cfn=error["cfn"])
+                if not resources:
+                    self.finding("unverified", service, "", "resource", "service contains no resources")
+                for identity, resource in resources:
+                    self.compare_resource(service, identity, resource)
+                self.check_extra_resources(service, resources)
+            except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+                self.finding("unverified", service, "", "service", str(error))
+            count = self.checked - checked
+            service_results[service] = dict(checked_properties=count,
+                status="FAIL" if len(self.findings) > start else "PASS" if count else "NOT_APPLICABLE")
         return {"environment": self.environment, "target": self.directory,
                 "services": self.services, "checked_properties": self.checked,
                 "findings": self.findings, "excluded": self.excluded,
-                "status": "FAIL" if self.findings else "PASS" if self.checked else "NOT_APPLICABLE"}
+                "stack_findings": self.stack_findings, "service_results": service_results,
+                "status": "FAIL" if self.findings or self.stack_findings else "PASS" if self.checked else "NOT_APPLICABLE"}
 
     def check_extra_resources(self, service, resources):
         kinds = {r["resourceType"] for _, r in resources}
@@ -447,7 +532,7 @@ def main():
     args = parser.parse_args()
     try:
         result = Comparison(args.repository_root, args.environment, args.target_directory, args.service).run()
-        code = 1 if result["findings"] else 0
+        code = 1 if result["status"] == "FAIL" else 0
     except (ImportError, OSError, ValueError, KeyError, TypeError, IndexError) as error:
         result = {"status": "ERROR", "environment": args.environment, "target": args.target_directory,
                   "services": args.service, "findings": [{"status": "unverified", "reason": str(error)}]}

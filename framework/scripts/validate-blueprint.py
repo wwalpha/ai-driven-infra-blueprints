@@ -446,6 +446,14 @@ class Validator:
             return
         try:
             scope = active_scope(self.root)
+            if self.task_type == "migration" and scope:
+                reports = {f"issues/{env}/{target}/issues.md" for env, target, _ in scope}
+                permitted = reports | {"tasks/active.md"}
+                lines = (self.root / "tasks/active.md").read_text(encoding="utf-8").splitlines()
+                allowed = self.section(lines, "## Allowed paths")
+                allowed = {line[3:-1] for line in allowed if re.fullmatch(r"- `[^`]+`", line)}
+                if allowed & reports and allowed <= permitted and self.changed_paths <= permitted:
+                    return  # Investigation may update inventories; model saves and AWS guards still apply.
             service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.changed_paths)
             if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
                 scope = set()  # Framework-wide validation does not target consumer services.

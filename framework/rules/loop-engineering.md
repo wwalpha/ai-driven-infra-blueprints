@@ -20,6 +20,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - serviceは`### <service-id>`、`<!-- issue-service: <service-id> -->`、または同じtargetのmodel properties／詳細設計Markdownへの根拠linkで特定する。AWS serviceの表示名だけでは推測しない。所属を特定できないissueや番号付きissue／0件宣言のない不正な一覧はtarget全体を停止する。
 - 対象environment/target/serviceに未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenario・target migrationなど他taskを開始・継続しない。別environment、別target、別serviceは停止しない。複数serviceを変更・実装・deployする場合は関係する全serviceをValidation scopeへ明記し、一件でもblockedならそのtaskを停止する。全体validationとtask対象を混同しない。
 - issue調査のread-only操作と、humanが明示したissue修復だけを許可する。新しいtask typeは作らず、design／infrastructureなど既存task boundaryとAWS execution許可を維持する。frameworkだけのgovernance／catalog-maintenanceはservice対象taskではないため、consumer issueでは停止しない。
+- issue調査・保存は`migration` taskとし、明示service Validation scopeのtargetの`issues/<environment>/<target-directory>/issues.md`と`tasks/active.md`だけをAllowed pathsと変更対象にする。この条件を満たすtaskのlocal validationは既存issueによる停止判定を適用せず、調査結果の保存・再検証を続ける。通常migration、設計・model・IaC変更、model保存、AWS mutationのissue gateは維持する。調査で検知した実際のvalidation errorは引き続きFAILとして報告する。
 - 修復taskのGoalとRequired changesに対象issue、原因、修復scopeを記載する。同じactive contractに次のsectionを置く。entryは明示されたValidation scopeの部分集合だけとし、`all`／`framework`による修復例外は禁止する。例外はそのserviceのissue修復と再検証だけに適用し、機能追加・通常の設計・別issueの修復などを混ぜない。修復task完了後に停止中の他taskを自動再開しない。
 
 ```md

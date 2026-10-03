@@ -72,6 +72,31 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
+        investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
+            "\n## Allowed paths\n\n- `tasks/active.md`\n- `issues/dev/cde/issues.md`\n")
+        active.write_text(investigation)
+        instance = validator.Validator(root)
+        instance.task_type = "migration"
+        instance.changed_paths = {"tasks/active.md", "issues/dev/cde/issues.md"}
+        instance.check_issue_gate()
+        assert not instance.errors  # Inventory saving is investigation, not issue remediation.
+        path.write_text("### Unknown service\n\n1. 調査中\n")
+        instance.check_issue_gate()
+        assert not instance.errors  # Unknown ownership must not prevent recording the investigation.
+        path.write_text(original)
+        for task_type, allowed, changed in (
+            ("design", investigation, "issues/dev/cde/issues.md"),
+            ("infrastructure", investigation, "issues/dev/cde/issues.md"),
+            ("migration", investigation, "model/dev/cde/ec2.properties"),
+            ("migration", investigation + "- `infra/**`\n", "issues/dev/cde/issues.md"),
+            ("migration", investigation.replace("issues/dev/cde/issues.md", "issues/prod/cde/issues.md"), "issues/dev/cde/issues.md"),
+        ):
+            active.write_text(allowed)
+            instance = validator.Validator(root)
+            instance.task_type, instance.changed_paths = task_type, {changed}
+            instance.check_issue_gate()
+            assert instance.errors, (task_type, allowed, changed)
+        active.write_text(investigation)
         try:
             sync.sync(root, True, "dev", "cde", services=["ec2"])
         except ValueError as error:
@@ -104,6 +129,8 @@ def main():
                 else:
                     raise AssertionError("AWS mutation bypassed issues")
                 run.assert_not_called()
+
+        active.write_text(contract)
 
         active.write_text(contract + "\n## Issue remediation\n\n- `dev/cde/ec2`\n")
         require_no_issues(root, scope)

@@ -40,7 +40,7 @@ def model(service, resources):
 
 
 with tempfile.TemporaryDirectory() as temporary:
-    root = Path(temporary)
+    root = Path(temporary).resolve()
     for name in ("cloudformation-schema", "aws", "api"):
         shutil.copytree(ROOT / "framework/materials" / name, root / "framework/materials" / name)
     save(root / "project.json", json.dumps({"targets": [{"environment": "dev", "alias": "blue",
@@ -59,13 +59,44 @@ with tempfile.TemporaryDirectory() as temporary:
     save(base / "logs.properties", model("logs", [("Group", "Logs.LogGroup", rows)]))
     # An unrelated service error must not broaden selected-service validation.
     save(base / "unrelated.properties", "invalid\n")
+    documents = {str(template): document}
 
     def run(services=("logs",)):
-        return M.Comparison(root, "dev", "blue", list(services), lambda _: (document, [])).run()
+        return M.Comparison(root, "dev", "blue", list(services), lambda path: (documents[path], [])).run()
 
     assert run()["status"] == "PASS"
     assert run()["checked_properties"] == 2
+    result = run(("unrelated", "logs"))
+    assert result["service_results"]["unrelated"]["status"] == "FAIL"
+    assert result["service_results"]["logs"]["status"] == "PASS"
     props = document["Resources"]["Group"]["Properties"]
+    class MarkedString(str):
+        pass
+
+    class MarkedInteger(int):
+        pass
+
+    props["LogGroupName"], props["RetentionInDays"] = MarkedString("/app/dev"), MarkedInteger(14)
+    assert run()["status"] == "PASS"  # Decoder source marks must not turn equal scalars into drift.
+    props["LogGroupName"], props["RetentionInDays"] = {"Fn::Sub": "/app/${Environment}"}, {"Ref": "Days"}
+    document["Mappings"] = {"LogNames": {"dev": {"Name": "/app/dev", "Names": ["/app/dev"]}},
+                            "Keys": {"dev": {"Field": "Name"}}}
+    lookup = ["LogNames", {"Ref": "Environment"}, "Name"]
+    props["LogGroupName"] = {"Fn::FindInMap": lookup}
+    assert run()["status"] == "PASS"
+    lookup[2] = {"Fn::FindInMap": ["Keys", {"Ref": "Environment"}, "Field"]}
+    assert run()["status"] == "PASS"
+    props["LogGroupName"] = {"Fn::Select": [0, {"Fn::FindInMap": ["LogNames", "dev", "Names"]}]}
+    assert run()["status"] == "PASS"
+    props["LogGroupName"] = {"Fn::FindInMap": ["LogNames", "dev", "Name", {"DefaultValue": {"Fn::Unsupported": "unused"}}]}
+    assert run()["status"] == "PASS"  # DefaultValue is lazy when the key exists.
+    props["LogGroupName"] = {"Fn::FindInMap": ["LogNames", "missing", "Name", {"DefaultValue": "/app/dev"}]}
+    assert run()["status"] == "PASS"
+    for bad in (["LogNames", "dev", "Missing"], ["MissingMap", "dev", "Name", {"DefaultValue": "/app/dev"}],
+                ["LogNames", "dev"], ["LogNames", 1, "Name"], ["LogNames", "dev", "Name", {"Wrong": "value"}]):
+        props["LogGroupName"] = {"Fn::FindInMap": bad}
+        assert any(f["status"] == "unverified" and "FindInMap" in f["reason"] for f in run()["findings"])
+    props["LogGroupName"] = {"Fn::Sub": "/app/${Environment}"}
     props["RetentionInDays"] = 7
     result = run()
     assert result["status"] == "FAIL" and result["findings"][0]["expected"] == [14]
@@ -79,12 +110,8 @@ with tempfile.TemporaryDirectory() as temporary:
     assert any(f["status"] == "mismatch" for f in run()["findings"])
     props["RetentionInDays"] = {"Ref": "Days"}
     del document["Parameters"]["Days"]["Default"]
-    try:
-        run()
-    except M.Unknown as error:
-        assert "missing parameter" in str(error)
-    else:
-        raise AssertionError("missing parameter passed")
+    result = run()
+    assert result["status"] == "FAIL" and any("missing parameter" in f["reason"] for f in result["stack_findings"])
     document["Parameters"]["Days"]["Default"] = 14
 
     document["Conditions"] = {"Dev": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]}}
@@ -152,6 +179,50 @@ with tempfile.TemporaryDirectory() as temporary:
     assert run()["findings"][0]["model"]["path"].endswith("logs/part-001.properties")
     props["RetentionInDays"] = 14
 
+    # A different stack's parameter, export and condition failures must not stop healthy services.
+    stacks = base / "cloudformation-stacks.properties"
+    original_stacks = stacks.read_text(encoding="utf-8")
+    save(stacks, original_stacks + "desired.stack.002.name=Storage\ndesired.stack.002.template=storage.yaml\n"
+         "desired.stack.002.parameters=storage.json\ndesired.stack.002.deployOrder=2\n")
+    storage = root / "infra/cloudformation/templates/blue/storage.yaml"
+    save(storage, "# storage\n")
+    storage_inputs = root / "infra/cloudformation/parameters/dev/blue/storage.json"
+    save(storage_inputs, "[]")
+    storage_doc = {"Parameters": {"Required": {"Type": "String"}}, "Resources": {
+        "Bucket": {"Type": "AWS::S3::Bucket", "Properties": {"BucketName": "app-data"}}}}
+    documents[str(storage)] = storage_doc
+    save(base / "s3.properties", model("s3", [("Bucket", "S3.Bucket", [("BucketName", "`app-data`")])]))
+    result = run(("s3", "logs"))
+    assert result["status"] == "FAIL" and result["stack_findings"][0]["stack"] == "Storage"
+    assert result["service_results"]["s3"]["status"] == "FAIL"
+    assert result["service_results"]["logs"] == {"status": "PASS", "checked_properties": 2}
+    save(storage_inputs, '[{"ParameterKey":"Required","ParameterValue":"value"}]')
+    storage_doc["Outputs"] = {"Broken": {"Value": "unused", "Export": {"Name": {"Fn::Unsupported": "bad"}}}}
+    result = run(("s3", "logs"))
+    assert result["stack_findings"] and all(r["status"] == "PASS" for r in result["service_results"].values())
+    props["RetentionInDays"] = {"Fn::ImportValue": "SomeValue"}
+    assert any("Export names are incomplete" in f["reason"] for f in run()["findings"])
+    props["RetentionInDays"] = 14
+    del storage_doc["Outputs"]
+    storage_doc["Resources"]["Bucket"]["Condition"] = "MissingCondition"
+    result = run(("s3", "logs"))
+    assert result["service_results"]["s3"]["status"] == "FAIL"
+    assert result["service_results"]["logs"]["status"] == "PASS"
+    del storage_doc["Resources"]["Bucket"]["Condition"]
+    assert run(("s3", "logs"))["status"] == "PASS"
+    good_resources = storage_doc["Resources"]
+    storage_doc["Resources"] = {"Bucket": "invalid resource"}
+    result = run()
+    assert result["status"] == "FAIL" and result["checked_properties"] == 2
+    assert result["stack_findings"][0]["resource_types"] is None
+    storage_doc["Resources"] = good_resources
+    # Unknown stack coverage stays unverified, but successfully compared values survive.
+    del documents[str(storage)]
+    result = run()
+    assert result["status"] == "FAIL" and result["checked_properties"] == 2
+    assert result["stack_findings"][0]["resource_types"] is None
+    save(stacks, original_stacks)
+
     for directory in ("other", "../blue"):
         try:
             M.Comparison(root, "dev", directory, ["logs"], lambda _: (document, []))
@@ -163,4 +234,4 @@ with tempfile.TemporaryDirectory() as temporary:
 assert not M.equal(True, 1)
 assert not M.equal([1], [1, 2])
 assert M.at_path({"Tags": [{"Key": "A"}, {"Key": "B"}]}, "Tags[].Key") == ["A", "B"]
-print("model-cfn: PASS (parameter/default, drift, missing, typed comparison, policy, tag, reference, export, scope, parts)")
+print("model-cfn: PASS (FindInMap, stack/service isolation, parameter/default, drift, policy, reference, scope, parts)")

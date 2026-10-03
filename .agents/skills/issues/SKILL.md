@@ -12,6 +12,7 @@ description: AWS Blueprintの指定environment・target・serviceの調査結果
 ## 保存と更新
 
 - 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と`framework/rules/loop-engineering.md`を読み、最初のrepository変更として`tasks/active.md`を今回の対象・Goalへ切り替える。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/active.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
+- この保存限定taskは既存issueによる停止判定の対象外となる。未解決issueがあっても調査と一覧の更新を続け、Issue remediationによる修復例外は追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateが適用される。
 - `docs/designs/<environment>/<target-directory>/`と同じ環境・target directory構成で保存する。複数targetは別ファイルに分け、必要なdirectoryだけ作成する。
 - 既存ファイルがあれば読んでから今回の範囲を再確認し、その範囲の問題を最新の調査結果へ置き換える。解消を確認した問題は除去し、新規・継続する問題を記載する。未確認の問題は未確認と記載し、解消扱いにしない。今回対象外のservice・問題は保持する。
 - ファイル冒頭に更新日時（Asia/Tokyo）と今回確認した範囲を記載する。未検証範囲があれば冒頭に明記する。対象targetの問題がなくなった場合もファイルを残し、`未解決issueなし`と確認範囲を記載する。履歴用・timestamp別ファイルは増やさない。
@@ -37,7 +38,9 @@ python framework/scripts/check-model-cfn.py --environment <env> --target-directo
 - `--service`は依頼された各serviceについて繰り返す。複数targetはtargetごとに実行する。Terraform targetにはCFn比較を適用しない。
 - 正本`cloudformation-stacks.properties`からstack・template・parameterを選び、target固有parameter/defaultを適用したCFnとservice modelの`desired.*`を比較する。共用templateを別environmentのparameterで評価しない。Markdownやobserved valueを設計値の代わりにしない。
 - JSON結果の`findings`をservice別に問題一覧へ反映する。`mismatch`は不一致、`unverified`は比較不能・未確認として明記する。exit 0は比較範囲の完了、exit 1は不一致／比較不能、exit 2は入力・実行環境などの検証失敗。`NOT_APPLICABLE`は比較対象なしであり全体一致ではない。
+- stack読込み・Export・Conditionの失敗は`stack_findings`に残り、他stack・serviceの比較は継続する。`service_results`の成否と検証件数をserviceごとに確認する。stack失敗の影響が特定できない場合も比較済みと扱わず、一覧冒頭にstack名・根拠・比較不能範囲を保存する。stack診断だけが残る場合も「問題なし」としない。
 - 検知対象はresource対応・型・余分なresource、選択済みliteralとparameter値、配列の値・順序・件数、`.Name`→Name tag、正本`document`内のpolicy JSON、基本的なresource参照。`!Ref`・`!GetAtt`はresourceと属性を、`!ImportValue`は同targetのlocal Output/Exportを照合する。AWS上にしかないExportは取得せず比較不能とする。
+- `!FindInMap`はlocal Mappingsと確定parameter／pseudo parameterを使って評価する。nested lookupと明示DefaultValueも評価し、mapping欠落・未解決key・不正な式は比較不能として残す。Transformを必要とするtemplateは引き続き比較不能となる。
 - IMPORTとCFn非対応API型は`excluded`へ明示される。未知型、曖昧なresource対応、未対応式、JSON正本不足、暗黙grouped resourceは比較不能として残る。チェックがPASSでも、CFnの全未選択設定や全組み込み関数を検証済みとは報告しない。追加の調査が必要なら依頼範囲内で根拠を確認し、自動比較結果を黙ってPASSへ書き換えない。
 - 同じ不一致を毎回AIで再判定せず、このチェック結果を根拠にする。AIは原因の整理と、依頼された場合の対応案に使う。
 
