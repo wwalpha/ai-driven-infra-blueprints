@@ -7,7 +7,19 @@ description: AWS Blueprintの指定environment・target・serviceの調査結果
 
 本スキルの共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。
 
-依頼された範囲の問題を調査し、`issues/<environment>/<target-directory>/issues.md`へ保存する。実行ごとに同じファイルを更新する。AWS API、設計・model・IaC修正、deploy/applyは開始しない。
+依頼された範囲の問題を調査し、`issues/<environment>/<target-directory>/issues.md`へ保存する。実行ごとに同じファイルを更新する。AWS read-only取得は今回のissue調査taskのactive contractが明示した範囲だけ許可する。設計・model・IaC修正、deploy/applyは開始しない。
+
+## SDK比較を起点にする調査
+
+- 通常のpropertiesとAWS現在値の比較は`framework/scripts/check-model-aws.py`で行う。Python＋AWS SDKで取得・比較を完結し、AIで全serviceを毎回読み合わせない。program自体からAIやissue保存を呼び出さない。
+- `desired.*`が期待値の正本である。SDK取得で実体を特定し、`observed.*`は確認済みidentifierの参照にだけ使う。MarkdownやCFnを期待する設定値へ代用しない。
+- 実運用のAWS取得は、今回のissue調査taskのactive contractへ対象environment/target/service/resourceと必要なread-only APIを明記してから実行する。`--all`は全対象の取得許可が明示された場合だけ使う。設定profileの変更や認証失敗時のfallbackをしない。
+- 単一対象の比較例: `python3 framework/scripts/check-model-aws.py --environment dev --target cde --service s3`。全対象は明示`--all`、接続なしの対応範囲確認は`--all --coverage`。比較用依存は`framework/scripts/requirements-aws-compare.txt`に従う。
+- JSONの`difference`／`resource_missing`にあるresource・keyだけを起点に、AIが関連する正本properties、CFn、AWS実体を調査する。共通原因の取得失敗は`affectedKeys`と`scope`を一つの未確認issueへまとめ、propertyごとに複製しない。`design_unresolved`、`sdk_unavailable`、`unimplemented`、`acquisition_failed`は一致扱いにしない。
+- 終了codeは0が全件一致、1が差分あり、2が検証未完了である。2には判明した差分も含まれ得る。`identifier`はresource特定用、`local_metadata`はSDK設定比較の対象外である。取得不能が残る結果を全体一致と報告しない。
+- 同じresource・keyの差分を調査済みなら既存issueを利用する。関連properties・CFnの内容または取得AWS値が変化したときだけ再調査する。各根拠の内容hashとAWS比較値（秘密値を除く）を確認できる形で記載し、未確認の既存issueを解消しない。
+- issueにはproperties・CFn・AWSの3者の値、modelのfile/行とJSONの取得API、CFnの根拠位置、確認できた原因、必要な対応を記載する。3者のいずれかを確認できなければ未確認とする。AWSとの差だけでCFn修正が必要と断定しない。秘密値・認証情報は記載しない。
+- 調査・比較・issue保存だけで設計変更、CFn修正、deployへ進まない。修復はhumanが明示した別の修復scopeで行う。旧properties↔CFn設定の自動比較は実行・再実装しない。
 
 ## 保存と更新
 
