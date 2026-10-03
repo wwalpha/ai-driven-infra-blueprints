@@ -1,34 +1,28 @@
-# desired環境間比較処理とskillの作成
+# env-diffの命名規則照合と判定根拠を明確化
 
 ## Task contract
 - Task type: `governance`
-- Target: frameworkのdesired環境間比較処理とenv-diff skill
-- Goal: dev↔stg、stg↔prodをcde／non-cde別に計4組比較し、AIが差分を整理して環境差異以外の問題をissuesへ追記するための処理とskillを作成する。
+- Target: `.agents/skills/env-diff/SKILL.md`
+- Goal: 名称・参照の環境差異判定前にnaming ruleへの適合を両環境で確認し、不一致は差分として期待値・実値・根拠を記載する。件数だけの曖昧な一括判定を避ける。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] 既存model readerを再利用し、desiredのみの4組の差分を根拠位置付きJSONとして出力するread-only比較処理を追加する。分割model、resource／row番号の違い、片側欠落、比較不能を扱い、環境差異の判断はAIへ渡す。
-- [R2] 短い名前env-diffのskillを追加し、4組の比較・AI要約・環境差異の根拠確認・既存issuesを保持した問題追記・local loopを指示する。
-- [R3] 比較処理の最小回帰checkを既存runnerの自動検出対象へ追加し、skill validationとframework local loopを実行する。
+- [R1] env-diffのAI整理へ正式な命名規則、確定済みcomponent、適用対象・例外と参照先の確認を追加し、不一致をその他の差分、判定不足を未確認とする。resource/propertyごとの両環境の判定・期待値・実値・根拠をdiff.mdへ記載させる。
 
 ## Acceptance checks
-- [R1] `exists:framework/scripts/compare-environments.py`
-- [R2] `exists:.agents/skills/env-diff/SKILL.md`
-- [R2] `absent:.agents/skills/compare-environments/SKILL.md`
-- [R3] `exists:framework/scripts/compare-environments.checks.py`
+- [R1] `changed:.agents/skills/env-diff/SKILL.md`
 
 ## Allowed paths
 - `tasks/active.md`
+- `.agents/skills/env-diff/SKILL.md`
 - `framework/scripts/compare-environments.py`
 - `framework/scripts/compare-environments.checks.py`
-- `.agents/skills/compare-environments/SKILL.md`
-- `.agents/skills/env-diff/SKILL.md`
 
 ## Out of scope
-- 実consumerの比較・issues追記、viewcard-codeへの同期、project・model・設計・IaC・catalog変更、AWS API、deploy/apply、commit、push、別taskの実行。
+- 前taskの比較組選択によるscript／checkの既存差分は保持し、今回編集しない。
+- 比較program・命名規則・validator・issue gateの変更、実consumerの比較・既存diff再判定・issues更新、model・設計・IaC・project・catalog変更、AWS API、deploy/apply、commit、push、別task。
 
 ## Completion
-- 一時fixtureで4組、desired限定、分割読込、番号変更、JSON本文、片側欠落、比較不能とread-only性を検証する。
-- skill-creatorのquick_validate.pyとpython3 -B framework/scripts/blueprint-loop.py --mode taskを実行し、結果を報告して終了する。
+- 命名規則の対象・例外と期待値の正本を確認し、skill validationとpython3 -B framework/scripts/blueprint-loop.py --mode taskを実行して終了する。

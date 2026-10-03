@@ -52,13 +52,14 @@ def save(path, text):
         file.write_text(content, encoding="utf-8")
 
 
-def cli(root, *args):
+def cli(root, *args, expected=None):
     result = subprocess.run([sys.executable, "-B", str(SCRIPT), "--repository-root", str(root), *args],
                             capture_output=True, text=True, encoding="utf-8")
     assert not result.stderr, result.stderr
     report = json.loads(result.stdout)
     assert report["namespace"] == "desired"
-    assert [(item["left"], item["right"], item["target"]) for item in report["comparisons"]] == compare.PAIRS
+    assert [(item["left"], item["right"], item["target"]) for item in report["comparisons"]] == (
+        compare.PAIRS if expected is None else expected)
     return result.returncode, report["comparisons"]
 
 
@@ -80,6 +81,25 @@ def main():
         code, pairs = cli(root)
         assert code == 0 and all(item["status"] == "complete" and not item["differences"] for item in pairs)
         assert {file: file.read_bytes() for file in root.rglob("*") if file.is_file()} == snapshot
+        assert cli(root, "--pair", "stg-prod", "--target", "non-cde",
+                   expected=[("stg", "prod", "non-cde")])[0] == 0
+        assert cli(root, "--target", "cde",
+                   expected=[("dev", "stg", "cde"), ("stg", "prod", "cde")])[0] == 0
+        # Unfinished prod must not be required or read during dev/stg comparison.
+        (root / "project.json").write_text(json.dumps({"targets": targets[:4]}), encoding="utf-8")
+        for file in snapshot:
+            if file.relative_to(root).parts[:2] == ("model", "prod"):
+                file.unlink()
+        assert cli(root, "--pair", "dev-stg", "--target", "cde", "--service", "logs",
+                   expected=[("dev", "stg", "cde")])[0] == 0
+        assert cli(root, "--pair", "dev-stg",
+                   expected=[("dev", "stg", "cde"), ("dev", "stg", "non-cde")])[0] == 0
+        assert cli(root)[0] == 1  # Full comparison still reports unfinished prod.
+        for file, data in snapshot.items():
+            file.write_bytes(data)
+        for arguments in (("--pair", "dev-prod"), ("--target", "unknown")):
+            invalid = subprocess.run([sys.executable, "-B", str(SCRIPT), *arguments], capture_output=True)
+            assert invalid.returncode == 2 and not invalid.stdout
         stack = root / "model/dev/cde/cloudformation-stacks.properties"
         stack.write_text(STACK.replace("maxConcurrentStacks=1", "maxConcurrentStacks=2"), encoding="utf-8")
         code, pairs = cli(root, "--service", "cloudformation-stacks")
@@ -137,7 +157,7 @@ def main():
         assert cli(root)[1][3]["status"] == "incomplete"
         (root / "project.json").unlink()
         assert all(item["status"] == "incomplete" for item in cli(root)[1])
-    print("Environment desired comparison checks: PASS (four pairs, desired-only, indexed models, evidence, missing inputs, read-only)")
+    print("Environment desired comparison checks: PASS (four pairs, selected pairs/targets, unfinished prod excluded, desired-only, indexed models, evidence, missing inputs, read-only)")
 
 
 if __name__ == "__main__":

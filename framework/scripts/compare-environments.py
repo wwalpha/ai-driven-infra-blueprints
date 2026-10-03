@@ -119,9 +119,14 @@ def compare_pair(root: Path, left: str, right: str, target: str, services: list[
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--pair", choices=("dev-stg", "stg-prod"), help="Compare only this environment pair")
+    parser.add_argument("--target", choices=("cde", "non-cde"), help="Compare only this target")
     parser.add_argument("--service", action="append", default=[], help="Limit to named service IDs; repeatable")
     args = parser.parse_args()
-    results = [compare_pair(args.repository_root.resolve(), *pair, args.service) for pair in PAIRS]
+    pairs = [(left, right, target) for left, right, target in PAIRS
+             if (args.pair is None or args.pair == f"{left}-{right}")
+             and (args.target is None or args.target == target)]
+    results = [compare_pair(args.repository_root.resolve(), *pair, args.service) for pair in pairs]
     print(json.dumps({"namespace": "desired", "comparisons": results}, ensure_ascii=False, indent=2))
     return int(any(result["status"] != "complete" for result in results))
 
