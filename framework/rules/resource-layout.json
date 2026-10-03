@@ -131,7 +131,12 @@
   "Lambda.EventInvokeConfig": "independent",
   "Lambda.EventSourceMapping": "independent",
   "Lambda.Function": "independent",
-  "Lambda.Permission": "independent",
+  "Lambda.Permission": {
+    "identityProperty": "Id",
+    "maxCount": null,
+    "parent": "Lambda.Function",
+    "parentProperty": "FunctionName"
+  },
   "Logs.LogGroup": "independent",
   "Logs.MetricFilter": "independent",
   "Logs.ResourcePolicy": "independent",

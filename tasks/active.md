@@ -1,36 +1,34 @@
-# Windows全回帰の人間入力ガード
+# Lambda Permissionの統合表示
 
 ## Task contract
 - Task type: `governance`
-- Target: Windows framework regression entrypoint
-- Goal: 全回帰の開始前に人間のパスワード入力を要求し、hash照合処理と登録値の変更権限を通常権限のエージェントから分離する。通常の対象限定検証と既存のscopeを維持する。
+- Target: framework Lambda.Permission Markdown display
+- Goal: Lambda.Permissionを所属Lambda.Functionの同じ詳細表へ統合し、Permission.*でpropertyを表示する。Id、FunctionName、独立heading/table/一覧を表示せず、modelの識別・desired/observed・所属を保持する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] Windowsで明示／自動追加／affected fallbackの全回帰を開始する前に保護された照合処理を呼ぶ。入力キャンセル、認証失敗、未登録、不正な保護状態では検証を起動せず失敗する。環境変数、引数、承認済みflagによる解除を追加しない。
-- [R2] Windows管理者による一回の対話登録で、hashと照合プログラムをWindows既定の共通application data directoryへ設置し、管理者／SYSTEMだけが変更できるACLとownerを設定する。通常権限では登録・変更を拒否する。パスワードは人間のconsole入力のみで受け取り、平文を保存・記録しない。
-- [R3] ガードの成否、登録／権限境界、全回帰選択とstaged snapshot、対象限定検証の継続を回帰検証する。運用手順と境界を文書化し、local loopを実行する。
+- [R1] 既存の親子統合処理を使用し、PermissionをFunctionの表へまとめ、独立一覧を生成しない。
+- [R2] Permission.*表示とId／FunctionNameの非表示を生成・読戻し両方で対応し、複数Permissionと非表示識別情報をlosslessに保持する。不正marker、所属、重複を拒否する。
+- [R3] 表示とmodel保持のルールを明記し、生成・読戻し・validation・失敗時保存保護の回帰checkとframework local loopを実行する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/blueprint-loop.py`
-- [R1] `changed:framework/scripts/blueprint-loop.checks.py`
-- [R2] `exists:framework/scripts/regression_guard.py`
-- [R2] `exists:framework/scripts/regression_guard.checks.py`
-- [R3] `changed:framework/rules/loop-engineering.md`
-- [R3] `changed:README.md`
+- [R1] `changed:framework/rules/resource-layout.json`
+- [R1] `changed:framework/scripts/model_design.py`
+- [R2] `changed:framework/scripts/design_layout.py`
+- [R3] `changed:framework/rules/detailed-design.md`
+- [R3] `changed:framework/rules/model-information.md`
+- [R3] `exists:framework/scripts/lambda_permission.checks.py`
 
 ## Allowed paths
 - `tasks/active.md`
-- `framework/scripts/blueprint-loop.py`
-- `framework/scripts/blueprint-loop.checks.py`
-- `framework/scripts/regression_guard.py`
-- `framework/scripts/regression_guard.checks.py`
-- `framework/rules/loop-engineering.md`
-- `README.md`
+- `framework/rules/resource-layout.json`
+- `framework/rules/detailed-design.md`
+- `framework/rules/model-information.md`
+- `framework/scripts/model_design.py`
+- `framework/scripts/design_layout.py`
+- `framework/scripts/lambda_permission.checks.py`
 
 ## Out of scope
-- Windows実機の管理者設定・パスワード登録は人間が行う。本taskのエージェントは登録値を決めず、実機の保護を解除しない。
-- macOSの権限・認証方式変更、framework編集自体の禁止、任意Python実行全体のOS sandbox化、実targetの設計/model/IaC/project、AWS操作、consumer同期、catalog変更、scenario、commit、push、index変更。
-- 既知passwordやmockを実repositoryの全回帰解除に使わない。mockは一時fixture内のテストだけに使用する。
+- catalog/schema、実targetの設計/model/IaC/project、AWS操作、consumer同期、scenario、commit、push、index変更、元worktreeの変更。
