@@ -6,3 +6,5 @@ description: 検証済みAWS IaCを、既存の04_deploy workflowに従って対
 Repository rootの`framework/prompts/codex/04_deploy.md`を全文読み、その内容だけを正文として実行する。Skill呼び出しに続く入力はworkflowへのhuman inputとして扱う。prompt本文を複製、再解釈、拡張しない。prompt fileが存在しない場合はrepositoryを変更せず停止する。
 
 検証scopeは`framework/rules/loop-engineering.md`に従う。通常taskはValidation scopeのserviceだけを検証し、対象限定検証後に全体検証を追加しない。
+
+CloudFormationは対象StackNameをcontrollerへ渡し、通常成功では全DeployOrderとobserved同期を一回の起動で完了する。promptとcontrollerでSTS、全stack探索、validationを二重実行しない。approval／failure／interruptionの再開は同じsessionを使用する。

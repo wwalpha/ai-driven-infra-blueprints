@@ -12,6 +12,8 @@ import tempfile
 import io
 import shutil
 import sys
+import time
+from threading import Barrier, get_ident
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
@@ -127,8 +129,8 @@ def check_scheduler():
     # A blocker during B preparation stops queueing and drains A.
     state, fake = states(scoped), Fake({"A": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]}, blocked={"B"})
     assert finish(scoped, 2, state, fake) == "STOPPED"
-    assert [s["status"] for s in state.values()] == ["SUCCESS", "BLOCKED", "NOT_STARTED", "NOT_STARTED"]
-    assert starts(fake) == ["A"] and not fake.running
+    assert [s["status"] for s in state.values()] == ["READY", "BLOCKED", "NOT_STARTED", "NOT_STARTED"]
+    assert starts(fake) == [] and not fake.running
     # Read errors stop queueing but do not claim terminal failure.
     state, fake = states(scoped), Fake({"A": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
     poll, failed = fake.poll, [False]
@@ -139,7 +141,7 @@ def check_scheduler():
         return poll(unit, state)
     fake.poll = transient
     assert finish(scoped, 2, state, fake) == "STOPPED"
-    assert starts(fake) == ["A"] and state["A"]["status"] == "SUCCESS"
+    assert starts(fake) == ["A", "B"] and state["A"]["status"] == "SUCCESS"
 
 
 class StubAws(M.AwsBackend):
@@ -289,6 +291,10 @@ def check_template_validation():
             assert backend.templates["A"][1] == {"Prefix": "Network"}
             assert run.call_args.args[0] == ["cfn-lint", "--regions", "ap-northeast-1", "--template", str(template)]
             assert not calls  # AWS validation happens at the unit's turn, after its bucket exists.
+            old = template.read_bytes()
+            template.write_text("Resources: {Changed: {}}\n")
+            rejects(lambda: backend.template_arguments(unit, {}), "changed after validation")
+            template.write_bytes(old)
             document["Transform"] = "AWS::Serverless-2016-10-31"
             rejects(lambda: backend.validate(unit), "transform template")
 
@@ -474,6 +480,7 @@ def check_delivery():
         assert first["S3Key"] == second["S3Key"] == third["S3Key"]
         assert first["S3Bucket"] != third["S3Bucket"] and first["S3ObjectVersion"] == "version+1"
         assert sum(op == "put-object" for op, _ in backend.calls) == 2  # Shared ZIP reused within a bucket.
+        assert sum(op == "get-bucket-location" for op, _ in backend.calls) == 1  # Existing bucket metadata reused.
         assert template.read_bytes() == original and document["Resources"]["First"]["Properties"]["Code"]["S3Key"] == "lambda/current.zip"
         assert packaged["Resources"]["First"]["Properties"]["Handler"] == "index.handler"
         assert max(i for i, (op, _) in enumerate(backend.calls) if op == "put-object") < next(i for i, (op, _) in enumerate(backend.calls) if op == "create-change-set")
@@ -654,7 +661,7 @@ def check_session_cli():
         contract.write_text("\n".join(["- Task type: `infrastructure`", "- Infrastructure phase: `deploy`",
                                      "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
                                      "- Target environment: `dev`", "- Target AWS account: `123456789012`",
-                                     "- Deployment scope: `A`, `B`", "- Authorized delete/replacement: `none`"]))
+                                     "- Deployment scope: `A`, `B`", "- Authorized delete/replacement: `none`", "## Validation scope", "- `all`"]))
         values = {"desired.deployment.maxConcurrentStacks": "2"}
         for i, unit in enumerate(units(10, 20), 1):
             values.update({f"desired.stack.{i:03}.{key}": value for key, value in unit.items()})
@@ -674,39 +681,52 @@ def check_session_cli():
             (params / (name + ".json")).write_text("[]\n")
         state_file = base / "session.json"
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file)]
-        backends = []
+        backends, validation_calls = [], []
+        destructive = [True]
         def backend_factory(root, environment, directory, target, profile, approvals):
             assert target["awsProfile"] == "dev-profile"
-            backend = StubAws(destructive=True)
+            backend = StubAws(destructive=destructive[0])
             backend.root, backend.approvals = root, set(approvals)
-            backend.validate = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
+            def validate(unit):
+                validation_calls.append(unit["name"])
+                backend.templates.update({unit["name"]: ({}, {})})
+            backend.validate = validate
+            backend.load_inputs = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
             backend.poll = lambda *args: "CREATE_COMPLETE"
             backends.append(backend)
             return backend
+        session_runner = M.run_session
         def invoke(options=()):
+            def subprocess_result(command, **kwargs):
+                return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "", stderr="")
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
                     patch.object(M, "AwsBackend", side_effect=backend_factory), \
                     patch.object(shutil, "which", return_value="mock-command"), \
-                    patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}', stderr="")) as run:
+                    patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
+                    patch.object(M, "run_session", side_effect=lambda *a: session_runner(*a, sleep=lambda _: None)):
                 result = M.main(argv + list(options), root=root)
                 if run.called:
-                    assert run.call_args.args[0][:3] == ["mock-command", "--profile", "dev-profile"]
+                    context_calls = [c for c in run.call_args_list if "get-caller-identity" in c.args[0]]
+                    assert len(context_calls) == 1
+                    assert context_calls[0].args[0][:3] == ["mock-command", "--profile", "dev-profile"]
                 return result
         assert invoke(["--profile", "other"]) == 2
         assert not backends and not state_file.exists()
         assert invoke() == 2
         session = json.loads(state_file.read_text())
-        assert session["states"]["A"]["status"] == "BLOCKED"
+        assert session["states"]["A"]["status"] == "BLOCKED", session
         assert session["states"]["B"]["status"] == "NOT_STARTED"
-        assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 0
+        assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
         session = json.loads(state_file.read_text())
-        assert session["result"] == "GROUP_COMPLETE" and session["states"]["A"]["status"] == "SUCCESS"
-        assert not any(op == "create-change-set" for op, _ in backends[-1].calls)
+        assert session["result"] == "STOPPED" and session["states"]["A"]["status"] == "SUCCESS"
+        assert [args[1] for op, args in backends[-1].calls if op == "create-change-set"] == ["B"]
         assert invoke(["--resume"]) == 2
         session = json.loads(state_file.read_text())
         assert session["states"]["B"]["status"] == "BLOCKED"
         assert invoke(["--resume", "--approve-change-set", "cs-B"]) == 0
         assert invoke(["--resume"]) == 0
+        assert session["metrics"]["validationCount"] == 1
+        assert validation_calls == ["A", "B"]
         assert not backends[-1].calls  # Completed run never redeploys successful stacks.
         assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
         template.write_text("Resources: {Changed: {}}\n")
@@ -715,6 +735,261 @@ def check_session_cli():
         contract.write_text(contract.read_text().replace("`infrastructure`", "`governance`"))
         assert invoke(["--resume"]) == 2
 
+        # Cases 1/2/3: one invocation, one whole-scope validation, all barriers inside it.
+        contract.write_text(contract.read_text().replace("`governance`", "`infrastructure`"))
+        destructive[0] = False
+        for orders, limit in (((10,), 1), ((10,) * 4, 4), ((10,) * 4 + (20,) * 4, 4)):
+            selected = units(*orders)
+            values = {"desired.deployment.maxConcurrentStacks": str(limit)}
+            for number, unit in enumerate(selected, 1):
+                values.update({f"desired.stack.{number:03}.{key}": value for key, value in unit.items()})
+                values[f"display.stack.{number:03}.comment"] = "実行するstack"
+                (params / unit["parameters"]).write_text("[]\n")
+            source.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+            design.write_text(markdown_for(design, values, root))
+            contract.write_text(contract.read_text().replace(next(l for l in contract.read_text().splitlines() if l.startswith("- Deployment scope:")),
+                                                           "- Deployment scope: " + ", ".join("`" + u["name"] + "`" for u in selected)))
+            state_file = base / f"success-{len(orders)}.json"
+            argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--state", str(state_file)]
+            for unit in selected:
+                argv += ["--stack", unit["name"]]
+            assert invoke() == 0
+            session = json.loads(state_file.read_text())
+            assert session["result"] == "COMPLETE", session
+            assert session["metrics"]["controllerInvocationCount"] == session["metrics"]["validationCount"] == 1
+            assert session["metrics"]["deployOrderCount"] == len(set(orders))
+            assert all(s["status"] == "SUCCESS" and s["observedSynced"] for s in session["states"].values())
+            assert not any(op == "list-stacks" for op, _ in backends[-1].calls)
+            assert invoke(["--resume"]) == 0 and not backends[-1].calls
+            assert json.loads(state_file.read_text())["metrics"]["validationCount"] == 1
+            # Legacy session gets one fresh validation; successful stacks are not reexecuted.
+            session = json.loads(state_file.read_text())
+            for key in ("version", "validationStatus", "validationDigest", "validationTemplates", "validationTemplatesDigest"):
+                session.pop(key, None)
+            state_file.write_text(json.dumps(session))
+            assert invoke(["--resume"]) == 0 and not backends[-1].calls
+            assert json.loads(state_file.read_text())["version"] == 2
+
+            # Framework or validation dependency changes invalidate a prior PASS.
+            policy = root / "framework/rules/validation-input.md"
+            policy.write_text("validation input " + str(len(orders)))
+            prior = json.loads(state_file.read_text())["metrics"]["validationCount"]
+            assert invoke(["--resume"]) == 0 and not backends[-1].calls
+            assert json.loads(state_file.read_text())["metrics"]["validationCount"] == prior + 1
+        # Explicit update handoff retains the older producer/consumer editing contract.
+        contract.write_text(contract.read_text().replace("Infrastructure phase: `deploy`", "Infrastructure phase: `update`"))
+        state_file = base / "update-handoff.json"
+        argv[argv.index("--state") + 1] = str(state_file)
+        assert invoke(["--pause-after-group"]) == 0
+        session = json.loads(state_file.read_text())
+        assert session["result"] == "GROUP_COMPLETE"
+        assert all(session["states"][u["name"]]["observedSynced"] for u in selected[:4])
+        pending = params / selected[4]["parameters"]
+        pending.write_text('[{"ParameterKey":"Environment","ParameterValue":"dev"}]')
+        assert invoke(["--resume", "--pause-after-group"]) == 0
+        session = json.loads(state_file.read_text())
+        assert session["result"] == "COMPLETE" and session["metrics"]["validationCount"] == 2
+        prepared = params / selected[0]["parameters"]
+        prepared.write_text('[{"ParameterKey":"Changed","ParameterValue":"value"}]')
+        assert invoke(["--resume"]) == 2
+
+
+def check_parallel_and_restart():
+    scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
+    state = states(scoped)
+    backend = Fake()
+    # Polls actually overlap. A barrier fails deterministically if they become serial.
+    barrier = Barrier(4, timeout=3)
+    poll = backend.poll
+    def parallel_poll(unit, snapshot):
+        barrier.wait()
+        return poll(unit, snapshot)
+    backend.poll = parallel_poll
+    synced = []
+    def sync(backend, selected, saved):
+        synced.append([u["name"] for u in selected])
+        for unit in selected:
+            saved[unit["name"]]["observedSynced"] = True
+    session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
+    with patch.object(M, "sync_successful", side_effect=sync):
+        assert M.run_session(scoped, 4, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
+    assert backend.peak == 4 and synced == [["A", "B", "C", "D"], ["E", "F", "G", "H"]]
+    assert session["metrics"]["deployOrderCount"] == 2
+    assert starts(backend) == [u["name"] for u in scoped]
+    first_poll = next(i for i, e in enumerate(backend.events) if e[0] == "poll")
+    assert sum(e[0] == "start" for e in backend.events[:first_poll]) == 4
+
+    # Nonblocking production preparation creates all change sets before the first wait.
+    backend = StubAws()
+    selected = scoped[:4]
+    backend.templates = {u["name"]: ({}, {}) for u in selected}
+    state = states(selected)
+    poll_barrier, review_barrier = Barrier(4, timeout=3), Barrier(4, timeout=3)
+    review = backend.describe_change_set
+    def parallel_review(unit, snapshot):
+        assert sum(op == "create-change-set" for op, _ in backend.calls) == 4
+        if snapshot["status"] == "CHANGESET_CREATING":
+            review_barrier.wait()
+        return review(unit, snapshot)
+    backend.describe_change_set = parallel_review
+    controller_thread, classify = get_ident(), backend.review_prepared
+    def controller_review(unit, snapshot, change_set=None):
+        assert get_ident() == controller_thread, "approval decision escaped controller thread"
+        return classify(unit, snapshot, change_set)
+    backend.review_prepared = controller_review
+    def stack_poll(unit, snapshot):
+        poll_barrier.wait()
+        return "CREATE_COMPLETE"
+    backend.poll = stack_poll
+    assert M.run_group(selected, 4, state, backend, sleep=lambda _: None) == "GROUP_COMPLETE"
+    assert sum(op == "execute-change-set" for op, _ in backend.calls) == 4
+
+    # Interruption after submitting one stack, while its peer is prepared but unexecuted.
+    selected = units(10, 10)
+    state, backend = states(selected), Fake()
+    execute = backend.execute
+    def interrupted(unit, snapshot):
+        execute(unit, snapshot)
+        raise KeyboardInterrupt()
+    backend.execute = interrupted
+    try:
+        M.run_group(selected, 2, state, backend, sleep=lambda _: None)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("interruption was hidden")
+    assert state["A"]["status"] == "RUNNING" and state["B"]["status"] == "READY"
+    backend.execute = execute
+    assert finish(selected, 2, state, backend) == "COMPLETE"
+    assert starts(backend) == ["A", "B"]  # A was polled, never redeployed.
+
+    # Observed failure during restart also drains peers; it never leaves a RUNNING stack unobserved.
+    state = {"A": {"status": "SUCCESS"}, "B": {"status": "RUNNING"}}
+    backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
+    backend.running = {"B"}
+    session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
+    with patch.object(M, "sync_successful", side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING")):
+        assert M.run_session(selected, 2, session, backend, lambda: None, sleep=lambda _: None) == "STOPPED"
+    assert state["B"]["status"] == "SUCCESS" and not backend.running and not starts(backend)
+    assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
+
+
+def check_observed_collector():
+    from cloudformation_observed import sync_successful, mappings
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
+        source = root / "model/dev/123456789012/ec2.properties"
+        source.parent.mkdir(parents=True)
+        design = root / "docs/designs/dev/123456789012/ec2.md"
+        design.parent.mkdir(parents=True)
+        values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC,EC2.Subnet",
+                  "display.service.title": "# EC2 詳細設計"}
+        def resource(identity, kind, logical, anchor, rows):
+            values.update({f"desired.resource.{identity}.resourceType": kind, f"desired.resource.{identity}.logicalId": logical,
+                           f"desired.resource.{identity}.anchor": anchor, f"display.resource.{identity}.comment": "業務用ネットワークを構成するresource"})
+            for index, (prop, value) in enumerate(rows, 1):
+                key = f"desired.row.{identity}-{index:03d}"
+                values.update({key + ".property": kind + "." + prop, key + ".value": value, key + ".comment": "設定値を指定する属性"})
+        resource("001", "EC2.VPC", "vpc-test-dev", "ec2-vpc-test-dev", [
+            ("Name", "`vpc-test-dev`"), ("VpcId", "[vpc-test-dev](#ec2-vpc-test-dev)"), ("CidrBlock", "`10.1.0.0/16`")])
+        resource("002", "EC2.Subnet", "sbnt-test-dev-private-app-a-01", "ec2-sbnt-test-dev-private-app-a-01", [
+            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("SubnetId", "[sbnt-test-dev-private-app-a-01](#ec2-sbnt-test-dev-private-app-a-01)"),
+            ("CidrBlock", "`10.1.1.0/24`"), ("VpcId", "[vpc-test-dev](#ec2-vpc-test-dev)")])
+        # Initialize the existing standard observed row format, including comments.
+        for rid in ("001-002", "002-002", "002-004"):
+            for field in ("property", "comment"):
+                values[f"observed.row.{rid}.{field}"] = values[f"desired.row.{rid}.{field}"]
+            values[f"observed.row.{rid}.value"] = "PENDING_DEPLOY" if rid == "002-004" else "`PENDING_DEPLOY`"
+        def save_model():
+            source.write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
+            design.write_text(markdown_for(design, values, root))
+        save_model()
+        task = root / "tasks/active.md"
+        task.parent.mkdir()
+        task.write_text("- Task type: `infrastructure`\n## Validation scope\n- `dev/123456789012/ec2`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n")
+        backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
+        unit = units(10)[0]
+        document = {"Resources": {"VpcTestDev": {"Type": "AWS::EC2::VPC"}},
+                    "Outputs": {"VpcIdentity": {"Value": {"Ref": "VpcTestDev"}}}}
+        backend.templates = {"A": (document, {})}
+        document["Conditions"] = {"ThisStack": {"Fn::Equals": [{"Ref": "AWS::StackName"}, "A"]}}
+        document["Resources"]["VpcTestDev"]["Condition"] = "ThisStack"
+        document["Outputs"]["VpcIdentity"]["Condition"] = "ThisStack"
+        physical, output, removed = ["vpc-0123456789abcdef0"], ["vpc-0123456789abcdef0"], [False]
+        def aws(operation, *args):
+            if operation == "describe-stacks":
+                return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcIdentity", "OutputValue": output[0]}]}]}
+            assert operation == "list-stack-resources"
+            return {"StackResourceSummaries": [] if removed[0] else [{"LogicalResourceId": "VpcTestDev", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": physical[0]}]}
+        backend.aws = aws
+        before = source.read_bytes()
+        output[0] = "vpc-different"
+        rejects(lambda: sync_successful(backend, [unit], states([unit])), "disagree")
+        assert source.read_bytes() == before
+        output[0] = physical[0]
+        # Shared template identities cannot be assigned to one model row by guessing.
+        backend.templates["B"] = (document, {})
+        rejects(lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)), "also owned")
+        assert source.read_bytes() == before
+        # Out-of-scope incoming references block before writes, even with broad Allowed paths.
+        consumer = source.with_name("consumer.properties")
+        consumer.write_text("desired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc-test-dev](ec2.md#ec2-vpc-test-dev)\ndesired.row.001-001.comment=接続先\n")
+        rejects(lambda: sync_successful(backend, [unit], states([unit])), "task scope violation")
+        assert source.read_bytes() == before
+        consumer.unlink()
+        unrelated = root / "model/prod/999999999999/broken.properties"
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_text("invalid=one\ninvalid=two\n")
+        saved = states([unit])
+        with redirect_stdout(io.StringIO()):
+            sync_successful(backend, [unit], saved)
+        observed = properties(source.read_text())
+        assert observed["observed.row.001-002.value"] == "`" + physical[0] + "`"
+        assert observed["observed.row.002-004.value"] == physical[0]
+        assert observed["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
+        assert {k: v for k, v in observed.items() if not k.startswith("observed.")} == {k: v for k, v in values.items() if not k.startswith("observed.")}
+        assert saved["A"]["observedSynced"] and physical[0] in design.read_text()
+        # Replacement/current ID and output-absent PhysicalResourceId fallback.
+        document["Outputs"] = {}
+        physical[0] = "vpc-1234567890abcdef0"
+        with redirect_stdout(io.StringIO()):
+            sync_successful(backend, [unit], saved)
+        assert properties(source.read_text())["observed.row.002-004.value"] == physical[0]
+        assert "arn:aws" not in source.read_text()
+        physical[0] = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/secret"
+        before = source.read_bytes()
+        rejects(lambda: sync_successful(backend, [unit], saved), "non-ARN identifier unavailable")
+        assert source.read_bytes() == before
+        # Existing indexed services retain their index/part layout during observed updates.
+        from model_files import model_file_contents, model_parts, read_model
+        physical[0] = "vpc-abcdef01234567890"
+        split = model_file_contents(source, source.read_text() + "# retained comment\n" * 620)
+        for file, content in split.items():
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(content)
+        parts = model_parts(source)
+        assert len(parts) > 1
+        index = source.read_bytes()
+        with redirect_stdout(io.StringIO()):
+            sync_successful(backend, [unit], saved)
+        assert source.read_bytes() == index and model_parts(source) == parts
+        assert properties(read_model(source))["observed.row.002-004.value"] == physical[0]
+
+        # Approved physical deletion resets the formal row and every reference; retention blocks.
+        document["Resources"] = {}
+        saved["A"]["changes"] = [{"Action": "Remove", "LogicalResourceId": "VpcTestDev", "ResourceType": "AWS::EC2::VPC", "PolicyAction": "Retain"}]
+        removed[0] = True
+        before = read_model(source)
+        rejects(lambda: sync_successful(backend, [unit], saved), "does not prove physical destruction")
+        assert read_model(source) == before
+        saved["A"]["changes"][0]["PolicyAction"] = "Delete"
+        with redirect_stdout(io.StringIO()):
+            sync_successful(backend, [unit], saved)
+        assert properties(read_model(source))["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
+        assert properties(read_model(source))["observed.row.002-004.value"] == "PENDING_DEPLOY"
+
 
 check_scheduler()
 check_aws_adapter()
@@ -722,4 +997,6 @@ check_template_validation()
 check_inputs()
 check_delivery()
 check_session_cli()
+check_parallel_and_restart()
+check_observed_collector()
 print("CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)")
