@@ -113,6 +113,10 @@ CodePipelineの`Stages[N]`と単一`Actions`／複数`Actions[M]`はmodelで正�
 
 `CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、表示の検証時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
 
+Subnet一覧の`[N]`表示は`detailed-design.md`の全対象へ共通適用する。正式property末尾の`[]`を表示時だけ置き換え、要素別resource link rowは同じ正式propertyの複数行へ戻す。desired logical referenceとobserved current identifierを要素ごとに分離する既存規則を維持し、順序やrowの所属を変更しない。
+
+既存のJSON配列、`[]`末尾propertyの単一literal、Secrets Managerのカンマ区切り文字列は、表示時だけ要素別rowへ分割する。最初の表示rowの`Source / Comment`先頭に`<!-- subnet-list-source: <元valueをJSON文字列でescapeした値> -->`を生成する。HTML comment／tableを壊す文字をescapeする。検証parserはmarkerに記録した元valueから全表示要素とcommentの一致を検証し、一つの元rowへ正確に戻す。modelのvalue・空白・backtickの有無・desired/observed・row番号を保存形式のまま保持する。markerは表示専用でありmodelやnoteへ保存しない。markerをhumanの設計入力として要求せず、Markdownから正本を上書きしない。
+
 `GuardDuty.Detector.Features.<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
 
 `CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、表示の検証時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。

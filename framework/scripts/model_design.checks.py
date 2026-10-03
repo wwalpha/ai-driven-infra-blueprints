@@ -17,7 +17,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from model_design import properties, markdown_for, naming_errors, stack_model, display_rows
-from design_layout import stack_design, stack_deployment_policy
+from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
+from model_design import row_table
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
@@ -845,6 +846,126 @@ def check_stack_policy():
 
 
 
+def check_subnet_list_display():
+    # Catalog coverage is explicit: single IDs and arrays of objects keep their format.
+    catalog = {line.partition("=")[0] for path in (ROOT / "framework/materials/aws").glob("*.properties")
+               for line in path.read_text(encoding="utf-8").splitlines() if "=" in line}
+    subnet_lists = {prop for prop in catalog if prop.rsplit(".", 1)[-1].removesuffix("[]") in {"SubnetIds", "Subnets", "VpcSubnetIds"}}
+    assert SUBNET_LIST_PROPERTIES == subnet_lists
+    assert len(subnet_lists) == 15  # 14 arrays and Secrets Manager's string list.
+    for prop in sorted(subnet_lists):
+        kind = ".".join(prop.split(".")[:2])
+        field = prop.removeprefix(kind + ".").removesuffix("[]")
+        links = ["[subnet-a](vpc.md#subnet-a)", "[PENDING_DEPLOY](vpc.md#subnet-b)"]
+        inputs = [[["1", prop, value, "配置先Subnet"] for value in links]]
+        if prop not in CODEBUILD_VPC_PROPERTIES:
+            raw = "`subnet-a, subnet-b`" if kind == "SecretsManager.RotationSchedule" else '`[ "subnet-a" , "subnet-b" ]`'
+            inputs += [[["1", prop, raw, "配置先Subnet"]]]
+            if prop.endswith("[]"):
+                inputs += [[["1", prop, "`subnet-a`", "配置先Subnet"], ["2", prop, "`subnet-b`", "配置先Subnet"]]]
+            if kind != "SecretsManager.RotationSchedule":
+                inputs += [[["1", prop, json.dumps(links), "参照先Subnet"]]]
+        for rows in inputs:
+            shown = display_rows(kind, rows)
+            assert [row[1] for row in shown] == [field + "[1]", field + "[2]"], (prop, shown)
+            document = [f"### {kind}: list-owner", "", *row_table(shown)]
+            restored = expanded_display_rows(document)
+            formal = [line for line in restored if line.startswith("|") and line not in {HEADER, ALIGNMENT}]
+            assert formal == ["| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1)], (prop, formal)
+            assert display_rows(kind, rows) == shown  # Counts reset for every resource.
+            for bad in (
+                document[:-1],  # Missing second list element.
+                [line.replace(field + "[2]", field + "[3]") for line in document],
+                [line.replace(field + "[2]", field + "[1]") for line in document],
+                [line.replace(field + "[1]", field + "[0]") for line in document],
+                [line.replace(field + "[1]", field) for line in document],
+            ):
+                # A shortened link-only list is valid; saved-array markers require all elements.
+                if bad == document[:-1] and len(rows) == 2:
+                    continue
+                try:
+                    expanded_display_rows(bad)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError((prop, bad))
+            if len(rows) == 1:
+                for bad in (
+                    [line.replace("| " + shown[0][2] + " |", "| `subnet-other` |") for line in document],
+                    [*document[:-1], document[-1].replace(shown[-1][3], "別の説明")],
+                ):
+                    try:
+                        expanded_display_rows(bad)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError((prop, bad))
+        if prop not in CODEBUILD_VPC_PROPERTIES:
+            bad_values = ["`subnet-a,,subnet-b`", "` `"] if kind == "SecretsManager.RotationSchedule" else ["[]", "[1]", '[null]', '[""]', '{}', '["a|b"]']
+            for value in bad_values:
+                try:
+                    display_rows(kind, [["1", prop, value, "配置先Subnet"]])
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError((prop, value))
+    # The motivating Lambda array survives full generation and model projection unchanged.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        values = model("lambda", "Lambda.Function", "lambda-app-dev", [
+            ("FunctionName", "`lambda-app-dev`", "関数の名称"),
+            ("Code.S3Bucket", "`lambda-code`", "コードの保管先"),
+            ("Role", "[lambda-role](iam.md#lambda-role)", "実行権限"),
+            ("VpcConfig.SubnetIds", '`["subnet-a", "subnet-b"]`', "配置先Subnet"),
+        ])
+        output = roundtrip(root / "docs/designs/dev/123456789012/lambda.md", values, root)
+        assert "VpcConfig.SubnetIds[1]" in output and "VpcConfig.SubnetIds[2]" in output
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
+            {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"},
+        ]}) + "\n", encoding="utf-8")
+        base = root / "model/dev/123456789012"
+        base.mkdir(parents=True)
+        iam = model("iam", "IAM.Role", "net-dev-flow-role", [
+            ("RoleName", "`net-dev-flow-role`", "実行権限を識別する名称"),
+            ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/net-dev-flow-role-trust-policy.json)", "Lambdaによる引受けを許可"),
+        ])
+        iam["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [
+            {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"},
+        ]})
+        values = model("lambda", "Lambda.Function", "lambda-app-dev", [
+            ("FunctionName", "`lambda-app-dev`", "関数の名称"),
+            ("Code.S3Bucket", "`lambda-code`", "コードの保管先"),
+            ("Handler", "`index.handler`", "実行する入口"),
+            ("Role", "[net-dev-flow-role](iam.md#iam-net-dev-flow-role)", "実行権限"),
+            ("Runtime", "`nodejs22.x`", "コードの実行環境"),
+            ("VpcConfig.SubnetIds", '`[ "subnet-00000000000000001", "subnet-00000000000000002" ]`', "配置先Subnet"),
+        ])
+        source = base / "lambda.properties"
+        source.write_text(text(values), encoding="utf-8")
+        (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+        before = source.read_bytes()
+        assert SYNC.sync(root, True, "dev", "123456789012", services=["iam", "lambda"]) == 0
+        path = root / "docs/designs/dev/123456789012/lambda.md"
+        saved = path.read_bytes()
+        assert source.read_bytes() == before
+        assert SYNC.sync(root, False, "dev", "123456789012", services=["lambda"]) == 0
+        values["desired.row.001-006.value"] = "[]"
+        source.write_text(text(values), encoding="utf-8")
+        invalid = source.read_bytes()
+        try:
+            SYNC.sync(root, True, "dev", "123456789012", services=["lambda"])
+        except ValueError as error:
+            assert "Subnet list" in str(error), str(error)
+        else:
+            raise AssertionError("invalid Subnet list was saved")
+        assert path.read_bytes() == saved and source.read_bytes() == invalid
+    print("Subnet list display: PASS (15 properties, links, JSON/CSV source preservation, invalid displays, Lambda model roundtrip)")
+
+
 def check_athena_configuration_display():
     kind = "Athena.WorkGroup"
     prefix = kind + ".WorkGroupConfiguration."
@@ -874,6 +995,7 @@ def check_athena_configuration_display():
 
 
 def main():
+    check_subnet_list_display()
     check_athena_configuration_display()
     check_config_typed_anchors()
     check_kms_alias_display()

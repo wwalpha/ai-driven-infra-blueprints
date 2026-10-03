@@ -38,8 +38,28 @@ ALIGNMENT = "| ---: | --- | --- | --- |"
 CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
 CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
 CODEBUILD_VARIABLE_TYPE = re.compile(r"^<!-- codebuild-variable-type: (PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER) -->\s*")
-CODEBUILD_VPC_ITEM = re.compile(r"^VpcConfig\.(Subnets|SecurityGroupIds)\[([1-9][0-9]*)\]$")
 CODEBUILD_VPC_PROPERTIES = {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}
+SUBNET_LIST_PROPERTIES = {
+    "ApiGatewayV2.VpcLink.SubnetIds[]",
+    "CodeBuild.Project.VpcConfig.Subnets",
+    "EC2.TransitGatewayVpcAttachment.SubnetIds",
+    "EC2.VPCEndpoint.SubnetIds",
+    "ECS.CapacityProvider.ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]",
+    "ECS.Service.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "ElasticLoadBalancingV2.LoadBalancer.Subnets[]",
+    "Lambda.Function.VpcConfig.SubnetIds",
+    "MWAA.Environment.NetworkConfiguration.SubnetIds",
+    "QuickSight.VPCConnection.SubnetIds",
+    "RDS.DBProxy.VpcSubnetIds[]",
+    "RDS.DBProxyEndpoint.VpcSubnetIds[]",
+    "RDS.DBSubnetGroup.SubnetIds[]",
+    "Scheduler.Schedule.Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
+}
+LINKED_LIST_PROPERTIES = dict.fromkeys(SUBNET_LIST_PROPERTIES, "EC2.Subnet") | {
+    "CodeBuild.Project.VpcConfig.SecurityGroupIds": "EC2.SecurityGroup",
+}
+SUBNET_LIST_SOURCE = re.compile(r'^<!-- subnet-list-source: ("(?:[^"\\]|\\.)*") --> ')
 GUARDDUTY_FEATURE = "GuardDuty.Detector.Features."
 GUARDDUTY_FORMAL_FEATURE = "GuardDuty.Detector.Features[]."
 CLOUDTRAIL_DATA_RESOURCE = re.compile(r"^EventSelectors\.DataResources\[([1-9]\d*)\]\.(S3|Lambda)$")
@@ -405,6 +425,34 @@ def formal_property(display: str, resource_type: str) -> str:
     return resource_type + "." + display if resource_type else display
 
 
+def linked_list_property(display: str, resource_type: str) -> tuple[str, str] | None:
+    """Resolve only the final display index; leave enclosing object arrays intact."""
+    match = re.fullmatch(r"(.+)\[([^\]]*)\]", display)
+    if match:
+        base = formal_property(match.group(1), resource_type)
+        for prop in LINKED_LIST_PROPERTIES:
+            if base == prop.removesuffix("[]"):
+                return prop, match.group(2)
+    return None
+
+
+def subnet_list_items(prop: str, value: str) -> list[str]:
+    """Split a saved list for display without inferring resource references."""
+    raw = value[1:-1] if value.startswith("`") and value.endswith("`") else value
+    if prop == "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds":
+        items = [item.strip() for item in raw.split(",")]
+    elif prop.endswith("[]") and not raw.lstrip().startswith(("[", "{")):
+        items = [raw]
+    else:
+        items = json.loads(raw)
+    if not isinstance(items, list) or not items or any(
+        not isinstance(item, str) or not item.strip() or any(char in item for char in "|\n\r`")
+        for item in items
+    ):
+        raise ValueError(f"{prop}: Subnet list must contain non-empty string elements")
+    return [item if re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", item) else f"`{item}`" for item in items]
+
+
 def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
     """Restore indexed stages/actions and key rows to the selected catalog fields."""
     stages: dict[int, dict[int, bool]] = {}
@@ -505,7 +553,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
         rows = []
         row_numbers = []
         codebuild_names = set()
-        codebuild_vpc_counts = {"Subnets": 0, "SecurityGroupIds": 0}
+        linked_list_counts: dict[str, int] = {}
         guardduty_names = set()
         cloudtrail_count = 0
         changed = False
@@ -518,6 +566,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             row_numbers.append(cells[0])
             display_property = cells[1]
             prop = formal_property(cells[1], resource_type)
+            if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(display_property, resource_type):
+                raise ValueError("Subnet list source marker requires an indexed Subnet row")
             if prop == "Config.ConfigurationRecorder.RoleARN":
                 raise ValueError("ConfigurationRecorder RoleARN must use RoleName display")
             if DISPLAY_PROPERTY_ALIASES.get(prop, prop) in RESOURCE_REFERENCE_PROPERTIES:
@@ -530,8 +580,8 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 cells[1] = prop
             if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
                 raise ValueError("CodeBuild environment variables must use Variables.<Name> display rows")
-            if resource_type == "CodeBuild.Project" and prop in CODEBUILD_VPC_PROPERTIES:
-                raise ValueError("CodeBuild VpcConfig Subnets/SecurityGroupIds must use one linked resource per display row")
+            if prop in LINKED_LIST_PROPERTIES:
+                raise ValueError(f"{prop} must use indexed one-resource-per-row display")
             if prop in {GUARDDUTY_FORMAL_FEATURE + "Name", GUARDDUTY_FORMAL_FEATURE + "Status"}:
                 raise ValueError("GuardDuty Features Name/Status must use Features.<Name> display rows")
             if resource_type == "CloudTrail.Trail" and prop.startswith(CLOUDTRAIL_FORMAL_DATA_RESOURCE):
@@ -561,17 +611,35 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 value = cells[2] if linked else f"`{raw}`"
                 for field, field_value in (("Name", f"`{name}`"), ("Type", f"`{variable_type}`"), ("Value", value)):
                     rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, field_value, comment])
-            elif resource_type == "CodeBuild.Project" and display_property.startswith(("VpcConfig.Subnets[", "VpcConfig.SecurityGroupIds[")):
-                match = CODEBUILD_VPC_ITEM.fullmatch(display_property)
-                if not match or int(match.group(2)) != codebuild_vpc_counts[match.group(1)] + 1:
-                    raise ValueError("CodeBuild VpcConfig display indexes must start at 1 and be sequential per property")
-                if not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+            elif item := linked_list_property(display_property, resource_type):
+                list_prop, first_index = item
+                expected = linked_list_counts.get(list_prop, 0) + 1
+                if not re.fullmatch(r"[1-9][0-9]*", first_index) or int(first_index) != expected:
+                    raise ValueError("Subnet/Security Group display indexes must start at 1 and be sequential per property")
+                marker = SUBNET_LIST_SOURCE.match(cells[3])
+                if "<!-- subnet-list-source:" in cells[3] and not marker:
+                    raise ValueError("invalid Subnet list source marker")
+                source = json.loads(marker.group(1)) if marker else None
+                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES:
                     raise ValueError("CodeBuild VpcConfig value must be a resource link")
-                codebuild_vpc_counts[match.group(1)] += 1
+                items = subnet_list_items(list_prop, source) if source is not None else [cells[2]]
+                comment = cells[3][marker.end():] if marker else cells[3]
+                if source is None and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                    raise ValueError("Subnet/Security Group value must be a resource link")
+                for offset, value in enumerate(items):
+                    row = cells
+                    if offset:
+                        row = [cell.strip() for cell in lines[index + offset].strip("|").split("|")] if index + offset < len(lines) else []
+                    if len(row) != 4 or linked_list_property(row[1], resource_type) != (list_prop, str(expected + offset)) or row[2] != value or (offset and row[3] != comment):
+                        raise ValueError("Subnet list display differs from its saved source value or comment")
+                    if offset:
+                        row_numbers.append(row[0])
+                linked_list_counts[list_prop] = expected + len(items) - 1
                 changed = True
-                kind = "CodeBuild VpcConfig"
-                cells[1] = "CodeBuild.Project.VpcConfig." + match.group(1)
+                kind = "Subnet/Security Group list"
+                cells[1], cells[2], cells[3] = list_prop, source if source is not None else cells[2], comment
                 rows.append(cells)
+                index += len(items) - 1
             elif prop.startswith(GUARDDUTY_FEATURE):
                 changed = True
                 kind = "GuardDuty Feature"

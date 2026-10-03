@@ -6,13 +6,15 @@ if not __debug__:
 
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
 
 from design_layout import DISPLAY_PROPERTY_ALIASES, LAYOUTS, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
-from model_design import pipeline_rows
+from model_design import pipeline_rows, display_rows, row_table
+from design_layout import SUBNET_LIST_PROPERTIES
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -200,6 +202,23 @@ def check_secret_rotation_display() -> None:
         assert rendered == text
         assert not errors(rendered), errors(rendered)
         assert MODEL.model_for(path, REPOSITORY) == model
+        csv_values = {}
+        for key, value in values.items():
+            row = re.fullmatch(r"((?:desired|observed)\.row\.002-)([0-9]{3})(\..+)", key)
+            if row and int(row.group(2)) >= 2:
+                key = row.group(1) + f"{int(row.group(2)) + 1:03d}" + row.group(3)
+            csv_values[key] = value
+        csv_values.update({
+            "desired.row.002-002.property": "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
+            "desired.row.002-002.value": "`subnet-00000000000000001,  subnet-00000000000000002`",
+            "desired.row.002-002.comment": "rotation Lambdaの配置先Subnet",
+        })
+        csv_view = MODEL.markdown_for(path, csv_values, REPOSITORY)
+        assert not errors(csv_view), errors(csv_view)
+        assert MODEL.properties(MODEL.model_for(path, REPOSITORY)) == {
+            key: value for key, value in csv_values.items() if not key.startswith("display.")
+        }
+        assert "HostedRotationLambda.VpcSubnetIds[1]" in csv_view and "HostedRotationLambda.VpcSubnetIds[2]" in csv_view
         for invalid, message in (
             (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
             (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
@@ -376,6 +395,61 @@ def check_codebuild_vpc_display() -> None:
             design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](security_group.md#security_group-codebuild-sg)"),
         ):
             assert errors(bad), bad
+
+
+def check_subnet_list_links() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        design = root / "docs/designs/dev/123456789012"
+        design.mkdir(parents=True)
+        vpc = design / "vpc.md"
+        subnet = """# VPC 詳細設計
+
+<a id="subnet-a"></a>
+### EC2.Subnet: subnet-a
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | SubnetId | `subnet-00000000000000001` | SubnetのID |
+"""
+        vpc.write_text(subnet, encoding="utf-8")
+        other = design.parent / "987654321098"
+        other.mkdir()
+        (other / "vpc.md").write_text(subnet, encoding="utf-8")
+        outputs = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()[2]
+        for prop in sorted(SUBNET_LIST_PROPERTIES):
+            kind = ".".join(prop.split(".")[:2])
+            path = design / (kind.split(".")[0].lower() + ".md")
+
+            def content(value):
+                shown = display_rows(kind, [["1", prop, value, "配置先Subnet"]])
+                if kind == "SecretsManager.RotationSchedule":
+                    return "\n".join([
+                        "# Secrets Manager 詳細設計", "- Design service ID: `secretsmanager`",
+                        '<a id="secretsmanager-key"></a>', "### SecretsManager.Secret: key",
+                        *row_table([
+                            ["1", "Name", "`key`", "secretの名称"],
+                            ["2", "Id", "`PENDING_DEPLOY`", "secretのID"],
+                            ["2", "SecretsManager.RotationSchedule.Id", "`PENDING_DEPLOY`",
+                             '<a id="secretsmanager-key-rotation"></a><!-- logical-id: KeyRotation --> key-rotation：rotationのID'],
+                            ["3", "SecretsManager.RotationSchedule.SecretId", "[PENDING_DEPLOY](#secretsmanager-key)", "対象secret"],
+                            ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
+                        ]),
+                    ]) + "\n"
+                return "\n".join(["# Subnet参照の設計", "", "<a id=\"owner\"></a>", f"### {kind}: owner", *row_table(shown)]) + "\n"
+
+            def errors(value):
+                path.write_text(content(value), encoding="utf-8")
+                validator = VALIDATOR.Validator(root)
+                validator.design_files = lambda: [path]
+                validator.check_design_links(outputs)
+                return validator.errors
+
+            assert not errors("[subnet-00000000000000001](vpc.md#subnet-a)"), (prop, errors("[subnet-00000000000000001](vpc.md#subnet-a)"))
+            assert errors("[subnet-00000000000000001](../987654321098/vpc.md#subnet-a)"), prop
+            vpc.write_text(subnet.replace("EC2.Subnet:", "EC2.VPC:"), encoding="utf-8")
+            assert errors("[subnet-00000000000000001](vpc.md#subnet-a)"), prop
+            vpc.write_text(subnet, encoding="utf-8")
+    print("Subnet list links: PASS (15 properties, same-target Subnet type, grouped RotationSchedule)")
 
 
 def check_guardduty_feature_display() -> None:
@@ -876,6 +950,7 @@ def main() -> None:
     check_secret_rotation_display()
     check_codebuild_variable_display()
     check_codebuild_vpc_display()
+    check_subnet_list_links()
     check_guardduty_feature_display()
     check_cloudtrail_data_resources()
     check_codepipeline_display()

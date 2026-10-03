@@ -13,6 +13,7 @@ from design_layout import (
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
     resource_name_fields, resource_anchor, resource_has_name_property, resource_mode,
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE,
+    CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, subnet_list_items,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
 from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents
@@ -298,9 +299,23 @@ def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
             else:
                 raise ValueError("CodeBuild non-PLAINTEXT variables require a resource link")
             index += 2
-        elif prop in {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}:
-            counts[prop] = counts.get(prop, 0) + 1
-            prop += f"[{counts[prop]}]"
+        elif prop in LINKED_LIST_PROPERTIES:
+            linked = LINK.fullmatch(value)
+            if prop in CODEBUILD_VPC_PROPERTIES and not linked:
+                raise ValueError("CodeBuild VpcConfig value must be a resource link")
+            items = [value] if linked else subnet_list_items(prop, value)
+            source = ""
+            if not linked:
+                encoded = json.dumps(value, ensure_ascii=True)
+                for char in "|<>[]":
+                    encoded = encoded.replace(char, f"\\u{ord(char):04x}")
+                source = "<!-- subnet-list-source: " + encoded + " --> "
+            field = prop.removesuffix("[]").removeprefix(kind + ".")
+            for offset, item in enumerate(items):
+                counts[prop] = counts.get(prop, 0) + 1
+                result.append([identity, f"{field}[{counts[prop]}]", item, (source if offset == 0 else "") + comment])
+            index += 1
+            continue
         elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
             if index + 1 >= len(rows) or rows[index + 1][1] != GUARDDUTY_FORMAL_FEATURE + "Status":
                 raise ValueError("GuardDuty features require contiguous Name/Status rows")

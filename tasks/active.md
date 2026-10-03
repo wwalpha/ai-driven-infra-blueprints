@@ -1,50 +1,43 @@
-# Blueprint検証の重複削減・結果再利用・サービス並列化
+# Subnet一覧の1要素1行表示
 
 ## Task contract
 - Task type: `governance`
-- Target: framework local blueprint validation
-- Goal: 必須検証と明示scopeを維持し、反復処理の削減、入力が一致する成功結果の再利用、サービス単位の最大4並列により通常の再検証を60秒以内へ近づける。
+- Target: framework subnet-list Markdown generation and validation
+- Goal: 全14リソース型のSubnet配列とSecrets Managerのカンマ区切りSubnet一覧を、CodeBuildと同じ1始まりの連番付き1要素1行表示へ統一する。正式property、値、順序、desired/observedを維持する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] カタログ一覧、resource別model行、表示用pathを一回の処理内で再利用し、異なる入力や後続実行へ古い値を持ち越さない。
-- [R2] 内容hashと入力file集合で成功したcatalog/service検証だけをrepository外へ保存・再利用する。参照先、part、JSON、project、validator/rule/catalog変更で無効化し、破損・不明dependency・実行中変更は再検証またはFAILとする。
-- [R3] 同一targetの複数serviceも最大4並列で検証し、指定順の診断、scope全体の所有権チェック、生成後の参照整合性、失敗service保護を維持する。
-- [R4] 毎回の契約・issue・変更範囲・Acceptance・IaC/安全確認を維持し、fresh検証と計測をrunnerから指定できるようにする。再利用条件をrule/READMEへ記載する。
-- [R5] cache無効化、serial/parallel一致、同一target並列、失敗・中断、scopeと参照境界の回帰検証とframework full local loopを実行する。
+- [R1] 共通表示・逆変換を実装する。正式property末尾の[]だけを表示用[N]へ置き換え、property内で1から連番とする。既存JSON配列／カンマ区切り値も表示時に分割し、正本モデルを上書きせずlosslessに検証する。
+- [R2] 欠番・重複・0始まり・不正値・誤ったresource型や別targetへの参照を拒否する。CodeBuildのSecurityGroupIdsと固有表示順を維持する。
+- [R3] 全対象の生成・逆変換、既存値保持、複数resourceでの連番リセット、失敗時の保存済み表示保護を回帰検証し、表示・モデル・chatbotルールを更新する。
+- [R4] humanが指示したmasterへのmergeを行う。最新masterの既存変更を保持して競合を解消し、統合済みstaged snapshotで全framework local loopを実行する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/design_catalog.py`
 - [R1] `changed:framework/scripts/model_design.py`
 - [R1] `changed:framework/scripts/design_layout.py`
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R2] `exists:framework/scripts/validation_cache.py`
 - [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/validation_scope.checks.py`
-- [R4] `changed:framework/scripts/blueprint-loop.py`
-- [R4] `changed:framework/rules/loop-engineering.md`
-- [R4] `changed:README.md`
-- [R5] `exists:framework/scripts/validation_cache.checks.py`
-- [R5] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R3] `changed:framework/scripts/design_layout.checks.py`
+- [R3] `changed:framework/scripts/model_design.checks.py`
+- [R3] `changed:framework/rules/detailed-design.md`
+- [R3] `changed:framework/rules/model-information.md`
+- [R3] `changed:framework/prompts/chatbot/service-design.md`
+- [R4] `changed:tasks/active.md`
 
 ## Allowed paths
 - `tasks/active.md`
-- `framework/scripts/validation_cache.py`
-- `framework/scripts/validation_cache.checks.py`
-- `framework/scripts/design_catalog.py`
-- `framework/scripts/model_design.py`
 - `framework/scripts/design_layout.py`
-- `framework/scripts/sync-model.py`
+- `framework/scripts/model_design.py`
 - `framework/scripts/validate-blueprint.py`
-- `framework/scripts/validation_scope.checks.py`
-- `framework/scripts/blueprint-loop.py`
-- `framework/scripts/blueprint-loop.checks.py`
-- `framework/rules/loop-engineering.md`
-- `README.md`
+- `framework/scripts/design_layout.checks.py`
+- `framework/scripts/model_design.checks.py`
+- `framework/rules/detailed-design.md`
+- `framework/rules/model-information.md`
+- `framework/prompts/chatbot/service-design.md`
 
 ## Out of scope
-- 実targetのmodel／設計／IaC／project、AWS API・mutation・deploy、catalog内容、consumer同期、scenario、commit、push、index変更。
-- 検証を60秒で打ち切ってPASSと扱う変更、scope不足時の全体検証fallback、未成功結果の再利用。
-- 27サービスの計測には指定済みdev/cde scopeのrepository外copyだけを使用し、実consumerを変更しない。
+- catalog/schema変更、単一SubnetIdやSubnetMappings等object配列の形式変更、実targetのdesign/model/IaC/project、consumer同期、AWS操作、scenario、push。
+
+## Git operations
+- humanの明示指示により、今回の変更のstage・commit、最新masterとの競合解消、元checkoutのmasterへのmergeを許可する。

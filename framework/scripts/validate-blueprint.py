@@ -30,7 +30,9 @@ from macie_bucket_tables import job_bucket_tables
 from design_layout import (
     CLOUDTRAIL_DATA_RESOURCE,
     CODEBUILD_FORMAL_VARIABLE,
-    CODEBUILD_VPC_ITEM,
+    LINKED_LIST_PROPERTIES,
+    SUBNET_LIST_PROPERTIES,
+    linked_list_property,
     CODEPIPELINE_STAGE,
     DETAILS_HEADING,
     DISPLAY_PROPERTY_ALIASES,
@@ -1533,6 +1535,8 @@ class Validator:
                         ):
                             property_path = self.resource_property_path(schema_type, cells[1])
                             raw_value = self.unquoted(cells[2])
+                            if cells[1] in SUBNET_LIST_PROPERTIES and raw_value.lstrip().startswith("["):
+                                property_path = property_path.removesuffix("[]")
                             errors = [] if is_service_role_reference(cells[1], cells[2]) or (
                                 cells[1] in identifier_outputs.get(schema_type, set())
                                 and raw_value == "PENDING_DEPLOY"
@@ -2002,13 +2006,18 @@ class Validator:
                         bool(resource and resource[0] == expected[0] and configured_names.get((target, fragment), {}).get(expected[0] + "." + expected[1]) == label),
                         f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {self.relative(source)}: {value}",
                     )
-            for line in source_lines:
+            list_resource_type = ""
+            for line in resource_heading_lines(source_lines):
+                if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    list_resource_type = heading.group(1)
+                elif line.startswith("#"):
+                    list_resource_type = ""
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 if len(cells) != 4:
                     continue
                 cloudtrail = CLOUDTRAIL_DATA_RESOURCE.fullmatch(cells[1])
-                codebuild = CODEBUILD_VPC_ITEM.fullmatch(cells[1])
-                if not cloudtrail and not codebuild:
+                linked_list = linked_list_property(cells[1], list_resource_type)
+                if not cloudtrail and not linked_list:
                     continue
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[2])
                 if not link:
@@ -2019,11 +2028,11 @@ class Validator:
                 expected = (
                     {"S3": "S3.Bucket", "Lambda": "Lambda.Function"}[cloudtrail.group(2)]
                     if cloudtrail else
-                    {"Subnets": "EC2.Subnet", "SecurityGroupIds": "EC2.SecurityGroup"}[codebuild.group(1)]
+                    LINKED_LIST_PROPERTIES[linked_list[0]]
                 )
                 self.check(
                     bool(resource and resource[0] == expected and target.parent == source.parent.resolve()),
-                    f"{('CloudTrail DataResources' if cloudtrail else 'CodeBuild VpcConfig')} must link to a {expected} in the same target: {self.relative(source)}: {cells[2]}",
+                    f"{('CloudTrail DataResources' if cloudtrail else 'Subnet/Security Group list')} must link to a {expected} in the same target: {self.relative(source)}: {cells[2]}",
                 )
             try:
                 source_lines = expanded_display_rows(security_group_table_lines(source_lines))
