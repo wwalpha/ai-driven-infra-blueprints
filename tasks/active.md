@@ -1,36 +1,30 @@
-# CloudFormation比較とissue調査workflowの改善
+# 全環境の比較不能を1,500件以下へ減らす
 
 ## Task contract
 - Task type: `governance`
-- Target: 共通CFn比較、issues保存時の検証処理
-- Goal: Fn::FindInMapを評価し、stack単位の失敗で他serviceの比較を中断せず、issue調査・保存を既存issue gateで停止しない。
+- Target: 共通properties／CloudFormation比較
+- Goal: viewcard-codeの全6 target・全91比較serviceについて比較不能3,137件の原因を調べ、根拠のある比較・欠落判定を実装して1,500件以下へ減らす。根拠のないmismatch化、除外、成功扱いはしない。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] Fn::FindInMapのlocal Mappings、Ref、nested lookupとDefaultValueを評価し、不正・未解決値は比較不能として報告する。CFn decoderのscalar型による同値の誤検知を修復する。
-- [R2] stack読込み・Export・Conditionとserviceの失敗を分離し、正常な比較結果を保持して継続する。失敗・不明なcoverageをPASSと扱わない。
-- [R3] 明示scopeのissues一覧とactive contractだけを許可・変更するmigration taskを調査保存として認識し、通常作業・model保存・AWS mutationのissue gateを維持する。
-- [R4] issuesスキルとルールを更新し、上記動作の回帰とframework local loopを検証する。
+- [R1] target regionから確定するAWS::PartitionとS3.Region、KMS Aliasの名称参照と親Keyへの所属、identityなしの統合resourceを比較する。policy Conditionを組込み関数と誤認せず、modelとCFnのpolicy式を同条件で評価する。生成Nameを名称選択から除外し、確定NameのRefと暗号化Key selectorを意味で比較する。S3／Logsの確定Name由来ARNをlocalで評価し、未解決の生成値とliteralの差だけをmismatchにしない。名称・Name tag・Aliasによる一意な対応を確認し、曖昧な対応や入力不足を成功扱いにしない。
+- [R2] 全宣言stackの読込・型coverageを確認し、実装欠落を根拠付きで判定する。coverage不明、曖昧な対応、未確定identifierは比較不能のまま保持し、参照先の欠落と比較処理の未対応を区別する。
+- [R4] 上記の一致、不一致、修正後の再比較、曖昧な対応・入力不足・欠落判定の回帰を既存focused checksへ追加する。全6 targetのbefore/afterと原因内訳をrepository外へ保存して件数を確認する。
+- [R3] issuesスキルに原因修復後の再比較と一致確認の完了条件、対象限定local validationとの区別を明記する。
 
 ## Acceptance checks
 - [R1] `changed:framework/scripts/check-model-cfn.py`
-- [R1] `changed:framework/scripts/check-model-cfn.checks.py`
-- [R2] `changed:framework/scripts/check-model-cfn.checks.py`
-- [R3] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/issue_gate.checks.py`
-- [R4] `changed:.agents/skills/issues/SKILL.md`
-- [R4] `changed:framework/rules/loop-engineering.md`
+- [R2] `changed:framework/scripts/check-model-cfn.py`
+- [R4] `changed:framework/scripts/check-model-cfn.checks.py`
+- [R3] `changed:.agents/skills/issues/SKILL.md`
 
 ## Allowed paths
 - `tasks/active.md`
 - `framework/scripts/check-model-cfn.py`
 - `framework/scripts/check-model-cfn.checks.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/issue_gate.checks.py`
 - `.agents/skills/issues/SKILL.md`
-- `framework/rules/loop-engineering.md`
 
 ## Out of scope
-- consumer同期、実targetのmodel・設計・IaC・project・issues変更、AWS API、deploy/apply、scenario、commit/push。
+- consumer同期、実targetのmodel・設計・IaC・project・issues変更、未確定parameterの補完、AWS API、deploy/apply、scenario、commit/push、issue gateの緩和。

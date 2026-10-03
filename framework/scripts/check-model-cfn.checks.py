@@ -66,6 +66,14 @@ with tempfile.TemporaryDirectory() as temporary:
 
     assert run()["status"] == "PASS"
     assert run()["checked_properties"] == 2
+    document["Resources"]["Trail"] = {"Type": "AWS::CloudTrail::Trail", "Properties": {
+        "TrailName": "app-dev", "CloudWatchLogsLogGroupArn": "arn:aws:logs:ap-northeast-1:123456789012:log-group:/app/dev:*"}}
+    save(base / "cloudtrail.properties", model("cloudtrail", [("Trail", "CloudTrail.Trail", [
+        ("TrailName", "app-dev"), ("CloudWatchLogsLogGroupArn", "[Group](logs.md#group)")])]))
+    assert run(("cloudtrail", "logs"))["status"] == "PASS"  # Literal ARN and GetAtt identify exactly the same named LogGroup.
+    document["Resources"]["Trail"]["Properties"]["CloudWatchLogsLogGroupArn"] = "arn:aws:logs:ap-northeast-1:123456789012:log-group:/wrong:*"
+    assert any(f["status"] == "mismatch" and f["property"].endswith("LogGroupArn") for f in run(("cloudtrail",))["findings"])
+    del document["Resources"]["Trail"]
     result = run(("unrelated", "logs"))
     assert result["service_results"]["unrelated"]["status"] == "FAIL"
     assert result["service_results"]["logs"]["status"] == "PASS"
@@ -132,7 +140,9 @@ with tempfile.TemporaryDirectory() as temporary:
     assert run()["status"] == "FAIL"
     del props["Tags"]
 
-    policy = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "logs:*", "Resource": "*"}]}
+    policy = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "logs:*",
+              "Resource": {"Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/app/${Environment}:*"},
+              "Condition": {"StringEquals": {"aws:SourceAccount": "123456789012"}}}]}
     save(base / "logs.properties", model("logs", [("Group", "Logs.LogGroup", rows + [
         ("ResourcePolicyDocument", policy)])]))
     props["ResourcePolicyDocument"] = dict(reversed(list(policy.items())))
@@ -223,6 +233,190 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result["stack_findings"][0]["resource_types"] is None
     save(stacks, original_stacks)
 
+    # Alias names resolve locally; the Key's identity and the Alias's parent are both checked.
+    key = model("kms", [("DesignKey", "KMS.Key", [("Enabled", "true")]),
+                        ("DesignAlias", "KMS.Alias", [("AliasName", "alias/app-dev")])])
+    key += "desired.resource.002.parentProperty=KMS.Alias.TargetKeyId\n"
+    key += "desired.resource.002.parentReference=[Key](#designkey)\n"
+    save(base / "kms.properties", key)
+    encryption = "BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID"
+    bucket_policy = {"Statement": [{"Effect": "Allow", "Resource": "arn:aws:s3:::app-dev/*"}]}
+    bucket = model("s3", [("DesignBucket", "S3.Bucket", [("BucketName", "app-dev"),
+                          (encryption, "[alias/app-dev](kms.md#designalias)"), ("PolicyDocument", bucket_policy)])])
+    bucket = bucket.replace("property=S3.Bucket.PolicyDocument", "property=S3.BucketPolicy.PolicyDocument")
+    save(base / "s3.properties", bucket)
+    document = {"Parameters": {"Environment": {"Type": "String"}}, "Resources": {
+        "ActualKey": {"Type": "AWS::KMS::Key", "Properties": {"Enabled": True}},
+        "ActualAlias": {"Type": "AWS::KMS::Alias", "Properties": {
+            "AliasName": {"Fn::Sub": "alias/app-${Environment}"}, "TargetKeyId": {"Ref": "ActualKey"}}},
+        "ActualBucket": {"Type": "AWS::S3::Bucket", "Properties": {
+            "BucketName": "app-dev", "BucketEncryption": {"ServerSideEncryptionConfiguration": [{
+                "ServerSideEncryptionByDefault": {"KMSMasterKeyID": {"Ref": "ActualAlias"}}}]}}},
+        "Policy": {"Type": "AWS::S3::BucketPolicy", "Properties": {"Bucket": {"Ref": "ActualBucket"},
+            "PolicyDocument": {"Statement": [{"Effect": "Allow", "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::${ActualBucket}/*"}}]}}}}}
+    documents[str(template)] = document
+    result = run(("kms", "s3"))
+    assert result["status"] == "PASS" and result["checked_properties"] == 6, result
+    assert not result["findings"] and not result["stack_findings"]
+    cf = document["Resources"]
+    cf["WrongKey"] = {"Type": "AWS::KMS::Key", "Properties": {"Enabled": True}}
+    cf["WrongAlias"] = {"Type": "AWS::KMS::Alias", "Properties": {"AliasName": "alias/wrong", "TargetKeyId": {"Ref": "WrongKey"}}}
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = "alias/wrong"
+    result = run(("kms", "s3"))
+    assert result["status"] == "FAIL" and any(f["status"] == "mismatch" and f["property"].endswith("KMSMasterKeyID") for f in result["findings"])
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = "alias/app-dev"
+    del cf["WrongAlias"], cf["WrongKey"]
+    assert run(("kms", "s3"))["status"] == "PASS"  # CFn correction restores agreement.
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = "alias/external"
+    result = run(("s3",))
+    assert result["service_results"]["s3"]["checked_properties"] == 2
+    assert any(f["status"] == "unverified" and f.get("actual") == ["alias/external"] for f in result["findings"])
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = "alias/app-dev"
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = {"Fn::GetAtt": ["ActualKey", "Arn"]}
+    assert run(("kms", "s3"))["status"] == "PASS"  # The Alias and its exact target Key identify the same encryption key.
+    cf["ActualBucket"]["Properties"]["BucketEncryption"]["ServerSideEncryptionConfiguration"][0]["ServerSideEncryptionByDefault"]["KMSMasterKeyID"] = "alias/app-dev"
+    cf["ActualKey"]["Properties"]["Enabled"] = False
+    assert any(f["status"] == "mismatch" and f["property"] == "KMS.Key.Enabled" for f in run(("kms",))["findings"])
+    cf["ActualKey"]["Properties"]["Enabled"] = True
+    assert run(("kms", "s3"))["status"] == "PASS"
+    cf["ActualAlias"]["Properties"]["TargetKeyId"] = {"Fn::GetAtt": ["ActualKey", "Arn"]}
+    assert run(("kms", "s3"))["status"] == "PASS"  # TargetKeyId accepts the same Key's ID or ARN.
+    cf["ActualAlias"]["Properties"]["TargetKeyId"] = {"Ref": "ActualKey"}
+    save(base / "kms.properties", key.replace("desired.resource.002.parentReference=[Key](#designkey)\n", ""))
+    assert any(f["status"] == "unverified" and "parentReference" in f["reason"] for f in run(("kms",))["findings"])
+    save(base / "kms.properties", key)
+    cf["OtherKey"] = {"Type": "AWS::KMS::Key", "Properties": {"Enabled": True}}
+    save(base / "kms.properties", key.replace("logicalId=DesignKey", "logicalId=ActualKey"))
+    cf["ActualAlias"]["Properties"]["TargetKeyId"] = {"Ref": "OtherKey"}
+    assert any(f["status"] == "mismatch" and f["property"] == "KMS.Alias.TargetKeyId" for f in run(("kms",))["findings"])
+    cf["ActualAlias"]["Properties"]["TargetKeyId"] = {"Ref": "ActualKey"}
+    del cf["OtherKey"]
+    save(base / "kms.properties", key)
+    cf["DuplicateAlias"] = dict(cf["ActualAlias"])
+    assert any(f["status"] == "unverified" and "correspondence" in f["reason"] for f in run(("kms",))["findings"])
+    del cf["DuplicateAlias"]
+    cf["Policy"]["Properties"]["PolicyDocument"] = {"Statement": []}
+    assert any(f["status"] == "mismatch" and f["property"] == "S3.BucketPolicy.PolicyDocument" and f["cfn"]["path"].endswith("app.yaml") for f in run(("s3",))["findings"])
+    cf["Policy"]["Properties"]["PolicyDocument"] = bucket_policy
+    assert run(("kms", "s3"))["status"] == "PASS"
+    cf["DuplicatePolicy"] = dict(cf["Policy"])
+    assert any(f["status"] == "unverified" and "inline resource correspondence" in f["reason"] for f in run(("s3",))["findings"])
+    del cf["DuplicatePolicy"]
+    cf["ExtraPolicy"] = {"Type": "AWS::S3::BucketPolicy", "Properties": {"Bucket": "another-bucket", "PolicyDocument": bucket_policy}}
+    assert any(f["status"] == "mismatch" and f["resource"] == "ExtraPolicy" for f in run(("s3",))["findings"])
+    del cf["ExtraPolicy"]
+
+    comparison = M.Comparison(root, "dev", "blue", ["kms"], lambda path: (documents[path], []))
+    comparison.load_stacks()
+    assert comparison.resolve({"Condition": {"StringEquals": {"aws:SourceAccount": "123456789012"}}}, "App") == {
+        "Condition": {"StringEquals": {"aws:SourceAccount": "123456789012"}}}
+    for region, partition in (("ap-northeast-1", "aws"), ("cn-north-1", "aws-cn"), ("us-gov-west-1", "aws-us-gov")):
+        comparison.target["awsRegion"] = region
+        assert comparison.resolve({"Ref": "AWS::Partition"}, "App") == partition
+        assert comparison.resolve({"Fn::Sub": "arn:${AWS::Partition}:kms"}, "App") == "arn:" + partition + ":kms"
+    comparison.target["awsRegion"] = "us-iso-east-1"
+    try:
+        comparison.resolve({"Ref": "AWS::Partition"}, "App")
+    except M.Unknown:
+        pass
+    else:
+        raise AssertionError("unknown partition treated as commercial AWS")
+
+    # The Subnet's inline association is selected by its parent, not by child logical ID.
+    vpc = model("vpc", [("Net", "EC2.VPC", [("Name", "net-dev")]),
+                        ("Subnet", "EC2.Subnet", [("Name", "subnet-dev"), ("VpcId", "[Net](#net)"),
+                          ("SubnetRouteTableAssociation.RouteTableId", "[Routes](#routes)")]),
+                        ("Routes", "EC2.RouteTable", [("Name", "routes-dev"), ("VpcId", "[Net](#net)")])])
+    vpc = vpc.replace("EC2.Subnet.SubnetRouteTableAssociation.", "EC2.SubnetRouteTableAssociation.")
+    save(base / "vpc.properties", vpc)
+    document["Resources"] = {
+        "Net": {"Type": "AWS::EC2::VPC", "Properties": {"Tags": [{"Key": "Name", "Value": "net-dev"}]}},
+        "Subnet": {"Type": "AWS::EC2::Subnet", "Properties": {"VpcId": {"Ref": "Net"}, "Tags": [{"Key": "Name", "Value": "subnet-dev"}]}},
+        "Routes": {"Type": "AWS::EC2::RouteTable", "Properties": {"VpcId": {"Ref": "Net"}, "Tags": [{"Key": "Name", "Value": "routes-dev"}]}},
+        "Association": {"Type": "AWS::EC2::SubnetRouteTableAssociation", "Properties": {"SubnetId": {"Ref": "Subnet"}, "RouteTableId": {"Ref": "Routes"}}}}
+    assert run(("vpc",))["status"] == "PASS"
+    document["Resources"]["Association"]["Properties"]["RouteTableId"] = {"Ref": "Net"}
+    assert any(f["status"] == "mismatch" and f["property"] == "EC2.SubnetRouteTableAssociation.RouteTableId" for f in run(("vpc",))["findings"])
+    document["Resources"]["Association"]["Properties"]["RouteTableId"] = {"Ref": "Routes"}
+    assert run(("vpc",))["status"] == "PASS"
+    document["Parameters"]["CloudTrailHomeRegion"] = {"Type": "String"}
+    assert run(("vpc",))["status"] == "FAIL" and any("missing parameter" in f["reason"] for f in run(("vpc",))["stack_findings"])
+    save(inputs, '[{"ParameterKey":"Environment","ParameterValue":"dev"},{"ParameterKey":"CloudTrailHomeRegion","ParameterValue":"ap-northeast-1"}]')
+    assert run(("vpc",))["status"] == "PASS"
+
+    save(base / "ec2.properties", model("ec2", [("DesignInstance", "EC2.Instance", [
+        ("Tags[].Key", "Name"), ("Tags[].Value", "app-dev")])]))
+    document["Resources"] = {"ActualInstance": {"Type": "AWS::EC2::Instance", "Properties": {
+        "Tags": [{"Key": "Name", "Value": "app-dev"}]}}}
+    assert run(("ec2",))["status"] == "PASS"  # Name tag establishes identity despite different logical IDs.
+    document["Resources"]["DuplicateInstance"] = dict(document["Resources"]["ActualInstance"])
+    assert any(f["status"] == "unverified" and "correspondence" in f["reason"] for f in run(("ec2",))["findings"])
+
+    save(base / "s3.properties", model("s3", [("Bucket", "S3.Bucket", [("BucketName", "app-dev"), ("Region", "ap-northeast-1")])]))
+    document["Resources"] = {"Bucket": {"Type": "AWS::S3::Bucket", "Properties": {"BucketName": "app-dev"}}}
+    assert run(("s3",))["status"] == "PASS"
+    save(base / "s3.properties", model("s3", [("Bucket", "S3.Bucket", [("BucketName", "app-dev"), ("Region", "us-east-1")])]))
+    assert any(f["status"] == "mismatch" and f["property"] == "S3.Bucket.Region" for f in run(("s3",))["findings"])
+
+    save(base / "glue.properties", model("glue", [("DesignConnection", "Glue.Connection", [
+        ("ConnectionInput.Name", "app-dev"), ("Name", "[Connection](#designconnection)")])]))
+    document["Resources"] = {"ActualConnection": {"Type": "AWS::Glue::Connection", "Properties": {"ConnectionInput": {"Name": "app-dev"}}}}
+    assert run(("glue",))["status"] == "PASS"  # Generated Name output is not a second configured name.
+
+    # Absence requires complete type coverage, not merely zero matching candidates.
+    shutil.rmtree(base / "logs")
+    save(base / "logs.properties", model("logs", [("Group", "Logs.LogGroup", rows)]))
+    result = run()
+    missing = result["findings"][0]
+    assert missing["status"] == "mismatch" and missing["coverage"]["complete"], result
+    assert missing["expected"]["resource_type"] == "AWS::Logs::LogGroup" and missing["actual"] == []
+    assert missing["coverage"]["stacks"][0]["cfn"]["path"].endswith("app.yaml")
+    document["Resources"] = {"ActualGroup": {"Type": "AWS::Logs::LogGroup", "Properties": {
+        "LogGroupName": "/wrong", "RetentionInDays": 14}}}
+    result = run()
+    assert result["findings"][0]["expected"]["value"] == "/app/dev"
+    assert result["findings"][0]["actual"][0]["value"] == "/wrong"
+    actual_group = document["Resources"]["ActualGroup"]
+    for name in (None, {"Fn::Unsupported": "unknown"}, "PENDING_DEPLOY"):
+        if name is None:
+            actual_group["Properties"].pop("LogGroupName")
+        else:
+            actual_group["Properties"]["LogGroupName"] = name
+        assert run()["findings"][0]["status"] == "unverified"
+    actual_group["Properties"]["LogGroupName"] = "/app/dev"
+    assert run()["status"] == "PASS"  # Correcting CFn restores correspondence and comparison.
+    save(base / "logs.properties", model("logs", [("Group", "Logs.LogGroup", [
+        ("LogGroupName", "PENDING_DEPLOY")])]))
+    assert run()["findings"][0]["status"] == "unverified"
+    save(base / "logs.properties", model("logs", [("Group", "Logs.LogGroup", rows)]))
+    actual_group["Condition"] = "Disabled"
+    document["Conditions"] = {"Disabled": {"Fn::Equals": [1, 2]}}
+    assert run()["findings"][0]["status"] == "mismatch"  # A confirmed false Condition means no active resource.
+    actual_group["Condition"] = "MissingCondition"
+    assert all(f["status"] == "unverified" for f in run()["findings"])
+    del actual_group["Condition"]
+
+    save(stacks, original_stacks + "desired.stack.002.name=Storage\ndesired.stack.002.template=storage.yaml\n"
+         "desired.stack.002.parameters=storage.json\ndesired.stack.002.deployOrder=2\n")
+    storage_doc["Resources"] = {"MaybeGroup": {"Type": "AWS::Logs::LogGroup", "Properties": {"LogGroupName": "/app/dev"}}}
+    storage_doc["Parameters"] = {"Missing": {"Type": "String"}}
+    documents[str(storage)] = storage_doc
+    actual_group["Properties"]["LogGroupName"] = "/wrong"
+    assert all(f["status"] == "unverified" for f in run()["findings"])
+    # An unrelated known resource type does not prevent proving a LogGroup absence.
+    storage_doc["Resources"] = {"Bucket": {"Type": "AWS::S3::Bucket"}}
+    assert any(f["status"] == "mismatch" and f.get("coverage", {}).get("complete") for f in run()["findings"])
+    del documents[str(storage)]
+    assert all(f["status"] == "unverified" for f in run()["findings"])
+    save(stacks, original_stacks)
+
+    document["Resources"] = {"Trail": {"Type": "AWS::CloudTrail::Trail", "Properties": {
+        "TrailName": "app-dev", "CloudWatchLogsLogGroupArn": "unused"}}}
+    result = run(("cloudtrail",))
+    assert any(f["status"] == "mismatch" and f["property"].endswith("LogGroupArn") and
+               f["expected"]["resource_type"] == "AWS::Logs::LogGroup" for f in result["findings"])
+
     for directory in ("other", "../blue"):
         try:
             M.Comparison(root, "dev", directory, ["logs"], lambda _: (document, []))
@@ -233,5 +427,19 @@ with tempfile.TemporaryDirectory() as temporary:
 
 assert not M.equal(True, 1)
 assert not M.equal([1], [1, 2])
+generated = M.Reference("App", "Key", "Arn")
+for left, right in ((generated, "arn:aws:kms:unknown"), ([generated], ["arn:aws:kms:unknown"]),
+                    (generated, M.Reference("App", "Key")), ("PENDING_DEPLOY", "PENDING_DEPLOY"),
+                    ("PENDING_DEPLOY", "10.10.0.0/23")):
+    try:
+        M.equal(left, right)
+    except M.Unknown:
+        pass
+    else:
+        raise AssertionError("an unresolved comparison was declared equal or unequal")
+assert M.equal(generated, generated)
+assert not M.equal(generated, M.Reference("App", "OtherKey", "Arn"))
+assert not M.equal({"unknown": generated, "known": 1}, {"unknown": "generated", "known": 2})
+assert not M.equal({"known": 1, "unknown": generated}, {"known": 2, "unknown": "generated"})
 assert M.at_path({"Tags": [{"Key": "A"}, {"Key": "B"}]}, "Tags[].Key") == ["A", "B"]
-print("model-cfn: PASS (FindInMap, stack/service isolation, parameter/default, drift, policy, reference, scope, parts)")
+print("model-cfn: PASS (Partition, Alias/Key identity, grouped resources, CFn correction/recomparison, Name tags, FindInMap, isolation, missing inputs, drift, policy, scope, parts)")

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 
 from design_catalog import DesignSchemaCatalog
-from design_layout import resource_mode, resource_name_fields
+from design_layout import GROUPED, REQUIRED_NAME_TAG_TYPES, resource_mode, resource_name_fields
 from model_design import LINK, entries, properties, stack_model
 from model_files import model_parts, read_model
 from policy_tables import JSON_LINK, invalid_constant, literal, unique_object
@@ -18,6 +18,14 @@ from policy_tables import JSON_LINK, invalid_constant, literal, unique_object
 
 class Unknown(ValueError):
     """An input cannot be compared without inventing a decision or reading AWS."""
+
+
+class MissingResource(Unknown):
+    """A required resource is demonstrably absent from the declared local stacks."""
+
+    def __init__(self, reason, evidence):
+        super().__init__(reason)
+        self.evidence = evidence
 
 
 @dataclass(frozen=True)
@@ -62,17 +70,38 @@ def at_path(document, path, resolve=lambda value: value):
 
 
 def equal(left, right):
+    if any(isinstance(value, str) and value.lower() in {"unset", "pending_deploy", "tbd", "未確定"} for value in (left, right)):
+        raise Unknown("unconfirmed value cannot establish configuration equality")
     if isinstance(left, Reference) or isinstance(right, Reference):
-        return left == right
+        if isinstance(left, Reference) and isinstance(right, Reference):
+            if (left.stack, left.logical_id) == (right.stack, right.logical_id) and left.attribute != right.attribute:
+                raise Unknown("different generated attributes need property-specific comparison")
+            return left == right
+        raise Unknown("generated value cannot be compared with a literal without resolving its value")
     if isinstance(left, dict) and isinstance(right, dict):
-        return left.keys() == right.keys() and all(equal(left[k], right[k]) for k in left)
-    if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(equal(a, b) for a, b in zip(left, right))
-    # YAML decoder scalars carry source marks as subclasses; compare their primitive types.
-    for kind in (bool, str, int, float):
-        if isinstance(left, kind) or isinstance(right, kind):
-            return isinstance(left, kind) and isinstance(right, kind) and left == right
-    return type(left) is type(right) and left == right
+        if left.keys() != right.keys():
+            return False
+        pairs = ((left[k], right[k]) for k in left)
+    elif isinstance(left, list) and isinstance(right, list):
+        if len(left) != len(right):
+            return False
+        pairs = zip(left, right)
+    else:
+        # YAML decoder scalars carry source marks as subclasses; compare their primitive types.
+        for kind in (bool, str, int, float):
+            if isinstance(left, kind) or isinstance(right, kind):
+                return isinstance(left, kind) and isinstance(right, kind) and left == right
+        return type(left) is type(right) and left == right
+    unresolved = None
+    for a, b in pairs:
+        try:
+            if not equal(a, b):
+                return False
+        except Unknown as error:
+            unresolved = error
+    if unresolved:
+        raise unresolved
+    return True
 
 
 class Comparison:
@@ -95,6 +124,7 @@ class Comparison:
         self.models, self.sources = {}, {}
         self.units, self.resources, self.exports = {}, {}, defaultdict(list)
         self.matches, self.matching = {}, set()
+        self.inline_matches = {}
         self.findings, self.checked, self.excluded = [], 0, []
         self.stack_findings = []
         if decoder is None:
@@ -225,7 +255,8 @@ class Comparison:
             return [self.resolve(v, stack, seen) for v in value]
         if not isinstance(value, dict):
             return value
-        keys = [k for k in value if k == "Ref" or k == "Condition" or k.startswith("Fn::")]
+        keys = [k for k in value if k == "Ref" or k.startswith("Fn::") or
+                (k == "Condition" and len(value) == 1 and isinstance(value[k], str))]
         if not keys:
             return {k: self.resolve(v, stack, seen) for k, v in value.items()}
         if len(value) != 1:
@@ -235,12 +266,44 @@ class Comparison:
         if key == "Ref":
             if argument in unit["parameters"]:
                 return unit["parameters"][argument]
+            if argument == "AWS::Partition":
+                region = self.target["awsRegion"]
+                if region.startswith("cn-"):
+                    return "aws-cn"
+                if region.startswith("us-gov-"):
+                    return "aws-us-gov"
+                if re.fullmatch(r"(?:af|ap|ca|eu|il|me|mx|sa|us)-[a-z]+-\d+", region) and not region.startswith("us-iso"):
+                    return "aws"
+                raise Unknown(f"unsupported partition for region: {region}")
             if argument in unit["document"].get("Resources", {}):
+                resource = unit["document"]["Resources"][argument]
+                kind = resource["Type"].removeprefix("AWS::").replace("::", ".")
+                if kind in NAMED_REFS:
+                    marker = ("named-ref", stack, argument)
+                    if marker in seen:
+                        raise Unknown(f"cyclic resource name: {argument}")
+                    try:
+                        names = at_path(resource.get("Properties", {}), NAMED_REFS[kind])
+                    except KeyError:
+                        names = []  # AWS-generated names remain symbolic.
+                    if len(names) == 1:
+                        name = self.resolve(names[0], stack, seen | {marker})
+                        if not isinstance(name, str) or (kind == "KMS.Alias" and not name.startswith("alias/")):
+                            raise Unknown(f"unresolved resource name: {argument}")
+                        return name
                 return Reference(stack, argument)
             raise Unknown(f"unresolved Ref: {argument}")
         if key == "Fn::GetAtt":
             parts = argument.split(".", 1) if isinstance(argument, str) else argument
             if len(parts) == 2 and parts[0] in unit["document"].get("Resources", {}):
+                resource = unit["document"]["Resources"][parts[0]]
+                if parts[1] == "Arn" and resource["Type"] in {"AWS::S3::Bucket", "AWS::Logs::LogGroup"}:
+                    name = self.resolve({"Ref": parts[0]}, stack, seen)
+                    if isinstance(name, str):
+                        partition = self.resolve({"Ref": "AWS::Partition"}, stack, seen)
+                        if resource["Type"] == "AWS::S3::Bucket":
+                            return f"arn:{partition}:s3:::{name}"
+                        return f"arn:{partition}:logs:{self.target['awsRegion']}:{self.target['awsAccountId']}:log-group:{name}:*"
                 return Reference(stack, *parts)
         if key == "Fn::ImportValue":
             if any(not error["coverage"] or error["stack"] not in self.units for error in self.stack_findings):
@@ -333,8 +396,17 @@ class Comparison:
             name_rows = [(row["property"][len(resource["resourceType"]) + 1:], row)
                          for _, row in self.rows(service, identity)
                          if row["property"].startswith(resource["resourceType"] + ".")
-                         and row["property"][len(resource["resourceType"]) + 1:] in names]
+                         and row["property"][len(resource["resourceType"]) + 1:] in names
+                         and row["property"] not in self.catalog_outputs(resource["resourceType"])]
+            if resource["resourceType"] in REQUIRED_NAME_TAG_TYPES:
+                rows = self.rows(service, identity)
+                name_rows += [("Name", value) for (_, tag), (_, value) in zip(rows, rows[1:])
+                              if tag["property"] == resource["resourceType"] + ".Tags[].Key"
+                              and literal(tag["value"]) == "Name"
+                              and value["property"] == resource["resourceType"] + ".Tags[].Value"]
             candidates = exact
+            named_values, names_complete = [], True
+            typed = [ref for ref, candidate in self.resources.items() if candidate.get("Type") == kind]
             if name_rows:
                 if len(name_rows) != 1:
                     raise Unknown("resource name is not unique")
@@ -347,14 +419,50 @@ class Comparison:
                     props = candidate.get("Properties", {})
                     try:
                         values = [t["Value"] for t in props.get("Tags", []) if t.get("Key") == "Name"] if (
-                            field == "Name" and resource["resourceType"] in NAME_TAG_TYPES) else at_path(props, field)
-                        if len(values) == 1 and self.resolve(values[0], ref[0]) == expected:
+                            field == "Name" and resource["resourceType"] in NAME_TAG_TYPES | REQUIRED_NAME_TAG_TYPES) else at_path(props, field)
+                        value = self.resolve(values[0], ref[0]) if len(values) == 1 else None
+                        if not isinstance(value, str) or value.lower() in {"unset", "pending_deploy", "tbd", "未確定"}:
+                            names_complete = False
+                            continue
+                        named_values.append(dict(stack=ref[0], logical_id=ref[1], value=value,
+                                                 cfn=self.location(candidate, self.units[ref[0]]["path"])))
+                        if value == expected:
                             named.append(ref)
                     except (KeyError, ValueError, TypeError, IndexError):
+                        names_complete = False
                         continue
                 if named:
                     candidates = named
+            if resource["resourceType"] == "KMS.Key" and len(candidates) != 1:
+                targets = []
+                for child_id, child in entries(self.model(service), "desired.resource."):
+                    link = LINK.fullmatch(child.get("parentReference", ""))
+                    if child["resourceType"] != "KMS.Alias" or not link or link.group(2) or link.group(3) != resource["anchor"]:
+                        continue
+                    alias = self.match(service, child_id)
+                    target = self.resolve(self.resources[alias].get("Properties", {}).get("TargetKeyId"), alias[0])
+                    if not isinstance(target, Reference) or target.attribute not in {"Ref", "Arn"}:
+                        raise Unknown("Alias TargetKeyId does not identify a local Key")
+                    targets.append((target.stack, target.logical_id))
+                if targets and len(set(targets)) == 1 and self.resources.get(targets[0], {}).get("Type") == kind:
+                    candidates = [targets[0]]
             if len(candidates) != 1:
+                incomplete = [error for error in self.stack_findings if error["coverage"] and (
+                    error["resource_types"] is None or kind in error["resource_types"] or
+                    resource["logicalId"] in (error["logical_ids"] or []))]
+                if not candidates and not incomplete:
+                    evidence = dict(expected=dict(resource_type=kind, logical_id=resource["logicalId"]),
+                                    actual=named_values,
+                                    coverage=dict(complete=True, resource_type=kind,
+                                        scope="required resource type in declared local target stacks", stacks=[
+                                        dict(stack=name, cfn=self.location(unit["document"], unit["path"]))
+                                        for name, unit in self.units.items()]))
+                    if not typed:
+                        raise MissingResource("required resource type is absent from active CFn resources", evidence)
+                    if name_rows and names_complete and expected and not LINK.fullmatch(expected) and expected.lower() not in {
+                            "unset", "pending_deploy", "tbd", "未確定"}:
+                        evidence["expected"].update(property=field, value=expected)
+                        raise MissingResource("confirmed resource name is absent from active CFn resources", evidence)
                 raise Unknown(f"resource correspondence unresolved ({len(candidates)} candidates)")
             if candidates[0] in self.matches.values():
                 raise Unknown("multiple design resources map to the same CFn resource")
@@ -363,9 +471,32 @@ class Comparison:
         finally:
             self.matching.remove(key)
 
-    def expected(self, service, identity, field, row):
+    def match_inline(self, service, identity, kind):
+        key = service, identity, kind
+        if key not in self.inline_matches:
+            resource = dict(entries(self.model(service), "desired.resource."))[identity]
+            rule = GROUPED.get(kind, {})
+            if rule.get("parent") != resource["resourceType"] or rule.get("identityProperty") is not None or rule.get("maxCount") != 1:
+                raise Unknown("inline grouped resource needs explicit correspondence")
+            parent_ref = self.match(service, identity)
+            parent = self.resolve({"Ref": parent_ref[1]}, parent_ref[0])
+            candidates = []
+            for ref, candidate in self.resources.items():
+                if candidate.get("Type") != self.catalog.cloudformation_type(kind):
+                    continue
+                values = at_path(candidate.get("Properties", {}), rule["parentProperty"])
+                if len(values) == 1 and equal(self.resolve(values[0], ref[0]), parent):
+                    candidates.append(ref)
+            if len(candidates) != 1:
+                raise Unknown(f"inline resource correspondence unresolved ({len(candidates)} candidates): {kind}")
+            if candidates[0] in self.inline_matches.values() or candidates[0] in self.matches.values():
+                raise Unknown("multiple design resources map to the same CFn resource")
+            self.inline_matches[key] = candidates[0]
+        return self.inline_matches[key]
+
+    def expected(self, service, identity, field, row, kind=None, stack=None):
         if "document" in row:
-            return read_json(row["document"])
+            return self.resolve(read_json(row["document"]), stack)
         raw = literal(row["value"])
         if JSON_LINK.fullmatch(raw):
             raise Unknown("policy JSON missing authoritative desired document")
@@ -380,25 +511,44 @@ class Comparison:
                 raise Unknown("unresolved or IMPORT design reference")
             target_id, target_resource = referenced[0]
             target_stack, target_logical = self.match(owner, target_id)
+            if target_resource["resourceType"] == "KMS.Alias":
+                if field.rsplit(".", 1)[-1] in KEY_SELECTORS:
+                    parent = target_resource.get("parentReference")
+                    if not parent:
+                        raise Unknown("Alias reference requires parentReference")
+                    return self.expected(owner, target_id, "TargetKeyId", {"value": parent})
+                if "arn" in field.lower():
+                    raise Unknown("Alias name cannot substitute for an ARN reference")
+                names = [r for _, r in self.rows(owner, target_id) if r["property"] == "KMS.Alias.AliasName"]
+                if len(names) != 1:
+                    raise Unknown("Alias reference requires one AliasName")
+                return self.expected(owner, target_id, "AliasName", names[0])
             schema = self.catalog.schema(target_resource["resourceType"])
             if "arn" in field.lower():
                 attrs = [p.rsplit("/", 1)[-1] for p in schema.get("readOnlyProperties", [])
                          if "arn" in p.rsplit("/", 1)[-1].lower()]
                 if len(attrs) != 1:
                     raise Unknown("ARN reference attribute is ambiguous")
-                return Reference(target_stack, target_logical, attrs[0])
+                return self.resolve({"Fn::GetAtt": [target_logical, attrs[0]]}, target_stack)
             leaf = field.rsplit(".", 1)[-1].removesuffix("[]")
             identifier = {p.rsplit("/", 1)[-1] for p in schema.get("primaryIdentifier", [])}
             aliases = {"Subnets": "SubnetId", "SubnetIds": "SubnetId",
-                       "SecurityGroupIds": "GroupId", "KmsKeyId": "KeyId", "TargetKeyId": "KeyId"}
+                       "SecurityGroupIds": "GroupId", "KmsKeyId": "KeyId", "KMSKeyId": "KeyId", "KMSMasterKeyID": "KeyId",
+                       "TargetKeyId": "KeyId", "S3BucketName": "BucketName", "Role": "RoleName"}
             if len(identifier) != 1 or aliases.get(leaf, leaf) not in identifier:
                 raise Unknown("reference does not identify an unambiguous Ref return value")
+            if target_resource["resourceType"] in NAMED_REFS:
+                name = target_resource["resourceType"] + "." + NAMED_REFS[target_resource["resourceType"]]
+                rows = [r for _, r in self.rows(owner, target_id) if r["property"] == name]
+                if len(rows) == 1:
+                    return self.expected(owner, target_id, NAMED_REFS[target_resource["resourceType"]], rows[0])
             return Reference(target_stack, target_logical)
         resource = dict(entries(self.model(service), "desired.resource."))[identity]
+        kind = kind or resource["resourceType"]
         try:
-            node = self.catalog.property_schema(resource["resourceType"], field)
+            node = self.catalog.property_schema(kind, field)
         except KeyError:
-            if field == "Name" and resource["resourceType"] in NAME_TAG_TYPES:
+            if (field == "Name" and resource["resourceType"] in NAME_TAG_TYPES) or (kind == "S3.Bucket" and field == "Region"):
                 return raw
             raise Unknown(f"unsupported design property: {field}") from None
         if raw.lower() in {"unset", "pending_deploy", "tbd", "未確定"}:
@@ -430,44 +580,80 @@ class Comparison:
             selected = defaultdict(list)
             for key, row in self.rows(service, identity):
                 prop = row["property"]
-                if not prop.startswith(kind + "."):
-                    self.finding("unverified", service, logical, prop,
-                                 "inline grouped resource needs explicit correspondence", source, cfn=cfn)
-                    continue
-                field = prop[len(kind) + 1:]
-                if prop in self.catalog_outputs(kind):
+                if prop.startswith(kind + ".") and prop in self.catalog_outputs(kind):
                     continue  # Generated identifiers are not configuration inputs.
-                selected[field].append((key, row))
-            for field, rows in selected.items():
-                source = self.sources[service, f"desired.row.{rows[0][0]}.value"]
+                selected[prop].append((key, row))
+            if kind in GROUPED:
+                prop = kind + "." + GROUPED[kind]["parentProperty"]
+                if resource.get("parentProperty") != prop or not resource.get("parentReference"):
+                    raise Unknown("grouped resource requires valid parentProperty and parentReference")
+                if prop not in selected:
+                    selected[prop].append((None, {"value": resource["parentReference"]}))
+            for prop, rows in selected.items():
+                source = self.sources[service, f"desired.row.{rows[0][0]}.value" if rows[0][0] else
+                                      f"desired.resource.{identity}.parentReference"]
+                cfn = self.location(actual_resource, self.units[ref[0]]["path"])
+                expected = actual = None
                 try:
-                    expected = [self.expected(service, identity, field, row) for _, row in rows]
-                    props = actual_resource.get("Properties", {})
-                    if field == "Name" and kind in NAME_TAG_TYPES:
-                        actual = [self.resolve(t["Value"], ref[0]) for t in props.get("Tags", [])
+                    row_kind, field = kind, prop[len(kind) + 1:]
+                    if not prop.startswith(kind + "."):
+                        row_kind = next((child for child in GROUPED if prop.startswith(child + ".")), "")
+                        field = prop[len(row_kind) + 1:]
+                    row_ref = ref if row_kind == kind else self.match_inline(service, identity, row_kind)
+                    candidate = self.resources[row_ref]
+                    cfn = self.location(candidate, self.units[row_ref[0]]["path"])
+                    expected = [self.expected(service, identity, field, row, row_kind, row_ref[0]) for _, row in rows]
+                    props = candidate.get("Properties", {})
+                    if row_kind == "S3.Bucket" and field == "Region":
+                        actual = [self.target["awsRegion"]]
+                    elif field == "Name" and kind in NAME_TAG_TYPES:
+                        actual = [self.resolve(t["Value"], row_ref[0]) for t in props.get("Tags", [])
                                   if t.get("Key") == "Name"]
                     else:
-                        actual = [self.resolve(v, ref[0]) for v in at_path(
-                            props, field, lambda value: self.resolve(value, ref[0]))]
+                        actual = [self.resolve(v, row_ref[0]) for v in at_path(
+                            props, field, lambda value: self.resolve(value, row_ref[0]))]
+                    if field.rsplit(".", 1)[-1] in KEY_SELECTORS | {"TargetKeyId"}:
+                        expected = [self.key_reference(v) for v in expected]
+                        actual = [self.key_reference(v) for v in actual]
                     # One JSON array row may encode the complete primitive array.
                     if "[]" in field and len(expected) == 1 and isinstance(expected[0], list):
                         expected = expected[0]
+                    same = equal(expected, actual)
                     self.checked += 1
-                    if not equal(expected, actual):
-                        self.finding("mismatch", service, logical, kind + "." + field,
+                    if not same:
+                        self.finding("mismatch", service, logical, prop,
                                      "configuration value differs", source, cfn=cfn,
                                      expected=expected, actual=actual)
+                except MissingResource as error:
+                    self.finding("mismatch", service, logical, prop, str(error), source, cfn=cfn, **error.evidence)
                 except KeyError:
-                    self.finding("mismatch", service, logical, kind + "." + field,
+                    self.finding("mismatch", service, logical, prop,
                                  "selected property is absent from CFn", source, cfn=cfn)
                 except (ValueError, TypeError, IndexError) as error:
-                    self.finding("unverified", service, logical, kind + "." + field, str(error), source, cfn=cfn)
+                    self.finding("unverified", service, logical, prop, str(error), source, cfn=cfn,
+                                 expected=expected, actual=actual)
+        except MissingResource as error:
+            self.finding("mismatch", service, logical, "resource", str(error), source, **error.evidence)
         except (ValueError, KeyError) as error:
             self.finding("unverified", service, logical, "resource", str(error), source)
 
     def catalog_outputs(self, kind):
         from model_design import catalog_outputs
         return catalog_outputs(self.root, kind)
+
+    def key_reference(self, value):
+        if isinstance(value, str) and value.startswith("alias/"):
+            aliases = [ref for ref, resource in self.resources.items() if resource.get("Type") == "AWS::KMS::Alias"
+                       and self.resolve({"Ref": ref[1]}, ref[0]) == value]
+            if len(aliases) > 1:
+                raise Unknown("ambiguous AliasName in key reference")
+            if aliases:
+                ref = aliases[0]
+                value = self.resolve(self.resources[ref].get("Properties", {}).get("TargetKeyId"), ref[0])
+        if isinstance(value, Reference) and value.attribute == "Arn" and self.resources.get(
+                (value.stack, value.logical_id), {}).get("Type") == "AWS::KMS::Key":
+            return Reference(value.stack, value.logical_id)
+        return value
 
     def run(self):
         self.load_stacks()
@@ -485,6 +671,8 @@ class Comparison:
                         kinds.add(self.catalog.cloudformation_type(resource["resourceType"]))
                     except ValueError:
                         pass  # compare_resource records the unknown type without skipping healthy resources.
+                kinds.update(self.catalog.cloudformation_type(child) for child in GROUPED
+                             if any(row["property"].startswith(child + ".") for _, row in entries(self.model(service), "desired.row.")))
                 for error in self.stack_findings:
                     if logical_ids and error["coverage"] and (error["resource_types"] is None or
                             kinds.intersection(error["resource_types"]) or logical_ids.intersection(error["logical_ids"])):
@@ -507,11 +695,17 @@ class Comparison:
 
     def check_extra_resources(self, service, resources):
         kinds = {r["resourceType"] for _, r in resources}
+        inline = {child: [identity for identity, resource in resources
+                          if any(row["property"].startswith(child + ".") for _, row in self.rows(service, identity))
+                          and resource["resourceType"] != child] for child in GROUPED}
+        kinds.update(child for child, parents in inline.items() if parents)
         for kind in kinds - self.catalog.api_schemas.keys():
             ids = [i for i, r in resources if r["resourceType"] == kind and resource_mode(r) == "CREATE"]
-            if any((service, i) not in self.matches for i in ids):
+            parents = inline.get(kind, [])
+            if any((service, i) not in self.matches for i in ids) or any(
+                    (service, i, kind) not in self.inline_matches for i in parents):
                 continue  # Already unverified; do not relabel ambiguous candidates as extras.
-            mapped = {self.matches[service, i] for i in ids}
+            mapped = {self.matches[service, i] for i in ids} | {self.inline_matches[service, i, kind] for i in parents}
             cfn_kind = self.catalog.cloudformation_type(kind)
             for ref, resource in self.resources.items():
                 if resource.get("Type") == cfn_kind and ref not in mapped:
@@ -521,6 +715,9 @@ class Comparison:
 
 
 NAME_TAG_TYPES = {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
+KEY_SELECTORS = {"KmsKeyId", "KMSKeyId", "KMSMasterKeyID"}
+NAMED_REFS = {"KMS.Alias": "AliasName", "S3.Bucket": "BucketName", "IAM.Role": "RoleName",
+              "Logs.LogGroup": "LogGroupName", "Glue.Connection": "ConnectionInput.Name", "Glue.Job": "Name"}
 
 
 def main():

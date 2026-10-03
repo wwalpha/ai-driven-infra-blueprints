@@ -38,10 +38,16 @@ python framework/scripts/check-model-cfn.py --environment <env> --target-directo
 - `--service`は依頼された各serviceについて繰り返す。複数targetはtargetごとに実行する。Terraform targetにはCFn比較を適用しない。
 - 正本`cloudformation-stacks.properties`からstack・template・parameterを選び、target固有parameter/defaultを適用したCFnとservice modelの`desired.*`を比較する。共用templateを別environmentのparameterで評価しない。Markdownやobserved valueを設計値の代わりにしない。
 - JSON結果の`findings`をservice別に問題一覧へ反映する。`mismatch`は不一致、`unverified`は比較不能・未確認として明記する。exit 0は比較範囲の完了、exit 1は不一致／比較不能、exit 2は入力・実行環境などの検証失敗。`NOT_APPLICABLE`は比較対象なしであり全体一致ではない。
+- 比較不能の原因をツール未対応、入力不足、resource対応不明へ分ける。humanが修復を依頼した場合はその明示scopeで原因を修復して同じenvironment/target/serviceを再比較する。未確定parameterは推測しない。`unverified`を`mismatch`へ付け替えたり、一覧から除去しただけで修復・同期完了としない。
+- 全宣言stackの型coverageが完全な場合、必要型のactive resourceが0件、または同型候補すべての確定名称が設計の名称と異なることを根拠付きで欠落と判定できる。結果の`coverage`にlocal targetの調査stack、`expected`に必要型・名称、`actual`に候補名称とCFn位置を保持する。これはlocal CFnの未実装・名称差の確認であり、AWS実体の不在や修復済みを意味しない。型coverage不明、generated name、未確定名称、条件評価失敗、複数候補は比較不能を維持する。根拠付き欠落を特定した件数と一致確認・修復件数を分けて報告する。
+- 承認済み`desired.*`とCFnの不一致は、根拠を確認した上で明示されたinfrastructure修復taskでCFn側を修正し、再比較する。今回の比較範囲の一致確認には、command全体と対象`service_results`が`PASS`、`findings`と`stack_findings`が空、対象serviceの`checked_properties`が1以上であることを要求する。併せて対象限定local loopでmodelと生成Markdown／JSONの一致を確認する。入力不足や曖昧な対応が残れば未完了と報告し、`NOT_APPLICABLE`・一部項目だけの成功で同期完了としない。この確認は選択済み設計値とlocal CFnの一致であり、AWS実体への反映確認は許可されたdeploy taskの成功確認が別途必要。
 - stack読込み・Export・Conditionの失敗は`stack_findings`に残り、他stack・serviceの比較は継続する。`service_results`の成否と検証件数をserviceごとに確認する。stack失敗の影響が特定できない場合も比較済みと扱わず、一覧冒頭にstack名・根拠・比較不能範囲を保存する。stack診断だけが残る場合も「問題なし」としない。
 - 検知対象はresource対応・型・余分なresource、選択済みliteralとparameter値、配列の値・順序・件数、`.Name`→Name tag、正本`document`内のpolicy JSON、基本的なresource参照。`!Ref`・`!GetAtt`はresourceと属性を、`!ImportValue`は同targetのlocal Output/Exportを照合する。AWS上にしかないExportは取得せず比較不能とする。
 - `!FindInMap`はlocal Mappingsと確定parameter／pseudo parameterを使って評価する。nested lookupと明示DefaultValueも評価し、mapping欠落・未解決key・不正な式は比較不能として残す。Transformを必要とするtemplateは引き続き比較不能となる。
-- IMPORTとCFn非対応API型は`excluded`へ明示される。未知型、曖昧なresource対応、未対応式、JSON正本不足、暗黙grouped resourceは比較不能として残る。チェックがPASSでも、CFnの全未選択設定や全組み込み関数を検証済みとは報告しない。追加の調査が必要なら依頼範囲内で根拠を確認し、自動比較結果を黙ってPASSへ書き換えない。
+- `AWS::Partition`はtarget regionから通常AWS、中国、GovCloudのpartitionを解決する。KMS Aliasへの名称参照はAliasNameで比較し、Aliasの省略されたTargetKeyIdはmodelのparentReferenceから照合する。Keyのlogical IDが異なる場合は所属Aliasの一意なTargetKeyIdで対応を確認する。identityなしのS3 BucketPolicy／SubnetRouteTableAssociationは、包含する親への参照で対応を確認して選択済み設定を比較する。一意に対応しない候補や未対応partitionを推測で一致にしない。
+- S3の設計用Regionはproject.jsonのtarget regionと比較する。resourceの名称対応ではcatalogの生成outputを除外する。確定Nameを返すRefはlocal値へ解決する。policy内のCondition objectをCFn Condition参照として評価せず、modelのdocument内のCFn式も同じtarget・stack条件で評価してから比較する。暗号化のKmsKeyId／KMSKeyId／KMSMasterKeyIDではlocal AliasのTargetKeyIdを照合し、同一KeyへのAlias・Ref・Arnを区別して不一致にしない。外部Aliasや未確定のphysical IDを推測で対応付けない。
+- 確定したS3 BucketName／LogGroupNameから得られるArnは処理中だけ評価してliteralと比較し、modelへ保存しない。未解決の生成値とliteralの差、同じresourceの未正規化attribute差、PENDING_DEPLOY等の未確定値だけではmismatch／一致と断定しない。比較できた別の値・key・件数に確定した差があればmismatchを維持する。比較不能には理由と評価途中の両側の値を付け、判定できなかったpropertyをchecked_propertiesへ数えない。
+- IMPORTとCFn非対応API型は`excluded`へ明示される。未知型、曖昧なresource対応、未対応式、JSON正本不足、一意に対応できないgrouped resourceは比較不能として残る。チェックがPASSでも、CFnの全未選択設定や全組み込み関数を検証済みとは報告しない。追加の調査が必要なら依頼範囲内で根拠を確認し、自動比較結果を黙ってPASSへ書き換えない。
 - 同じ不一致を毎回AIで再判定せず、このチェック結果を根拠にする。AIは原因の整理と、依頼された場合の対応案に使う。
 
 ## 出力
