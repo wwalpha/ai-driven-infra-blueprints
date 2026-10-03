@@ -188,10 +188,39 @@ def comparison_fields(fields: dict, translations: dict, service: str, references
     return result
 
 
+def exclude_environment_differences(result: dict, approvals: list[dict], services: list[str]) -> None:
+    """Exclude only confirmed differences whose identity and original values still match."""
+    differences = {(item["service"], tuple(item["identity"])): item for item in result["differences"]}
+    confirmed = {}
+    for item in approvals:
+        if (not isinstance(item, dict) or set(item) != {"service", "identity", "left", "right", "reason"}
+                or not all(isinstance(item[key], str) and item[key].strip() for key in ("service", "reason"))
+                or item["service"] not in services
+                or not isinstance(item["identity"], list) or not item["identity"]
+                or not all(isinstance(key, str) and key for key in item["identity"])
+                or not all(isinstance(item[key], str) for key in ("left", "right"))):
+            raise ValueError("environment difference requires selected service, identity, left/right values and reason")
+        key = (item["service"], tuple(item["identity"]))
+        difference = differences.get(key)
+        if key in confirmed:
+            raise ValueError(f"duplicate confirmed environment difference: {key}")
+        if (difference is None or difference["kind"] != "changed"
+                or any(difference[side]["value"] != item[side] for side in ("left", "right"))):
+            raise ValueError(f"confirmed environment difference is missing, unconfirmed or stale: {key}")
+        confirmed[key] = item["reason"]
+    # Apply only after every approval passes, so invalid input never partially hides differences.
+    result["environment_differences"] = [
+        {**item, "reason": confirmed[item["service"], tuple(item["identity"])]}
+        for item in result["differences"] if (item["service"], tuple(item["identity"])) in confirmed]
+    result["differences"] = [item for item in result["differences"]
+                             if (item["service"], tuple(item["identity"])) not in confirmed]
+
+
 def compare_pair(root: Path, left: str, right: str, target: str, services: list[str], resource_map: Path | None = None) -> dict:
     result = {"left": left, "right": right, "target": target,
               "status": "complete", "services": [], "differences": [], "errors": [],
-              "resource_matches": [], "unconfirmed": [], "excluded": []}
+              "resource_matches": [], "unconfirmed": [], "excluded": [],
+              "environment_differences": [], "difference_count": 0}
     try:
         project = json.loads((root / "project.json").read_text(encoding="utf-8"))
         targets = project["targets"]
@@ -212,14 +241,18 @@ def compare_pair(root: Path, left: str, right: str, target: str, services: list[
             raise ValueError("target has no service model entrances; comparison is unconfirmed")
         selected = sorted(set(services) if services else models[0].keys() | models[1].keys())
         mappings = []
+        environment_differences = []
         if resource_map is not None:
             document = json.loads(resource_map.read_text(encoding="utf-8"),
                                   object_pairs_hook=unique_object, parse_constant=invalid_constant)
-            if (not isinstance(document, dict) or set(document) != {"left", "right", "target", "resources"}
+            if (not isinstance(document, dict) or not {"left", "right", "target", "resources"} <= set(document)
+                    or set(document) - {"left", "right", "target", "resources", "environment_differences"}
                     or (document["left"], document["right"], document["target"]) != (left, right, target)
-                    or not isinstance(document["resources"], list)):
-                raise ValueError("resource map must specify this left/right/target and a resources array")
+                    or not isinstance(document["resources"], list)
+                    or not isinstance(document.get("environment_differences", []), list)):
+                raise ValueError("resource map must specify this left/right/target, resources and optional environment_differences arrays")
             mappings = document["resources"]
+            environment_differences = document.get("environment_differences", [])
             if any(not isinstance(item, dict) or item.get("service") not in selected for item in mappings):
                 raise ValueError("resource map contains an invalid or unselected service")
         prepared = {}
@@ -274,8 +307,10 @@ def compare_pair(root: Path, left: str, right: str, target: str, services: list[
                     })
             except (OSError, ValueError, KeyError) as error:
                 result["errors"].append({"service": service, "message": str(error)})
+        exclude_environment_differences(result, environment_differences, selected)
     except (OSError, ValueError, KeyError, TypeError) as error:
         result["errors"].append({"service": None, "message": str(error)})
+    result["difference_count"] = len(result["differences"])
     if result["errors"]:
         result["status"] = "incomplete"
     elif result["unconfirmed"]:
@@ -289,7 +324,8 @@ def main() -> int:
     parser.add_argument("--pair", choices=("dev-stg", "stg-prod"), help="Compare only this environment pair")
     parser.add_argument("--target", choices=("cde", "non-cde"), help="Compare only this target")
     parser.add_argument("--service", action="append", default=[], help="Limit to named service IDs; repeatable")
-    parser.add_argument("--resource-map", type=Path, help="JSON with confirmed resource correspondence for one pair/target")
+    parser.add_argument("--resource-map", type=Path,
+                        help="JSON with confirmed resource correspondence and optional environment differences for one pair/target")
     args = parser.parse_args()
     if args.resource_map is not None and (args.pair is None or args.target is None):
         parser.error("--resource-map requires --pair and --target")

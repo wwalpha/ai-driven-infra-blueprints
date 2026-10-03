@@ -59,6 +59,7 @@ def cli(root, *args, expected=None):
     assert not result.stderr, result.stderr
     report = json.loads(result.stdout)
     assert report["namespace"] == "desired"
+    assert all(item["difference_count"] == len(item["differences"]) for item in report["comparisons"])
     assert [(item["left"], item["right"], item["target"]) for item in report["comparisons"]] == (
         compare.PAIRS if expected is None else expected)
     return result.returncode, report["comparisons"]
@@ -279,7 +280,97 @@ def import_mode_checks():
         assert "ExternalTarget" in pairs[0]["differences"][0]["identity"][-3]
 
 
+def environment_difference_checks():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(json.dumps({"targets": [
+            {"environment": env, "alias": "cde", "awsAccountId": account}
+            for env, account in (("dev", "639200939566"), ("stg", "589542329786"))]}), encoding="utf-8")
+        paths = [root / "model" / env / "cde/athena.properties" for env in ("dev", "stg")]
+        for env, path, account, suffix in zip(("dev", "stg"), paths,
+                                             ("639200939566", "589542329786"), ("-cde", "")):
+            save(path, f"""desired.service.athena.serviceId=athena
+desired.resource.001.resourceType=Athena.WorkGroup
+desired.resource.001.logicalId={env.title()}QuickSight
+desired.resource.001.anchor=athena-{env}-qs
+desired.row.001-001.property=Athena.WorkGroup.Name
+desired.row.001-001.value=athwg-venusinf-{env}-iad-pii-cde
+desired.row.001-002.property=Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.OutputLocation
+desired.row.001-002.value=s3://venusinf-{env}-internal-processing-{account}{suffix}/temp/athena-query-results/swg-venusinf-{env}-qs-iad-pii-cde/
+desired.row.001-003.property=Athena.WorkGroup.WorkGroupConfiguration.EnforceWorkGroupConfiguration
+desired.row.001-003.value=true
+observed.row.001-001.value=ignored-{env}
+""")
+        args = ("--pair", "dev-stg", "--target", "cde", "--service", "athena")
+        expected = [("dev", "stg", "cde")]
+        mapping = {"left": "dev", "right": "stg", "target": "cde", "resources": [
+            {"service": "athena", "resourceType": "Athena.WorkGroup", "left": "DevQuickSight",
+             "right": "StgQuickSight", "reason": "confirmed same QuickSight department/information class"}]}
+        mapping_path = root / "map.json"
+        mapping_path.write_text(json.dumps(mapping), encoding="utf-8")
+        mapped_args = (*args, "--resource-map", str(mapping_path))
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        raw = pairs[0]["differences"]
+        assert code == 0 and pairs[0]["difference_count"] == 2 and not pairs[0]["environment_differences"]
+        # Confirmation is exact and field-specific; matching resource roles alone do not hide names/paths.
+        approvals = [{"service": item["service"], "identity": item["identity"],
+                      "left": item["left"]["value"], "right": item["right"]["value"],
+                      "reason": "confirmed environment-specific QuickSight name/result destination"} for item in raw]
+        mapping["environment_differences"] = approvals
+        mapping_path.write_text(json.dumps(mapping), encoding="utf-8")
+        snapshot = {file: file.read_bytes() for file in root.rglob("*") if file.is_file()}
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        pair = pairs[0]
+        assert code == 0 and pair["status"] == "complete" and pair["difference_count"] == 0
+        assert not pair["differences"] and len(pair["environment_differences"]) == 2 and not pair["excluded"]
+        assert [{key: value for key, value in item.items() if key != "reason"}
+                for item in pair["environment_differences"]] == raw
+        assert {file: file.read_bytes() for file in root.rglob("*") if file.is_file()} == snapshot
+
+        original = paths[1].read_text(encoding="utf-8")
+        paths[1].write_text(original.replace(".value=true", ".value=false"), encoding="utf-8")
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        assert code == 0 and pairs[0]["difference_count"] == 1 and len(pairs[0]["environment_differences"]) == 2
+        assert pairs[0]["differences"][0]["identity"][3].endswith("EnforceWorkGroupConfiguration")
+
+        # New names, destinations and one-sided properties invalidate old confirmations.
+        for text, count in ((original.replace("stg-iad-pii-cde", "stg-iad-nonpii-cde"), 2),
+                            (original.replace("/temp/athena-query-results/", "/another-purpose/"), 2),
+                            ("\n".join(line for line in original.splitlines()
+                                      if not line.startswith("desired.row.001-002.")) + "\n", 3)):
+            paths[1].write_text(text, encoding="utf-8")
+            code, pairs = cli(root, *mapped_args, expected=expected)
+            assert code == 1 and pairs[0]["status"] == "incomplete" and pairs[0]["difference_count"] == count, pairs
+            assert not pairs[0]["environment_differences"] and pairs[0]["errors"]
+        paths[1].write_text(original, encoding="utf-8")
+
+        for invalid in (None, {}, [*approvals, approvals[0]],
+                        [{**approvals[0], "service": "s3"}], [{**approvals[0], "reason": " "}],
+                        [{**approvals[0], "identity": []}], [{**approvals[0], "identity": [42]}],
+                        [{**approvals[0], "identity": ["unknown"]}], [{**approvals[0], "left": "stale"}],
+                        [{**approvals[0], "right": None}], [{**approvals[0], "extra": "unknown"}]):
+            mapping_path.write_text(json.dumps({**mapping, "environment_differences": invalid}), encoding="utf-8")
+            code, pairs = cli(root, *mapped_args, expected=expected)
+            assert code == 1 and pairs[0]["status"] == "incomplete" and pairs[0]["errors"], invalid
+            assert not pairs[0]["environment_differences"]
+        mapping_path.write_text(json.dumps({**mapping, "resources": []}), encoding="utf-8")
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        assert code == 1 and len(pairs[0]["unconfirmed"]) == 2 and pairs[0]["errors"]
+        # Same Logical ID needs no explicit correspondence entries to exclude confirmed fields.
+        paths[1].write_text(original.replace("StgQuickSight", "DevQuickSight"), encoding="utf-8")
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        assert code == 0 and pairs[0]["difference_count"] == 0 and len(pairs[0]["environment_differences"]) == 2
+        paths[1].write_text(original, encoding="utf-8")
+        mapping_path.write_text(json.dumps(mapping), encoding="utf-8")
+        for path in paths:
+            path.write_text(path.read_text(encoding="utf-8") + "desired.resource.001.resourceMode=IMPORT\n", encoding="utf-8")
+        code, pairs = cli(root, *mapped_args, expected=expected)
+        assert code == 1 and pairs[0]["errors"] and len(pairs[0]["excluded"]) == 2
+        assert not pairs[0]["environment_differences"]
+
+
 def main():
+    environment_difference_checks()
     import_mode_checks()
     logical_id_checks()
     with tempfile.TemporaryDirectory() as directory:
@@ -375,7 +466,7 @@ def main():
         assert cli(root)[1][3]["status"] == "incomplete"
         (root / "project.json").unlink()
         assert all(item["status"] == "incomplete" for item in cli(root)[1])
-    print("Environment desired comparison checks: PASS (IMPORT exclusions, CREATE defaults/references, logical ID mapping, unconfirmed resources, actual settings, invalid maps/modes, four pairs, scope, desired-only, indexed models, evidence, read-only)")
+    print("Environment desired comparison checks: PASS (confirmed environment exclusions/counts, stale/invalid confirmations, IMPORT exclusions, CREATE defaults/references, logical ID mapping, unconfirmed resources, actual settings, invalid maps/modes, four pairs, scope, desired-only, indexed models, evidence, read-only)")
 
 
 if __name__ == "__main__":
