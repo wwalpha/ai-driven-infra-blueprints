@@ -357,6 +357,10 @@ stage内容をrepository外に固定し、その中のrunnerと契約を使い�
 
 回帰は最大2並列で実行し、診断を名前順に表示します。直列比較は`--jobs 1`を指定します。起動時にUTF-8の事前確認を行い、通常のPython起動でも自動でUTF-8 modeへ切り替えます。
 
+通常のtask/local検証は、catalogとserviceの入力内容が前回の成功時と一致すれば結果を再利用します。modelの入口/part、Markdown/JSON、参照先、project、frameworkのコード/rule/catalog/schemaのSHA-256とfile集合で判定し、mtimeだけでは省略しません。成功記録はrepository外のOS一時directory `blueprint-validation-cache`へ保存し、`BLUEPRINT_VALIDATION_CACHE_DIR`でrepository外の保存先を変更できます。破損・不明dependencyでは明示scope内を再検証します。契約、issue、変更範囲、Acceptance、scope全体のresource所有権/stack重複、IaC/deploy安全確認は毎回実行します。
+
+同一targetの複数serviceも最大4並列で検証します。`--validation-jobs 1`で直列実行、`--fresh`で結果再利用を無効化できます。`--mode full`と`--all`はfresh検証です。再利用数と実行数を表示し、60秒を超えても未完了の検証をPASSにしません。
+
 ### Local loopの時間計測
 
 追加指定なしでも、実行ごとにOS一時directoryの`blueprint-loop-*`へ計測ログを保存し、開始時に絶対pathを表示します。継続保存したい場合はrepository外の親directoryを指定します。
@@ -365,7 +369,7 @@ stage内容をrepository外に固定し、その中のrunnerと契約を使い�
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --log-dir /tmp/blueprint-loop-logs
 ```
 
-`--profile`を追加すると、遅い2本（model_design／design_catalog）の関数別内訳も計測します。計測overheadを含むため、通常の所要時間との直接比較は避けます。
+`--profile`を追加すると、validatorと生成照合の子process、model_design／design_catalogの関数別内訳を計測します。初回相当の詳細計測は`--fresh --validation-jobs 1 --profile`を指定します。cProfileは主threadを計測するため、並列workerの関数別内訳は含まれません。計測overheadを含むため、通常の所要時間との直接比較は避けます。
 
 Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換えてください。一時directoryはOSが削除する場合があるため、長期保存にはrepository外の専用directoryを使用します。各実行は別directoryを作り、以前のログを上書きしません。
 
@@ -373,6 +377,7 @@ Windowsでは保存先を例として`C:\Temp\blueprint-loop-logs`へ置き換�
 | --- | --- |
 | `snapshot.json`（`--staged`時） | 比較元commit、HEAD、index tree、元状態との一致、終了code |
 | `*.checks.prof`（`--profile`時） | model_design／design_catalogの関数別cProfile計測。上位25件はcheck logにも出力 |
+| `validate-blueprint.prof` / `sync-model-*.prof`（`--profile`時） | validatorと生成照合の子processのcProfile計測 |
 | `timing.jsonl` | loopとcheckの開始・終了UTC時刻、経過秒数、PID、終了code、成否。30秒ごとの稼働記録も含む |
 | `01-validate-blueprint.py.log`など | check別のstdout/stderr。実行中から直接fileへ保存し、check終了時にterminalにも表示 |
 

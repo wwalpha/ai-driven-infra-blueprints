@@ -16,6 +16,7 @@ from design_layout import (
 )
 from policy_tables import literal, table, unique_object, invalid_constant
 from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents
+from validation_cache import input_scope, memo_table, memoized
 
 
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
@@ -48,6 +49,10 @@ def properties(text: str) -> dict[str, str]:
 
 
 def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, str]]]:
+    memo = memo_table()
+    key = (entries, id(values), prefix)
+    if memo is not None and key in memo:
+        return [(identity, dict(fields)) for identity, fields in memo[key][1]]
     groups: dict[str, dict[str, str]] = {}
     for key, value in values.items():
         if key.startswith(prefix):
@@ -55,7 +60,12 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
             if not separator:
                 raise ValueError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
-    return sorted(groups.items())
+    result = sorted(groups.items())
+    if memo is not None:
+        # Hold the immutable invocation input so object IDs cannot be recycled.
+        memo[key] = (values, result)
+        return [(identity, dict(fields)) for identity, fields in result]
+    return result
 
 
 def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
@@ -168,6 +178,7 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     return names[0]
 
 
+@memoized
 def naming_targets(root: Path) -> dict[str, set[str]]:
     targets: dict[str, set[str]] = {}
     path = root / "framework/rules/aws-resource-naming.md"
@@ -207,6 +218,7 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
             and field.rsplit(".", 1)[-1] not in targets.get(kind, set())]
 
 
+@memoized
 def catalog_outputs(root: Path, kind: str) -> set[str]:
     return {line.partition("=")[0] for path in design_material_files(root)
             if path.stem.replace("_", ".", 1) == kind
@@ -437,6 +449,7 @@ def resource_display_rows(values: dict[str, str], identity: str, resource: dict[
     return rows
 
 
+@input_scope
 def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     """Produce the complete base view; policy tables are rendered afterwards."""
     validate_required_properties(values, root)

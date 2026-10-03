@@ -9,10 +9,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from validation_cache import PassCache, input_scope, memoized
 
 from policy_tables import (
     POLICY_FORMATS,
@@ -157,7 +159,11 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None, contract_scope=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4) -> None:
+        self.workers = workers
+        self.cache = PassCache(root, fresh) if cache else None
+        self.relative_paths = {}
+        self.canonical_root = root.resolve()
         self.scope = scope
         self.contract_scope = contract_scope
         self.generated_models_checked = False
@@ -184,9 +190,15 @@ class Validator:
             self.errors.append(message)
 
     def relative(self, path: Path) -> str:
-        return path.resolve().relative_to(self.root.resolve()).as_posix()
+        if path not in self.relative_paths:
+            self.relative_paths[path] = path.resolve().relative_to(self.canonical_root).as_posix()
+        return self.relative_paths[path]
 
+    @input_scope
     def run(self) -> int:
+        self.relative_paths.clear()
+        if self.cache:
+            self.cache.common = None
         self.check_structure()
         self.check_task_scope()
         self.check_tasks()
@@ -212,6 +224,8 @@ class Validator:
             self.check_results()
             self.check_scenario_changes()
         self.check_acceptance_checks()
+        if self.cache and self.cache.common is not None:
+            self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during validation")
 
         if self.errors:
             print(f"Blueprint repository validation: FAIL ({len(self.errors)} errors)")
@@ -619,22 +633,65 @@ class Validator:
             self.check(path in listed, f"model properties must be a service entrance or its indexed part: {self.relative(path)}")
 
     def check_scoped_designs(self) -> None:
-        groups = {}
-        for environment, target, service in sorted(self.scope):
-            groups.setdefault((environment, target), set()).add((environment, target, service))
+        # These whole-scope checks must also run when individual services are reused.
+        self.check_design_service_ownership(self.design_files())
+        self.check_stack_designs()
+        keys = {}
+        reused = {}
+        for entry in sorted(self.scope):
+            try:
+                keys[entry] = self.cache.service_key(entry) if self.cache else None
+            except (OSError, ValueError, KeyError, TypeError):
+                keys[entry] = None
+            checks = self.cache.load(keys[entry]) if self.cache else None
+            if checks is not None:
+                reused[entry] = checks
+        missing = self.scope - reused.keys()
+        generator = Validator(self.root, missing, workers=self.workers)
+        generator.accounts = self.accounts
+        if missing:
+            generator.check_generated_service_models()
+            self.errors.extend(generator.errors)
+        # Generated equality is covered by each service record; keep target counts stable.
+        self.checks += len({entry[:2] for entry in self.scope})
 
+        @input_scope
         def validate(scope):
             validator = Validator(self.root, scope)
             validator.accounts = self.accounts
             validator.schema_catalog = DesignSchemaCatalog(self.root)
+            validator.generated_models_checked = True
             validator.check_designs()
             validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
             return validator
 
-        with ThreadPoolExecutor(max_workers=min(4, len(groups) or 1)) as executor:
-            for validator in executor.map(validate, groups.values()):
+        with ThreadPoolExecutor(max_workers=min(self.workers, len(missing) or 1)) as executor:
+            mapper = map if self.workers == 1 else executor.map
+            results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)])))
+        successful = []
+        for entry in sorted(self.scope):
+            if entry in reused:
+                self.checks += reused[entry]
+            else:
+                validator = results[entry]
                 self.checks += validator.checks
                 self.errors.extend(validator.errors)
+            if self.cache and keys[entry] is not None:
+                try:
+                    unchanged = keys[entry] == self.cache.service_key(entry)
+                except (OSError, ValueError, KeyError, TypeError):
+                    unchanged = False
+                self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(entry)}")
+                if unchanged and entry not in reused and not results[entry].errors and not generator.errors:
+                    successful.append((keys[entry], results[entry].checks))
+        if self.cache and self.cache.common is not None:
+            unchanged = self.cache.common == self.cache.common_key()
+            self.check(unchanged, "framework/project inputs changed during service validation")
+            if unchanged:
+                for key, checks in successful:
+                    self.cache.save(key, checks)
+        if self.cache:
+            print(f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}")
         self.generated_models_checked = True
 
     def check_generated_service_models(self) -> None:
@@ -643,7 +700,8 @@ class Validator:
         self.generated_models_checked = True
         if self.scope == set():
             return
-        command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root)]
+        command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
+                   "--jobs", str(self.workers)]
         commands = []
         if self.scope is None:
             commands.append([*command, "--all"])
@@ -826,6 +884,26 @@ class Validator:
         self.check(not errors, "; ".join(errors) or "API design catalog is invalid")
 
     def check_catalog(self) -> None:
+        try:
+            key = self.cache.key("catalog") if self.cache else None
+        except (OSError, ValueError, KeyError, TypeError):
+            key = None
+        cached = self.cache.load(key) if self.cache else None
+        if cached is not None:
+            self.checks += cached
+            self.schema_catalog = DesignSchemaCatalog(self.root)
+            print("Catalog validation: reused (content hashes match)")
+            self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during catalog validation")
+            return
+        before, errors = self.checks, len(self.errors)
+        self.check_catalog_inputs()
+        if self.cache and key is not None and errors == len(self.errors):
+            unchanged = self.cache.common == self.cache.common_key()
+            self.check(unchanged, "framework/project inputs changed during catalog validation")
+            if unchanged:
+                self.cache.save(key, self.checks - before - 1)
+
+    def check_catalog_inputs(self) -> None:
         result = subprocess.run(
             [sys.executable, str(self.root / "framework" / "scripts" / "update-catalog-lock.py")],
             cwd=self.root,
@@ -941,6 +1019,7 @@ class Validator:
                 self.check(stack["parameters"] not in parameter_files, f"parameter file belongs to multiple stacks: {stack['parameters']}")
                 parameter_files.add(stack["parameters"])
 
+    @memoized
     def catalog_design_properties(
         self,
     ) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
@@ -2455,6 +2534,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
     parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
+    parser.add_argument("--fresh", action="store_true", help="Revalidate instead of reusing successful content-addressed checks")
+    parser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4, help="Service validation workers")
     return parser.parse_args()
 
 
@@ -2465,8 +2546,19 @@ def main() -> int:
         print(f"repository root is invalid: {root}", file=sys.stderr)
         return 2
     try:
-        return Validator(root, active_scope(root, args.all),
-                         active_scope(root) if args.contract_scope else None).run()
+        validator = Validator(root, active_scope(root, args.all),
+                              active_scope(root) if args.contract_scope else None,
+                              cache=True, fresh=args.fresh or args.all, workers=args.jobs)
+        if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
+            import cProfile
+            import pstats
+            profile = cProfile.Profile()
+            try:
+                return profile.runcall(validator.run)
+            finally:
+                profile.dump_stats(str(Path(directory) / "validate-blueprint.prof"))
+                pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+        return validator.run()
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Blueprint repository validation: FAIL\n- {error}", file=sys.stderr)
         return 1

@@ -19,6 +19,8 @@ from unittest.mock import patch
 
 from validation_scope import active_scope, scoped_files
 from design_catalog import DesignSchemaCatalog
+from validation_cache import PassCache
+from model_design import resource_anchor
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -32,6 +34,91 @@ def load(name, filename):
 
 VALIDATOR = load("scoped_validator", "validate-blueprint.py")
 SYNC = load("scoped_sync", "sync-model.py")
+
+
+def check_single_target_cache(root):
+    docs, models = root / "docs/designs/dev/cde", root / "model/dev/cde"
+    services = {"codecommit": ("CodeCommit.Repository", "RepositoryName", "repo-app-dev-cde"),
+                "sqs": ("SQS.Queue", "QueueName", "queue-app-dev-cde"),
+                "cloudwatch-logs": ("Logs.LogGroup", "LogGroupName", "logs-app-dev-cde")}
+    for service, (kind, prop, name) in services.items():
+        values = {f"desired.service.{service}.serviceId": service,
+                  f"desired.service.{service}.ownedCatalogResourceTypes": kind,
+                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": "FixtureResource",
+                  "desired.resource.001.anchor": resource_anchor(service, name, kind),
+                  "desired.row.001-001.property": f"{kind}.{prop}", "desired.row.001-001.value": f"`{name}`",
+                  "desired.row.001-001.comment": "検証用の名前", "display.service.title": "# 詳細設計",
+                  "display.resource.001.comment": "サービス単位の検証対象"}
+        for number, output in enumerate(sorted(SYNC.identifier_outputs(root).get(kind, set())), 2):
+            row = f"row.001-{number:03d}"
+            values.update({f"desired.{row}.property": output,
+                           f"desired.{row}.value": f"[FixtureResource](#{values['desired.resource.001.anchor']})",
+                           f"desired.{row}.comment": "生成される識別子",
+                           f"observed.{row}.property": output, f"observed.{row}.value": "PENDING_DEPLOY",
+                           f"observed.{row}.comment": "生成される識別子"})
+        (models / f"{service}.properties").write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+    scope = {("dev", "cde", service) for service in ["ec2", *services]}
+    active = root / "tasks/active.md"
+    saved_contract = active.read_text(encoding="utf-8")
+    active.write_text("## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)), encoding="utf-8")
+    with redirect_stdout(io.StringIO()):
+        SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
+
+    def validate(workers=4, cache=None):
+        validator = VALIDATOR.Validator(root, scope, workers=workers)
+        validator.cache = cache
+        validator.check_project_topology()
+        with redirect_stdout(io.StringIO()):
+            validator.check_scoped_designs()
+        return validator
+
+    serial = validate(1)
+    barrier = threading.Barrier(4, timeout=10)
+    original = VALIDATOR.Validator.check_designs
+    def overlap(worker):
+        barrier.wait()
+        original(worker)
+    with patch.object(VALIDATOR.Validator, "check_designs", overlap):
+        parallel = validate()
+    assert not serial.errors and not parallel.errors, serial.errors + parallel.errors
+    assert serial.checks == parallel.checks
+    with tempfile.TemporaryDirectory() as directory:
+        cold = validate(cache=PassCache(root, directory=directory))
+        assert not cold.errors, cold.errors
+        with patch.object(VALIDATOR.Validator, "check_generated_service_models", side_effect=AssertionError("unchanged generation reran")), \
+             patch.object(VALIDATOR.Validator, "check_designs", side_effect=AssertionError("unchanged service reran")):
+            warm = validate(cache=PassCache(root, directory=directory))
+        assert not warm.errors and cold.checks == warm.checks, warm.errors
+        # An out-of-scope reference remains shallow, but changing its anchor invalidates its consumer.
+        reference = docs / "vpc.md"
+        saved = reference.read_text(encoding="utf-8")
+        reference.write_text(saved.replace('id="vpc-subnet-app-dev-cde"', 'id="changed-anchor"'), encoding="utf-8")
+        invalid = validate(cache=PassCache(root, directory=directory))
+        assert invalid.errors and "anchor" in "\n".join(invalid.errors), invalid.errors
+        reference.write_text(saved, encoding="utf-8")
+        # Newly introduced JSON must never disappear behind an unchanged Markdown cache hit.
+        artifact = docs / "codecommit/orphan.json"
+        artifact.parent.mkdir(exist_ok=True)
+        artifact.write_text("invalid JSON", encoding="utf-8")
+        invalid = validate(cache=PassCache(root, directory=directory))
+        assert invalid.errors and "orphan" in "\n".join(invalid.errors), invalid.errors
+        artifact.unlink()
+        # Mid-validation edits fail and do not persist the service's old key.
+        cache = PassCache(root, fresh=True, directory=directory)
+        model = models / "sqs.properties"
+        saved = model.read_text(encoding="utf-8")
+        old_key = cache.service_key(("dev", "cde", "sqs"))
+        (Path(directory) / f"{old_key}.json").unlink()
+        def changed(worker):
+            original(worker)
+            if ("dev", "cde", "sqs") in worker.scope:
+                model.write_text(saved + "# input changed during validation\n", encoding="utf-8")
+        with patch.object(VALIDATOR.Validator, "check_designs", changed):
+            invalid = validate(cache=cache)
+        assert any("inputs changed" in error for error in invalid.errors), invalid.errors
+        assert not (Path(directory) / f"{old_key}.json").exists()
+        model.write_text(saved, encoding="utf-8")
+    active.write_text(saved_contract, encoding="utf-8")
 
 
 def main():
@@ -125,6 +212,7 @@ invalid unrelated table alignment
             validator.check_scoped_designs()
         assert len(workers) == 4 and not validator.errors, validator.errors
         assert validator.generated_models_checked
+        check_single_target_cache(root)
         # Missing/unknown selectors and changes outside scope fail before service checks.
         for invalid in ({("unknown", "cde", "ec2")}, {("dev", "cde", "missing")}):
             rejected = VALIDATOR.Validator(root, invalid)
@@ -177,7 +265,7 @@ invalid unrelated table alignment
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"), "--repository-root", str(root),
                                  "--environment", "prod", "--alias", "cde", "--service", "ec2"], capture_output=True, text=True)
         assert result.returncode and "outside active task validation scope" in result.stderr
-    print("validation-scope: PASS (4 parallel EC2 targets, excluded errors, references, schema/naming/JSON, missing scope, explicit all)")
+    print("validation-scope: PASS (4 parallel targets/services, serial equality, cache invalidation, excluded errors, references, schema/naming/JSON, missing scope, explicit all)")
 
 
 if __name__ == "__main__":

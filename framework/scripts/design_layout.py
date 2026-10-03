@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from design_catalog import design_material_files
+from validation_cache import memoized
 from security_group_tables import security_group_table_lines
 
 
@@ -361,13 +362,19 @@ def layout_errors(root: Path) -> list[str]:
     return errors
 
 
+@memoized
+def catalog_property_order(root: Path, resource_type: str):
+    material = next((path for path in design_material_files(root) if path.stem.replace("_", ".", 1) == resource_type), None)
+    return None if material is None else {line.partition("=")[0]: number for number, line in enumerate(material.read_text(encoding="utf-8").splitlines())}
+
+
 def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path | None = None) -> list[str]:
     """Compare visible rows with the selection-list order, within each resource."""
     root = root or Path(__file__).resolve().parents[2]
-    material = next((path for path in design_material_files(root) if path.stem.replace("_", ".", 1) == resource_type), None)
-    if material is None:
+    cached_order = catalog_property_order(root, resource_type)
+    if cached_order is None:
         return [f"display order catalog is missing: {resource_type}"]
-    order = {line.partition("=")[0]: number for number, line in enumerate(material.read_text(encoding="utf-8").splitlines())}
+    order = dict(cached_order)
     if resource_type == "CodeBuild.Project":
         subnets, groups = "CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"
         order[subnets], order[groups] = order[groups], order[subnets]

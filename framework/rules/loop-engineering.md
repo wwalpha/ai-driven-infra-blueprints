@@ -112,10 +112,18 @@ active taskに`## Validation scope`を置き、各entryを``- `<environment>/<ta
 
 `sync-model.py --write`と`--mode task`／`--mode local`／`--mode full`は同じValidation scopeを使用する。validatorからmodel照合まで対象serviceを維持し、暗黙に`--all`へ広げない。対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
 
-複数targetは最大4並列で検証し、全workerの終了を待って指定順で診断を集約する。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
+複数targetと同一target内の複数serviceは最大4並列で検証し、全workerの終了を待ってscope順で診断を集約する。生成用の候補が揃ってからread-only照合を並列化し、targetとserviceのworker数を掛け合わせない。`--validation-jobs 1`で直列比較できる。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
 
 frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。全serviceの実設計検証は明示した`--all`またはValidation scopeの単独``- `all` ``だけで行う。scopeが欠落している場合は`full`でも停止し、全体検証へfallbackしない。日次の全体検証は別途設定したscheduleで実行する。対象限定検証の後に「念のため」の全体検証を追加しない。
 
+
+### 成功した検証結果の再利用
+
+通常のtask/localではcatalogとserviceの成功結果だけをrepository外のOS一時directory `blueprint-validation-cache`へ保存し、内容hashが一致する場合に再利用する。`BLUEPRINT_VALIDATION_CACHE_DIR`でrepository外の保存先を指定できる。file名・file集合・SHA-256、Python/OS、framework全入力（validator/generator/rule/catalog/schemaを含む）、projectとAGENTS、対象modelの入口・part、Markdown・JSON・参照先のmodel/表示をkeyへ含める。参照先の内容は無効化判定に読み取るだけで、scope外serviceのschema検証を追加しない。mtimeだけで判定しない。
+
+新規入力、内容変更、追加・削除file、cache欠落/破損、不明dependency、symlinkでは成功結果を再利用せず、明示scope内を再検証する。検証中の入力変更はFAILとし、そのservice結果を保存しない。task契約、Requirement/Acceptance、issue gate、変更範囲、project topology、model part構造、scope全体のresource所有権とstack重複、IaC/deploy安全確認、Git差分checkは毎回実行する。scopeを変更pathから推測したり、scope外の全体検証へfallbackしない。cacheはAWS現在値、change set、plan、account/region確認を代替しない。
+
+`--fresh`は成功結果の再利用を無効化する。`--mode full`と`--all`もfresh検証する。実行中だけのカタログ一覧/model行/path再利用はfreshでも使用し、次の実行へ持ち越さない。再利用service数・実行service数を表示し、再利用した検証件数も成功件数へ含める。60秒を超えた検証を打ち切ってPASSにしない。
 
 ### 通常taskとframework regression
 
@@ -139,7 +147,7 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 ### 時間計測と長時間実行
 
 - local loopは実行ごとにrepository外のOS一時directoryへ`blueprint-loop-*`directoryを作成し、絶対pathを開始時に表示する。`--log-dir <repository外のdirectory>`で保存先の親directoryを指定できる。同時・再実行時も既存ログを上書きしない。一時directoryはOSの清掃対象なので、継続保存が必要な場合はrepository外の保存先を指定する。
-- `--profile`指定時は`model_design.checks.py`と`design_catalog.checks.py`だけをstdlib cProfileで計測し、同じrun directoryへ`.prof`とcheck log内の累積時間上位25件を保存する。fixture copy、catalog読込、生成・検証の関数別内訳を確認する。計測自体のoverheadがあるため、通常実行の時間と直接比較しない。
+- `--profile`指定時は`validate-blueprint.py`とその`sync-model.py`子process、`model_design.checks.py`と`design_catalog.checks.py`をstdlib cProfileで計測し、同じrun directoryへ`.prof`とcheck log内の累積時間上位25件を保存する。cold検証の計測には`--fresh`も指定する。fixture copy、catalog読込、生成・検証の関数別内訳を確認する。計測自体のoverheadがあるため、通常実行の時間と直接比較しない。thread worker内部の関数はcProfileの主thread計測に含まれないため、詳細比較には`--validation-jobs 1`を使う。
 - `timing.jsonl`へUTC時刻、repository、Python launcher、loop/checkのPID、開始・終了、check別・全体の経過秒数、終了code、成否を逐次記録する。所要時間にはmonotonic clockを使用し、失敗後も全checkを実行する。checkのstdout/stderrはcheck別`.log`へ直接保存し、check終了時にterminalへ表示する。
 - checkが30秒以上動いている場合は30秒ごとにcheck名・経過時間・PIDをterminalと`timing.jsonl`へ表示・保存する。これは子プロセスが未終了であることを示す稼働表示であり、処理の進捗率やCopilot sessionの延命を保証しない。
 - エージェントはlocal loopを一度だけ起動し、既存実行のログとPIDを追跡する。toolの待機・追跡timeoutだけで再起動しない。check終了までrepositoryのinputを変更せず、同じrepositoryのloopを重複起動しない。無変更・未完了の実行へfocused checkやfull loopを追加しない。

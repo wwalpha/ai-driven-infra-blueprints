@@ -218,6 +218,7 @@ def staged_snapshot(root, args, directory, environment):
     print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
     command = [sys.executable, "-X", "utf8", str(snapshot / "framework/scripts/blueprint-loop.py"),
                "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
+               "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
                *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
                *(["--profile"] if args.profile else [])]
     process = subprocess.Popen(command, cwd=snapshot, env=environment,
@@ -250,6 +251,9 @@ def main() -> int:
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     parser.add_argument("--profile", action="store_true", help="Profile model_design/design_catalog checks into the run directory")
     parser.add_argument("--jobs", type=int, choices=(1, 2), default=2, help="Independent regression workers (default: 2)")
+    parser.add_argument("--validation-jobs", type=int, choices=(1, 2, 4), default=4,
+                        help="Service validation workers (default: 4)")
+    parser.add_argument("--fresh", action="store_true", help="Revalidate catalog/services without successful-result reuse")
     parser.add_argument("--staged", action="store_true", help="Validate a fixed staged tree in a private repository")
     parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
     parser.add_argument("--affected", action="store_true", help="Select proven affected checks; unknown dependencies run all")
@@ -260,6 +264,10 @@ def main() -> int:
         parser.error("--affected cannot narrow full/--all validation")
 
     root = Path(__file__).resolve().parents[2]
+    if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
+        cache_path = Path(cache_directory).resolve()
+        if cache_path == root or root in cache_path.parents:
+            parser.error("validation cache must be outside the repository")
     try:
         scope = active_scope(root, args.all) if not args.staged else set()
         changed = changed_paths(root) if not args.staged else set()
@@ -287,6 +295,8 @@ def main() -> int:
             str(root / "framework" / "scripts" / "validate-blueprint.py"),
             "--repository-root",
             str(root),
+            "--jobs", str(args.validation_jobs),
+            *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
             *(["--all"] if full_validation else []),
             *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
         ],

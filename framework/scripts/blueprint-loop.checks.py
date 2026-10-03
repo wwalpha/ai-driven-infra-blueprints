@@ -163,6 +163,19 @@ display.resource.001.comment=通信ログを保存するLog Group
 
         result = run()
         assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
+        warm = run()
+        assert warm.returncode == 0 and "0 executed, 1 reused" in warm.stdout, warm.stdout + warm.stderr
+        fresh = subprocess.run([*command, "--fresh", "--validation-jobs", "1", "--profile"],
+                               cwd=root, env=environment, capture_output=True, encoding="utf-8")
+        assert fresh.returncode == 0 and "1 executed, 0 reused; workers: 1" in fresh.stdout, fresh.stdout + fresh.stderr
+        assert list((Path(temporary) / "logs").glob("*/validate-blueprint.prof"))
+        assert list((Path(temporary) / "logs").glob("*/sync-model-*.prof"))
+        issue = root / "issues/dev/123456789012/issues.md"
+        issue.parent.mkdir(parents=True)
+        issue.write_text("### logs\n\n1. 未解決の設定問題\n", encoding="utf-8")
+        blocked = run()
+        assert blocked.returncode and "unresolved issue blocks task" in blocked.stdout, blocked.stdout
+        issue.unlink()
         for label, model_text, design_text, diagnostic in (
             ("model/view mismatch", good_model.replace("value=14", "value=7"), good_design, "generated Markdown is stale"),
             ("missing name", good_model.replace("value=cwlogs-app-dev-flow", "value=``"), good_design, "confirmed resource display label is missing"),

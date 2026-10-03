@@ -8,11 +8,13 @@ import re
 from pathlib import Path
 
 from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text, material_files
+from validation_cache import memoized
 
 
 MACIE_JOB = "Macie.ClassificationJob"
 
 
+@memoized
 def design_material_files(root: Path) -> list[Path]:
     return sorted([*material_files(root), *(root / "framework/materials/api").glob("*.properties")])
 
@@ -46,14 +48,7 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
         return super().schema(resource_type)["typeName"]
 
     def required_design_properties(self, resource_type: str) -> set[str]:
-        selected = {
-            line.partition("=")[0].removeprefix(resource_type + ".")
-            for path in design_material_files(self.root)
-            if path.stem.replace("_", ".", 1) == resource_type
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if "=" in line and not line.startswith("#")
-        }
-        return self.required_properties(resource_type) & selected
+        return self.required_properties(resource_type) & selected_properties(self.root, resource_type)
 
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
         if resource_type not in self.api_schemas:
@@ -139,6 +134,14 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
                     if key in {"OBJECT_SIZE", "OBJECT_LAST_MODIFIED_DATE"} and len(simple.get("values", [])) != 1:
                         errors.append(f"{key}: requires exactly one value")
         return errors
+
+
+@memoized
+def selected_properties(root: Path, resource_type: str) -> set[str]:
+    return {line.partition("=")[0].removeprefix(resource_type + ".")
+            for path in design_material_files(root) if path.stem.replace("_", ".", 1) == resource_type
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.startswith("#")}
 
 
 def api_snapshot_errors(root: Path) -> list[str]:
