@@ -333,6 +333,33 @@ def check_inputs():
         rejects(lambda: M.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]), "infrastructure")
     assert M.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
     rejects(lambda: M.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
+    conditional = {"Conditions": {
+        "Dev": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]},
+        "Stg": {"Fn::Not": [{"Condition": "Dev"}]},
+        "Active": {"Fn::And": [{"Condition": "Dev"}, {"Fn::Or": [{"Condition": "Dev"}, {"Condition": "Stg"}]}]}},
+        "Resources": {
+            "Mwaa": {"Properties": {"Arn": {"Fn::If": ["Active", {"Fn::ImportValue": "DevBucketArn"},
+                                                                     {"Fn::ImportValue": "StgBucketArn"}]}}},
+            "StgOnly": {"Condition": "Stg", "Properties": {"Arn": {"Fn::ImportValue": "StgRoleArn"}}}},
+        "Outputs": {"StgOnly": {"Condition": "Stg", "Value": {"Fn::ImportValue": "StgOutput"}}}}
+    assert M.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
+    assert M.import_names(conditional, {"Environment": "stg"}, {}) == {"StgBucketArn", "StgRoleArn", "StgOutput"}
+    backend = StubAws(["DevBucketArn"])
+    backend.templates["A"] = (conditional, {"Environment": "dev"})
+    assert backend.prepare(units(1)[0], {"clientToken": "dev-only"}) == "READY"
+    backend.templates["A"] = (conditional, {"Environment": "stg"})
+    rejects(lambda: backend.check_imports(units(1)[0]), "missing export")
+    conditional["Conditions"]["Dev"] = {"Condition": "Dev"}
+    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "cyclic Condition")
+    conditional["Conditions"]["Dev"] = {"Condition": "Missing"}
+    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "unresolved")
+    conditional["Conditions"]["Dev"] = "true"
+    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "non-boolean")
+    # Decoder scalars are subclasses; parameter values are plain strings.
+    class MarkedString(str):
+        pass
+    conditional["Conditions"]["Dev"] = {"Fn::Equals": [{"Ref": "Environment"}, MarkedString("dev")]}
+    assert M.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
     # Standard CLI region/profile and full (automatic) pagination are retained.
     backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET, "test")
     with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Exports":[]}', stderr="")) as run:
@@ -487,11 +514,11 @@ def check_delivery():
         rejects(lambda: fresh.prepare(prepared, {}), "source is missing")
         source.write_text("not a zip")
         rejects(lambda: fresh.prepare(prepared, {}), "prebuilt ZIP")
-        source.unlink()
-        source.symlink_to(base / "outside.zip")
-        (base / "outside.zip").write_bytes(old)
-        rejects(lambda: fresh.source_path(artifact("First")), "escapes")
-        source.unlink()
+        # Inject link resolution without requiring Windows symlink privileges.
+        resolve = Path.resolve
+        with patch.object(Path, "resolve", lambda path, *args, **kwargs:
+                          base / "outside.zip" if path == source else resolve(path, *args, **kwargs)):
+            rejects(lambda: fresh.source_path(artifact("First")), "escapes")
         source.write_bytes(old)
 
         # Layer, Glue script and Step Functions definition use the same explicit mapping.

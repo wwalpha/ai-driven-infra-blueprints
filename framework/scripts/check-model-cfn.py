@@ -105,10 +105,16 @@ def equal(left, right):
 
 
 class Comparison:
-    def __init__(self, root, environment, directory, services, decoder=None):
+    def __init__(self, root, environment, directory, services, decoder=None, runtime_parameters=None):
         self.root = root.resolve()
         self.environment, self.directory = environment, directory
         self.services = services
+        self.runtime_parameters = {} if runtime_parameters is None else runtime_parameters
+        if not isinstance(self.runtime_parameters, dict) or any(
+                not isinstance(name, str) or not name or not isinstance(values, dict) or any(
+                    not isinstance(key, str) or not key or not isinstance(value, str)
+                    for key, value in values.items()) for name, values in self.runtime_parameters.items()):
+            raise Unknown("runtime parameters must map StackName to parameter string values")
         project = read_json((self.root / "project.json").read_text(encoding="utf-8"))
         targets = [t for t in project["targets"] if t["environment"] == environment
                    and t.get("alias", t["awsAccountId"]) == directory]
@@ -159,6 +165,8 @@ class Comparison:
     def load_stacks(self):
         path = safe_path(self.root, self.base / "cloudformation-stacks.properties")
         _, stacks = stack_model(properties(read_model(path)))
+        if self.runtime_parameters.keys() - {stack["name"] for _, stack in stacks}:
+            raise Unknown("runtime parameters contain an undeclared StackName")
         for _, stack in stacks:
             name = stack["name"]
             document, template = None, path
@@ -176,6 +184,8 @@ class Comparison:
             for output in unit["document"].get("Outputs", {}).values():
                 if "Export" in output:
                     try:
+                        if "Condition" in output and not self.condition(output["Condition"], name):
+                            continue
                         export = self.resolve(output["Export"]["Name"], name)
                         if not isinstance(export, str):
                             raise Unknown(f"non-string Export name: {name}")
@@ -223,6 +233,10 @@ class Comparison:
         parameters = {p["ParameterKey"]: p["ParameterValue"] for p in supplied}
         if len(parameters) != len(supplied) or parameters.keys() - declarations.keys():
             raise Unknown(f"duplicate or undeclared parameter: {inputs.relative_to(self.root)}")
+        runtime = self.runtime_parameters.get(name, {})
+        if runtime.keys() - declarations.keys():
+            raise Unknown(f"undeclared runtime parameter: {name}")
+        parameters.update(runtime)
         for key, declaration in declarations.items():
             if key not in parameters:
                 if "Default" not in declaration:
@@ -277,6 +291,8 @@ class Comparison:
                 raise Unknown(f"unsupported partition for region: {region}")
             if argument in unit["document"].get("Resources", {}):
                 resource = unit["document"]["Resources"][argument]
+                if "Condition" in resource and not self.condition(resource["Condition"], stack, seen):
+                    raise Unknown(f"inactive resource Ref: {argument}")
                 kind = resource["Type"].removeprefix("AWS::").replace("::", ".")
                 if kind in NAMED_REFS:
                     marker = ("named-ref", stack, argument)
@@ -297,6 +313,8 @@ class Comparison:
             parts = argument.split(".", 1) if isinstance(argument, str) else argument
             if len(parts) == 2 and parts[0] in unit["document"].get("Resources", {}):
                 resource = unit["document"]["Resources"][parts[0]]
+                if "Condition" in resource and not self.condition(resource["Condition"], stack, seen):
+                    raise Unknown(f"inactive resource GetAtt: {parts[0]}")
                 if parts[1] == "Arn" and resource["Type"] in {"AWS::S3::Bucket", "AWS::Logs::LogGroup"}:
                     name = self.resolve({"Ref": parts[0]}, stack, seen)
                     if isinstance(name, str):
@@ -488,6 +506,11 @@ class Comparison:
                 if len(values) == 1 and equal(self.resolve(values[0], ref[0]), parent):
                     candidates.append(ref)
             if len(candidates) != 1:
+                if not candidates and not any(error["coverage"] and (error["resource_types"] is None or
+                        self.catalog.cloudformation_type(kind) in error["resource_types"]) for error in self.stack_findings):
+                    raise MissingResource("required child resource is absent for the matched parent",
+                        dict(expected=dict(resource_type=self.catalog.cloudformation_type(kind), parent=parent_ref),
+                             actual=[], coverage=dict(complete=True, resource_type=self.catalog.cloudformation_type(kind))))
                 raise Unknown(f"inline resource correspondence unresolved ({len(candidates)} candidates): {kind}")
             if candidates[0] in self.inline_matches.values() or candidates[0] in self.matches.values():
                 raise Unknown("multiple design resources map to the same CFn resource")
@@ -533,7 +556,7 @@ class Comparison:
             leaf = field.rsplit(".", 1)[-1].removesuffix("[]")
             identifier = {p.rsplit("/", 1)[-1] for p in schema.get("primaryIdentifier", [])}
             aliases = {"Subnets": "SubnetId", "SubnetIds": "SubnetId",
-                       "SecurityGroupIds": "GroupId", "KmsKeyId": "KeyId", "KMSKeyId": "KeyId", "KMSMasterKeyID": "KeyId",
+                       "SecurityGroupIds": "GroupId", **{key: "KeyId" for key in KEY_SELECTORS},
                        "TargetKeyId": "KeyId", "S3BucketName": "BucketName", "Role": "RoleName"}
             if len(identifier) != 1 or aliases.get(leaf, leaf) not in identifier:
                 raise Unknown("reference does not identify an unambiguous Ref return value")
@@ -616,7 +639,7 @@ class Comparison:
                         expected = [self.key_reference(v) for v in expected]
                         actual = [self.key_reference(v) for v in actual]
                     # One JSON array row may encode the complete primitive array.
-                    if "[]" in field and len(expected) == 1 and isinstance(expected[0], list):
+                    if field.endswith("[]") and len(expected) == 1 and isinstance(expected[0], list):
                         expected = expected[0]
                     same = equal(expected, actual)
                     self.checked += 1
@@ -715,7 +738,7 @@ class Comparison:
 
 
 NAME_TAG_TYPES = {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
-KEY_SELECTORS = {"KmsKeyId", "KMSKeyId", "KMSMasterKeyID"}
+KEY_SELECTORS = {"KmsKey", "KmsKeyId", "KMSKeyId", "KMSMasterKeyID"}
 NAMED_REFS = {"KMS.Alias": "AliasName", "S3.Bucket": "BucketName", "IAM.Role": "RoleName",
               "Logs.LogGroup": "LogGroupName", "Glue.Connection": "ConnectionInput.Name", "Glue.Job": "Name"}
 
@@ -726,9 +749,15 @@ def main():
     parser.add_argument("--environment", required=True)
     parser.add_argument("--target-directory", required=True)
     parser.add_argument("--service", action="append", required=True)
+    parser.add_argument("--runtime-parameters", type=Path,
+                        help='JSON object: {"StackName": {"ParameterKey": "effective value"}}; comparison only')
     args = parser.parse_args()
     try:
-        result = Comparison(args.repository_root, args.environment, args.target_directory, args.service).run()
+        runtime = read_json(args.runtime_parameters.read_text(encoding="utf-8")) if args.runtime_parameters else None
+        if args.runtime_parameters and runtime is None:
+            raise Unknown("runtime parameters must map StackName to parameter string values")
+        result = Comparison(args.repository_root, args.environment, args.target_directory, args.service,
+                            runtime_parameters=runtime).run()
         code = 1 if result["status"] == "FAIL" else 0
     except (ImportError, OSError, ValueError, KeyError, TypeError, IndexError) as error:
         result = {"status": "ERROR", "environment": args.environment, "target": args.target_directory,

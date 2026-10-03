@@ -12,6 +12,7 @@ import sys
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys
 from model_design import properties, markdown_for
@@ -278,15 +279,15 @@ def main():
         extra.write_text("desired.note.extra.text=説明\n")
         rejected()
         extra.unlink()
-        second.unlink()
-        second.symlink_to(first)
-        try:
-            read_model(source)
-        except ValueError as error:
-            assert "unsafe" in str(error)
-        else:
-            raise AssertionError("symlink model part accepted")
-        second.unlink()
+        # Inject the filesystem answer; Windows symlink creation requires privileges.
+        is_symlink = Path.is_symlink
+        with patch.object(Path, "is_symlink", lambda path: path == second or is_symlink(path)):
+            try:
+                read_model(source)
+            except ValueError as error:
+                assert "unsafe" in str(error)
+            else:
+                raise AssertionError("symlink model part accepted")
         second.write_text(saved[second])
         first.write_text(saved[first].replace("observed.row.001-002.value=`default`", "observed.row.001-002.value=arn:aws:config:generated"))
         validator = VALIDATOR.Validator(root)

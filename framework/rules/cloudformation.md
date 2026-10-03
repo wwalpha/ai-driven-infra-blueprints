@@ -66,7 +66,9 @@
 
 複数stackのqueue、順序、並列上限、failure stopは`framework/scripts/cloudformation-deploy.py`で強制する。Deployment scopeのStackNameだけをDeployOrder数値昇順、同group内StackName順に処理する。同一DeployOrder groupだけが並列実行可能であり、RUNNING数はMaxConcurrentStacks以下とする。空いたslotを同groupのqueueへ再利用し、固定batchにしない。group全体のterminal successとobserved value反映後だけ次groupへ進む。値は連番でなくてよい。DeployOrderをCloudFormation resourceの`DependsOn`へ変換せず、stack modelにdependency fieldを追加しない。
 
-consumerのchange set作成直前に、既存cfn-lint decoderで`!ImportValue`を解釈し、stack固有parameter/defaultとaccount/regionを使って参照するExport名を解決し、targetの`list-exports`で実在を確認する。未解決式、未存在Export、scope内の未成功producerはBLOCKEDとする。誤ったDeployOrderとImport/Exportの矛盾を説明し、scope外producer追加、順序変更、IaC/intended designの自動修正を行わない。scope外producerのExportが既に存在すればconsumer単独deployを許可する。Transformで動的生成されるimportは事前解決できないため停止する。
+consumerのchange set作成直前に、既存cfn-lint decoderで`!ImportValue`を解釈し、stack固有parameter/defaultとaccount/regionを使って参照するExport名を解決し、targetの`list-exports`で実在を確認する。Conditionsを評価し、`!If`の選択枝と有効なresource／Outputだけを走査する。未解決・循環・非booleanの条件は停止し、未使用枝のImportValueを要求しない。未解決式、未存在Export、scope内の未成功producerはBLOCKEDとする。誤ったDeployOrderとImport/Exportの矛盾を説明し、scope外producer追加、順序変更、IaC/intended designの自動修正を行わない。scope外producerのExportが既に存在すればconsumer単独deployを許可する。Transformで動的生成されるimportは事前解決できないため停止する。
+
+`check-model-cfn.py`の比較へ実行時parameterを渡す場合は、`--runtime-parameters <JSON file>`を使用する。形式は`{"StackName":{"ParameterKey":"実際に使用する値"}}`とし、明示値はそのstackのparameter file／defaultより優先して型変換・Conditions・local Output/Exportの評価へ使用する。MWAAのrequirements object versionなど、実行時に確定した値だけを明示し、未知stack・未宣言parameter・文字列以外の値を拒否する。この入力は比較専用で、model・IaC・parameter fileを変更せず、deployへ自動適用しない。値が不足する場合は比較不能を維持する。
 
 failure/rollbackまたはblocker/未承認delete/replacementを検出したら新たなunitを起動せず、実行中のstackだけterminalまで確認する。StackName単位でSUCCESS、FAILED、BLOCKED、NOT_STARTEDを区別する。status API errorはterminal failureとみなさず、queueを止めて実行中stackの取得だけ再試行する。成功済みstackを自動rollback、delete、redeployしない。controller自身はrollback/delete APIを呼ばない。
 

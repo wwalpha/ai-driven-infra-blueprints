@@ -1,30 +1,42 @@
-# 全環境の比較不能を1,500件以下へ減らす
+# CloudFormationデプロイ前照合の誤判定修復
 
 ## Task contract
 - Task type: `governance`
-- Target: 共通properties／CloudFormation比較
-- Goal: viewcard-codeの全6 target・全91比較serviceについて比較不能3,137件の原因を調べ、根拠のある比較・欠落判定を実装して1,500件以下へ減らす。根拠のないmismatch化、除外、成功扱いはしない。
+- Target: frameworkのCloudFormation比較・ImportValue事前確認・Windows回帰
+- Goal: viewcard-codeのCFn deployで報告された条件分岐、配列比較、参照／子resource、実行時parameter、symlink権限制約の5点を修復・再検証する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] target regionから確定するAWS::PartitionとS3.Region、KMS Aliasの名称参照と親Keyへの所属、identityなしの統合resourceを比較する。policy Conditionを組込み関数と誤認せず、modelとCFnのpolicy式を同条件で評価する。生成Nameを名称選択から除外し、確定NameのRefと暗号化Key selectorを意味で比較する。S3／Logsの確定Name由来ARNをlocalで評価し、未解決の生成値とliteralの差だけをmismatchにしない。名称・Name tag・Aliasによる一意な対応を確認し、曖昧な対応や入力不足を成功扱いにしない。
-- [R2] 全宣言stackの読込・型coverageを確認し、実装欠落を根拠付きで判定する。coverage不明、曖昧な対応、未確定identifierは比較不能のまま保持し、参照先の欠落と比較処理の未対応を区別する。
-- [R4] 上記の一致、不一致、修正後の再比較、曖昧な対応・入力不足・欠落判定の回帰を既存focused checksへ追加する。全6 targetのbefore/afterと原因内訳をrepository外へ保存して件数を確認する。
-- [R3] issuesスキルに原因修復後の再比較と一致確認の完了条件、対象限定local validationとの区別を明記する。
+- [R1] ImportValue事前確認で条件を評価し、選択されたFn::If枝と有効なresource／Outputだけを走査する。条件の未解決・循環は停止する。
+- [R2] 途中の配列と末尾の配列を区別し、QuickSight権限配列の階層・順序・件数を正しく比較する。
+- [R3] KMS参照と親Key、S3 BucketPolicyの所属・内容、設計Regionの照合を確認し、不足ロジックを修復する。曖昧な照合は成功扱いにしない。
+- [R4] stack別の明示実行時parameterを比較へ渡し、MWAA requirements object versionと関連Exportを同じ入力で評価する。未知stack／未宣言parameterを拒否する。
+- [R5] Windows権限がなくてもsymlink拒否ロジックを検証できる回帰へ変更する。
+- [R6] 5点の一致・不一致・未解決のfocused回帰を追加し、framework scopeのfull local loopを完了する。入力仕様をCloudFormation ruleへ記載する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/check-model-cfn.py`
+- [R1] `changed:framework/scripts/cloudformation-deploy.py`
+- [R1] `changed:framework/scripts/cloudformation-deploy.checks.py`
 - [R2] `changed:framework/scripts/check-model-cfn.py`
+- [R2] `changed:framework/scripts/check-model-cfn.checks.py`
+- [R3] `changed:framework/scripts/check-model-cfn.py`
+- [R3] `changed:framework/scripts/check-model-cfn.checks.py`
+- [R4] `changed:framework/scripts/check-model-cfn.py`
 - [R4] `changed:framework/scripts/check-model-cfn.checks.py`
-- [R3] `changed:.agents/skills/issues/SKILL.md`
+- [R5] `changed:framework/scripts/model_files.checks.py`
+- [R5] `changed:framework/scripts/cloudformation-deploy.checks.py`
+- [R6] `changed:framework/rules/cloudformation.md`
 
 ## Allowed paths
 - `tasks/active.md`
 - `framework/scripts/check-model-cfn.py`
 - `framework/scripts/check-model-cfn.checks.py`
-- `.agents/skills/issues/SKILL.md`
+- `framework/scripts/cloudformation-deploy.py`
+- `framework/scripts/cloudformation-deploy.checks.py`
+- `framework/scripts/model_files.checks.py`
+- `framework/rules/cloudformation.md`
 
 ## Out of scope
-- consumer同期、実targetのmodel・設計・IaC・project・issues変更、未確定parameterの補完、AWS API、deploy/apply、scenario、commit/push、issue gateの緩和。
+- consumer同期、実targetのmodel・設計・IaC・parameter・project・issues変更、値の推測、AWS API、deploy/apply、scenario、commit/push、issue gate緩和。

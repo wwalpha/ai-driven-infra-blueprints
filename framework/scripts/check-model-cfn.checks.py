@@ -4,11 +4,14 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 import importlib.util
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
 import shutil
 import sys
 import tempfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("model_cfn_check", Path(__file__).with_name("check-model-cfn.py"))
@@ -61,8 +64,8 @@ with tempfile.TemporaryDirectory() as temporary:
     save(base / "unrelated.properties", "invalid\n")
     documents = {str(template): document}
 
-    def run(services=("logs",)):
-        return M.Comparison(root, "dev", "blue", list(services), lambda path: (documents[path], [])).run()
+    def run(services=("logs",), runtime=None):
+        return M.Comparison(root, "dev", "blue", list(services), lambda path: (documents[path], []), runtime).run()
 
     assert run()["status"] == "PASS"
     assert run()["checked_properties"] == 2
@@ -306,11 +309,37 @@ with tempfile.TemporaryDirectory() as temporary:
     cf["ExtraPolicy"] = {"Type": "AWS::S3::BucketPolicy", "Properties": {"Bucket": "another-bucket", "PolicyDocument": bucket_policy}}
     assert any(f["status"] == "mismatch" and f["resource"] == "ExtraPolicy" for f in run(("s3",))["findings"])
     del cf["ExtraPolicy"]
+    policy_resource = cf.pop("Policy")
+    assert any(f["status"] == "mismatch" and f["property"] == "S3.BucketPolicy.PolicyDocument"
+               and f["coverage"]["complete"] for f in run(("s3",))["findings"])
+    cf["Policy"] = policy_resource
+    cf["Policy"]["Properties"]["Bucket"] = "wrong-bucket"
+    assert any(f["status"] == "mismatch" and "matched parent" in f["reason"] for f in run(("s3",))["findings"])
+    cf["Policy"]["Properties"]["Bucket"] = {"Ref": "ActualBucket"}
+    save(base / "mwaa.properties", model("mwaa", [("Airflow", "MWAA.Environment", [
+        ("Name", "app-dev"), ("KmsKey", "[alias/app-dev](kms.md#designalias)")])]))
+    cf["Airflow"] = {"Type": "AWS::MWAA::Environment", "Properties": {
+        "Name": "app-dev", "KmsKey": {"Fn::GetAtt": ["ActualKey", "Arn"]}}}
+    assert run(("mwaa",))["status"] == "PASS"
+    cf["OtherKey"] = {"Type": "AWS::KMS::Key", "Properties": {"Enabled": True}}
+    cf["Airflow"]["Properties"]["KmsKey"] = {"Ref": "OtherKey"}
+    assert any(f["status"] == "mismatch" and f["property"] == "MWAA.Environment.KmsKey" for f in run(("mwaa",))["findings"])
+    del cf["Airflow"], cf["OtherKey"]
 
     comparison = M.Comparison(root, "dev", "blue", ["kms"], lambda path: (documents[path], []))
     comparison.load_stacks()
     assert comparison.resolve({"Condition": {"StringEquals": {"aws:SourceAccount": "123456789012"}}}, "App") == {
         "Condition": {"StringEquals": {"aws:SourceAccount": "123456789012"}}}
+    document["Conditions"] = {"Inactive": {"Fn::Equals": [{"Ref": "Environment"}, "stg"]}}
+    cf["ActualBucket"]["Condition"] = "Inactive"
+    for expression in ({"Ref": "ActualBucket"}, {"Fn::GetAtt": ["ActualBucket", "Arn"]}):
+        try:
+            comparison.resolve(expression, "App")
+        except M.Unknown as error:
+            assert "inactive resource" in str(error)
+        else:
+            raise AssertionError("inactive resource reference accepted")
+    del cf["ActualBucket"]["Condition"]
     for region, partition in (("ap-northeast-1", "aws"), ("cn-north-1", "aws-cn"), ("us-gov-west-1", "aws-us-gov")):
         comparison.target["awsRegion"] = region
         assert comparison.resolve({"Ref": "AWS::Partition"}, "App") == partition
@@ -416,6 +445,77 @@ with tempfile.TemporaryDirectory() as temporary:
     result = run(("cloudtrail",))
     assert any(f["status"] == "mismatch" and f["property"].endswith("LogGroupArn") and
                f["expected"]["resource_type"] == "AWS::Logs::LogGroup" for f in result["findings"])
+
+    # QuickSight Actions is an array nested under Permissions[], not a flattened leaf.
+    save(inputs, '[{"ParameterKey":"Environment","ParameterValue":"dev"}]')
+    actions = '["quicksight:DescribeDataSource","quicksight:UpdateDataSource"]'
+    permission_rows = [("Permissions[].Principal", "arn:aws:quicksight:ap-northeast-1:123456789012:user/default/dev"),
+                       ("Permissions[].Actions", actions)]
+    save(base / "quicksight.properties", model("quicksight", [("Source", "QuickSight.DataSource", permission_rows)]))
+    document = {"Parameters": {"Environment": {"Type": "String"}}, "Resources": {
+        "Source": {"Type": "AWS::QuickSight::DataSource", "Properties": {"Permissions": [{
+            "Principal": permission_rows[0][1], "Actions": json.loads(actions)}]}}}}
+    documents[str(template)] = document
+    assert run(("quicksight",))["status"] == "PASS"
+    permissions = document["Resources"]["Source"]["Properties"]["Permissions"]
+    permissions[0]["Actions"].pop()
+    assert any(f["status"] == "mismatch" and f["property"].endswith("Actions") for f in run(("quicksight",))["findings"])
+    permissions[0]["Actions"] = list(reversed(json.loads(actions)))
+    assert run(("quicksight",))["status"] == "FAIL"
+    permissions[0]["Actions"] = json.loads(actions)
+    second_rows = [("Permissions[].Principal", permission_rows[0][1] + "-two"),
+                   ("Permissions[].Actions", '["quicksight:DescribeDataSource"]')]
+    save(base / "quicksight.properties", model("quicksight", [("Source", "QuickSight.DataSource", permission_rows + second_rows)]))
+    permissions.append({"Principal": second_rows[0][1], "Actions": json.loads(second_rows[1][1])})
+    assert run(("quicksight",))["status"] == "PASS"
+    permissions.pop()
+    assert run(("quicksight",))["status"] == "FAIL"
+
+    # Runtime parameters are stack-scoped and also feed producer Export values.
+    save(base / "mwaa.properties", model("mwaa", [("Airflow", "MWAA.Environment", [
+        ("Name", "app-dev"), ("RequirementsS3ObjectVersion", "version-2")])]))
+    document["Resources"] = {"Airflow": {"Type": "AWS::MWAA::Environment", "Properties": {
+        "Name": "app-dev", "RequirementsS3ObjectVersion": {"Fn::ImportValue": "RequirementsVersion"}}}}
+    save(stacks, original_stacks + "desired.stack.002.name=Storage\ndesired.stack.002.template=storage.yaml\n"
+         "desired.stack.002.parameters=storage.json\ndesired.stack.002.deployOrder=2\n")
+    save(storage_inputs, "[]")
+    documents[str(storage)] = {"Parameters": {"Version": {"Type": "String"}}, "Outputs": {
+        "Version": {"Value": {"Ref": "Version"}, "Export": {"Name": "RequirementsVersion"}}}}
+    assert any("missing parameter" in f["reason"] for f in run(("mwaa",))["stack_findings"])
+    runtime = {"Storage": {"Version": "version-2"}}
+    assert run(("mwaa",), runtime)["status"] == "PASS"
+    assert run(("mwaa",), {"Storage": {"Version": "version-1"}})["findings"][0]["status"] == "mismatch"
+    assert any("undeclared runtime parameter" in f["reason"] for f in run(("mwaa",), {"Storage": {"Wrong": "v"}})["stack_findings"])
+    for invalid in ({"Undeclared": {}}, {"Storage": {"Version": 2}}, [], {"Storage": []}):
+        try:
+            run(("mwaa",), invalid)
+        except M.Unknown:
+            pass
+        else:
+            raise AssertionError("invalid runtime parameters accepted")
+    assert inputs.read_text(encoding="utf-8") == '[{"ParameterKey":"Environment","ParameterValue":"dev"}]'
+    assert storage_inputs.read_text(encoding="utf-8") == "[]"
+    documents[str(storage)]["Conditions"] = {"Active": {"Fn::Equals": [{"Ref": "Version"}, "version-2"]}}
+    documents[str(storage)]["Outputs"]["Unused"] = {"Condition": "Active", "Value": "unused",
+        "Export": {"Name": {"Fn::Unsupported": "unused only when version-1"}}}
+    assert run(("mwaa",), {"Storage": {"Version": "version-1"}})["stack_findings"] == []
+    documents[str(storage)]["Outputs"]["Unused"]["Condition"] = "Missing"
+    assert run(("mwaa",), runtime)["status"] == "FAIL"
+    save(stacks, original_stacks)
+    document["Parameters"]["Version"] = {"Type": "String"}
+    document["Resources"]["Airflow"]["Properties"]["RequirementsS3ObjectVersion"] = {"Ref": "Version"}
+    assert run(("mwaa",), {"App": {"Version": "version-2"}})["status"] == "PASS"
+    runtime_file = root / "runtime.json"
+    save(runtime_file, '{"App":{"Version":"version-2"}}')
+    comparison_type = M.Comparison
+    def decoded_comparison(*args, **kwargs):
+        return comparison_type(*args, decoder=lambda path: (documents[path], []), **kwargs)
+    output = io.StringIO()
+    with patch.object(M, "Comparison", decoded_comparison), patch.object(sys, "argv", [
+            "check-model-cfn.py", "--repository-root", str(root), "--environment", "dev",
+            "--target-directory", "blue", "--service", "mwaa", "--runtime-parameters", str(runtime_file)]), redirect_stdout(output):
+        assert M.main() == 0
+    assert json.loads(output.getvalue())["status"] == "PASS"
 
     for directory in ("other", "../blue"):
         try:
