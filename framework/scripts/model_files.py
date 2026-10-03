@@ -1,4 +1,4 @@
-"""Read one service model through its optional part index; split or locate keys."""
+"""Read one service model through its optional part index; split, locate or extract a resource."""
 
 from __future__ import annotations
 
@@ -87,17 +87,65 @@ def service_model_path(path: Path, base: Path) -> Path:
     return path
 
 
+def resource_keys(text: str, selector: str) -> set[str]:
+    """Select one resource's display group and service-wide context without rewriting values."""
+    from model_design import LINK, entries, properties
+    values = properties(text)
+    resources = dict(entries(values, "desired.resource."))
+    matches = [identity for identity, resource in resources.items()
+               if selector and selector in (identity, resource.get("logicalId"), resource.get("anchor"))]
+    if len(matches) != 1:
+        raise ValueError(f"resource selector must match exactly one number, logical ID or anchor: {selector!r} ({len(matches)} matches)")
+    anchors: dict[str, list[str]] = {}
+    for identity, resource in resources.items():
+        if anchor := resource.get("anchor"):
+            anchors.setdefault(anchor, []).append(identity)
+    neighbors = {identity: set() for identity in resources}
+    for identity, resource in resources.items():
+        if "parentReference" not in resource:
+            continue
+        link = LINK.fullmatch(resource["parentReference"])
+        parents = anchors.get(link.group(3), []) if link and not link.group(2) else []
+        if len(parents) != 1:
+            raise ValueError(f"invalid or ambiguous grouped parent: desired.resource.{identity}.parentReference")
+        parent = parents[0]
+        neighbors[identity].add(parent)
+        neighbors[parent].add(identity)
+    selected = set()
+    pending = matches[:]
+    while pending:
+        identity = pending.pop()
+        if identity not in selected:
+            selected.add(identity)
+            pending.extend(neighbors[identity] - selected)
+    prefixes = ("desired.service.", "display.service.", "desired.note.") + tuple(
+        prefix for identity in selected for prefix in (
+            f"desired.resource.{identity}.", f"display.resource.{identity}.",
+            f"desired.row.{identity}-", f"observed.row.{identity}-",
+        )
+    )
+    return {key for key in values if key.startswith(prefixes)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path, help="Service entrance .properties file")
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--split", action="store_true")
     operation.add_argument("--find", help="Find a property key or identifier without printing whole files")
+    operation.add_argument("--resource", help="Read one exact resource number, logical ID or anchor, including its display group and service notes")
     args = parser.parse_args()
     try:
         path = args.model.absolute()
         text = read_model(path)
         parts = model_parts(path)
+        if args.resource is not None:
+            keys = resource_keys(text, args.resource)
+            for part in parts:
+                for number, line in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):
+                    if line.partition("=")[0] in keys:
+                        print(f"{part}:{number}: {line}")
+            return 0
         if args.find is not None:
             for part in parts:
                 for number, line in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):

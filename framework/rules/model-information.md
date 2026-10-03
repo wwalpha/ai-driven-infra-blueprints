@@ -94,9 +94,14 @@ JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複J
 ```console
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --split
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --find '<logical-id-or-property-key>'
+python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --resource '<resource-number-or-logical-id-or-anchor>'
 ```
 
 - token節約のため、最初に入口indexを読み、検索結果のfile・行を使って必要なpartだけを読む。`--find`はkeyまたはidentifierを含む一致行の位置を`絶対file path:行番号:key`として出力し、長いJSONなどの値を一括出力しない。分割後の設計編集は対象partへ行い、同じservice scopeで全partと生成表示の一致を検証する。
+- 既存resourceの更新ではMarkdown全文やmodel全partをchat contextへ取り込まず、`--resource`で正本を部分読み取りする。番号（`001`など）、logical ID、anchorの完全一致で一件を選択し、未一致・曖昧な選択は失敗する。単一fileと入口indexの両方に対応し、`絶対file path:行番号: key=value`で元の値と順序を保持して表示する。read-onlyであり、出力をmodel全体へ上書きしない。
+- 抽出は対象resourceのmetadata、display設定、desired/observed rowと選択済みJSON documentを含む。`parentReference`で同じservice内の親子をたどり、同じ表示groupの親・子・兄弟も含む。identityなしの子は親のrowとして保持される。service metadataと`desired.note.*`の共通注記はresourceへの所属を推測できないため全件含める。無関係なresourceの詳細は出力しない。
+- 通常の参照linkは抽出したrowのまま保持し、参照先serviceや他resourceの詳細を自動展開しない。変更に必要な参照先は所有serviceの`--resource`で追加読み取りし、名称・anchor・identifierを変更する場合は`--find`または位置だけを出す検索で参照元を確認する。参照元の変更はactive taskのscopeを維持する。
+- 抽出に表示された正本fileの該当箇所を編集し、service単位でMarkdown／JSONを生成する。生成後は変更差分を読む。人間向けMarkdownはserviceごとに一つのままとし、対象service全体の既存local validationは省略しない。抽出だけではschema・参照・生成一致の検証完了と扱わない。
 
 Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTableId`、`S3.Bucket.BucketEncryption.BucketKeyEnabled`、`S3.Bucket.BucketEncryption[].KMSMasterKeyID`、`S3.Bucket.BucketEncryption[].SSEAlgorithm`、`S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays`は`framework/rules/display-property-aliases.json`で正式propertyへ戻してmodelに保存する。表示名をmodelのpropertyとして保存しない。Property列では見出しのresource type接頭辞を省く。
 

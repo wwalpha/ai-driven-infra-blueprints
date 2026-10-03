@@ -13,7 +13,7 @@ import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model
+from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys
 from model_design import properties, markdown_for
 from validation_scope import scoped_files
 from issue_gate import unresolved_services
@@ -33,12 +33,108 @@ VALIDATOR = module("index_validator", "validate-blueprint.py")
 DEPLOY = module("index_deploy", "cloudformation-deploy.py")
 
 
+def check_resource_reading(root):
+    source = root / "model/dev/123456789012/kms.properties"
+    values = {
+        "desired.service.kms.serviceId": "kms",
+        "desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
+        "display.service.title": "# KMS 詳細設計",
+        "desired.note.001.text": "共通注記はresource番号と同じでもservice全体に適用する",
+    }
+    for number in range(1, 61):
+        identity = f"{number:03d}"
+        kind = "KMS.Alias" if number in (2, 3) else "KMS.Key"
+        values.update({
+            f"desired.resource.{identity}.resourceType": kind,
+            f"desired.resource.{identity}.logicalId": f"Resource{number}",
+            f"desired.resource.{identity}.anchor": f"kms-resource-{identity}",
+            f"desired.resource.{identity}.resourceMode": "CREATE",
+            f"display.resource.{identity}.comment": f"用途{number}",
+            f"desired.row.{identity}-001.property": f"{kind}.Description",
+            f"desired.row.{identity}-001.value": f"設定{number}=値",
+            f"desired.row.{identity}-001.comment": f"説明{number}",
+        })
+        if number in (2, 3):
+            values[f"desired.resource.{identity}.parentReference"] = "[Resource1](#kms-resource-001)"
+            values[f"desired.resource.{identity}.parentProperty"] = "KMS.Alias.TargetKeyId"
+        if number == 1:
+            values.update({
+                "desired.row.001-002.property": "KMS.Key.KeyId",
+                "desired.row.001-002.value": "[Resource1](#kms-resource-001)",
+                "observed.row.001-002.property": "KMS.Key.KeyId",
+                "observed.row.001-002.value": "12345678-current-key-id",
+                "desired.row.001-003.property": "KMS.Key.KeyPolicy",
+                "desired.row.001-003.value": "[Policy](kms/key-policy.json)",
+                "desired.row.001-003.document": '{"Statement": [{"Sid": "保持=値", "Resource": "[Recorder](config.md#config-recorder)"}]}',
+            })
+    text = "".join(f"{key}={value}\n" for key, value in values.items())
+
+    def cli(*args):
+        return subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/model_files.py"), str(source), *args],
+                              capture_output=True, text=True, encoding="utf-8")
+
+    group_prefixes = ("desired.service.", "display.service.", "desired.note.") + tuple(
+        prefix for identity in ("001", "002", "003") for prefix in (
+            f"desired.resource.{identity}.", f"display.resource.{identity}.",
+            f"desired.row.{identity}-", f"observed.row.{identity}-",
+        )
+    )
+    expected = [f"{key}={value}" for key, value in values.items() if key.startswith(group_prefixes)]
+    # The single model fits in 600 lines; padding moves the selected rows across a part boundary.
+    for content in (text, "# padding\n" * 540 + text):
+        output = model_file_contents(source, content)
+        SYNC.save_files(output)
+        snapshot = {path: path.read_bytes() for path in {source, *model_parts(source)}}
+        for selector in ("001", "Resource1", "kms-resource-001", "Resource2", "003"):
+            result = cli("--resource", selector)
+            assert result.returncode == 0, result.stderr
+            extracted = []
+            locations = set()
+            for line in result.stdout.splitlines():
+                # Values may themselves contain colons, including JSON; split only the location prefix.
+                location, value = line.split(": ", 1)
+                filename, number = location.rsplit(":", 1)
+                path = Path(filename)
+                assert path.is_absolute() and path in snapshot
+                assert path.read_text(encoding="utf-8").splitlines()[int(number) - 1] == value
+                extracted.append(value)
+                locations.add(path)
+            assert extracted == expected, result.stdout
+            assert len(extracted) < len(values) // 5
+            assert len(locations) == len(model_parts(source))
+            assert "desired.resource.004." not in result.stdout
+            assert "config.md#config-recorder" in result.stdout  # Preserve links without reading other services.
+        result = cli("--resource", "Resource60")
+        assert result.returncode == 0 and "desired.row.060-001.value=設定60=値" in result.stdout
+        assert "desired.resource.006." not in result.stdout and "desired.resource.001." not in result.stdout
+        for selector in ("", "Resource", "999", "Resource61"):
+            result = cli("--resource", selector)
+            assert result.returncode == 1 and not result.stdout, result
+        assert cli("--resource", "001", "--split").returncode == 2
+        assert all(path.read_bytes() == data for path, data in snapshot.items())
+
+    for invalid in (
+        text.replace("desired.resource.002.logicalId=Resource2", "desired.resource.002.logicalId=Resource1"),
+        text.replace("[Resource1](#kms-resource-001)", "[Missing](#missing)"),
+        text.replace("[Resource1](#kms-resource-001)", "[Other](other.md#kms-resource-001)"),
+    ):
+        try:
+            resource_keys(invalid, "Resource1")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("ambiguous selector or invalid grouped parent accepted")
+    for path in {source, *model_parts(source)}:
+        path.unlink()
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
         source = root / "model/dev/123456789012/config.properties"
         source.parent.mkdir(parents=True)
+        check_resource_reading(root)
         # 600-line files remain single; 601-line files split without changing any line.
         for count in (0, 600, 601, 1700):
             text = "".join(f"desired.note.{number:04d}.text=日本語の説明{number}\n" for number in range(count))
@@ -160,6 +256,8 @@ def main():
                 pass
             else:
                 raise AssertionError("invalid model index/part accepted")
+            result = cli("--resource", "Recorder")
+            assert result.returncode == 1 and not result.stdout, result
             for path, content in saved.items():
                 path.write_text(content)
 
@@ -210,7 +308,7 @@ def main():
         stack_docs.write_text(markdown_for(stack_docs, stack_values, root))
         limit, units = DEPLOY.load_units(root, "dev", "123456789012", [stack_values["desired.stack.001.name"]])
         assert limit == 2 and len(units) == 1
-    print("model-files: PASS (600-line limit, indexes, lookup, lossless values/order, service scope, generation, stacks and invalid parts)")
+    print("model-files: PASS (600-line limit, indexes, lookup, resource extraction across 60 resources/parts, grouped context, read-only, lossless values/order, service scope, generation, stacks and invalid parts)")
 
 
 if __name__ == "__main__":

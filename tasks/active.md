@@ -1,50 +1,32 @@
-# Resource modeによるCREATE / IMPORTの管理区分
+# Resource単位のmodel読み取り
 
 ## Task contract
 - Task type: `governance`
-- Target: framework resource model / detailed design / naming / IaC rules
-- Goal: IMPORTの既存値とName tag不存在を保持し、CREATEの既存検証を維持する。
+- Target: framework service model reading
+- Goal: service Markdownを一つに維持し、更新対象resourceの正本情報だけを位置付きで抽出してAIの読み取り量を減らす。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] resourceMode=CREATE|IMPORTをresource metadataとして生成・再解析・検証し、省略時CREATEを維持する。
-- [R2] IMPORTだけframework命名とmandatory Name policyを免除し、schema・構造検証を維持する。
-- [R3] 設計・取得・IaC rulesとpromptの矛盾を修正し、IMPORTをIaC生成・AWS変更から除外する。
-- [R4] 必須5ケースと不正metadata・非命名validation・roundtripの回帰を検証する。
+- [R1] 既存model_files.pyへread-onlyのresource抽出を追加する。番号・logical ID・anchorの完全一致で一件を選び、単一fileと分割modelに対応する。対象のdesired/observed/display、同じgroupの親子、service metadataと共通注記を元の値・順序・file/行位置で表示する。未一致・曖昧な選択と不正modelを拒否する。
+- [R2] 正本の部分読み取り、必要な参照情報の追加読み取り、生成後の差分確認とservice全体の既存検証をrulesとREADMEへ記載する。
+- [R3] 50件以上のresource、part境界、grouped親子、JSON、namespace、選択失敗とread-onlyを既存の回帰checkで検証する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/model_design.py`
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R2] `changed:framework/scripts/design_layout.py`
-- [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/rules/model-information.md`
-- [R3] `changed:framework/rules/detailed-design.md`
-- [R3] `changed:framework/rules/aws-resource-naming.md`
-- [R3] `changed:framework/rules/cloudformation.md`
-- [R3] `changed:framework/rules/terraform.md`
-- [R3] `changed:framework/prompts/chatbot/service-design.md`
-- [R4] `changed:framework/scripts/resource_mode.checks.py`
+- [R1] `changed:framework/scripts/model_files.py`
+- [R2] `changed:framework/rules/model-information.md`
+- [R2] `changed:README.md`
+- [R3] `changed:framework/scripts/model_files.checks.py`
 
 ## Allowed paths
 - `tasks/active.md`
-- `README.md`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/model_design.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/resource_mode.checks.py`
+- `framework/scripts/model_files.py`
+- `framework/scripts/model_files.checks.py`
 - `framework/rules/model-information.md`
-- `framework/rules/detailed-design.md`
-- `framework/rules/aws-resource-naming.md`
-- `framework/rules/cloudformation.md`
-- `framework/rules/terraform.md`
-- `framework/rules/observed-values.md`
-- `framework/rules/loop-engineering.md`
-- `framework/prompts/chatbot/service-design.md`
+- `README.md`
 
 ## Out of scope
-- REFERENCE、CloudFormation Resource Import、Terraform import、AWS取得・変更、consumer同期、実model・設計・IaC・catalog変更。
-- 新しいexternal input mechanism、無関係なrefactor、scenario、別task、commit、push。
-- 完了前にframework scopeのfull local loopとdiff自己レビューを実施する。
+- Markdown分割、model保存形式や生成・validation scopeの変更、実model・設計・IaC・catalog変更。
+- AWS取得・変更、consumer同期、scenario、別task、commit、push。
+- 完了前にframework scopeのfull local loopと差分レビューを実施する。

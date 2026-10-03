@@ -43,7 +43,7 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
 - `framework/scripts/sync-model.py`: 設計値の正本model propertiesからMarkdown／JSON artifactを決定的に生成・検証する
-- `framework/scripts/model_files.py`: 600行超のmodel propertiesを約550行のpartとservice入口indexへ分割する。`<service.properties> --find '<key-or-logical-id>'`で対象fileと行を検索する。物理分割は明示design/migration taskで`<service.properties> --split`を実行する
+- `framework/scripts/model_files.py`: `<service.properties> --resource '<resource-number-or-logical-id-or-anchor>'`で対象resourceの正本と同じ表示group・共通注記だけを位置付きで読む。`--find '<key-or-logical-id>'`は値を表示せず対象fileと行を検索する。600行超のmodelの物理分割は明示design/migration taskで`--split`を実行する
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
 - `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
@@ -61,6 +61,8 @@ active taskの`Required changes`は一意なRequirement IDを持ち、同じID�
 対象environment／target／serviceの`issues/<environment>/<target-directory>/issues.md`に未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenarioなど他taskは実施できません。issue調査とhumanが明示した修復だけを許可します。別環境・別target・別serviceは停止しません。task開始前に`framework/scripts/issue_gate.py`で関係する全serviceを確認します。修復契約、一覧形式と停止条件は[Unresolved issue gate](framework/rules/loop-engineering.md#unresolved-issue-gate)に従います。
 
 ## Context priority
+
+既存resourceの更新では、詳細設計Markdown全文の代わりに`model_files.py --resource`で対象の正本を読み、必要な参照先だけ追加で確認します。modelを編集してservice Markdown／JSONを生成した後は差分を確認し、対象service全体のlocal validationを維持します。Markdownはserviceごとに一つのままです。抽出範囲・使い方は[modelの部分読み取り](framework/rules/model-information.md#file-size-and-service-index)に従います。
 
 1. `README.md`
 2. `project.json`（存在する場合）
