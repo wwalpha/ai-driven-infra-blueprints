@@ -401,6 +401,115 @@ def check_schema_backed_design_rows() -> None:
         assert not validator.errors, validator.errors
 
 
+def check_description_design_constraints() -> None:
+    repository = SCRIPT.parents[2]
+    catalog = MODULE.Validator(repository).catalog_design_properties()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / "docs/designs/dev/123456789012"
+        target.mkdir(parents=True)
+        iam = target / "iam.md"
+        sg = target / "security_group.md"
+        iam_text = """# IAM 詳細設計
+
+- Design service ID: `iam`
+- Owned catalog resource types: `IAM.Role`
+
+## リソース一覧
+
+### IAM.Role
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-role](#iam-app-role) | アプリケーションの権限 |
+
+## リソース詳細
+
+<!-- resource-logical-id: RoleOne -->
+<a id="iam-app-role"></a>
+### IAM.Role: app-role
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | RoleName | `app-role` | ロール名 |
+| 2 | AssumeRolePolicyDocument | [Trust](iam/role-one-trust-policy.json) | 信頼ポリシー |
+| 3 | Description | `Application role` | 用途の説明 |
+"""
+        sg_text = """# Security Group 詳細設計
+
+- Design service ID: `security_group`
+- Owned catalog resource types: `EC2.SecurityGroup`
+
+## リソース一覧
+
+### EC2.SecurityGroup
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-sg](#security_group-app-sg) | アプリケーションの通信制御 |
+
+## リソース詳細
+
+<!-- resource-logical-id: GroupOne -->
+<a id="security_group-app-sg"></a>
+### EC2.SecurityGroup: app-sg
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Id | `PENDING_DEPLOY` | 一意に識別するID |
+| 2 | GroupDescription | `Application access` | 用途の説明 |
+| 3 | GroupName | `app-sg` | 名前 |
+| 4 | VpcId | [PENDING_DEPLOY](vpc.md#vpc-app-vpc) | 所属するVPCのID |
+"""
+        metadata = {iam: ("iam", ("IAM.Role",)), sg: ("security_group", ("EC2.SecurityGroup",))}
+
+        def validate(role_text=iam_text, group_text=sg_text):
+            iam.write_text(role_text, encoding="utf-8")
+            sg.write_text(group_text, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.schema_catalog = MODULE.DesignSchemaCatalog(repository)
+            validator.check_design_tables(metadata, *catalog, paths=[iam, sg])
+            validator.check_design_overviews(paths=[iam, sg])
+            return validator
+
+        # Both Japanese overview Comments and Source / Comments remain valid.
+        assert not validate().errors, validate().errors
+        for resource, prop, filename, role_text, group_text in (
+            ("RoleOne", "IAM.Role.Description", "iam.md", iam_text.replace("Application role", "日本語の説明"), sg_text),
+            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security_group.md", iam_text, sg_text.replace("Application access", "日本語の説明")),
+            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security_group.md", iam_text, sg_text.replace("Application access", "Why?")),
+        ):
+            errors = validate(role_text, group_text).errors
+            assert len(errors) == 1, errors
+            assert all(text in errors[0] for text in (filename, resource, prop, "must match")), errors
+
+        # Existing validators collect independent property and dependency failures.
+        validator = validate(iam_text.replace("Application role", "日本語"), sg_text.replace("Application access", "日本語"))
+        validator.check_design_links(catalog[2], paths=[iam, sg])
+        assert any("RoleOne: IAM.Role.Description" in error for error in validator.errors)
+        assert any("GroupOne: EC2.SecurityGroup.GroupDescription" in error for error in validator.errors)
+        assert any("broken design link" in error and "vpc.md" in error for error in validator.errors)
+        assert any("broken design link" in error and "trust-policy.json" in error for error in validator.errors)
+        assert iam.read_text(encoding="utf-8") == iam_text.replace("Application role", "日本語")
+        assert sg.read_text(encoding="utf-8") == sg_text.replace("Application access", "日本語")
+
+
+def check_implementation_preflight_prompt() -> None:
+    text = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
+    preflight = text.split("## Read-only implementation preflight\n", 1)[1].split("\n## ", 1)[0]
+    assert text.index("## Read-only implementation preflight") < text.index("## Create active task contract") < text.index("## Implement and validate")
+    for required in (
+        "active contract作成・IaC生成より前", "AWS API、IaC生成、deployは実行しない",
+        "check_design_tables", "check_design_links", "check_stack_designs", "DesignSchemaCatalog.literal_errors",
+        "必要な依存先の設計・model", "正本stack登録", "template・parameterの対応", "dependency cycle",
+        "対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由",
+        "一回でまとめて提示", "最初の不足だけで報告を終えない", "不足があれば実装せず",
+        "追加承認を要求せず", "変更scopeや全service検証へ自動拡張しない",
+        "日本語の表示用Comment", "不正値を自動翻訳・置換しない", "別taskを自動作成・実行しない",
+    ):
+        assert required in preflight, required
+
+
 def check_identifier_propagation() -> None:
     repository = SCRIPT.parents[2]
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
@@ -1266,6 +1375,8 @@ def main() -> None:
     check_optional_alias_contract()
     check_model_task_boundaries()
     check_schema_backed_design_rows()
+    check_description_design_constraints()
+    check_implementation_preflight_prompt()
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
     check_cidr_pending_deploy()
@@ -1278,7 +1389,7 @@ def main() -> None:
     check_cloudformation_environment_parameters()
     check_cloudformation_stack_design()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (57 focused checks)")
+    print("validate-blueprint: PASS (59 focused checks)")
 
 
 if __name__ == "__main__":

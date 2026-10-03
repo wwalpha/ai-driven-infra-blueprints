@@ -1,40 +1,37 @@
-# env-diffのLogical ID・環境固有名称差を整理しIMPORTを比較対象外にする
+# Description文字制約と実装前設計確認の補完
 
 ## Task contract
 - Task type: `governance`
-- Target: env-diff skill、desired環境比較処理と既存回帰チェック
-- Goal: Logical IDだけの違いを仕様差分にせず、確認済みのresource対応と参照先に基づいて設定を比較する。dev/stgの許容された環境固有名称差を環境差異に分類する。resourceMode=IMPORTと確認済みの対応先を比較・命名確認から除外し、CREATEと未指定の比較、CREATE側の参照確認、未確定対応の保持を維持する。
+- Target: frameworkのschema-backed設計検証、03_implement手順と既存回帰コード
+- Goal: IAM Role DescriptionとSecurity Group GroupDescriptionの異なるAWS文字制約を設計段階で検出し、実装開始前のread-only確認で不足事項をresource/property単位に集約する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] 確認済みresource対応を比較へ適用し、Logical ID・派生anchorだけの違いを除外する。未確定対応を不足／追加と断定せず、根拠を保持する。
-- [R2] 確認済み参照先に基づいてlogical referenceを比較し、設定値・JSON・名称・実際の参照先変更は差分に残す。
-- [R3] env-diff skillに対応確認、未確認の扱い、比較入力・出力を明記する。
-- [R4] ID差、参照、未確定・不正対応、実設定差、既存scopeとread-only動作を既存回帰で検証する。
-- [R5] dev/stgのcde／noncde表記の有無と明示されたCloudTrail名称例を許容された命名例外として環境差異に分類し、規則不一致件数へ含めないことをenv-diff skillへ明記する。
-- [R6] IMPORT resourceと確認済み対応先のmetadata・rowを比較から除外し、不足／追加・未確認・命名規則不一致として数えず、除外根拠を保持する。未指定CREATE、CREATEの実設定・IMPORTへの参照、modeの妥当性は維持する。
-- [R7] 両側IMPORT・片側IMPORT・ID違いの確認済み対応・片側のみのIMPORT・混在service・CREATE参照とmode不正を既存回帰で検証し、skillのIMPORT名称差分類を除外規則に置き換える。
+- [R1] 公式仕様に基づき両propertyの文字制約を既存literal検証へ補完し、file・resource・property・違反理由を報告する。表示Commentを制限せず不正値を自動修正しない。
+- [R2] 03_implementで対象と必要な依存先の設計、stack登録、template・parameter対応、参照、property制約をread-only確認し、不足をまとめて提示する。AWS API・IaC生成・deploy・変更scopeの自動拡張を禁止する。
+- [R3] 不許可文字、許可英文、propertyごとの境界、日本語Comment、resource/property診断、不足集約と実装前確認手順を既存回帰へ追加する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/compare-environments.py`
-- [R2] `changed:framework/scripts/compare-environments.py`
-- [R3] `changed:.agents/skills/env-diff/SKILL.md`
-- [R4] `changed:framework/scripts/compare-environments.checks.py`
-- [R5] `changed:.agents/skills/env-diff/SKILL.md`
-- [R6] `changed:framework/scripts/compare-environments.py`
-- [R7] `changed:framework/scripts/compare-environments.checks.py`
-- [R7] `changed:.agents/skills/env-diff/SKILL.md`
+- [R1] `changed:framework/scripts/cloudformation_schema.py`
+- [R1] `changed:framework/scripts/validate-blueprint.py`
+- [R1] `check:framework.schema-backed-design-validation`
+- [R2] `changed:framework/prompts/codex/03_implement.md`
+- [R3] `changed:framework/scripts/cloudformation_schema.checks.py`
+- [R3] `changed:framework/scripts/validate-blueprint.checks.py`
 
 ## Allowed paths
 - `tasks/active.md`
-- `framework/scripts/compare-environments.py`
-- `framework/scripts/compare-environments.checks.py`
-- `.agents/skills/env-diff/SKILL.md`
+- `framework/scripts/cloudformation_schema.py`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/cloudformation_schema.checks.py`
+- `framework/scripts/validate-blueprint.checks.py`
+- `framework/prompts/codex/03_implement.md`
+- `framework/rules/detailed-design.md`
 
 ## Out of scope
-- 実環境のdiff.md更新、consumer同期、model・設計・IaC・catalog・project変更、AWS API、deploy/apply、commit、push、merge、別task。
+- 新しい汎用検証エンジン・依存パッケージ・承認工程、catalog更新、consumer同期、model・設計・IaC・project.json変更、AWS API、deploy/apply、commit、push、merge、別task。
 
 ## Completion
-- python3 -B framework/scripts/blueprint-loop.py --mode fullでframework scopeと全framework回帰を検証する。
+- 関連するcloudformation_schema.checks.pyとvalidate-blueprint.checks.pyを実行し、blueprint-loop.py --mode taskでgovernance必須local loopとframework回帰を完了する。実環境・全serviceへの検証scope拡張は行わない。

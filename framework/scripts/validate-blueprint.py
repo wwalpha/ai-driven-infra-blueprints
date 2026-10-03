@@ -1553,7 +1553,7 @@ class Validator:
                             for error in errors:
                                 self.check(
                                     False,
-                                    f"provider schema violation: {self.relative(path)}: {schema_type}.{property_path}: {raw_value!r} {error}",
+                                    f"provider schema violation: {self.relative(path)}: {identities.get((current_resource_type, current_logical_id), current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
                                 )
                         link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
                         artifact_link = link_match.group(1) if link_match else ""

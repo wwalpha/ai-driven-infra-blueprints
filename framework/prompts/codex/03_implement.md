@@ -41,11 +41,20 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 13. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 14. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
 
-詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、別の`design` taskが必要であることを報告して停止する。
+詳細設計とservice modelの矛盾、またはIaC実装に必要なhuman decisionの不足は、下記の実装前確認の不足一覧へ含める。
 
 読取対象はimplementation scopeのresource/propertyと参照解決に必要な箇所へ絞る。分割modelは入口indexから必要なpartだけを読む。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
+## Read-only implementation preflight
+
+User inputとissue gateの確認後、active contract作成・IaC生成より前に、下記のCheck implementation support、Resolve implementation units、既存IaCとの照合をすべてread-onlyで行う。AWS API、IaC生成、deployは実行しない。既存のschema検証と依存関係確認を再利用し、新しい検証エンジンや承認工程を追加しない。
+
+1. 対象resourceの正本modelと生成設計の一致、CREATE／IMPORT、正式CFn型、必須property、未確定値を確認する。既存`validate-blueprint.py`の`Validator`による`check_design_tables`・`check_design_links`・`check_stack_designs`、read-onlyのmodel生成一致検証と`DesignSchemaCatalog.literal_errors`を使い、型・enum・pattern・長さ・範囲と補完されたAWS文字制約を確認する。前taskのValidation scopeを流用せず、対象serviceと必要な参照先を明示して検証する。日本語の表示用Commentは正式property値と区別し、不正値を自動翻訳・置換しない。
+2. resource/propertyの参照をたどり、必要な依存先の設計・model・anchor・logical/current identifier、受渡し値を確認し、利用するpropertyにも同じschema検証を適用する。既存のlink解決とResolve implementation unitsの依存確認を使い、参照先は必要なresource/propertyだけ読む。依存先調査で変更scopeや全service検証へ自動拡張しない。
+3. CloudFormationでは正本stack登録と生成設計を照合し、対象resourceの所有stack、template・parameterの対応、DeployOrder、共有templateの各stack instanceを確認する。既存templateのResources・Parameters・Outputs／Export／ImportValueと設計propertyの対応、parameter値／defaultの不足、参照先不明、dependency cycleを確認する。新規IaC fileの未作成自体は不足とせず、配置先と入力の設計が未確定なら不足にする。Terraformでは既存module・environment入力・outputの対応を確認する。
+4. 確認可能な全対象と依存先の診断を集約し、`対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由`の不足一覧を一回でまとめて提示する。読取不能の対象はその理由を記載して他の確認を続け、最初の不足だけで報告を終えない。不足0件ならその結果と実装対象差分を報告し、追加承認を要求せず契約作成・実装へ進む。不足があれば実装せず、別のdesign taskが必要であることと未確認事項を示して停止する。設計・model・IaCをここで修正せず、別taskを自動作成・実行しない。
 
 ## Compare existing IaC before creating the contract
 

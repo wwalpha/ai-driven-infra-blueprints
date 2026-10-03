@@ -17,6 +17,25 @@ def main() -> None:
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
 
+    for resource_type, property_path, accepted, rejected in (
+        ("IAM.Role", "Description",
+         ("Role for application logs", "Cafe café ¡ÿ", "tab\tline\nreturn\r", "quotes '\" and ?%\\"),
+         ("日本語の説明", "emoji 😀", "bad\x00", "bad\x1f", "bad\x7f", "bad\x80", "bad\xa0", "bad\u0100", "text\n日本語")),
+        ("EC2.SecurityGroup", "GroupDescription",
+         ("Application access", "aZ09 ._-:/()#,@[]+=&;{}!$*"),
+         ("日本語の説明", "café", "tab\t", "line\n", "return\r", "quote'", 'quote"', "question?", "percent%", "backslash\\", "pipe|", "text\n日本語")),
+    ):
+        assert catalog.property_schema(resource_type, property_path)["type"] == "string"
+        for spelling in (resource_type, catalog.canonical_type(resource_type)):
+            for value in accepted:
+                assert catalog.literal_errors(spelling, property_path, value) == [], (spelling, value)
+            for value in rejected:
+                errors = catalog.literal_errors(spelling, property_path, value)
+                assert any("must match" in error for error in errors), (spelling, value, errors)
+    # Supplement only the two formal properties, not unrelated descriptions/tags.
+    assert catalog.literal_errors("EC2.SecurityGroup", "Tags[].Value", "日本語") == []
+    assert catalog.literal_errors("EC2.SecurityGroupIngress", "Description", "日本語") == []
+
     assert catalog.property_schema("Events.Rule", "EventPattern")["type"] == ["string", "object"]
     for resource_type, property_path in (
         ("Events.Rule", "EventPattern"),

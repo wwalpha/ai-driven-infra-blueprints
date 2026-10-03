@@ -19,6 +19,14 @@ REGION = "ap-northeast-1"
 SOURCE_URL = f"https://schema.cloudformation.{REGION}.amazonaws.com/CloudformationSchema.zip"
 IDENTIFIER_OUTPUT = "IDENTIFIER_OUTPUT"
 
+# The pinned provider schemas omit these API character constraints.
+# https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateRole.html
+# https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateSecurityGroup.html
+DESCRIPTION_PATTERNS = {
+    ("AWS::IAM::Role", "Description"): r"\A[\u0009\u000A\u000D\u0020-\u007E\u00A1-\u00FF]*\Z",
+    ("AWS::EC2::SecurityGroup", "GroupDescription"): r"\A[a-zA-Z0-9 ._:/()#,@\[\]+=&;{}!$*\-]*\Z",
+}
+
 
 def aws_type(material: Path) -> str:
     return "AWS::" + material.stem.replace("_", "::", 1)
@@ -126,7 +134,11 @@ class CloudFormationSchemaCatalog:
 
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
         node = self.property_schema(resource_type, property_path)
-        return self._literal_errors(node, raw_value)
+        errors = self._literal_errors(node, raw_value)
+        pattern = DESCRIPTION_PATTERNS.get((self.canonical_type(resource_type), property_path))
+        if pattern and not errors:
+            errors.extend(self._literal_errors({"type": "string", "pattern": pattern}, raw_value))
+        return errors
 
     def _literal_errors(self, node: dict[str, Any], raw_value: str) -> list[str]:
         if raw_value.lower() in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"} and raw_value not in node.get("enum", []):
