@@ -3,6 +3,9 @@ name: issues
 description: AWS Blueprintの指定environment・target・serviceの調査結果や検証エラーを、サービス別の番号付き問題一覧としてissues配下へ保存・更新するときに使用する。
 ---
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
+
 # 問題の整理
 
 本スキルの共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。
@@ -23,7 +26,7 @@ description: AWS Blueprintの指定environment・target・serviceの調査結果
 
 ## 保存と更新
 
-- 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と`framework/rules/loop-engineering.md`を読み、最初のrepository変更として`tasks/active.md`を今回の対象・Goalへ切り替える。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/active.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
+- 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と`framework/rules/loop-engineering.md`を読み、最初のrepository変更として`tasks/<task-name>.md`を今回の対象・Goalで新規登録する。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/<task-name>.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
 - この保存限定taskは既存issueによる停止判定の対象外となる。未解決issueがあっても調査と一覧の更新を続け、Issue remediationによる修復例外は追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateが適用される。
 - `docs/designs/<environment>/<target-directory>/`と同じ環境・target directory構成で保存する。複数targetは別ファイルに分け、必要なdirectoryだけ作成する。
 - 既存ファイルがあれば読んでから今回の範囲を再確認し、その範囲の問題を最新の調査結果へ置き換える。解消を確認した問題は除去し、新規・継続する問題を記載する。未確認の問題は未確認と記載し、解消扱いにしない。今回対象外のservice・問題は保持する。

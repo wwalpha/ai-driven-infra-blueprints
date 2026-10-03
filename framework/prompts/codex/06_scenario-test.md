@@ -1,5 +1,7 @@
 # Scenario Test
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
 
 ## Unresolved issue gate
@@ -37,14 +39,14 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 
 ## Create active task contract
 
-最初のrepository changeとして`tasks/active.md`を次の条件で上書きする。
+最初のrepository changeとして`tasks/<task-name>.md`を次の条件で新規登録する。
 
 - Task typeは`scenario-test`とする。
 - goalにscenario ID、environment、aliasがある場合はalias、AWS account、expected behaviorを記載する。
 - `Required changes`は一意なRequirement ID付きで、scenario定義／implementationと同じtargetのcurrent result更新を分けて記載する。
 - `Acceptance checks`は各Requirement IDへ対象scenario fileとresult fileの`changed:`を対応付ける。
 - AWS mutationとdestructive operationは確認済みUser inputの値をそのまま記載する。
-- Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<target-directory>/**`、`tasks/active.md`だけに限定する。
+- Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<target-directory>/**`、`tasks/<task-name>.md`だけに限定する。
 - `docs/**`、`model/**`、`infra/**`は変更禁止とする。
 
 ## Define and execute

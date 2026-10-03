@@ -1,5 +1,7 @@
 # Add Project Target Prompt
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、初期化済みrepositoryの`project.json`へ、必要値が確定したenvironment／logical targetを1件追加するmigrationに使用する。
 
 humanへJSONの作成・編集を依頼してはいけない。値を推測せず、質問、確認、file変更はこのmigration task内で完結させる。
@@ -69,7 +71,7 @@ file変更前に次を確認する。
 
 ## Create active task contract
 
-最初のrepository changeとして、`tasks/active.md`を次の条件で上書きする。
+最初のrepository changeとして、`tasks/<task-name>.md`を次の条件で新規登録する。
 
 ```md
 - Task type: `migration`
@@ -79,7 +81,7 @@ file変更前に次を確認する。
 - AWS mutation、AWS API、deploy、applyは禁止する
 - `Required changes`は一意なRequirement ID付きで、`project.json`更新、target path作成、選択IaC path作成を分けて記載する
 - `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`または`changed:`を対応付ける
-- Allowed pathsは`project.json`、追加対象の`docs/designs/**`、`model/**`、選択済みIaCのtarget path、`tasks/active.md`に限定する
+- Allowed pathsは`project.json`、追加対象の`docs/designs/**`、`model/**`、選択済みIaCのtarget path、`tasks/<task-name>.md`に限定する
 - 既存target、design、model、IaC implementation、scenario、scenario resultの変更を禁止する
 
 ## Add project target

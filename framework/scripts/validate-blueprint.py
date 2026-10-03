@@ -65,6 +65,7 @@ from model_design import entries, naming_errors, properties
 from model_files import MAX_LINES, read_model, model_parts, service_model_path
 from validation_scope import active_scope, reference_lines, scoped_files
 from issue_gate import require_no_issues
+from task_contract import task_path, task_changes, contracts, reservations, TASK_NAME, SELECTOR
 
 
 REQUIRED_RULES = {
@@ -292,22 +293,29 @@ class Validator:
             ["git", *args], cwd=self.root, check=False, capture_output=True, text=True
         )
         self.check(result.returncode == 0, f"git {' '.join(args)} failed")
-        return set(result.stdout.splitlines()) if result.returncode == 0 else set()
+        return {path for path in result.stdout.split("\0") if path} if result.returncode == 0 else set()
 
     def check_task_scope(self) -> None:
-        prompt = self.root / "tasks" / "active.md"
+        prompt = task_path(self.root)
         self.changed_paths = (
-            self.git_paths(["diff", "--name-only"])
-            | self.git_paths(["diff", "--cached", "--name-only"])
-            | self.git_paths(["ls-files", "--others", "--exclude-standard"])
+            self.git_paths(["diff", "--no-renames", "--name-only", "-z"])
+            | self.git_paths(["diff", "--cached", "--no-renames", "--name-only", "-z"])
+            | self.git_paths(["ls-files", "--others", "--exclude-standard", "-z"])
         ) - {".lock"}  # Per-repository password configuration is not a task artifact.
         if not self.changed_paths:
             return
         if not prompt.is_file():
+            if contracts(self.root):
+                self.changed_paths = task_changes(self.root, self.changed_paths)
+                return
             self.check(
                 not (self.changed_paths - {"tasks/active.md"}),
                 f"active task prompt missing: {self.relative(prompt)} while repository has non-contract changes",
             )
+            return
+
+        self.changed_paths = task_changes(self.root, self.changed_paths, self.relative(prompt))
+        if not self.changed_paths:
             return
 
         lines = prompt.read_text(encoding="utf-8").splitlines()
@@ -449,8 +457,9 @@ class Validator:
             if self.task_type == "migration" and scope:
                 reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
                            for name in ("issues.md", "diff.md")}
-                permitted = reports | {"tasks/active.md"}
-                lines = (self.root / "tasks/active.md").read_text(encoding="utf-8").splitlines()
+                prompt = task_path(self.root)
+                permitted = reports | {self.relative(prompt)}
+                lines = prompt.read_text(encoding="utf-8").splitlines()
                 allowed = self.section(lines, "## Allowed paths")
                 allowed = {line[3:-1] for line in allowed if re.fullmatch(r"- `[^`]+`", line)}
                 if allowed & reports and allowed <= permitted and self.changed_paths <= permitted:
@@ -463,7 +472,7 @@ class Validator:
             self.check(False, str(error))
 
     def check_task_type_requirements(self) -> None:
-        changed = self.changed_paths - {"tasks/active.md"}
+        changed = {path for path in self.changed_paths if not TASK_NAME.fullmatch(path)}
         if self.task_type == "initialization":
             self.check("project.json" in changed, "initialization task must change project.json")
         elif self.task_type == "design":
@@ -554,13 +563,13 @@ class Validator:
         self.check("## Task transition" in readme, "README.md lacks Task transition workflow")
         self.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
         required = {
-            "AGENTS.md": "変更のないアイドル状態ではこのfileがなくてもよい",
-            "README.md": "`active.md`がないclean repositoryはidle状態",
-            "framework/rules/loop-engineering.md": "変更のないidle状態では`tasks/active.md`がなくてもよい",
-            "framework/prompts/chatbot/service-design.md": "存在する場合は`tasks/active.md`",
-            "framework/prompts/codex/03_implement.md": "存在する場合は`tasks/active.md`",
-            "framework/prompts/codex/04_deploy.md": "存在する場合は`tasks/active.md`",
-            "framework/prompts/codex/05_update.md": "存在する場合は`tasks/active.md`",
+            "AGENTS.md": "tasks/<task-name>.md",
+            "README.md": "tasks/<task-name>.md",
+            "framework/rules/loop-engineering.md": "## Modified files",
+            "framework/prompts/chatbot/service-design.md": "tasks/<task-name>.md",
+            "framework/prompts/codex/03_implement.md": "tasks/<task-name>.md",
+            "framework/prompts/codex/04_deploy.md": "tasks/<task-name>.md",
+            "framework/prompts/codex/05_update.md": "tasks/<task-name>.md",
         }
         for relative, literal in required.items():
             path = self.root / relative
@@ -753,14 +762,10 @@ class Validator:
             self.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {self.relative(path)}")
 
     def check_tasks(self) -> None:
-        tasks = self.root / "tasks"
-        if not tasks.is_dir():
-            return
-        entries = sorted(tasks.iterdir())
-        self.check(
-            not entries or (len(entries) == 1 and entries[0].is_file() and entries[0].name == "active.md"),
-            "tasks directory must contain only tasks/active.md, or be empty while idle",
-        )
+        try:
+            reservations(self.root, contracts(self.root))
+        except (OSError, ValueError) as error:
+            self.check(False, str(error))
 
     def check_project_topology(self) -> None:
         path = self.root / "project.json"
@@ -2550,6 +2555,7 @@ class Validator:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
+    parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
     parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
     parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
     parser.add_argument("--fresh", action="store_true", help="Revalidate instead of reusing successful content-addressed checks")
@@ -2559,6 +2565,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.task_file:
+        os.environ[SELECTOR] = args.task_file
     root = args.repository_root.resolve()
     if not (root / ".git").exists():
         print(f"repository root is invalid: {root}", file=sys.stderr)

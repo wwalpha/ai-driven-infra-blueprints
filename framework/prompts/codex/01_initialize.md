@@ -1,5 +1,7 @@
 # Repository Initialization Prompt
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、Codexが初期化に必要な確定値をhumanへ確認し、`project.json`とtarget pathを作成するために使用する。`docs/system-overview.md`の作成・記入状態を前提にしない。
 
 humanへJSONの作成・編集を依頼してはいけない。質問、回答、正規化、file作成はこのinitialization task内で完結させる。
@@ -77,7 +79,7 @@ file変更前に次を確認する。
 
 ## Create active task contract
 
-最初のrepository changeとして、`tasks/active.md`を次の条件で上書きする。
+最初のrepository changeとして、`tasks/<task-name>.md`を次の条件で新規登録する。
 
 ```md
 - Task type: `initialization`
@@ -87,7 +89,7 @@ file変更前に次を確認する。
 - AWS mutation、AWS API、deploy、applyは禁止する
 - `Required changes`は一意なRequirement ID付きで、`project.json`作成、target path作成、IaC engine選択を分けて記載する
 - `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`、未選択IaC rootの`absent:`を対応付ける
-- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`model/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/active.md`に限定する
+- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`model/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/<task-name>.md`に限定する
 - resource設計、IaC implementation、AWS接続確認は対象外とする
 - `tests/scenarios/**`と`tests/results/**`を変更しない
 

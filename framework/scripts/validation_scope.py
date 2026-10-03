@@ -2,14 +2,17 @@
 
 from pathlib import Path
 import re
+from task_contract import task_path, contracts
 
 
 def active_scope(root: Path, full: bool = False) -> set[tuple[str, str, str]] | None:
     if full:
         return None
-    path = root / "tasks/active.md"
+    path = task_path(root)
     if not path.is_file():
-        raise ValueError("validation scope missing: tasks/active.md; specify scope or --all")
+        if contracts(root):
+            return set()  # All registered tasks are completed; retain shared idle checks.
+        raise ValueError("validation scope missing: selected task contract; specify scope or --all")
     lines = path.read_text(encoding="utf-8").splitlines()
     selected = []
     inside = False

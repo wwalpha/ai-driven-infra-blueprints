@@ -1,5 +1,7 @@
 # Infrastructure Deployment Prompt
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformを変更せずにdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。IaC修正とapplication behavior検証は行わない。
 
 ## Unresolved issue gate
@@ -32,7 +34,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 1. `AGENTS.md`
 2. `README.md`
-3. 存在する場合は`tasks/active.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
+3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
 6. 対応する`model/<environment>/<target-directory>/*.properties`
@@ -49,7 +51,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 ## Create active task contract
 
-最初のrepository changeとして`tasks/active.md`を今回の対象だけを許可する内容へ上書きする。
+最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`deploy`とする。
@@ -58,7 +60,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 - Authorized delete/replacementは確認済みUser inputの値、入力がない場合は`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
 - `Required changes`は一意なRequirement ID付きでdeploymentと、必要な場合だけ成功後のobserved value更新を記載する。
 - `Acceptance checks`はdeployment unitの`exists:`と、observed value更新が必要な場合だけ対象詳細設計/modelの`changed:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsは、generated current value更新が必要な対象詳細設計、対応する`model/<environment>/<target-directory>/**`、`tasks/active.md`だけに限定する。`infra/**`と`tests/**`は変更禁止とする。
+- Allowed pathsは、generated current value更新が必要な対象詳細設計、対応する`model/<environment>/<target-directory>/**`、`tasks/<task-name>.md`だけに限定する。`infra/**`と`tests/**`は変更禁止とする。
 
 ## Preflight
 
@@ -147,7 +149,7 @@ Terraformの場合:
 
 humanが追加情報を求めた場合は、同じtaskのdeployment scope内でlist/get/describe相当のread-only operationだけを実行して説明を補い、同じ質問を再提示する。データ削除、resource変更、IaC修正は行わない。
 
-humanが全対象と理由を承認した場合は、`tasks/active.md`のAuthorized delete/replacementを承認済みresource、action、理由へ更新し、次を確認して同じtaskを再開する。
+humanが全対象と理由を承認した場合は、`tasks/<task-name>.md`のAuthorized delete/replacementを承認済みresource、action、理由へ更新し、次を確認して同じtaskを再開する。
 
 - CloudFormationは同じchange set IDを再取得し、statusが`CREATE_COMPLETE`、execution statusが`AVAILABLE`、承認対象のlogical ID、action、replacement、`PolicyAction`が一致する場合だけそのchange setを実行する。
 - Terraformは同じ保存済みplanを再確認し、承認対象のresource address、resource type、actionが一致する場合だけそのplan binaryをapplyする。

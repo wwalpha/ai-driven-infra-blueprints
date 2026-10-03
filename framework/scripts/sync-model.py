@@ -18,6 +18,7 @@ from pathlib import Path
 
 from design_catalog import design_material_files
 from validation_scope import active_scope, reference_lines, scoped_files
+from task_contract import task_path, require_writable
 from issue_gate import require_no_issues
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
@@ -322,14 +323,16 @@ def sync(
     if import_markdown:
         if not write:
             raise ValueError("--import-markdown requires --write and an explicitly authorized migration task")
-        contract = root / "tasks/active.md"
+        contract = task_path(root)
         if not contract.is_file() or "- Task type: `migration`" not in contract.read_text(encoding="utf-8"):
             raise ValueError("Markdown import is allowed only in an explicit migration task")
         expected_models = {(models / path.relative_to(docs)).with_suffix(".properties"): imported_model(path, root) for path in markdown_paths}
         if any(path.is_file() for path in expected_models):
             raise ValueError("Markdown import must not overwrite an existing authoritative model")
-        save_files({file: content for path, text in expected_models.items()
-                    for file, content in model_file_contents(path, text).items()})
+        outputs = {file: content for path, text in expected_models.items()
+                   for file, content in model_file_contents(path, text).items()}
+        require_writable(root, outputs)
+        save_files(outputs)
         print(f"Service model import: PASS ({len(expected_models)} files); verify and generate Markdown next")
         return 0
     destinations = {}
@@ -452,6 +455,7 @@ def sync(
             try:
                 expected = {root / file.relative_to(stage): file.read_text(encoding="utf-8") for file in files}
                 if write:
+                    require_writable(root, expected)
                     originals = {file: file.read_bytes() if file.is_file() else None for file in expected}
                     save_files(expected)
                     saved[path] = originals

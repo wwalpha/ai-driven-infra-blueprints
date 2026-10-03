@@ -46,11 +46,24 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 - `framework/scripts/model_files.py`: `<service.properties> --resource '<resource-number-or-logical-id-or-anchor>'`で対象resourceの正本と同じ表示group・共通注記だけを位置付きで読む。`--find '<key-or-logical-id>'`は値を表示せず対象fileと行を検索する。600行超のmodelの物理分割は明示design/migration taskで`--split`を実行する
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
-- `tasks/active.md`: 現在実行する一つのtask contract。次のtask開始時に上書きする。変更のないidle状態では省略できる
+- `tasks/<task-name>.md`: taskごとの契約。変更予定fileが重複しない複数taskを同時進行できる
 
 ## Task transition
 
-repositoryを変更する新しい依頼を受けた場合、Codexは`tasks/active.md`があれば最新依頼のtask type、target、Goalと比較します。`active.md`がないclean repositoryはidle状態です。いずれかが異なる場合、またはidle状態から変更を始める場合は新しいtaskとして扱い、最初のcoherent changeで`tasks/active.md`を今回の契約として作成または上書きします。`active.md`がない状態で他のpathだけを変更した場合はvalidatorが失敗します。
+repositoryを変更する新しい依頼では、task type、target、Goalを今回の契約と照合し、新しいtaskは`tasks/<task-name>.md`へ保存します。既存taskの契約は上書きしません。契約がないclean repositoryはidle状態です。
+
+各契約の`Task contract`へTask statusを記載し、`## Modified files`へ変更予定fileの具体的なrepository-relative pathを列挙します。globやdirectoryは使わず、新規file、生成artifact、model part、契約自身も含めます。`Allowed paths`は従来どおり許可範囲を示し、変更予定fileはその範囲内である必要があります。
+
+進行中taskと同じfileが一つでもあれば、新規taskを登録前に停止します。既存taskは継続します。契約の候補をrepository外へ用意し、次で登録します。同時登録も直列化されるため、同じfileを二つのtaskが同時に確保できません。
+
+```text
+python framework/scripts/task_contract.py --task-file tasks/network-design.md --source <repository外の契約候補file>
+python framework/scripts/blueprint-loop.py --mode task --task-file tasks/network-design.md
+```
+
+生成・deployなど同じchat/process内のcommandには`BLUEPRINT_TASK_FILE=tasks/network-design.md`を指定します。running taskが一つなら自動選択し、複数なら未指定で停止します。変更予定fileを追加する場合も、変更前に契約を更新し、`task_contract.py --task-file tasks/network-design.md`で競合を再検査します。競合した更新では対象fileを変更せず、今回の契約を元へ戻します。
+
+local loopは全taskの競合と未登録変更を確認し、今回の変更だけへtask typeとAcceptance checksを適用します。成功後は今回の契約を`completed`へ変更します。完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除します。`tasks/active.md`だけを持つ旧repositoryは従来の単一taskとして読めます。並行taskを追加する前に既存契約を個別fileへ移し、statusとModified filesを記入します。
 
 read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
 
@@ -179,7 +192,7 @@ non-scenario taskのverification outputはdefaultではrepositoryへ保存せず
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-このcommandは`<target-repository>/framework/**`、`<target-repository>/.agents/**`、rootの`AGENTS.md`と`README.md`を追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`--dry-run`で保存前の差分を確認できます。同期件数はコピー先との内容差分で数えるため、同期対象外の`tasks/active.md`などを含むローカル未commit件数とは一致しない場合があります。summaryに同期範囲と対象外のpathを表示します。
+このcommandは`<target-repository>/framework/**`、`<target-repository>/.agents/**`、rootの`AGENTS.md`と`README.md`を追加・更新します。projectごとに変わる`project.json`、`docs/`、`infra/`、`model/`、`tasks/`、`tests/`はコピーまたは変更しません。`--dry-run`で保存前の差分を確認できます。同期件数はコピー先との内容差分で数えるため、同期対象外の`tasks/<task-name>.md`などを含むローカル未commit件数とは一致しない場合があります。summaryに同期範囲と対象外のpathを表示します。
 
 ## Repository structure
 
@@ -215,7 +228,7 @@ framework/
     sync-existing-files.py
     update-catalog-lock.py
     validate-blueprint.py
-tasks/active.md  # task実行中だけ必要。idle状態では省略可
+tasks/<task-name>.md  # taskごとの契約。idle状態では省略可
 docs/
   system-overview.md
   designs/<environment>/<target-directory>/
@@ -303,6 +316,7 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 ## Task contract
 
 - Task type: `design`
+- Task status: `running`
 
 ## Validation scope
 
@@ -318,11 +332,17 @@ active promptには`Task type`と`## Allowed paths`を記載します。Allowed 
 - [R1] `changed:docs/designs/<environment>/<target-directory>/**`
 - [R2] `changed:model/<environment>/<target-directory>/**`
 
+## Modified files
+
+- `tasks/network-design.md`
+- `model/dev/cde/ec2.properties`
+- `docs/designs/dev/cde/ec2.md`
+
 ## Allowed paths
 
 - `docs/designs/**`
 - `model/**`
-- `tasks/active.md`
+- `tasks/network-design.md`
 ```
 
 通常taskはValidation scopeに指定したserviceの設計/model、生成Markdown/JSON一致、ownership、stack、catalog/schema、命名、policy、reference/link、artifact、active task contractとtask固有checkを検証します。validatorからmodel照合まで指定serviceを引き継ぎます。共通の契約・変更範囲・project topology・catalog整合性チェックは維持します。参照先はlink解決に必要な情報だけを読み、参照先service全体は検証しません。unstaged/staged両方の`git diff --check`もloop内で実行します。CloudFormation/Terraformとdeployの既存必須手順は各phaseのrules/promptどおり別途維持します。
@@ -361,7 +381,7 @@ command例はPython 3 launcherを`python`と表記する。WindowsでPython Laun
 
 ### 競合解消後の固定snapshot検証
 
-競合解消したfileと今回の`tasks/active.md`をstageした後、比較元commitを明示して実行します。
+競合解消したfileと今回の`tasks/<task-name>.md`をstageした後、比較元commitを明示して実行します。
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
@@ -420,7 +440,7 @@ python -m pstats /tmp/design-catalog.prof
 2. **コマンド追跡の終了を切り分ける。** VS Codeの`chat.tools.terminal.enforceTimeoutFromModel`（Experimental）は、agent指定timeoutでコマンドの追跡を終了し、それまでの出力を返す設定です。利用中の版にこの設定があれば、追跡timeoutが原因と確認できた場合に限りworkspace単位で`false`を比較検証し、確認後は元へ戻します。session切断を直す設定ではありません。[公式設定一覧](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-tools)
 3. **通常のterminalから実行する。** 長時間checkはhumanがVS Codeの通常terminalまたはOSのterminalで上記commandを実行し、Copilotには表示されたログpathの確認を依頼します。これでagentのtool待機への依存を減らします。OSのsleepやterminal終了に対する存続は別途確認が必要です。
 4. **session停止の証拠を確認する。** `Developer: Set Log Level`でGitHub Copilot / GitHub Copilot Chatを一時的にTraceにし、`Output: Show Output Channels`から同じ時刻のerrorを確認します。Agent Debug Logsがある版ではmodel requestとtool callも照合し、request limit、通信error、extension/terminal異常を分けます。`chat.agent.maxRequests`はrequest回数の上限であり、実行時間の上限ではありません。回数上限が実際に報告された場合だけ設定を見直します。[公式診断手順](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting)、[request設定](https://code.visualstudio.com/docs/agents/reference/ai-settings#agent-behavior)
-5. **同じtaskで結果を確認する。** 切断後は`tasks/active.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
+5. **同じtaskで結果を確認する。** 切断後は今回の`tasks/<task-name>.md`と保存済みログを読み直します。`loop_end`と全checkの終了があり、検証inputも変わっていないことを確認して成否を報告します。`loop_end`欠落で実プロセスも終了済みの場合は全loopを再実行します。途中ログだけでPASSにせず、別taskへ進みません。
 
 local loopはtask type、infrastructure phase、task scope、project topology、catalog/schema integrity、IaC engine selectionの共通checkと、Validation scope内のdesign value・service model・observed ARNを検証します。IaC内容とscenario/resultのrepository整合性も全体検証に含み、実IaC/deploymentの必須validationは各phaseで別途実行します。System Overviewの`UNSET`は検証失敗にしません。通常はIaC作成とdeploy/applyを別taskにし、humanがmodel propertiesへ手動修正した設計の反映だけは専用`update` phaseで一つのtaskとして実行します。
 
@@ -435,7 +455,7 @@ controllerは、送信するtemplateが51,200 bytes以下なら従来どおり�
 ```properties
 desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
 desired.deployment.templateKeyPrefix=cloudformation/templates/
-desired.artifact.001.stack=cfn-stack-app-dev-job-01
+desired.artifact.001.stack=cfn-stack-app-dev-job
 desired.artifact.001.resource=FunctionA
 desired.artifact.001.property=Code
 desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip

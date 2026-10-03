@@ -8,6 +8,7 @@ import importlib.util
 import re
 import sys
 from pathlib import Path
+from task_contract import task_path, require_writable
 
 MAX_LINES = 600
 PART_LINES = 550
@@ -156,7 +157,7 @@ def main() -> int:
         root = path.parents[3]
         if path.relative_to(root).parts[0] != "model" or len(path.relative_to(root).parts) != 4:
             raise ValueError("split input must be model/<environment>/<target>/<service>.properties")
-        contract = (root / "tasks/active.md").read_text(encoding="utf-8")
+        contract = task_path(root).read_text(encoding="utf-8")
         if not any(f"- Task type: `{kind}`" in contract.splitlines() for kind in ("design", "migration")):
             raise ValueError("splitting requires an explicit design or migration task")
         from validation_scope import active_scope
@@ -178,6 +179,7 @@ def main() -> int:
         spec = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        require_writable(root, set(output) | obsolete)
         module.save_files(output)
         for part in obsolete:
             part.unlink()

@@ -4,7 +4,7 @@
 
 ## 常時適用ルール
 
-- repository変更では`tasks/active.md`をtask contractとして使用する。変更のないアイドル状態ではこのfileがなくてもよい。fileがない状態で変更を始める場合は、最初のcoherent changeで今回のcontractを作成し、idleへ移行する`active.md`単独の削除を除く他の変更はcontract作成後に行う。
+- repository変更では`tasks/<task-name>.md`をtaskごとの契約として使用する。複数taskの同時進行を許可する。契約のないclean repositoryはidleとし、変更前に今回の契約を登録する。
 - 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。
 - active promptは今回の変更契約であり、長期的な設計の正本ではない。
 - active taskに明記されていない次工程、別taskの作成、別taskの実行へ進まない。
@@ -26,9 +26,12 @@
 
 ## Task transition
 
-- repository変更前に、`tasks/active.md`があれば最新のuser依頼のtask type、target、Goalと比較する。fileがないclean repositoryはidle状態として扱う。
-- task type、target、Goalのいずれかが異なるrepository変更は新しいtaskとし、最初のrepository changeとして`tasks/active.md`を今回の契約へ上書きする。`active.md`がない状態では、validatorが`tasks/active.md`以外の変更を拒否する。
-- read-only調査とchat-only設計相談はrepository taskを開始しない。完了済みの前taskが`tasks/active.md`に残っていてもchat-only作業のblockerにしない。
+- 契約登録は`framework/scripts/task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`を使用する。同時登録を直列化し、競合時は候補を保存しない。既存taskの変更予定fileを追加・変更する場合も、実変更前に同じ競合検査を通す。
+- 各chat/processは`BLUEPRINT_TASK_FILE=tasks/<task-name>.md`を指定する。local loopとvalidatorは`--task-file`でも選べる。running taskが複数ある場合は未指定で停止し、別taskへ推測で切り替えない。
+- 他taskの登録済み変更は今回のtask type判定とAcceptance checksから分離する。未登録の変更file、変更予定外の生成先、進行中task間の重複は拒否する。
+- repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalと照合する。別taskの契約を上書きしない。
+- task type、target、Goalのいずれかが異なる変更は新しいtaskとする。変更予定fileを`## Modified files`へrepository-relativeの具体的pathで列挙し、既存のrunning taskとの重複を登録前に検査する。未作成fileと契約自身も列挙し、glob、directory、別taskの契約を指定しない。重複があれば新規taskを停止し、既存taskと対象fileを報告する。既存taskを停止・上書きしない。
+- read-only調査とchat-only設計相談はrepository taskを開始しない。完了済みtaskの契約はchat-only作業のblockerにしない。
 - chat-only設計をrepositoryへ保存する依頼は新しい`design` taskとし、保存前にactive taskを切り替える。
 - `## Required changes`の各項目には一意なRequirement IDを付け、`## Acceptance checks`で同じIDへ一つ以上の機械検証を対応付ける。
 - Acceptance checkは`changed:<path-or-glob>`、`exists:<path-or-glob>`、`absent:<path-or-glob>`、またはvalidatorへ登録済みの`check:<check-id>`だけを使用する。任意commandをactive taskから実行しない。
@@ -43,7 +46,7 @@
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
 - scenario-test taskだけが`tests/scenarios/**`と`tests/results/**`を変更できる。
 - non-scenario taskのvalidation/deployment結果を`tests/results/**`へ保存しない。verification outputは原則として完了報告だけに記載する。
-- `tasks/active.md`は今回のtask contractだけを置き、次のtask開始時に上書きする。task履歴やevidenceを`tasks/`へ保存しない。
+- `tasks/`には独立した契約だけを置き、task履歴やevidenceを保存しない。Task statusは`running`または`completed`。local loop成功後に今回の契約だけをcompletedへ変更する。未commit差分の所属を保持する間だけ完了済み契約を残し、差分がなくなれば削除する。
 - scenario evidenceの過去版はGit履歴で追跡し、実行別・timestamp別directoryを追加しない。
 
 ## 詳細ルール

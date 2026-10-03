@@ -39,6 +39,8 @@
 
 ## CloudFormation deployment policy
 
+StackNameは通常numberを省略する。以下は同じ用途の複数stackをnumberで区別するoptionalな使用例とする。model entry IDの`001`／`002`とStackNameのnumberは独立しており、entry IDを名称へ付けない。
+
 ```properties
 desired.deployment.maxConcurrentStacks=2
 desired.stack.001.name=cfn-stack-app-dev-job-01
@@ -221,7 +223,7 @@ display.resource.001.comment=VPCの通信ログを保存するLog Group
 ```properties
 desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
 desired.deployment.templateKeyPrefix=cloudformation/templates/
-desired.artifact.001.stack=cfn-stack-app-dev-job-01
+desired.artifact.001.stack=cfn-stack-app-dev-job
 desired.artifact.001.resource=FunctionA
 desired.artifact.001.property=Code
 desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip

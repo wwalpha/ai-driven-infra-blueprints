@@ -7,13 +7,14 @@ import sys
 
 from validation_scope import active_scope
 from model_files import service_model_path
+from task_contract import task_path
 
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 
 def remediation_scope(root: Path) -> set[tuple[str, str, str]]:
-    path = root / "tasks/active.md"
+    path = task_path(root)
     if not path.is_file():
         return set()
     result = set()
@@ -124,7 +125,7 @@ def require_no_issues(root: Path, scope, *, target=None) -> None:
 def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
     if not (root / "issues" / target[0] / target[1] / "issues.md").is_file():
         return
-    scope = active_scope(root) if (root / "tasks/active.md").is_file() else None
+    scope = active_scope(root) if task_path(root).is_file() else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
         scope = None  # An unrelated contract cannot bypass a target's issues.
     require_no_issues(root, scope, target=target)

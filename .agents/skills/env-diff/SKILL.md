@@ -3,6 +3,9 @@ name: env-diff
 description: desired propertiesのdev→stg／stg→prod、cde／non-cdeから選択した組を比較元を正として比較し、サービス別の差異を簡潔にまとめて比較先のdiff.mdへ保存するときに使用する。
 ---
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
+
 # 環境間のdesired比較
 
 共通正本はai-driven-infra-blueprintsリポジトリで管理する。
@@ -102,7 +105,7 @@ python3 -B framework/scripts/compare-environments.py
 | stg↔prod | non-cde | `issues/prod/non-cde/diff.md` |
 
 - 比較元を正として比較先の差分を保存する。`issues.md`へ転記せず、既存issuesを変更しない。diff.mdの項目を未解決issueとして数えず、差分の存在をtask停止理由にしない。desired比較とdiff.md保存は既存issues.mdによる停止判定の対象外とする。下記の保存限定migrationでは、未解決issueがあってもAI分類・保存・local validationを続け、Issue remediationは追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateを維持する。
-- 保存は`migration` taskとして行う。最初のrepository変更として`tasks/active.md`を今回のGoalへ切り替え、選択した比較対象の両側のenvironment/target/serviceだけをValidation scopeに列挙する。Allowed pathsはactive contractと選択した組の保存先diff.mdだけとし、各Required changesに一意なIDと対応する`exists:` Acceptance checkを付ける。framework変更や修復は混ぜない。
+- 保存は`migration` taskとして行う。最初のrepository変更として`tasks/<task-name>.md`を今回のGoalで新規登録し、選択した比較対象の両側のenvironment/target/serviceだけをValidation scopeに列挙する。Allowed pathsはactive contractと選択した組の保存先diff.mdだけとし、各Required changesに一意なIDと対応する`exists:` Acceptance checkを付ける。framework変更や修復は混ぜない。
 - 冒頭は更新日時（Asia/Tokyo）、基準environment（正）・比較先・target、比較範囲と未検証範囲を数行で示す。許容された環境差異は差分対象・件数から除外した旨を一度示し、環境名・account等の実値の違いを列挙しない。
 - 本文は差分・命名規則不一致・未確認・比較不能事項があるserviceだけを、`## サービス別の差異`の下に`### <service-id>`を一つずつ置き、数行程度でまとめる。要約と詳細の二重構成にしない。主な設定差、resourceの追加・不足、命名規則不一致、未確認・比較不能事項を具体的に記載し、同じ理由の差は集約する。件数は追加・不足の規模など説明に役立つ場合だけ示す。
 - 各差異は対象の用途・設定項目を短く示し、その下に「devは、…」「stgは、…」のように両環境を別の行で並べる。実行した比較組のenvironment名を使い、それぞれの実値・設定内容・有無を具体的に書く。「環境別名称・参照差」「設定が異なる」だけで済ませない。追加・不足も両側の有無を示す。不明な値は推測せず未確認とし、比較不能は原因と未検証範囲を記載する。

@@ -22,6 +22,7 @@ from model_design import (properties, stack_model, markdown_for, deployment_sett
                           deployment_bucket, ARTIFACT_PROPERTIES)
 from model_files import read_model
 from issue_gate import require_target_no_issues
+from task_contract import task_path, status
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
@@ -538,7 +539,10 @@ class AwsBackend:
 
 
 def active_scope(root, requested, environment, account, alias=None):
-    text = (root / "tasks/active.md").read_text(encoding="utf-8")
+    contract = task_path(root)
+    text = contract.read_text(encoding="utf-8")
+    if status(text, contract.name == "active.md") != "running":
+        raise Blocked("completed task cannot deploy")
     for line in ("- Task type: `infrastructure`", "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
                  f"- Target environment: `{environment}`", f"- Target AWS account: `{account}`"):
         if line not in text.splitlines():

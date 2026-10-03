@@ -289,7 +289,7 @@ def check_staged_snapshot():
         root = Path(temporary) / "source"
         scripts = root / "framework/scripts"
         scripts.mkdir(parents=True)
-        for name in (SCRIPT.name, "validation_scope.py"):
+        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         # These isolated runner fixtures exercise orchestration after authorization.
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
@@ -455,6 +455,7 @@ def main() -> None:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
         shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
+        shutil.copyfile(SCRIPT.with_name("task_contract.py"), scripts / "task_contract.py")
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
         (scripts / "a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")

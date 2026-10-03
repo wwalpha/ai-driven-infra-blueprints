@@ -17,6 +17,7 @@ import time
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
+from task_contract import SELECTOR, task_path, task_changes
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -88,7 +89,9 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     running[index] = item
                     next_index += 1
                     try:
-                        item[0] = subprocess.Popen(command, cwd=root, env=environment,
+                        child_environment = {key: value for key, value in environment.items()
+                                             if not regression(command) or key != SELECTOR}
+                        item[0] = subprocess.Popen(command, cwd=root, env=child_environment,
                                                    stdout=stream, stderr=subprocess.STDOUT)
                         record("step_running", step=step, pid=item[0].pid)
                     except OSError as error:
@@ -264,6 +267,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
                         help="task/local: active-scope validation; full: also all regression tests")
     parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all regression tests")
+    parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     parser.add_argument("--profile", action="store_true", help="Profile model_design/design_catalog checks into the run directory")
     parser.add_argument("--jobs", type=int, choices=(1, 2), default=2, help="Independent regression workers (default: 2)")
@@ -274,6 +278,8 @@ def main() -> int:
     parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
     parser.add_argument("--affected", action="store_true", help="Select proven affected checks; unknown dependencies run all")
     args = parser.parse_args()
+    if args.task_file:
+        os.environ[SELECTOR] = args.task_file
     if args.staged != bool(args.base):
         parser.error("--staged and --base must be specified together")
     if args.affected and (args.mode == "full" or args.all):
@@ -287,6 +293,10 @@ def main() -> int:
     try:
         scope = active_scope(root, args.all) if not args.staged else set()
         changed = changed_paths(root) if not args.staged else set()
+        if not args.staged:
+            selected = task_path(root)
+            if selected.is_file():
+                changed = task_changes(root, changed - {".lock"}, selected.relative_to(root).as_posix())
     except (OSError, ValueError) as error:
         parser.error(str(error))
     full_validation = scope is None

@@ -15,8 +15,8 @@
 
 | No. | Deploy<br>Order | StackName | Template | Parameters | Comment |
 | ---: | ---: | --- | --- | --- | --- |
-| 1 | 10 | cfn-stack-app-dev-job-01 | job.yaml | job-01.json | 日次集計jobを配置するstack |
-| 2 | 10 | cfn-stack-app-dev-job-02 | job.yaml | job-02.json | 月次集計jobを配置するstack |
+| 1 | 10 | cfn-stack-app-dev-job-daily | job.yaml | job-daily.json | 日次集計jobを配置するstack |
+| 2 | 10 | cfn-stack-app-dev-job-monthly | job.yaml | job-monthly.json | 月次集計jobを配置するstack |
 ```
 
 <a id="service-metadata"></a>

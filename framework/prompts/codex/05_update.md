@@ -1,5 +1,7 @@
 # Manual Design Update and Deployment Prompt
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、人間が既存のmodel propertiesを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、Markdown生成、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
 
 ## Check applicability and finish point first
@@ -41,7 +43,7 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 
 1. `AGENTS.md`
 2. `README.md`
-3. 存在する場合は`tasks/active.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
+3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. `git status --short`と、repository差分から特定したDesign scopeのdiff
 6. 対象の`docs/designs/<environment>/<target-directory>/*.md`と関連するJSON artifact
@@ -74,7 +76,7 @@ task開始時のDesign scope diffを保持し、deploy成功後のgenerated curr
 
 ## Create active task contract
 
-Codexによる最初のrepository changeとして`tasks/active.md`を今回の対象だけを許可する内容へ上書きする。
+Codexによる最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`update`とする。
@@ -84,7 +86,7 @@ Codexによる最初のrepository changeとして`tasks/active.md`を今回の�
 - Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
 - `Required changes`は一意なRequirement ID付きで、human design diffの検証、Markdown生成、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
 - `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsはDesign scopeのmodel properties、生成先Markdown／JSON artifact、対象IaC、`tasks/active.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
+- Allowed pathsはDesign scopeのmodel properties、生成先Markdown／JSON artifact、対象IaC、`tasks/<task-name>.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
 
 ## Generate Markdown and implement IaC
 

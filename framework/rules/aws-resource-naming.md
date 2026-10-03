@@ -100,7 +100,7 @@
 | Amazon MWAA | Environment | `MWAA.Environment` | `Name` | `mwaa-{{application}}-{{environment}}[-{{purpose}}]` |
 | Amazon Macie | Classification job | `Macie.ClassificationJob` | `name` | `macie-{{application}}-{{environment}}-{{purpose}}` |
 | AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
+| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |
 | AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
 | AWS CloudFormation | Change set | `CloudFormation.ChangeSet` | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
 | AWS CodeBuild | Project | `CodeBuild.Project` | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
@@ -154,6 +154,7 @@
 - AWS Lambda function、Amazon Data Firehose delivery stream、Amazon EventBridge rule／schedule、Route 53 Resolver endpoint／rule／profileは64文字以内とする。
 - Amazon SQS queueは80文字以内とし、FIFO queueは`.fifo`で終える。Amazon SNS FIFO topicも`.fifo`で終える。
 - AWS Backup vaultとconsoleで作成するbackup planは50文字以内とする。
+- AWS CloudFormation StackNameの`number`はoptionalとし、通常は省略する。同じapplication・environment・purposeの複数stackを区別する場合だけ、`-01`からの2桁連番を付ける。例：通常は`cfn-stack-app-dev-network`、同用途の複数stackは`cfn-stack-app-dev-job-01`、`cfn-stack-app-dev-job-02`。
 - AWS CloudFormation stack、StackSet、change setは英字で開始し、英数字とhyphenだけを使い、128文字以内とする。Change setはdeployment operationの名前であり、詳細設計resourceとして追加しない。
 - AWS KMS aliasは`alias/`で開始し、AWS reservedの`alias/aws/`を使用しない。
 - Amazon EC2 security groupの`GroupName`は`sg-`で開始できないため、このruleでは`-sg` suffixを使う。

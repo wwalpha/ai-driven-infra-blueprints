@@ -781,6 +781,8 @@ def check_security_naming():
 
 
 def check_stack_policy():
+    naming = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    assert "| `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |" in naming
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -789,7 +791,7 @@ def check_stack_policy():
         values = {"desired.deployment.maxConcurrentStacks": "3"}
         for i, (name, order) in enumerate((("app-b", "20"), ("network", "10"), ("app-a", "20")), 1):
             key = f"{i:03d}"
-            values.update({f"desired.stack.{key}.name": f"cfn-stack-app-dev-{name}-01",
+            values.update({f"desired.stack.{key}.name": f"cfn-stack-app-dev-{name}" + ("-01" if name == "app-b" else ""),
                            f"desired.stack.{key}.template": "app.yaml" if order == "20" else "network.yaml",
                            f"desired.stack.{key}.parameters": name + ".json",
                            f"desired.stack.{key}.deployOrder": order,
@@ -807,6 +809,7 @@ def check_stack_policy():
         assert "| Deploy<br>Order |" in rendered
         assert stack_deployment_policy(path) == 3
         stacks = stack_design(path)
+        assert [s["name"] for s in stacks] == ["cfn-stack-app-dev-network", "cfn-stack-app-dev-app-a", "cfn-stack-app-dev-app-b-01"]
         assert [s["deployOrder"] for s in stacks] == ["10", "20", "20"]
         assert [s["parameters"] for s in stacks] == ["network.json", "app-a.json", "app-b.json"]
         assert [s["comment"] for s in stacks] == ["networkを配置するstack", "app-aを配置するstack", "app-bを配置するstack"]

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Regression checks for independent task selection, admission and ownership."""
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+from concurrent.futures import ThreadPoolExecutor
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+from unittest.mock import patch
+
+import task_contract as tasks
+from validation_scope import active_scope
+
+
+def contract(name, files, state="running", kind="governance", scope="framework"):
+    paths = [name, *files]
+    listed = "\n".join(f"- `{path}`" for path in paths)
+    return f"""# Task
+## Task contract
+- Task type: `{kind}`
+- Task status: `{state}`
+- Target: test
+- Goal: test
+## Validation scope
+- `{scope}`
+## Required changes
+- [R1] Test
+## Acceptance checks
+- [R1] `changed:{files[0]}`
+## Modified files
+{listed}
+## Allowed paths
+{listed}
+"""
+
+
+def blocked(callback, message):
+    try:
+        callback()
+    except ValueError as error:
+        assert message in str(error), str(error)
+    else:
+        raise AssertionError(f"expected rejection: {message}")
+
+
+def check_admission_selection():
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        first = "tasks/first.md"
+        second = "tasks/second.md"
+        tasks.start(root, first, contract(first, ["new/file.md"]))
+        assert tasks.task_path(root) == root / first
+        assert active_scope(root) == set()
+        # Admission reserves files that do not exist yet, without touching the existing task.
+        before = (root / first).read_bytes()
+        blocked(lambda: tasks.start(root, second, contract(second, ["new/file.md"])), "task file conflict")
+        assert not (root / second).exists() and (root / first).read_bytes() == before
+        tasks.start(root, second, contract(second, ["other.md"], kind="design", scope="dev/cde/ec2"))
+        blocked(lambda: tasks.task_path(root), "multiple running tasks")
+        with patch.dict(os.environ, {tasks.SELECTOR: second}):
+            assert active_scope(root) == {("dev", "cde", "ec2")}
+            tasks.require_writable(root, [root / "other.md"])
+            blocked(lambda: tasks.require_writable(root, [root / "new/file.md"]), "no selected task reservation")
+        blocked(lambda: tasks.task_path(root, "tasks/missing.md"), "missing")
+        blocked(lambda: tasks.task_path(root, "../first.md"), "invalid task selector")
+        changed = {first, second, "new/file.md", "other.md"}
+        assert tasks.task_changes(root, changed, second) == {second, "other.md"}
+        blocked(lambda: tasks.task_changes(root, changed | {"unowned.md"}, first), "no task reservation")
+        # Any later scope expansion is checked again by readers, before writing.
+        (root / second).write_text(contract(second, ["other.md", "new/file.md"]))
+        blocked(lambda: tasks.task_path(root, first), "task file conflict")
+
+
+def check_completed_legacy_and_paths():
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        old = "tasks/old.md"
+        new = "tasks/new.md"
+        tasks.start(root, old, contract(old, ["README.md", "old.md"]))
+        (root / old).write_text(contract(old, ["README.md", "old.md"], state="completed"))
+        tasks.start(root, new, contract(new, ["README.md"]))
+        assert tasks.task_path(root) == root / new
+        changed = {old, new, "README.md", "old.md", "tasks/removed.md"}
+        assert tasks.task_changes(root, changed, new) == {new, "README.md"}
+        assert tasks.task_changes(root, changed, old) == {old, "old.md"}
+        with patch.dict(os.environ, {tasks.SELECTOR: old}):
+            blocked(lambda: tasks.require_writable(root, [root / "old.md"]), "completed task")
+        for name in (old, new):
+            (root / name).unlink()
+        legacy = contract("tasks/active.md", ["README.md"])
+        legacy = legacy.replace("- Task status: `running`\n", "")
+        legacy = legacy[:legacy.index("## Modified files")] + "## Allowed paths\n- `README.md`\n- `tasks/active.md`\n"
+        (root / "tasks/active.md").write_text(legacy)
+        assert tasks.task_path(root) == root / "tasks/active.md"
+        assert tasks.task_changes(root, {"README.md"}, "tasks/active.md") == {"README.md"}
+        blocked(lambda: tasks.start(root, new, contract(new, ["new.md"])), "migrate tasks/active.md")
+        (root / "tasks/active.md").unlink()
+        for value in ("../escape", "/tmp/escape", "./file", "a//file", "a/../file", "*.md", "a/**", ".git/config", "."):
+            blocked(lambda value=value: tasks.start(root, new, contract(new, [value])), "exact repository-relative path")
+        (root / "linked").symlink_to(root / "elsewhere")
+        blocked(lambda: tasks.start(root, new, contract(new, ["linked/file.md"])), "symlinks")
+        blocked(lambda: tasks.start(root, new, contract(new, [old])), "another contract")
+        blocked(lambda: tasks.start(root, new, contract(new, ["file.md", "file.md"])), "duplicate paths")
+        blocked(lambda: tasks.start(root, new, contract(new, ["file.md"], state="paused")), "Task status")
+
+
+def check_simultaneous_registration():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        def register(name):
+            try:
+                tasks.start(root, name, contract(name, ["future.md"]))
+                return True
+            except ValueError:
+                return False
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(register, ["tasks/one.md", "tasks/two.md"]))
+        assert sum(results) == 1
+        assert len(tasks.contracts(root)) == 1
+
+
+def check_validator_isolation():
+    spec = importlib.util.spec_from_file_location("validator", Path(__file__).with_name("validate-blueprint.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        first, second = "tasks/one.md", "tasks/two.md"
+        tasks.start(root, first, contract(first, ["README.md", "日本語 file.md"]))
+        tasks.start(root, second, contract(second, ["tests/scenarios/a/scenario.md"], kind="scenario-test", scope="dev/cde/ec2"))
+        (root / "README.md").write_text("changed")
+        (root / "日本語 file.md").write_text("changed")
+        scenario = root / "tests/scenarios/a/scenario.md"
+        scenario.parent.mkdir(parents=True)
+        scenario.write_text("scenario")
+        with patch.dict(os.environ, {tasks.SELECTOR: first}):
+            validator = module.Validator(root)
+            validator.check_task_scope()
+            validator.check_task_type_requirements()
+            validator.check_acceptance_checks()
+            assert not validator.errors, validator.errors
+            assert validator.changed_paths == {first, "README.md", "日本語 file.md"}
+            assert validator.acceptance_results == ["R1:changed:README.md"]
+            # Another task's file cannot satisfy this task's acceptance.
+            (root / first).write_text((root / first).read_text().replace("changed:README.md", "changed:tests/scenarios/**"))
+            validator = module.Validator(root)
+            validator.check_task_scope()
+            validator.check_acceptance_checks()
+            assert any("required changed path missing" in error for error in validator.errors)
+        for name in (first, second):
+            path = root / name
+            path.write_text(path.read_text().replace("- Task status: `running`", "- Task status: `completed`"))
+        assert active_scope(root) == set()
+        validator = module.Validator(root)
+        validator.check_task_scope()
+        validator.check_task_type_requirements()
+        assert not validator.errors and not validator.task_type, validator.errors
+        (root / "unowned.md").write_text("changed")
+        blocked(lambda: module.Validator(root).check_task_scope(), "no task reservation")
+
+
+if __name__ == "__main__":
+    check_admission_selection()
+    check_completed_legacy_and_paths()
+    check_simultaneous_registration()
+    check_validator_isolation()
+    print("task-contract: PASS (selection, conflict, future files, concurrent admission, ownership, compatibility)")

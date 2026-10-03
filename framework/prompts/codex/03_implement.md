@@ -1,5 +1,7 @@
 # Infrastructure Implementation Prompt
 
+契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+
 このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
 
 ## Unresolved issue gate
@@ -28,7 +30,7 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 1. `AGENTS.md`
 2. `README.md`
-3. 存在する場合は`tasks/active.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
+3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
 6. 対応する`model/<environment>/<target-directory>/*.properties`
@@ -64,7 +66,7 @@ file変更前に、下記の実装対応確認とimplementation unit解決を行
 
 ## Create active task contract
 
-最初のrepository changeとして`tasks/active.md`を今回の対象だけを許可する内容へ上書きする。
+最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`implement`とする。
@@ -72,7 +74,7 @@ file変更前に、下記の実装対応確認とimplementation unit解決を行
 - AWS mutation、AWS API execution、deploy/applyを`forbidden`とする。
 - `Required changes`は一意なRequirement ID付きで、事前照合で差分があったIaC implementationと対象のstatic validationだけを記載する。変更不要の既存IaCは確認対象として記載する。
 - `Acceptance checks`は各Requirement IDへ変更対象IaC fileの`changed:`、変更不要の確認対象には`exists:`を対応付ける。task type固有checkは省略しない。
-- Allowed pathsは対象のIaC fileと`tasks/active.md`だけに限定する。詳細設計、model、scenarioは変更禁止とする。
+- Allowed pathsは対象のIaC fileと`tasks/<task-name>.md`だけに限定する。詳細設計、model、scenarioは変更禁止とする。
 
 ## Check implementation support
 

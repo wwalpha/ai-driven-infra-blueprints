@@ -4,10 +4,14 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Task boundary
 
-- repository変更前に`tasks/active.md`があれば最新依頼のtask type、target、Goalと比較する。変更のないclean repositoryでの`active.md`不在はidle状態として許容する。idle状態から変更を始める場合は、最初のcoherent changeで`tasks/active.md`を作成または上書きする。
-- `active.md`がない状態で`tasks/active.md`以外の変更がある場合は、task contract不在としてlocal loopを失敗させる。
-- read-only調査とchat-only設計相談はactive taskの切替を要求せず、残っている前taskをblockerにしない。
-- loopはactive taskのtask typeとAllowed paths内だけで完結する。
+- repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalを照合する。契約のないclean repositoryはidleとする。新規taskは既存契約を上書きせず、最初の変更として個別契約を登録する。
+- Task contractへTask status（`running`／`completed`）を記載し、`## Modified files`へ具体的なfile pathを列挙する。glob、directory、別taskの契約は禁止する。自分の契約、未作成file、生成artifact、model part、削除対象も含め、Allowed paths内だけを予約する。
+- `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`で登録する。登録は同時実行を直列化し、全running taskのModified filesを比較する。fileが重複すれば新規taskを停止し、競合fileと既存taskを報告する。候補と対象fileをrepositoryへ保存せず、既存taskを継続する。
+- 各processは`BLUEPRINT_TASK_FILE`、local loop／validatorは`--task-file`でも契約を選ぶ。複数running taskがある場合は明示選択必須。変更予定fileの追加・変更時も実変更前に契約を更新し、`task_contract.py --task-file tasks/<task-name>.md`で再検査する。競合する更新は元へ戻し、今回のtaskを停止する。
+- read-only調査とchat-only設計相談は契約の登録・切替を要求しない。
+- loopは全契約の競合と未登録変更を検査し、今回の予約fileの変更だけへtask type、issue gate、Acceptance checksを適用する。別taskの変更を成果や違反として数えない。生成とmodel分割も保存前に今回の予約fileを検査する。
+- local loop成功後だけ今回のTask statusをcompletedへ変更する。completed契約はfile予約を解放し、未commit変更の所属を保持する間だけ残す。差分がなくなれば削除し、task履歴やevidenceは残さない。
+- 旧`tasks/active.md`は単独の場合だけ従来契約として許可する。並行運用前に個別契約へ移し、Task statusとModified filesを記載する。契約がない状態の非契約変更は拒否する。
 - loop成功後に別taskを作成または実行しない。
 - retry中にtask typeまたは作業段階を変更しない。
 - infrastructure behaviorの変更を理由にscenario testへ進まない。
@@ -20,7 +24,7 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 - serviceは`### <service-id>`、`<!-- issue-service: <service-id> -->`、または同じtargetのmodel properties／詳細設計Markdownへの根拠linkで特定する。AWS serviceの表示名だけでは推測しない。所属を特定できないissueや番号付きissue／0件宣言のない不正な一覧はtarget全体を停止する。
 - 対象environment/target/serviceに未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenario・target migrationなど他taskを開始・継続しない。別environment、別target、別serviceは停止しない。複数serviceを変更・実装・deployする場合は関係する全serviceをValidation scopeへ明記し、一件でもblockedならそのtaskを停止する。全体validationとtask対象を混同しない。
 - issue調査のread-only操作、humanが明示したissue修復、および以下の保存限定taskだけを許可する。新しいtask typeは作らず、design／infrastructureなど既存task boundaryとAWS execution許可を維持する。frameworkだけのgovernance／catalog-maintenanceはservice対象taskではないため、consumer issueでは停止しない。
-- issue調査・保存およびdesiredの環境比較・diff保存は`migration` taskとし、明示service Validation scopeのtargetの`issues/<environment>/<target-directory>/issues.md`／`diff.md`と`tasks/active.md`だけをAllowed pathsと変更対象にする。この条件を満たす保存限定taskは既存issueによる停止判定を適用せず、調査・比較・AI分類・保存・local validationを続ける。diff.mdの項目は未解決issueとして数えず、既存issues.mdの修復やIssue remediationの追加を要求しない。通常migration、設計・model・IaC変更、model保存、AWS mutationのissue gateは維持する。調査で検知した実際のvalidation errorは引き続きFAILとして報告する。
+- issue調査・保存およびdesiredの環境比較・diff保存は`migration` taskとし、明示service Validation scopeのtargetの`issues/<environment>/<target-directory>/issues.md`／`diff.md`と今回の`tasks/<task-name>.md`だけをAllowed pathsと変更対象にする。この条件を満たす保存限定taskは既存issueによる停止判定を適用せず、調査・比較・AI分類・保存・local validationを続ける。diff.mdの項目は未解決issueとして数えず、既存issues.mdの修復やIssue remediationの追加を要求しない。通常migration、設計・model・IaC変更、model保存、AWS mutationのissue gateは維持する。調査で検知した実際のvalidation errorは引き続きFAILとして報告する。
 - 修復taskのGoalとRequired changesに対象issue、原因、修復scopeを記載する。同じactive contractに次のsectionを置く。entryは明示されたValidation scopeの部分集合だけとし、`all`／`framework`による修復例外は禁止する。例外はそのserviceのissue修復と再検証だけに適用し、機能追加・通常の設計・別issueの修復などを混ぜない。修復task完了後に停止中の他taskを自動再開しない。
 
 ```md
@@ -41,7 +45,7 @@ python framework/scripts/issue_gate.py --environment <environment> --target-dire
 
 OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
 
-通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、Validation scopeのserviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、変更のないidle状態では前taskのactive.mdが残っていてもtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
+通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、Validation scopeのserviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、今回の予約fileに変更がない場合はtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
 
@@ -54,9 +58,9 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 
 各coherent logical change後に次を決定的に確認する。
 
-- 変更がある場合はactive task promptと有効なTask typeが存在する。変更のないidle状態では`tasks/active.md`がなくてもよい
+- 変更がある場合はactive task promptと有効なTask typeが存在する。変更のないidle状態では今回の`tasks/<task-name>.md`がなくてもよい
 - changed pathsがTask type boundaryとAllowed paths内にある
-- `tasks/`が存在する場合は`active.md`だけがある。idle状態では`tasks/`ごと省略してよい
+- `tasks/`には`<task-name>.md`形式の契約だけがあり、running契約間のModified filesが重複しない。idle状態では`tasks/`ごと省略してよい
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須と正本modelを検証し、CFn型解決で拒否する
@@ -146,7 +150,7 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 ### 競合解消と再現可能な検証
 
 - 起動は`python -X utf8 framework/scripts/blueprint-loop.py --mode task`を推奨する。通常起動でもrunnerはUTF-8 modeで再起動し、子processへ`PYTHONUTF8=1`と`PYTHONIOENCODING=utf-8`を継承する。検証前に日本語のfile読書きと子process出力を確認し、失敗時は回帰を開始しない。text入出力ではUTF-8を明記する。
-- 競合解消後、検証したいfileと今回の`tasks/active.md`をstageしたうえで、`--staged --base <比較元commit>`を指定する。比較元はhumanの変更範囲に合うcommitを明示し、incomingも比較元との差分に含める。未解決のindex conflictは停止する。通常modeは従来どおりunstaged/staged/untrackedを検証する。
+- 競合解消後、検証したいfileと今回の`tasks/<task-name>.md`をstageしたうえで、`--staged --base <比較元commit>`を指定する。比較元はhumanの変更範囲に合うcommitを明示し、incomingも比較元との差分に含める。未解決のindex conflictは停止する。通常modeは従来どおりunstaged/staged/untrackedを検証する。
 - staged modeは比較元commit、HEAD、index treeを固定し、repository外の独立Git repositoryへ展開して、そのsnapshotにあるrunner、契約、入力を検証する。元workspaceの未stage変更やuntracked fileは含めず、元indexは書き換えない。snapshot内のHEADを比較元にすることで契約・変更path・差分checkも同じ基準を使う。終了時に元HEAD/index treeが変わっていればstaleとして非zero終了し、旧treeの結果を最新状態のPASSと扱わない。直後の編集までロックするものではない。
 - 選択検証は`--mode task --affected`（`local`も可）で明示する。通常の全回帰自動追加に対する例外とし、runner内の明示対応表だけでcheckを選ぶ。現在の限定対象は既存の回帰script自身の変更とstandalone loop runnerの変更だけとする。共通validator/generator、rule、catalog、prompt、削除・rename元など対応不明のframework変更は全回帰へfallbackする。incomingであることだけを理由に省略しない。
 - `--affected`は`full`／`--all`と併用できない。共通validation、task固有check、Acceptance checks、差分checkは省略しない。選択理由・選択check・未実行checkを表示する。framework開発taskの完了には従来どおり`--mode full`を使う。
