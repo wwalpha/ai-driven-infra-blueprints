@@ -1,50 +1,36 @@
-# Blueprint検証の重複削減・結果再利用・サービス並列化
+# Windows全回帰の人間入力ガード
 
 ## Task contract
 - Task type: `governance`
-- Target: framework local blueprint validation
-- Goal: 必須検証と明示scopeを維持し、反復処理の削減、入力が一致する成功結果の再利用、サービス単位の最大4並列により通常の再検証を60秒以内へ近づける。
+- Target: Windows framework regression entrypoint
+- Goal: 全回帰の開始前に人間のパスワード入力を要求し、hash照合処理と登録値の変更権限を通常権限のエージェントから分離する。通常の対象限定検証と既存のscopeを維持する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] カタログ一覧、resource別model行、表示用pathを一回の処理内で再利用し、異なる入力や後続実行へ古い値を持ち越さない。
-- [R2] 内容hashと入力file集合で成功したcatalog/service検証だけをrepository外へ保存・再利用する。参照先、part、JSON、project、validator/rule/catalog変更で無効化し、破損・不明dependency・実行中変更は再検証またはFAILとする。
-- [R3] 同一targetの複数serviceも最大4並列で検証し、指定順の診断、scope全体の所有権チェック、生成後の参照整合性、失敗service保護を維持する。
-- [R4] 毎回の契約・issue・変更範囲・Acceptance・IaC/安全確認を維持し、fresh検証と計測をrunnerから指定できるようにする。再利用条件をrule/READMEへ記載する。
-- [R5] cache無効化、serial/parallel一致、同一target並列、失敗・中断、scopeと参照境界の回帰検証とframework full local loopを実行する。
+- [R1] Windowsで明示／自動追加／affected fallbackの全回帰を開始する前に保護された照合処理を呼ぶ。入力キャンセル、認証失敗、未登録、不正な保護状態では検証を起動せず失敗する。環境変数、引数、承認済みflagによる解除を追加しない。
+- [R2] Windows管理者による一回の対話登録で、hashと照合プログラムをWindows既定の共通application data directoryへ設置し、管理者／SYSTEMだけが変更できるACLとownerを設定する。通常権限では登録・変更を拒否する。パスワードは人間のconsole入力のみで受け取り、平文を保存・記録しない。
+- [R3] ガードの成否、登録／権限境界、全回帰選択とstaged snapshot、対象限定検証の継続を回帰検証する。運用手順と境界を文書化し、local loopを実行する。
 
 ## Acceptance checks
-- [R1] `changed:framework/scripts/design_catalog.py`
-- [R1] `changed:framework/scripts/model_design.py`
-- [R1] `changed:framework/scripts/design_layout.py`
-- [R1] `changed:framework/scripts/sync-model.py`
-- [R2] `exists:framework/scripts/validation_cache.py`
-- [R2] `changed:framework/scripts/validate-blueprint.py`
-- [R3] `changed:framework/scripts/validation_scope.checks.py`
-- [R4] `changed:framework/scripts/blueprint-loop.py`
-- [R4] `changed:framework/rules/loop-engineering.md`
-- [R4] `changed:README.md`
-- [R5] `exists:framework/scripts/validation_cache.checks.py`
-- [R5] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R1] `changed:framework/scripts/blueprint-loop.py`
+- [R1] `changed:framework/scripts/blueprint-loop.checks.py`
+- [R2] `exists:framework/scripts/regression_guard.py`
+- [R2] `exists:framework/scripts/regression_guard.checks.py`
+- [R3] `changed:framework/rules/loop-engineering.md`
+- [R3] `changed:README.md`
 
 ## Allowed paths
 - `tasks/active.md`
-- `framework/scripts/validation_cache.py`
-- `framework/scripts/validation_cache.checks.py`
-- `framework/scripts/design_catalog.py`
-- `framework/scripts/model_design.py`
-- `framework/scripts/design_layout.py`
-- `framework/scripts/sync-model.py`
-- `framework/scripts/validate-blueprint.py`
-- `framework/scripts/validation_scope.checks.py`
 - `framework/scripts/blueprint-loop.py`
 - `framework/scripts/blueprint-loop.checks.py`
+- `framework/scripts/regression_guard.py`
+- `framework/scripts/regression_guard.checks.py`
 - `framework/rules/loop-engineering.md`
 - `README.md`
 
 ## Out of scope
-- 実targetのmodel／設計／IaC／project、AWS API・mutation・deploy、catalog内容、consumer同期、scenario、commit、push、index変更。
-- 検証を60秒で打ち切ってPASSと扱う変更、scope不足時の全体検証fallback、未成功結果の再利用。
-- 27サービスの計測には指定済みdev/cde scopeのrepository外copyだけを使用し、実consumerを変更しない。
+- Windows実機の管理者設定・パスワード登録は人間が行う。本taskのエージェントは登録値を決めず、実機の保護を解除しない。
+- macOSの権限・認証方式変更、framework編集自体の禁止、任意Python実行全体のOS sandbox化、実targetの設計/model/IaC/project、AWS操作、consumer同期、catalog変更、scenario、commit、push、index変更。
+- 既知passwordやmockを実repositoryの全回帰解除に使わない。mockは一時fixture内のテストだけに使用する。

@@ -339,6 +339,18 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode full
 
 `full`は通常taskのvalidationに加え、全`framework/scripts/*.checks.py`を実行します。実設計の全体検証とframework regressionは別の責務です。framework未変更の`task`はValidation scopeが`all`でもself-testを実行しません。
 
+Windowsでは全回帰を開始する前にパスワード入力が必要です。自動追加と`--affected`で選んだ結果が全件になる場合にも適用し、未登録・不一致・キャンセル時は検証を起動せず停止します。通常の対象限定検証と一部に絞った回帰には入力を求めません。Windowsのstaged検証では現行`blueprint-loop.py`／`regression_guard.py`もstageし、workspaceと異なる旧entrypointを実行しません。
+
+一度だけ、人間がWindows Terminal／PowerShellを「管理者として実行」してrepository rootへ移動し、次を実行します（Python Launcherなら先頭を`py -3`へ置換）。登録passwordは12文字以上とし、チャットやcommand引数には渡さず、非表示の入力欄で入力します。
+
+```console
+python -I -B framework/scripts/regression_guard.py --install
+```
+
+Windowsの共通application data directory（通常`C:\ProgramData`）の`BlueprintRegressionGuard`へ、salt付きpassword hashの`.lock`と照合プログラムを設置します。ownerはAdministrators、管理者／SYSTEMだけが変更可能で、通常権限のエージェントは登録・変更できません。全回帰は非管理者のconsoleで起動して入力してください。エージェントを管理者として動かさないことが権限分離の前提です。[WindowsのUAC](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works)
+
+配置先、password、解除flagを引数や環境変数で指定する機能はありません。登録値変更や照合プログラム更新が必要な場合だけ、人間が管理者として設置directoryを削除して再登録します。repoのrunnerを編集する権限まで制限する仕組みではないため、任意Python実行そのものの強制禁止には別途sandboxが必要です。macOSの認証方式は今回変更していません。
+
 生成と検証の対象はactive taskの`## Validation scope`で統一します。`task`／`local`／`full`はいずれもそのscopeを使用し、`full`単独では全serviceへ広げません。`local`を指定するskillも対象限定検証だけで完了できます。scope欠落時は停止します。全体検証は明示した`--all`またはscopeの`all`だけで実行します。`--all`と`local`のscope `all`は全self-testも実行します。日次の全体検証は別途設定済みのscheduleに任せ、対象限定検証の後に「念のため」の全体検証を追加しません。
 
 command例はPython 3 launcherを`python`と表記する。WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`へ、各command先頭の`python`を置き換える。

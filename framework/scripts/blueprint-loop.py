@@ -16,6 +16,7 @@ import tempfile
 import time
 
 from validation_scope import active_scope
+from regression_guard import authorize_full_regression
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -221,6 +222,13 @@ def staged_snapshot(root, args, directory, environment):
                "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
                *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
                *(["--profile"] if args.profile else [])]
+    if os.name == "nt":
+        # Never dispatch an older staged entrypoint that predates the password gate.
+        for name in ("blueprint-loop.py", "regression_guard.py"):
+            source = root / "framework/scripts" / name
+            saved = snapshot / "framework/scripts" / name
+            if not saved.is_file() or saved.read_bytes() != source.read_bytes():
+                raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
     process = subprocess.Popen(command, cwd=snapshot, env=environment,
                                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
     try:
@@ -284,6 +292,16 @@ def main() -> int:
         print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}", flush=True)
         omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
         print(f"Not executed: {', '.join(omitted) or 'none'}", flush=True)
+    if regression and not args.staged and (not args.affected or
+            set(checks) == set((root / "framework/scripts").glob("*.checks.py"))):
+        try:
+            authorize_full_regression()
+        except KeyboardInterrupt:
+            print("Full regression authorization cancelled; no checks started.", file=sys.stderr)
+            return 130
+        except (OSError, ValueError) as error:
+            print(f"Blueprint local loop: LOCKED ({error}); no checks started.", file=sys.stderr)
+            return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         parser.error("--log-dir must be outside the repository")
