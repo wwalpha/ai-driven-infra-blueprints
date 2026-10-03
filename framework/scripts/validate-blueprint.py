@@ -49,6 +49,7 @@ from design_layout import (
     resource_heading_lines,
     resource_has_name_property,
     resource_logical_ids,
+    resource_modes,
     STACK_DESIGN,
     stack_design,
     stack_deployment_policy,
@@ -1115,21 +1116,23 @@ class Validator:
         resource_type: str,
         logical_id: str,
         rows: list[list[str]],
+        mode: str = "CREATE",
     ) -> None:
         if resource_type in REQUIRED_NAME_TAG_TYPES:
             try:
-                name = resource_display_name(resource_type, rows)
+                name = resource_display_name(resource_type, rows, mode=mode)
             except ValueError as error:
                 self.check(False, f"{self.relative(path)}: {error}")
                 return
-            self.check(logical_id == name, f"resource heading identifier must match Name tag value: {self.relative(path)}: {resource_type}")
+            if name is not None:
+                self.check(logical_id == name, f"resource heading identifier must match Name tag value: {self.relative(path)}: {resource_type}")
             return
         property_name = REQUIRED_NAME_PROPERTIES.get(resource_type)
         if property_name is None:
             return
         name_rows = [row for row in rows if row[1] == property_name]
         self.check(
-            len(name_rows) == 1,
+            len(name_rows) == 1 or (mode == "IMPORT" and not name_rows),
             f"required Name property must appear exactly once: {self.relative(path)}: {property_name}",
         )
         legacy_name_rows = [
@@ -1148,8 +1151,11 @@ class Validator:
         self.check(rows[0] == name_rows[0], f"design-only Name must be the first row: {self.relative(path)}: {property_name}")
         value = self.unquoted(name_rows[0][2]).strip()
         self.check(bool(value), f"required Name value must not be empty: {self.relative(path)}: {property_name}")
+        if mode == "IMPORT" and self.schema_catalog is not None:
+            for error in self.schema_catalog.literal_errors(resource_type, "Tags[].Value", self.unquoted(name_rows[0][2])):
+                self.check(False, f"provider schema violation: {self.relative(path)}: {property_name}: {error}")
         self.check(
-            LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
+            mode == "IMPORT" or LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
             f"required Name value must be lower-kebab-case: {self.relative(path)}: {property_name}: {value}",
         )
         self.check(
@@ -1211,6 +1217,7 @@ class Validator:
             lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
             try:
                 identities = resource_logical_ids(lines)
+                modes = resource_modes(lines)
                 lines = security_group_table_lines(lines)
                 model_path = (self.root / "model" / path.relative_to(self.root / "docs/designs")).with_suffix(".properties")
                 values = properties(read_model(model_path)) if model_path.is_file() else {}
@@ -1232,19 +1239,20 @@ class Validator:
                 if current is None:
                     return
                 resource_type, display = current
+                mode = modes.get(anchor, "CREATE")
                 try:
-                    name = resource_display_name(resource_type, rows, display)
+                    name = resource_display_name(resource_type, rows, display, mode)
                 except ValueError as error:
                     self.check(False, f"{self.relative(path)}: {error}")
                     return
-                for error in naming_errors(self.root, resource_type, rows):
+                for error in naming_errors(self.root, resource_type, rows, mode):
                     self.check(False, f"{self.relative(path)}: {error}")
                 self.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {self.relative(path)}: {resource_type}")
                 self.check(name is None or display == name, f"resource heading must display resource name: {self.relative(path)}: {resource_type}: {display} != {name}")
                 if name is None:
                     if display == resource_type:
-                        self.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(self.root, resource_type), f"resource type display requires a single nameless independent resource: {self.relative(path)}: {resource_type}")
-                    confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(self.root, resource_type)
+                        self.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(self.root, resource_type, mode), f"resource type display requires a single nameless independent resource: {self.relative(path)}: {resource_type}")
+                    confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(self.root, resource_type, mode)
                     self.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {self.relative(path)}: {display}")
                 if path in service_metadata:
                     expected = resource_anchor(service_metadata[path][0], display, resource_type)
@@ -1281,9 +1289,18 @@ class Validator:
             lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
             try:
                 identities = resource_logical_ids(lines)
+                modes = resource_modes(lines)
+                heading_modes = {}
+                anchor = ""
+                for line in lines:
+                    if match := ANCHOR_PATTERN.fullmatch(line):
+                        anchor = match.group(1)
+                    elif match := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                        heading_modes[match.groups()] = modes.get(anchor, "CREATE")
             except ValueError as error:
                 self.check(False, f"invalid resource identity: {self.relative(path)}: {error}")
                 identities = {}
+                heading_modes = {}
             resource_type = ""
             for index, line in enumerate(lines):
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
@@ -1539,7 +1556,8 @@ class Validator:
                         path, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), rows, identifier_outputs
                     )
                     self.check_required_name_tag(
-                        path, current_resource_type, current_logical_id, rows
+                        path, current_resource_type, current_logical_id, rows,
+                        heading_modes.get((current_resource_type, current_logical_id), "CREATE"),
                     )
                 if current_resource_type == "IAM.Role":
                     self.check_markdown_iam_policy_artifacts(path, identities.get((current_resource_type, current_logical_id), current_logical_id), rows)

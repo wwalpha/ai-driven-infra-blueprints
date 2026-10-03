@@ -19,6 +19,8 @@
 - 過去valueをscenario evidenceへ転記しない。
 - old result fileだけを根拠にold IDがcurrentであると仮定しない。
 
+IMPORTの設定取得・observed更新は明示許可されたdesign taskのread-only取得で行う。以下のCloudFormation／Terraformからの収集とoutput追加はCREATEだけを対象とし、IMPORTのためにStack／state管理へ移行したりAWS設定を変更したりしない。
+
 ## Collection and propagation
 
 - CloudFormationはstack詳細設計のStackNameと実行したtemplateのLogicalIdで対象resourceを特定し、service詳細設計と照合する。対応が曖昧なら推測せず停止する。必要なnon-ARN identifierをそのstackの`Outputs`から取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用し、同じlogical resourceについて両方が取得できる場合は一致を確認する。複数stackで同じtemplate/LogicalIdを使う場合も、別の設計resource rowへ反映する。

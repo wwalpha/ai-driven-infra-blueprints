@@ -33,9 +33,15 @@ environment、alias、AWS accountの組み合わせが`project.json`の同じtar
 
 Candidate AWS servicesがmissingの場合は、Design target、System Overview、既存設計、materialsから必要最小限の候補を提案する。Expected design filesがmissingの場合は、`framework/rules/detailed-design.md`のAWS service ownership boundaryに基づいて出力pathを提案する。CloudFormation targetでstackを新規設計する場合は`cloudformation-stacks.md`も出力pathへ含める。これらの値がmissingであることだけを理由に停止しない。
 
-Existing AWS valuesがmissingまたは未定の場合は、設計対象resourceごとにhumanが値を決めるのか、既存AWS resourceの現在値を使用するのかを一つずつ確認する。この選択はCodex取得flowの分岐にだけ使用し、resourceの作成者、管理者、外部作成済みという出自を保存対象Markdownまたはmodelへ出力しない。
+Existing AWS valuesがmissingまたは未定の場合は、設計対象resourceごとにhumanが値を決めるのか、既存AWS resourceの現在値を使用するのかを一つずつ確認する。取得方法とは別にframework上の管理区分を確定し、新規作成は`desired.resource.<nnn>.resourceMode=CREATE`、既存resourceをAWS変更・IaC生成なしで設計管理へ取り込む場合は`IMPORT`を明示する。既存modelの未指定はCREATEとして維持し、現在値取得だけでIMPORTへ切り替えない。この管理区分はprovenanceではなく、resourceの作成者、管理者、外部作成済みという出自を保存対象Markdownまたはmodelへ出力しない。
 
 userが一度に複数のinputを提示した場合は有効な値を採用し、次のmissing inputだけを質問する。必須inputがすべて確認できた後に、通常の設計質問へ進む。
+
+## CREATE / IMPORT
+
+`framework/rules/model-information.md`と`detailed-design.md`のresourceMode契約に従う。CREATE（既存modelの未指定を含む）には以下のframework命名・mandatory Name policyを従来どおり適用する。IMPORTでは取得したactual/current名称・設定を保持し、framework命名不一致とName tag不存在をblockerにしない。Name tagや仮値の追加・rename・AWS設定変更は行わない。Name tagの現在値確認は不存在も有効な結果とし、存在する場合だけ従来の正式row／design-only .Nameに保持する。不存在時の表示は既存display labelまたは6種類のName tag対象型の単一resourceでの型名表示を使う。表示labelをAWS propertyへ変換しない。
+
+resourceModeはpropertiesのresource metadataと生成Markdownの非表示resource-mode markerへ保持し、AWS property表へ入れない。IMPORTはIaC生成対象外で、CloudFormation Resource Import／Terraform importを行わない。schema・構造・参照の検証と出自を保存しない方針は維持する。
 
 ## CFn非対応の設計対象
 
@@ -90,7 +96,7 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 - 一緒に確認した方が理解しやすい関連 service
 - humanが決めるproperty／既存AWS resourceから取得するproperty
 
-`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`は詳細設計へ載せる候補項目、対応するCloudFormation provider schemaまたはAPI設計schemaは型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`と、`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tag（正式な`Tags[].Key=Name`と対応する`Tags[].Value`）はmandatory policyとしてこの省略対象から除外してください。
+`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`は詳細設計へ載せる候補項目、対応するCloudFormation provider schemaまたはAPI設計schemaは型・制約の正本として扱ってください。materials catalogの一覧をそのまま提示せず、使用しないpropertyや将来必要かもしれないだけのoptional設定を質問しないでください。詳細設計専用の`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`と、bucketごとにhumanが確定する`S3.Bucket.Region`と、`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tag（正式な`Tags[].Key=Name`と対応する`Tags[].Value`）はCREATEのmandatory policyとしてこの省略対象から除外してください。IMPORTでは実在しないName tag rowを省略し、S3.Bucket.Regionは維持してください。
 
 S3 Bucketのregionが既存設計、system overview、またはuser回答で確定していない場合は、bucketごに配置するAWS regionを質問してください。`project.json`のtarget `awsRegion`を自動転記せず、`us-east-1`などtargetと異なるregionの回答もそのまま採用してください。
 
@@ -107,10 +113,10 @@ human-selectedなAWS resource name、identifier、または`Name` tagを新規�
 
 - target AWS service
 - `framework/materials/aws/`または`framework/materials/api/`に存在するcatalog resource type
-- 今回の詳細設計で使用するmaterials property。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では対応するdesign-only `.Name`も必ず含める。`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含める
+- 今回の詳細設計で使用するmaterials property。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`ではName tagの現在値確認を含め、存在する場合だけdesign-only `.Name`へ保持する。`EC2.VPCEndpoint`／`EC2.Instance`では必須Name tagの正式な`Tags[].Key`と`Tags[].Value`を含める
 - 出力先service Markdownと、必要な場合だけJSON artifactのpath
 
-全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。上記4種類のmandatory `.Name`と`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagだけを例外とし、既存resourceに`Name` tagが存在しない場合は値を発明せずblockerとする。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
+全AWS service、指定serviceの全resource type、materialsの全propertyを自動的に取得対象へ追加しない。上記4種類のmandatory `.Name`と`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagだけを例外とし、CREATEで`Name` tagが存在しない場合は値を発明せずblockerとする。IMPORTでは不存在を保持しblockerにしない。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存resource instanceはCodexがAWSから候補を取得した後にhumanが選択するため、chatbotでresource IDやARNを質問しない。
 
 既存AWS configuration branchは値が未確定でも、resource typeとpropertyの取得scopeが確定すればCodexへ引き渡せる。対応する完成Markdownにplaceholder、`UNSET`、仮値、空tableを出力しない。
 
@@ -229,7 +235,7 @@ IAM Roleでは既存の4列の設定表とpolicy JSONを維持し、`framework/r
 
 `設計ファイル`には`framework/rules/model-information.md`に準拠した完成形model propertiesをfile単位で出力してください。catalog propertiesを項目の正本、model propertiesを設計値の正本としてください。保存対象の全service model propertiesをfile単位で出力し、MarkdownとJSON artifactはpropertiesから生成する表示例として扱ってください。`display.service.title`、用途を表す`display.resource.*.comment`、区別に必要な名称なしresourceの確定済み`display.resource.*.label`、Stack一覧の`display.stack.*.comment`もpropertiesへ含めます。policy／設定JSON本文は該当rowの`document`へcompact JSONで保持し、表示やJSONだけに値を残さないでください。
 
-- heading、一覧のResourceName、参照linkには確定済みresource名を使用する。内部logical IDはanchor直前の非表示`<!-- resource-logical-id: <logical-id> -->`へ保持し、表示用linkのtextやanchor生成元に使用しない。anchorはService IDと正規化したresource表示名から生成し、名称propertyがcatalogにない型は、選択済みName tagと既存の確定済みlabelもなく同じservice内に同型の独立resourceが1件だけならresource typeを表示名として使い、追加の表示名を質問しない。同型複数件だけ区別できるhuman-confirmedな表示名を確認する。既存の確定済みlabelとlogical IDを維持し、logical IDは型名から推測しない。名称propertyの省略・必須Name tag不足には適用しない。型名のlabelをmodelへ重複保存しない。未確定値や内部IDから表示名を発明しない。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のlogical IDは`.Name` valueと完全一致させる
+- heading、一覧のResourceName、参照linkには確定済みresource名を使用する。内部logical IDはanchor直前の非表示`<!-- resource-logical-id: <logical-id> -->`へ保持し、表示用linkのtextやanchor生成元に使用しない。anchorはService IDと正規化したresource表示名から生成し、名称propertyがcatalogにない型は、選択済みName tagと既存の確定済みlabelもなく同じservice内に同型の独立resourceが1件だけならresource typeを表示名として使い、追加の表示名を質問しない。同型複数件だけ区別できるhuman-confirmedな表示名を確認する。既存の確定済みlabelとlogical IDを維持し、logical IDは型名から推測しない。CREATEの名称propertyの省略・必須Name tag不足には適用しない。IMPORTのName tag不存在は上記例外に従う。型名のlabelをmodelへ重複保存しない。未確定値や内部IDから表示名を発明しない。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のCREATEのlogical IDは`.Name` valueと完全一致させる
 - 各fileに`Design service ID`と`Owned catalog resource types`を正確に1件ずつ記載する
 - resource-detail tableの表示関係は`framework/rules/resource-layout.json`に従う。未登録resourceはframework保守が必要なblockerとして停止する。同一serviceや参照関係だけを理由に詳細tableを統合しない。リソース一覧は`framework/rules/detailed-design.md`のResource overviewに従う
 - `KMS.Alias`は所属する`KMS.Key`の同じtableのKey設定の後へ置き、独立heading・table・一覧を作らない。AliasName rowの`Source / Comment`先頭へ`<a id="<AliasNameから共通規則で生成したanchor>"></a><!-- logical-id: <logical-id> -->`を置き、その後に属性の意味を日本語で記載する。複数Aliasはそれぞれ確定済みlogical IDとanchorを保持する。未確定のlogical IDは一つ質問し、推測しない
@@ -288,7 +294,7 @@ chat-only設計中は`tasks/active.md`を変更せず、完了済みの前task�
 3. API catalogの`Macie.ClassificationJob`は`aws macie2 list-classification-jobs`で候補を取得する。CFn由来のcatalog resource typeだけを対応する`AWS::<Service>::<Resource>`へ変換し、`aws cloudcontrol list-resources --type-name <type-name>`で候補を取得する。Cloud Control APIがList／Read非対応の場合だけ対象service固有のread-only APIへfallbackする。
 4. primary identifierなどsecretを含まない最小情報でresource候補を提示し、一件だけでもhumanが選択するまで停止する。primary identifierがARNの場合はresource選択と取得のためだけに一時利用し、成果物へ保存しない。
 5. Macie Jobはhumanの選択後に`aws macie2 describe-classification-job --job-id <選択したjobId>`で選択済みroot propertyとjobIdだけを取得する。CFn由来resourceは選択後、`aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>`またはfallbackしたservice APIで現在値を取得する。AWS propertyとmaterials／provider schema propertyの対応が一意でなければ停止する。
-6. model propertiesへ、chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけAWSのmandatory `Name` tag valueを対応する`.Name`へ直接差分反映する。`EC2.VPCEndpoint`／`EC2.Instance`では選択したEndpoint／InstanceのName tagを必須取得項目とし、正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。mandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するmodel resourceがなければ、上記4種類は`.Name` valueからlogical IDとanchorを生成し、`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけlogical IDを一回の応答につき一つ質問してmodelのlogicalIdへ保持する。名称propertyがcatalogにない型は上記の型名表示規則を使い、同型1件で選択済みName tagと既存の確定済みlabelもなければ追加の表示名を質問せずresource typeを使う。同型複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
+6. 確定した管理区分を`desired.resource.<nnn>.resourceMode=CREATE|IMPORT`へ明示する。未指定の既存modelはCREATEとして維持し、取得だけを理由にIMPORTへ変更しない。model propertiesへ、chatbotが選択したpropertyと、対象が`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`の場合だけ、存在するAWSの`Name` tag valueを対応する`.Name`へ直接差分反映する。`EC2.VPCEndpoint`／`EC2.Instance`では選択したEndpoint／InstanceのName tagの現在値・有無を確認し、存在する場合だけ正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。選択済みpropertyは再確認を求めずadd／changeし、AWS現在値に存在しないoptional property rowは削除する。CREATEでmandatory `Name` tagが存在しない場合は値を発明せずblockerとして停止する。IMPORTではrowを省略し、表示labelまたは許可された型名表示を使用する。これら6種類以外のresourceで`Name` tagが存在しないことはblockerにしない。既存fileの未選択resourceと未選択propertyは維持する。選択resourceに対応するmodel resourceがなければ、上記4種類のCREATEは`.Name` valueからlogical IDとanchorを生成し、IMPORTは確定済み内部logical IDを保持し、未確定ならhumanへ確認する。名称があればその値、なければ上記表示規則でanchorを生成する。`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使い、内部logical IDが未確定の場合だけlogical IDを一回の応答につき一つ質問してmodelのlogicalIdへ保持する。名称propertyがcatalogにない型は上記の型名表示規則を使い、同型1件で選択済みName tagと既存の確定済みlabelもなければ追加の表示名を質問せずresource typeを使う。同型複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
 7. 必要な非ARN generated current identifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyに対応するmodelの`observed.row.*`へ実値を反映する。同じidentifierを参照する全model rowのobserved valueも同じ値へ更新し、Markdown link表示textは生成処理へ任せる。password、secret、token、credentialは表示または保存せず、generated ARNはMarkdown、JSON artifact、modelへ保存しない。resourceの作成者、管理者、外部作成済みという出自を成果物へ追加しない。
 8. JSON documentが必要な選択済みpropertyは既存のservice-owned artifact ruleに従い、対応するmodel rowのdocumentだけを差分更新する。その後、上記5と6のMarkdown／JSON生成、local loop、終了条件へ戻る。
 

@@ -15,10 +15,20 @@
 - `IAM.Role`の表示名は正式な`IAM.Role.RoleName`の確定済みdesired rowだけから導出し、一覧・詳細heading・参照linkに使用する。RoleNameは正確に1 rowを必須とし、欠落・重複・空値・未確定値を拒否する。Name tagや`display.resource.*.label`で代替せず、内部logical IDとpolicy artifactの命名を維持する。
 - `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、No.は生成する。一覧Commentは`display.resource.<番号>.comment`、Stack一覧Commentは`display.stack.<番号>.comment`を正本とする。AWS propertyとしては扱わない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
-- `EC2.VPCEndpoint`／`EC2.Instance`のName tagは各resource typeの正式な`Tags[].Key=Name`と対応する`Tags[].Value`をdesired rowへ保持する。設計専用`.Name`を追加しない。Name tagは必須であり、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しない。一覧・heading・通常の参照linkとanchorはそのValueを使用し、内部logical IDは非表示metadata、identifier参照は既存のdesired logical reference／observed IDの分離を維持する。VPC／Subnet／RouteTable／Flow Logの.Name表示は維持する。
+- `EC2.VPCEndpoint`／`EC2.Instance`のName tagは各resource typeの正式な`Tags[].Key=Name`と対応する`Tags[].Value`をdesired rowへ保持する。設計専用`.Name`を追加しない。CREATEではName tagは必須であり、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しない。一覧・heading・通常の参照linkとanchorはそのValueを使用し、内部logical IDは非表示metadata、identifier参照は既存のdesired logical reference／observed IDの分離を維持する。VPC／Subnet／RouteTable／Flow Logの.Name表示は維持する。
 
 - Security Groupと所属Ingress／Egressは`security_group.properties`に保持し、`security_group.md`を生成する。service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
 - ConfigurationRecorderのRoleName表示とKDFのBucketARN／RoleARNは、参照先の確定済み名称を表示したresource linkをdesiredへ保持する。参照するIAMロール名が`AWSService`から始まる場合（例: `AWSServiceRoleForConfig`）は、IAM Role設計やlinkを要求せず、ロール名literalを正式ARN propertyのdesired valueへ保持する。正式ARN propertyを名称propertyへ変更せず、ARNを生成・保存しない。KDFのKeyARNは実KMS Keyへのlogical referenceをdesiredへ、表示されたKeyId／PENDING_DEPLOYを既存identifier reference規則どおりobservedへ分離する。
+
+## Resource management mode
+
+- resource単位のframework metadataは`desired.resource.<nnn>.resourceMode=CREATE`または`IMPORT`だけを許可する。空値・別表記・未知値は拒否する。未指定の既存resourceはCREATEとして扱い、IMPORTへ推測変換しない。新規設計では区分を明示する。
+- CREATEはframeworkに基づく新規作成・IaC生成対象で、既存のnaming conventionとmandatory Name policyを維持する。作成後のcurrent値取得だけでIMPORTへ変えない。
+- IMPORTは既存resourceを設計管理へ取り込む区分で、取得した選択済みactual/current configurationを`desired.row.*`、必要な非ARN current identifierを`observed.row.*`へ保持する。AWS resourceを変更せず、IaC生成対象外とする。CloudFormation Resource Import／Terraform importではない。
+- 区分は作成者・管理者・外部作成済み等のprovenanceではない。出自を保存しない契約は維持する。
+- IMPORTはframework独自の命名convention・coverage・Name tag必須性の対象外とし、既存名称・設定・Name tagの有無を保持する。rename、tag追加・変更、値の補完をしない。provider schema、catalog、row構造、参照、確定値の検証は維持する。
+- VPC／Subnet／RouteTable／Flow Logの既存Name tagは従来の`.Name`、Endpoint／Instanceは正式なTags rowへ保持する。IMPORTでName tagがなければ該当rowを省略する。表示には必要な場合だけhuman-confirmedな`display.resource.<nnn>.label`を使い、AWS propertyやtagへ転記しない。Name tagだけで命名する上記6型の単一resourceは、labelもなければ既存の型名表示を使用できる。
+- 明示したresourceModeはservice metadataの後の`<!-- resource-mode: <resource-anchor> CREATE -->`／`IMPORT`へ生成し、再解析してmodelと照合する。AWS property表・desired.noteへ混在させない。未指定modelではmarkerを生成せず既存表示を維持する。identified grouped childも自身のanchorで独立指定する。identityなしのinline設定は包含resourceの区分に従い、別区分が必要なら推測せず停止する。
 
 ## Policy derived views
 

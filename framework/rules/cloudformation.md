@@ -19,13 +19,13 @@
 - CloudWatch Logs resource（`AWS::Logs::*`）とSecurity Group（`AWS::EC2::SecurityGroup*`）だけを所有する単独template/stackは作らず、利用するresourceのtemplateに含める。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含める。直接利用するresourceがないRole（cross-account switch roleなど）は、同targetの設計resourceからRoleへの直接参照がないこととRoleのtrust policyのPrincipalを確認し、用途とAssumeRole元を設計に記録してから、Roleと付随するIAM Policy/ManagedPolicyだけを所有する専用template/stackに置く。このtemplateには`Metadata`直下の`RolePlacement: standalone`を宣言する。宣言は設計判断を表し、AWS上の未利用を証明しない。InstanceProfileを加えてRole専用templateとはみなさない。
 - cross-stack referenceはdownstreamが必要とするstable valueだけを公開し、不要なcouplingを避ける。
 - template外のresourceを`!Ref`、`!GetAtt`、`!Sub`、policy/設定値の文字列などで使う場合は、実際のresourceとその所有stackを特定する。文字列の一致だけでresource参照と判断しない。同一AWS account・regionの別CloudFormation stackが所有するresourceなら、producer templateのOutputsとdeploy済みstackのexportsを照合し、必要な値をexport済みか確認する。所有stack、参照する値、export名が一意に確認できなければ推測せず停止する。
-- 必要なexportがない場合はproducer templateに必要な値だけのOutput/Exportを追加し、許可されたinfrastructure taskでproducer stackを先にdeployする。terminal successと実際のexport名・値をread-onlyで確認するまでconsumer templateを変更・deployしない。既存importが使うexport名・値を命名形式だけで変更しない。producerとconsumerを同じtaskで扱えない場合はtask boundaryを守って順に実施する。
+- 必要なexportがなく、producerが本frameworkのCREATE管理対象の場合はproducer templateに必要な値だけのOutput/Exportを追加し、許可されたinfrastructure taskでproducer stackを先にdeployする。terminal successと実際のexport名・値をread-onlyで確認するまでconsumer templateを変更・deployしない。既存importが使うexport名・値を命名形式だけで変更しない。producerとconsumerを同じtaskで扱えない場合はtask boundaryを守って順に実施する。
 - producerのexport確認後、consumer templateではそのexport名を`!ImportValue`で参照する。参照値を文字列の一部に使う場合は`!Sub`のvariable mapまたは`!Join`へ`!ImportValue`を渡し、physical IDやgenerated ARNをliteralに残さない。import先は同じAWS account・regionとし、producer成功後にconsumerのchange setを作成する。cross-stack用のARN exportが必要な場合もgenerated ARNをobserved valueとして保存しない。
 - templateの`Resources` key（resource logical ID）と`Outputs.*.Export.Name`の最終値はPascalCaseとする。先頭はASCII大文字、以降はASCII英数字だけを使い、hyphen、underscore、空白を含めない。exportしないOutputのkeyやAWS生成のphysical IDにはこのruleを適用しない。
-- 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決して`!Ref`を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをtemplateへ直書きしない。
+- CREATEを参照する詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決して`!Ref`を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをtemplateへ直書きしない。
 - 詳細設計のlogical IDとCloudFormation resource logical IDは一意に対応付け、template内の`!Ref`、`!GetAtt`、OutputsにはCloudFormation側のPascalCase IDを使用する。設計IDやanchor、確定済みresource名は命名形式だけを理由に変更しない。PascalCaseへの変換で衝突する場合、またはtarget別parameterを含むExport Nameの最終値を確認できない場合は推測せず停止する。既存stackのlogical IDやExport Nameの変更はresourceの削除・再作成やcross-stack参照の切断を伴い得るため、命名形式だけを理由に自動変更しない。
-- 詳細設計の表を統合しても、KMS KeyとAliasはそれぞれ正式なCloudFormation resourceとして実装する。grouped Aliasのlogical IDとanchorを保持し、modelの`parentProperty`へ`parentReference`が指すKeyの`!Ref`を設定する。S3からAliasへの参照は該当Aliasの`!Ref`とし、Keyの参照に置換しない。表示変更だけを理由に既存IaC logical IDを変更しない。
-- 後続resourceまたは別stackが必要とするcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
+- 詳細設計の表を統合しても、CREATEのKMS KeyとAliasはそれぞれ正式なCloudFormation resourceとして実装する。IMPORTは生成しない。grouped Aliasのlogical IDとanchorを保持し、modelの`parentProperty`へ`parentReference`が指すKeyの`!Ref`を設定する。S3からAliasへの参照は該当Aliasの`!Ref`とし、Keyの参照に置換しない。表示変更だけを理由に既存IaC logical IDを変更しない。
+- 後続resourceまたは別stackが必要とするCREATEのcatalog `IDENTIFIER_OUTPUT`はCloudFormation `Outputs`へlogical resource参照で公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
 - aliasなしの共通templateは`infra/cloudformation/templates/`、alias別templateは`infra/cloudformation/templates/<alias>/`に置く。同じaliasのtemplateをenvironment間で共用し、異なるaliasのtemplateを共用しない。
 - target固有parameterは`infra/cloudformation/parameters/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - resourceの正式な名前propertyまたは`Name` tagにEnvironment IDを含める場合、templateの`Parameters`に独立した`Environment`を宣言し、target別parameter fileでは`Environment`に`project.json`の対象Environment IDを設定する。名前はresourceのproperty／tag valueで`!Sub`、`!Join`、`!Ref`などから合成し、AWS account ID等の独立したcomponentと同様に扱う。詳細設計にある確定済みの完成名は変更しない。
@@ -39,6 +39,14 @@
 - `Macie.Session`は既存CFn schemaを使用する。`Macie.ClassificationJob`はCFn非対応として扱い、JobをCFn template、Outputs、`!Ref`の対象にしない。
 - active taskがCFn対応範囲だけを指定していれば、その範囲を実装して終了する。Jobが実装要求に含まれる場合は未実装対象として明示し、scopeを黙って縮小せず、その要求を完了扱いにしない。JobのためのCustom Resourceや別engineを自動追加しない。
 - CFn resourceからAPI resourceのidentifierが必要な場合も架空の`!Ref`を生成しない。承認済みの外部入力の受渡し設計がなければ、不足する依存関係を報告して停止する。link表示textのcurrent IDから実装方法を推測しない。
+
+## Resource mode boundary
+
+- 正本modelのresourceMode=CREATE（未指定を含む）だけをCloudFormation生成対象とする。IMPORTは詳細設計・propertiesに保持するがIaC生成対象外で、AWS resourceを変更しない。IMPORTを`Resources`へ生成しない。CloudFormation Resource Import、Import change setの作成・実行、既存resourceのStack管理への移行を行わない。
+- IMPORTはframework上の設計管理区分であり、CloudFormationのimport機能ではない。値をframework命名へ修正せず、Name tagを追加・変更しない。
+- 本ruleのresource実装・logical ID対応・identifier参照・Outputs／output生成はCREATEに限る。grouped childも独立identityがあれば自身のresourceModeで判定する。inline設定は包含resourceの区分に従う。
+- CREATEからIMPORTへの参照は架空のresource参照を生成しない。既存の承認済み受渡し設計がなければ不足を報告して停止し、新しいexternal input mechanismを設計しない。IMPORTを所有する外部stack／stateへ変更を加えない。
+- 既にIaC管理中のresourceをIMPORTへ切り替えることを、template／configurationからの自動削除や管理解除の許可と解釈しない。検出時は影響を報告して停止する。
 
 ## Validation and execution
 

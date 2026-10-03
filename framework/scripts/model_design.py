@@ -11,7 +11,7 @@ from design_layout import (
     ALIGNMENT, HEADER, DISPLAY_PROPERTY_ALIASES, GROUPED, HIDDEN_PROPERTIES,
     CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
-    resource_name_fields, resource_anchor, resource_has_name_property,
+    resource_name_fields, resource_anchor, resource_has_name_property, resource_mode,
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
@@ -102,7 +102,7 @@ def naming_targets(root: Path) -> dict[str, set[str]]:
     return targets
 
 
-def naming_errors(root: Path, kind: str, rows: list[list[str]]) -> list[str]:
+def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CREATE") -> list[str]:
     if kind in {"CodeBuild.Project", "IAM.Role"}:
         field = "RoleName" if kind == "IAM.Role" else "Name"
         names = [row[2].strip("`\"") for row in rows if row[1].removeprefix(kind + ".") == field]
@@ -111,6 +111,8 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]]) -> list[str]:
         value = names[0]
         if not value.strip() or value.strip().lower() in {"unset", "pending", "pending_deploy", "tbd", "n/a", "none", "未確定"} or value.startswith("[") or "{{" in value:
             return [f"{kind}.{field} must be confirmed and non-empty"]
+    if mode == "IMPORT":
+        return []  # Confirmed actual names above and provider/schema checks remain mandatory.
     targets = naming_targets(root)
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}
@@ -159,6 +161,7 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
     catalog = DesignSchemaCatalog(root)
     errors = []
     for identity, resource in entries(values, "desired.resource."):
+        resource_mode(resource)
         kind = resource["resourceType"]
         rows = resource_rows(values, identity, kind, root)
         properties = {row[1] for row in rows
@@ -382,17 +385,18 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     details = []
     for identity, resource in resources:
         kind = resource["resourceType"]
+        mode = resource_mode(resource)
         if kind not in owned:
             raise ValueError(f"resource is outside service ownership: {kind}")
         rows = resource_rows(values, identity, kind, root)
         rule_table = GROUPED.get(kind, {}).get("display") == "rule-table"
         configured_name = None if rule_table else resource_display_name(
-            kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label")
+            kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label"), mode
         )
         name = resource["logicalId"] if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
         type_display = not rule_table and configured_name is None and (name is None or name == kind)
         if type_display:
-            if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind):
+            if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
                 raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
             name = kind
         if not name or name in {"UNSET", "PENDING_DEPLOY"}:
@@ -400,7 +404,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         anchor = resource["anchor"]
         if anchor != resource_anchor(service, name, kind) or anchor in by_anchor:
             raise ValueError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
-        errors = naming_errors(root, kind, rows)
+        errors = naming_errors(root, kind, rows, mode)
         if errors:
             raise ValueError("; ".join(errors))
         item = (identity, resource, name, rows)
@@ -433,7 +437,10 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         if maximum is not None and sum(child[1]["resourceType"] == kind for child in grouped[parent[0]]) > maximum:
             raise ValueError(f"{kind}: {resource['logicalId']}: too many grouped children for {parent[1]['logicalId']}: {resource['parentProperty']}")
     output = [values["display.service.title"], "", f"- Design service ID: `{service}`",
-              "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned), "", "## リソース一覧"]
+              "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned)]
+    output += [f'<!-- resource-mode: {resource["anchor"]} {resource_mode(resource)} -->'
+               for _, resource in resources if "resourceMode" in resource]
+    output += ["", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
         items = [item for item in independent if item[1]["resourceType"] == kind]
         output += ["", "### " + kind, "", *table(["No.", "ResourceName", "Comment"], [
@@ -442,7 +449,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     output += ["", "## リソース詳細"]
     for identity, resource, name, rows in independent:
         kind = resource["resourceType"]
-        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows) is None else f"### {kind}: {name}"
+        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows, mode=resource_mode(resource)) is None else f"### {kind}: {name}"
         output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
         if kind == "EC2.SecurityGroup":

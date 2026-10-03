@@ -2,6 +2,8 @@
 
 ## Scope
 
+このruleのframework命名convention・coverage・mandatory Name policyはCREATE（resourceMode未指定を含む）に適用する。IMPORTはAWS actual/currentの名称・設定・Name tagの有無を維持し、convention不一致やName tag不存在をerror／blockerにしない。rename、Name tagの追加・変更、仮値の補完は禁止する。provider schema等のAWS制約、構造・確定値・参照の検証は両modeで維持する。表示labelはAWS propertyと区別する。区分の正本は`model-information.md`に従う。
+
 このruleは、詳細設計でhuman-selectedなAWS resource name、identifier、または`Name` tagを決定するときのdefault naming conventionとする。
 
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
@@ -18,7 +20,7 @@
 - `Name` tagのkeyはcase-sensitiveな`Name`を正確に使用し、valueを空にしない。
 - 上記4種類のresource heading identifierは`.Name` valueと完全一致させ、anchorはService IDとそのvalueをlowercaseで結ぶ。
 - 既存resourceと既存詳細設計の確定済み名称を自動変更しない。renameまたはreplacementは別の明示依頼がある場合だけ扱う。
-- 既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
+- CREATEとして扱う既存resourceに必須の`Name` tagが存在しない場合は値を発明せず、設計保存やIaC変更へ進まずblockerとして報告する。
 - CloudFormation logical ID、詳細設計のlogical ID、JSON artifact filenameには、それぞれの既存ruleを適用する。
 
 ## Naming rule coverage check

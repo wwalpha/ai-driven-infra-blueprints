@@ -146,6 +146,8 @@ active promptの`## Task contract`には次を正確に1件記載します。
 
 chatの完了報告と保存対象Markdownは分離します。chatとMarkdownの説明文は日本語とし、保存対象Markdownの正本形式は`framework/rules/detailed-design.md`に従います。policyなどJSON documentが必要な確定設計は、同ruleのservice-owned JSON artifactとしてMarkdownから参照します。model propertiesを先に更新してMarkdownとJSON artifactを生成し、design taskはCloudFormation/Terraform、AWS mutation、scenario、scenario resultを変更しません。既存resource取得では必要な非ARN current identifierだけをobserved valueへ反映できます。
 
+resource単位の`desired.resource.<nnn>.resourceMode`は`CREATE`／`IMPORT`だけです。未指定はCREATE互換です。CREATEには既存の命名・必須Name tag policyを適用し、IaC生成対象にします。IMPORTは既存AWSのactual/current値を設計・modelへ保持し、framework命名不一致やName tag不存在を許容します。AWS変更・IaC生成・CloudFormation Resource Import・Terraform importは行いません。表示labelはAWS propertyから分離します。詳細は[model contract](framework/rules/model-information.md#resource-management-mode)を参照してください。
+
 ## Post-design SDD
 
 新規設計では、`framework/prompts/chatbot/service-design.md`が出力したCodex promptでmodel propertiesを保存して詳細設計Markdownを生成し、`03_implement.md`でIaCを作成・検証し、別taskの`04_deploy.md`でdeploy/applyする。

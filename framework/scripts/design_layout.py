@@ -55,6 +55,7 @@ RESOURCE_REFERENCE_PROPERTIES = {
 }
 HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
+RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
 
@@ -128,10 +129,31 @@ def resource_name_fields(resource_type: str) -> list[str]:
     return names
 
 
-def resource_has_name_property(root: Path, resource_type: str) -> bool:
+def resource_mode(resource: dict[str, str]) -> str:
+    mode = resource.get("resourceMode", "CREATE")
+    if mode not in {"CREATE", "IMPORT"}:
+        raise ValueError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
+    return mode
+
+
+def resource_modes(lines: list[str]) -> dict[str, str]:
+    """Read explicit mode metadata by anchor, including identified grouped children."""
+    modes = {}
+    anchors = set(ANCHOR.findall("\n".join(lines)))
+    for line in lines:
+        if not line.startswith("<!-- resource-mode:"):
+            continue
+        match = RESOURCE_MODE.fullmatch(line)
+        if not match or match[1] in modes or match[1] not in anchors:
+            raise ValueError(f"invalid, duplicate or orphan resource mode metadata: {line}")
+        modes[match[1]] = match[2]
+    return modes
+
+
+def resource_has_name_property(root: Path, resource_type: str, mode: str = "CREATE") -> bool:
     """Check the catalog, rather than treating an omitted optional name as nameless."""
     if resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"} | REQUIRED_NAME_TAG_TYPES:
-        return True  # These require a design-only name or Name tag.
+        return mode != "IMPORT"  # Only CREATE requires a Name tag.
     names = set(resource_name_fields(resource_type))
     return any(line.partition("=")[0].removeprefix(resource_type + ".") in names
                and line.partition("=")[2] != "IDENTIFIER_OUTPUT"
@@ -140,7 +162,7 @@ def resource_has_name_property(root: Path, resource_type: str) -> bool:
                for line in path.read_text(encoding="utf-8").splitlines())
 
 
-def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None) -> str | None:
+def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None, mode: str = "CREATE") -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
     if resource_type == "KMS.Key":
         aliases = [row[2].strip("`\"") for row in rows if row[1] == "KMS.Alias.AliasName"]
@@ -155,9 +177,18 @@ def resource_display_name(resource_type: str, rows: list[list[str]], selected_la
             raise ValueError("KMS Key has multiple aliases; select an alias without alias/ in display label")
     fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
     if resource_type in REQUIRED_NAME_TAG_TYPES:
+        if mode == "IMPORT":
+            paths = [row[1].removeprefix(resource_type + ".") for row in rows]
+            for index, path in enumerate(paths):
+                if path == "Tags[].Key" and paths[index + 1:index + 2] != ["Tags[].Value"]:
+                    raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Value")
+                if path == "Tags[].Value" and (index == 0 or paths[index - 1] != "Tags[].Key"):
+                    raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Key")
         keys = [index for index, row in enumerate(rows)
                 if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
                 and row[2].strip("`\"") == "Name"]
+        if mode == "IMPORT" and not keys and "Name" not in fields:
+            return None
         if "Name" in fields or len(keys) != 1:
             raise ValueError(f"{resource_type} requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
         index = keys[0] + 1

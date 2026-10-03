@@ -13,6 +13,14 @@ catalog propertiesを項目の正本、model propertiesを設計値の正本と�
 - infrastructure `update` phaseは、humanがtask開始前にmodel propertiesへ手動修正した未commitのintended designをimmutable inputとして受け取れる。Codexはそのintended designを変更せず、deploy/apply成功後のgenerated current valueだけを追加更新できる。
 - designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
 
+## Resource management mode
+
+`model-information.md`の`desired.resource.<nnn>.resourceMode=CREATE|IMPORT`を使用する。未指定はCREATE互換とする。CREATE／IMPORTとも実際の設計値を同じ詳細表へ保持する。resourceModeはframework metadataとしてservice metadata後の非表示`<!-- resource-mode: <resource-anchor> CREATE -->`／`IMPORT`へ生成し、AWS property表には入れない。
+
+IMPORTは許可されたread-only取得で選択済みAWS actual/current configurationを取得し、propertiesと詳細設計へ保持する。framework naming conventionに不一致でも名称・値をそのまま保存し、AWS resourceを変更せず、IaC生成対象にしない。CloudFormation Resource Import／Terraform importとは別概念で、provenanceは保存しない。
+
+以下のmandatory Name policyと命名patternの適用はCREATEだけとする。IMPORTでName tagがない場合はrowを省略し、blockerにせずtagや仮値を作らない。既存の名称があればそれを表示し、Name tagで命名するVPC／Subnet／RouteTable／Flow Log／VPCEndpoint／Instanceで名称がない場合は、human-confirmedなdisplay label、または同型単一resourceの型名表示を使う。表示labelをAWS propertyへ転記しない。内部logical ID・anchor・row順・schema・参照検証は維持する。
+
 ## Existing resource configuration
 
 chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Codexの`design` taskは次を実行できる。
@@ -22,7 +30,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - 対象targetの`awsProfile`があればpreflightとすべての既存resource取得で使用する。AWS CLIには同じ`--profile`と対象region、SDKにはprofileとregionを明示する。設定と異なる明示profileは拒否し、未設定時だけ従来の明示profile／default credential chainを使用する。
 - AWS Cloud Control APIのList／Readを第一候補とし、非対応resource typeだけ対象service固有のread-only APIを使用する。AWS値とmaterials／provider schema propertyの対応が一意でなければ停止する。
 - resource候補はprimary identifierなどsecretを含まない最小情報だけを提示し、候補が一件でもhumanが選択するまで取得対象を確定しない。primary identifierがARNの場合はresource選択と取得のためだけに一時利用してよい。
-- humanがresourceを選択した後は、選択済みpropertyと対象resourceでmandatoryな`Name` tagの現在値を直接差分反映する。前4種類は`.Name`へ、`EC2.VPCEndpoint`／`EC2.Instance`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。mandatory `Name` tagが存在しない場合は値を発明せず停止する。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型は下記の型名表示規則を適用し、同型1件なら表示名を質問せずresource typeを使う。複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
+- humanがresourceを選択した後は、選択済みpropertyと対象resourceの`Name` tagの現在値・有無を確認し直接差分反映する。Name tagが存在する場合、前4種類は`.Name`へ、`EC2.VPCEndpoint`／`EC2.Instance`は正式な`Tags[].Key=Name`と対応する`Tags[].Value`へ保持する。既存fileの未選択resourceと未選択propertyは維持し、AWS現在値に存在しない選択済みoptional propertyのrowは削除する。CREATEでmandatory `Name` tagが存在しない場合は値を発明せず停止する。IMPORTでは不存在をそのまま保持し、名称がなければ上記表示規則を使う。対応するresource sectionがなければ、上記4種類は`.Name` valueをheading identifierとして使用し、`EC2.VPCEndpoint`／`EC2.Instance`は取得したName tag value、それ以外は確定済みresource名をheadingへ使用し、内部logical IDが未確定の場合だけhumanへ一つ質問して非表示metadataへ保持する。resource名がない型は下記の型名表示規則を適用し、同型1件なら表示名を質問せずresource typeを使う。複数件の区別に必要な表示名だけhumanへ確認し、service metadata、anchor、heading、tableを作成する。内部logical IDの確認は省略しない。
 - password、secret、token、credentialなどの機密値は表示または保存しない。generated ARNは詳細設計、JSON artifact、modelへ保存せず、resource選択またはAPI実行に必要な処理中だけ使用する。
 - resourceの作成者、管理者、外部作成済みという出自は詳細設計またはmodelへ保存しない。詳細設計はtarget environmentに存在する設定を同じresource table形式で保持する。
 - AWS mutation、IaC作成・変更、deploy/apply、scenarioへ進まない。
@@ -38,7 +46,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - その他のresourceではhumanが`Name` tagを明示した場合だけ設計する。array形式では`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnon-empty nameを記載する。object形式では`Tags`に`Name` keyとnon-empty valueを持つJSON objectを記載する。
 - naming componentがすべて確定済みならpatternから一意に導出し、未確定componentがあれば値を推測せずhumanへ確認する。
 - 既存resourceから取得した名称と既存詳細設計の確定済み名称は、conventionと異なっても自動変更しない。
-- 既存resourceに必須の`Name` tagが存在しない場合はtag valueを発明せず、blockerとして停止する。
+- CREATEとして扱う既存resourceに必須の`Name` tagが存在しない場合はtag valueを発明せず、blockerとして停止する。
 - final nameはprovider schemaとservice固有制約へ適合することを確認し、自動truncate、hash付与、略語化で補正しない。
 
 ## AWS service ownership boundary
@@ -82,11 +90,11 @@ generic validatorがservice ownershipを判断するため、各Markdownには�
 - 一覧の後、最初のresource anchorより前に`## リソース詳細`を正確に1件置く。全resourceの詳細をこのsection内へ置き、一覧と詳細を同じH2階層で区切る。
 - 独立表示するcatalog-backed resource headingは詳細section配下の`### <catalog-resource-type>: <resource-name>`とする。下記の型名表示を適用する場合だけ`### <catalog-resource-type>`とし、`: <resource-name>`を付けない。policy表の見出しはresource配下のH4とし、implementation noteにもresourceと同階層以上の見出しを使用しない。親へ統合するresourceは後述の共通表示contractに従う。
 - `S3.Bucket`だけは`### S3.Bucket: <BucketName>`とし、heading identifierを同じtableの`S3.Bucket.BucketName` valueと完全一致させる。
-- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがcatalogにない型で、選択済みName tagと既存の確定済み表示名もなく、同じservice file内で同型の独立resourceが1件だけなら、resource typeを表示名として見出し・一覧・通常の参照linkへ使う。追加の表示名を質問せず、anchorもresource typeから生成する。同型複数件はそれぞれを区別できるhuman-confirmedな表示名を要求し、不足時は停止する。既存の確定済み表示名・logical IDは維持する。名称propertyの省略や必須Name tagの不足にこの規則を適用しない。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
+- 全serviceでheadingの`<resource-name>`には同じ詳細tableの確定済み名称property（`Name`、`BucketName`、`RoleName`、`Scheduler.Schedule.Name`等）または選択済み`Name` tagの値を使用する。内部logical IDをheading、一覧のResourceName、参照linkの表示textへ出さない。名称propertyがcatalogにない型で、選択済みName tagと既存の確定済み表示名もなく、同じservice file内で同型の独立resourceが1件だけなら、resource typeを表示名として見出し・一覧・通常の参照linkへ使う。追加の表示名を質問せず、anchorもresource typeから生成する。同型複数件はそれぞれを区別できるhuman-confirmedな表示名を要求し、不足時は停止する。既存の確定済み表示名・logical IDは維持する。CREATEの名称propertyの省略や必須Name tagの不足にこの規則を適用しない。IMPORTのName tag不存在は上記例外に従う。generated IDや`PENDING_DEPLOY`をresource名の代用にしない。
 - `KMS.Key`に所属するAliasがある場合、ResourceName・詳細見出し・Keyへの通常の参照linkには`KMS.Alias.AliasName`の先頭`alias/`だけを除いた名称を使い、その名称からKeyのanchorを生成する。例えば`alias/venus-dev-log-cde`は`venus-dev-log-cde`と表示する。複数aliasでは、いずれかの名称と一致するhuman-confirmedな`display.resource.*.label`を使用し、不足・不一致時は先頭aliasを選ばず停止する。Alias未設計のKeyには既存の表示規則を適用する。AliasNameの正式値、Alias自身のanchorと参照表示、KeyId、内部logical IDはこの表示変換で変更しない。
 - 内部logical IDはexplicit anchorの直前に独立行の`<!-- resource-logical-id: <logical-id> -->`で保持する。headingとIDが同じ確定済みresource名ならmarkerを省略してよい。型名表示ではmarkerを必須とし、logical IDをresource typeから推測しない。markerは画面へ表示せず、modelのlogicalIdとIaC識別のためだけに使用する。
-- 名称propertyがない型では、humanが確定した`display.resource.<番号>.label`が内部logical IDと同じ文字列でも表示名として許可する。対応する正本modelの`desired.resource.<番号>.resourceType`・`logicalId`と明示labelを詳細headingへ照合し、一致するresourceだけに適用する。label欠落による内部IDの流用は拒否する。この場合も非表示logical ID markerを必須とし、anchorは表示label由来、desired logical reference／observed current identifierの分離を維持する。名称property・必須Name tagの代替、catalog propertyやName tagの追加には使用しない。
-- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`のresource名は同じtableの`.Name` valueと完全一致させる。
+- 名称propertyがない型では、humanが確定した`display.resource.<番号>.label`が内部logical IDと同じ文字列でも表示名として許可する。対応する正本modelの`desired.resource.<番号>.resourceType`・`logicalId`と明示labelを詳細headingへ照合し、一致するresourceだけに適用する。label欠落による内部IDの流用は拒否する。この場合も非表示logical ID markerを必須とし、anchorは表示label由来、desired logical reference／observed current identifierの分離を維持する。CREATEの名称property・必須Name tagの代替、catalog propertyやName tagの追加には使用しない。IMPORTのName tag不存在時は表示labelだけを使用できる。
+- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`で`.Name`が存在する場合、resource名は同じtableの`.Name` valueと完全一致させる。IMPORTで不存在なら上記表示規則を使う。
 - `Environment`、`AWS account ID`、`AWS region`、`Purpose`、`Deployment state`をfile metadataとして記載しない。これらは`project.json`、`docs/system-overview.md`、active task、`model/**`の該当する正本を参照する。S3 Bucketの配置regionだけは後述のdesign-only `S3.Bucket.Region` rowにbucketごとの確定値を表示する。
 - `Design decisions`、`Out of scope`、`Generated values`または同義の日本語sectionを作らない。
 - 確定済みの設計値は該当resource/component tableへ記載する。
@@ -132,11 +140,11 @@ resource-detail tableは、後述のSecurity Group rules表を除き、サンプ
 - 1 file に複数 resource heading と table を置いてよい。
 - resource-detail tableの独立表示と親への統合は`framework/rules/resource-layout.json`を正本とする。未登録の型を推測で分割・統合せず、framework保守が必要なblockerとして停止する。リソース一覧の表示単位はResource overviewに従う。
 - `framework/materials/aws/*.properties`と`framework/materials/api/*.properties`はresource-detail tableへ載せてよい設計項目の選択リストとし、`Property`はresource type接頭辞を省いたspelling、または`framework/rules/display-property-aliases.json`に登録した表示名から接頭辞を省いたspellingを使う。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`、`S3.Bucket.Region`だけをdesign-only exceptionとする。
-- CFn由来の選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。design-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
+- CFn由来の選択項目の存在、型、`enum`、`pattern`、長さ、範囲、`required`は`framework/materials/cloudformation-schema/ap-northeast-1/`のCloudFormation provider schemaを正本とする。CREATEのdesign-only `.Name`には`framework/rules/aws-resource-naming.md`のpatternを適用し、`S3.Bucket.Region`はnon-emptyのlower-kebab-case AWS region IDとする。
 - 上記5種類のdesign-only property以外にcatalogにないrowを作成しない。generated current identifierも後述の`IDENTIFIER_OUTPUT` catalog propertyを使用する。derived documentation fieldやimplementation情報は必要最小限のtable外noteにする。
 - catalog の全 field を掲載せず、選択済みで必要な design field だけを載せる。
 - IaC template path を AWS resource property のように table に入れない。implementation note は table 外の prose section に書く。
-- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`とS3 Bucketの`S3.Bucket.Region`、`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagの`Tags[].Key`／`Tags[].Value`は省略しない。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
+- optional propertyを使用しない場合はrow自体を省略する。ただし`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`とS3 Bucketの`S3.Bucket.Region`、`EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagの`Tags[].Key`／`Tags[].Value`はCREATEで省略しない。IMPORTのName tag不存在は省略できるが、S3.Bucket.Regionは両modeで必要とする。これら以外にschemaに存在しない説明用propertyを作らず、`not-used`、`none`、`UNSET`などのsentinel値を記載しない。
 - schemaの`required`に指定され、かつproperties選択リストにあるroot propertyは省略しない。
 - 必須項目が不足したpropertiesは設計入力として保持できるが、詳細設計Markdown／JSON artifactは一時fileを含め生成しない。正本propertiesを直接検証し、row欠落・空値・未確定値のresource／propertyを報告する。既存生成物は維持し、値を推測・自動補完しない。必須項目が揃ったserviceだけ生成へ進み、不足が残るtaskを完了扱いにしない。
 
@@ -314,12 +322,12 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 - renderer 自動生成だけに依存せず、resource heading の直前に explicit HTML anchor を置く。
 - anchorはService IDとlowercase resource表示名を`-`で結ぶ。表示名内の`[a-z0-9_.-]`以外の連続文字を`-`へ置き換え、表示名部分の前後の`-`を除く。正規化後のanchor衝突は停止し、内部IDで補正しない。内部logical IDを表示用linkのanchor生成元にしない。
 - `Config.ConfigurationRecorder`と`Config.DeliveryChannel`は同一service内で同名が有効なため、名称にかかわらずService IDと正規化表示名の間へそれぞれ`configuration-recorder`、`delivery-channel`を挿入する。両方のNameが`default`なら`config-configuration-recorder-default`と`config-delivery-channel-default`とする。Name値・一覧ResourceName・詳細heading・linkの表示textは`default`を維持し、型はcatalog resource typeから決定する。非表示logical IDとdesired/observedの分離を維持し、旧`config-default`や型違いのanchorは拒否する。同型内の正規化衝突は引き続き停止する。
-- `EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では`.Name` valueをlogical IDとし、anchorにも同じvalueをlowercaseで使用する。
+- CREATEの`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`では`.Name` valueをlogical IDとし、anchorにも同じvalueをlowercaseで使用する。
 - 別fileの例: `[role-app-dev-flow-logs](iam.md#iam-role-app-dev-flow-logs)`。
 - 同じfileの例: `[flow-log-app-dev-vpc](#vpc-flow-log-app-dev-vpc)`。
 - file と anchor の存在を local loop で検証する。
 - catalogのidentifier outputを参照するpropertyは、link先anchorをlogical referenceの正本とし、表示textへ参照先のcurrent physical IDを記載する。deploy前とdestroy後は`[PENDING_DEPLOY](#vpc-vpc-app-dev)`、deploy成功後は`[vpc-0123456789abcdef0](#vpc-vpc-app-dev)`とする。
-- IaC生成は表示textのphysical IDを使用せず、link先anchorに対応する非表示metadataのlogical IDを解決する。markerを省略したresourceはheadingの確定済みresource名を内部identityとして使う。CloudFormationは`!Ref`、Terraformはresource attribute referenceを使用し、physical IDを直書きしない。
+- IaC生成は表示textのphysical IDを使用せず、link先anchorに対応する非表示metadataのlogical IDを解決する。markerを省略したresourceはheadingの確定済みresource名を内部identityとして使う。参照先がCREATEならCloudFormationは`!Ref`、Terraformはresource attribute referenceを使用し、physical IDを直書きしない。IMPORTへの参照は生成対象resourceとみなさず、既存の承認済み受渡し設計がなければ停止する。新しいexternal input mechanismを自動追加しない。
 
 ## Generated values and deployment state
 

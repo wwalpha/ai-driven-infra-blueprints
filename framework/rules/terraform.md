@@ -11,9 +11,17 @@
 - target固有root、backend、state設定は`infra/terraform/environments/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - 未使用infrastructureを先回りして生成しない。
 - API設計catalogの追加はTerraform実装の対応確認や導入許可を意味しない。CFn非対応を理由にengineを切り替えず、選択済みengineとactive taskの明示scopeを維持する。実装対応が未確認のresourceを黙って除外して完了扱いにしない。
-- 詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決し、対応するTerraform resource attribute参照を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをconfigurationへ直書きしない。
-- 詳細設計の表を統合してもKMS KeyとAliasは別resourceとして保持する。grouped Aliasのmodelの`parentReference`から対象Keyを解決し、`parentProperty`に対応する`target_key_id`へKeyのattribute参照を設定する。S3からAliasへの参照は該当Aliasのnameを使用する。表示変更だけを理由に既存resource addressを変更しない。
-- 後続resourceまたはroot moduleが必要とするcatalog `IDENTIFIER_OUTPUT`はnon-sensitive `output`としてresource attributeから公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
+- CREATEを参照する詳細設計のidentifier参照はMarkdown linkのanchorからlogical IDを解決し、対応するTerraform resource attribute参照を生成する。link表示textの`PENDING_DEPLOY`またはphysical IDをconfigurationへ直書きしない。
+- 詳細設計の表を統合してもCREATEのKMS KeyとAliasは別resourceとして保持する。IMPORTは生成しない。grouped Aliasのmodelの`parentReference`から対象Keyを解決し、`parentProperty`に対応する`target_key_id`へKeyのattribute参照を設定する。S3からAliasへの参照は該当Aliasのnameを使用する。表示変更だけを理由に既存resource addressを変更しない。
+- 後続resourceまたはroot moduleが必要とするCREATEのcatalog `IDENTIFIER_OUTPUT`はnon-sensitive `output`としてresource attributeから公開する。generated ARNはoutput収集またはobserved value永続化の対象にしない。
+
+## Resource mode boundary
+
+- 正本modelのresourceMode=CREATE（未指定を含む）だけをTerraform生成対象とする。IMPORTは詳細設計・propertiesに保持するがIaC生成対象外で、AWS resourceを変更しない。IMPORTをTerraform `resource`へ生成しない。Terraform import command／import blockの作成・実行やstateへの取り込みを行わない。
+- IMPORTはframework上の設計管理区分であり、Terraformのimport機能ではない。値をframework命名へ修正せず、Name tagを追加・変更しない。
+- 本ruleのresource実装・logical ID対応・identifier参照・Outputs／output生成はCREATEに限る。grouped childも独立identityがあれば自身のresourceModeで判定する。inline設定は包含resourceの区分に従う。
+- CREATEからIMPORTへの参照は架空のresource参照を生成しない。既存の承認済み受渡し設計がなければ不足を報告して停止し、新しいexternal input mechanismを設計しない。IMPORTを所有する外部stack／stateへ変更を加えない。
+- 既にIaC管理中のresourceをIMPORTへ切り替えることを、template／configurationからの自動削除や管理解除の許可と解釈しない。検出時は影響を報告して停止する。
 
 ## Validation and execution
 

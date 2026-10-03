@@ -22,6 +22,7 @@ from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties
 from model_files import read_model, model_parts, model_file_contents
+from design_layout import resource_mode, resource_modes
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -105,6 +106,8 @@ def model_for(path: Path, root: Path | None = None) -> str:
         return "\n".join(output) + "\n"
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
+    modes = resource_modes(lines)
+    lines = [line for line in lines if not line.startswith("<!-- resource-mode:")]
     identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
@@ -150,6 +153,8 @@ def model_for(path: Path, root: Path | None = None) -> str:
                     f'desired.resource.{key}.parentProperty={child["parentProperty"]}',
                     f'desired.resource.{key}.parentReference=[{child["parentLogicalId"]}](#{child["parentAnchor"]})',
                 ))
+            if current_anchor in modes:
+                output.append(f"desired.resource.{key}.resourceMode={modes.pop(current_anchor)}")
             pending_anchor = ""
             index += 1
             continue
@@ -214,6 +219,8 @@ def model_for(path: Path, root: Path | None = None) -> str:
             note_number += 1
             output.append(f"desired.note.{note_number:03d}.text={line}")
         index += 1
+    if modes:
+        raise ValueError(f"resource mode metadata must identify a resource anchor: {sorted(modes)}")
     return "\n".join(output) + "\n"
 
 
@@ -243,7 +250,7 @@ def imported_model(path: Path, root: Path) -> str:
         for identity, resource in entries(values, "desired.resource."):
             rows = resource_display_rows(values, identity, resource, root)
             label = headings.get(resource["anchor"])
-            configured_name = resource_display_name(resource["resourceType"], rows, label)
+            configured_name = resource_display_name(resource["resourceType"], rows, label, resource_mode(resource))
             multiple_aliases = resource["resourceType"] == "KMS.Key" and len({row[2] for row in rows if row[1] == "KMS.Alias.AliasName"}) > 1
             if (configured_name is None or multiple_aliases) and GROUPED.get(resource["resourceType"], {}).get("display") != "rule-table":
                 if label is None:
