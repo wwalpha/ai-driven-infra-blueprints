@@ -43,7 +43,15 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 詳細設計とservice modelが矛盾する場合、またはIaC実装に必要なhuman decisionが不足する場合は、別の`design` taskが必要であることを報告して停止する。
 
+読取対象はimplementation scopeのresource/propertyと参照解決に必要な箇所へ絞る。分割modelは入口indexから必要なpartだけを読む。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
+
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
+## Compare existing IaC before creating the contract
+
+file変更前に、下記の実装対応確認とimplementation unit解決を行い、対象propertyの確定済み設計値を既存template/moduleとparameterへ照合する。一致する箇所は変更不要の確認対象とし、差分がある箇所だけを実装対象にする。既存IaCが正しい場合は同値の書換えや命名だけの変更を作らない。
+
+全箇所が一致する場合は、対象IaCのstatic validationを一回行い、変更不要と結果を報告して終了する。repository変更のない確認では新しいactive contractを作成せず、IaC変更必須のimplement taskを完了したと扱わない。明示issue修復のためmodel変更が必要な場合は、既存task boundaryに従い修復範囲だけを扱い、ここでmodelを変更しない。
 
 ## Create active task contract
 
@@ -53,8 +61,8 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 - Infrastructure phaseは`implement`とする。
 - goalにtarget environment、aliasがある場合はalias、AWS account、implementation scope、選択済みIaC engineを記載する。
 - AWS mutation、AWS API execution、deploy/applyを`forbidden`とする。
-- `Required changes`は一意なRequirement ID付きでIaC implementationとstatic validationを記載する。
-- `Acceptance checks`は各Requirement IDへ対象IaC fileの`changed:`または必要なpathの`exists:`を対応付ける。
+- `Required changes`は一意なRequirement ID付きで、事前照合で差分があったIaC implementationと対象のstatic validationだけを記載する。変更不要の既存IaCは確認対象として記載する。
+- `Acceptance checks`は各Requirement IDへ変更対象IaC fileの`changed:`、変更不要の確認対象には`exists:`を対応付ける。task type固有checkは省略しない。
 - Allowed pathsは対象のIaC fileと`tasks/active.md`だけに限定する。詳細設計、model、scenarioは変更禁止とする。
 
 ## Check implementation support
@@ -98,9 +106,10 @@ static validationが失敗した場合は根本原因を調査する。確定済
 
 ## Verify and finish
 
-1. 選択済みIaCのlocal static validationを再確認する。
-2. `python framework/scripts/blueprint-loop.py --mode task`
-3. `git diff --check`
+1. 選択済みIaCのlocal static validation結果を確認する。成功後に対象IaC・parameter・依存入力が変わっていなければ再実行しない。
+2. `python framework/scripts/blueprint-loop.py --mode task`を一回実行する。差分checkもこのloopに含まれる。
+
+成功した対象検証の後に追加の全体検証を行わない。再実行は修正、新しい失敗、未解決の懸念がある場合だけとし、tool待機timeoutでは同じ実行を追跡する。
 
 target、account、region、engine、変更file、implementation unitとdependency、validation結果、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
