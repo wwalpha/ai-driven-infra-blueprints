@@ -28,7 +28,7 @@ python3 -B framework/scripts/compare-environments.py
 ```
 
 - serviceを限定する場合は選択引数に`--service vpc --service iam`等を追加する。引数なしのprogramは全4組を比較するため、限定依頼では選択引数を省略しない。
-- stdoutは選択した組それぞれの`status`、比較済み`services`、`differences`、`difference_count`、`environment_differences`、`errors`、`resource_matches`、`unconfirmed`、`excluded`を含むJSON。`difference_count`はPythonが検知した`differences`の件数で、確認済み環境差異の除外後の値とする。必要ならrepository外の一時fileへ保存し、組を個別に読む。差分があっても比較が完了すれば終了コード0、入力欠落・読込失敗・古い除外指定は`incomplete`、resource対応未確定は`unconfirmed`として終了コード1となる。生のfield・値・file・行番号は比較JSONで確認し、diff.mdへの全件転記は行わない。`difference_count=0`でも`incomplete`、`unconfirmed`、空の比較済みserviceを「問題なし」と扱わない。IMPORT除外だけで比較対象が0件の場合は`IMPORTのため比較対象外`と記載し、IMPORTの設定が一致したという意味の`差分なし`にはしない。
+- stdoutは選択した組それぞれの`status`、比較済み`services`、`differences`、`difference_count`、`environment_differences`、`errors`、`resource_matches`、`unconfirmed`、`excluded`を含むJSON。`difference_count`はPythonが検知した`differences`の件数で、確認済み環境差異の除外後の値とする。必要ならrepository外の一時fileへ保存し、組を個別に読む。差分があっても比較が完了すれば終了コード0、入力欠落・読込失敗・古い除外指定は`incomplete`、resource対応未確定は`unconfirmed`として終了コード1となる。生のfield・値・file・行番号は比較JSONで確認し、diff.mdへの全件転記は行わない。`difference_count=0`でも`incomplete`、`unconfirmed`、空の比較済みserviceを「問題なし」と扱わない。IMPORT除外だけで比較対象が0件の場合は、冒頭の比較範囲に`IMPORTのため比較対象外`と記載し、IMPORTの設定が一致したとは扱わない。
 - Logical ID自体は環境間の仕様差分に含めない。`logicalId`と表示名から派生する`anchor`は対応確認の根拠として保持するが、それらの文字列差だけを不足／追加／値の相違にしない。既存CloudFormation stack更新でのLogical ID変更の影響は、このdesired環境比較とは別に扱う。
 - 初回は`resourceType`＋同じ`logicalId`を対応候補として比較する。Logical IDが異なるresourceは自動で不足／追加にせず`unconfirmed`へ出す。同型だけ、resource件数、番号、並び順、設定値が似ていることだけでは対応を確定しない。正式名称・用途・親子関係・参照先とhuman指示／現行設計の根拠から同じ役割を確認する。同じLogical IDの対応も役割が違えば見直す。
 - 対応が確認できたら、選択した1組の`left`・`right`・`target`と下記形式の`resources`を持つJSONをrepository外の一時fileへ作成し、`--resource-map <file>`を追加して同じ組・serviceで再比較する。この引数には`--pair`と`--target`が必須。`left`／`right`はそれぞれのmodelのLogical ID、`resourceType`は正式type、`reason`は役割と両側modelのfile・行番号等の確認根拠とする。片側の不存在を確認できたresourceだけ、その側を`null`とし不足／追加として比較する。選択外service、存在しないID、重複対応、不正な組を処理へ渡さない。未確定対応は推測で埋めず未確認として保存する。
@@ -72,6 +72,7 @@ python3 -B framework/scripts/compare-environments.py
 
 - 選択した組それぞれで、許容された環境差異を除いた差分・未確認事項をサービスごとに短い文章・箇条書きでまとめる。`その他の差分`、`未確認`の区分は必要な項目に添え、空の区分や件数表を並べない。許容された`環境差異`は内部判定にだけ使い、diff.md・完了報告の差分対象と差分件数に含めず、代表例も掲載しない。差分はあり得る設計差であり、それだけで誤設定・未解決issue・禁止事項としない。JSONの`path`・`line`・`key`・両側の値を根拠とし、必要なmodelや既存設計の該当箇所だけを追加確認する。
 - 差分件数を示す場合は、確認済み環境差異の除外を渡して再比較したPythonの`difference_count`を使い、報告時だけの減算で済ませない。文章をまとめただけでは件数を減らさない。JSONは残った`differences`と除外した`environment_differences`の双方に生の実値を保持する。未確認・比較不能は別に示し、環境差異と推測して差分から除外しない。命名規則不一致の指摘件数は環境間の値差分件数へ混ぜない。
+- 差分・命名規則不一致・未確認・比較不能事項がないserviceは、diff.md・完了報告に見出しも本文も掲載しない。`比較完了範囲で差分なし`などの説明や差分のないservice一覧も書かない。
 - 一致している設定・用途・Logical IDの列挙や、`same_logical_id`等の照合方法は出力しない。resource対応の確認は比較のために行い、差異として掲載しない。根拠の確認は内部で行い、diff.mdに根拠リンク・fileの行番号・確認経緯を付けない。
 - 比較先の評価は比較元のdesiredを基準とする。環境固有の名称・account・参照等は命名規則・明示された命名例外と確定済みの環境対応を踏まえて期待値を示す。比較元の実値をそのまま比較先の期待値へコピーしない。許容された例外以外の比較元自体の命名規則不一致は基準側の不一致として記載し、適合扱いにしない。
 - 環境差異と判断するには、humanの指示、現行設計、命名ルール等の根拠を確認する。容量・保持日数・機能の有効／無効・権限等の違いも理由を確認する。根拠が不足する差分は未確認とし、誤設定と断定しない。同じ理由の名称・account・参照差はまとめ、設定や用途が異なる差は分けて説明する。
@@ -84,7 +85,7 @@ python3 -B framework/scripts/compare-environments.py
 - 同じidentityで名称にdev／stg／prodが含まれることだけでは`環境差異`としない。各environmentの正式propertyについて命名規則の適用対象・例外とpatternを確認し、`project.json`のenvironment／alias／account／regionおよびhuman-confirmedなapplication／purpose等のcomponentへ照合する。値から未知componentを推測して適合扱いにしない。
 - 両側それぞれの`適合`（明示例外の場合は`適合（明示例外）`）、`不一致`、`適用対象外`、`未確認`を確認する。上記を含むhumanの明示例外を一般patternより先に適用する。許容された例外以外で適用対象の名称がpattern・確定済みcomponent・対象environmentと一致しない場合は`その他の差分（命名規則不一致）`とし、環境差異へまとめない。diff.mdには対象と不一致箇所を短く示し、期待pattern・実名の全件対照表は載せない。不足componentや規則不明で判定できなければ`未確認`とする。
 - 命名確認はJSONの生の差分に出たrowだけへ限定しない。選択したserviceの比較対象resourceについて、両環境で同じ名称値でも環境component等が規則に不一致ならdiff.mdへ短く記載する。生の環境間差分と規則への不一致を区別し、同じ理由の不一致はまとめる。
-- IMPORTは比較・命名確認から除外し、名称差を環境差異・その他の差分・未確認として分類しない。diff.mdにはservice単位で除外対象と`resourceMode=IMPORTのため比較対象外`という理由を短く記載する。IMPORT以外の命名適用対象外は名称差と対象外の根拠を短く示し、対象外であることだけで環境差異と確定しない。これはenv-diffの比較・分類scopeであり、命名規則・model・既存issueを修正しない。
+- IMPORTは比較・命名確認から除外し、名称差を環境差異・その他の差分・未確認として分類しない。IMPORTの除外対象と`resourceMode=IMPORTのため比較対象外`という理由は、diff.md冒頭の比較範囲へ短くまとめる。除外説明だけのservice見出しは作らない。IMPORT以外の命名適用対象外は名称差と対象外の根拠を短く示し、対象外であることだけで環境差異と確定しない。これはenv-diffの比較・分類scopeであり、命名規則・model・既存issueを修正しない。
 - `環境差異`とできるのは、両側の名称が適用規則またはhumanの明示例外へ適合し、環境に応じて変わるcomponent以外が同じ確定済み役割を表すと確認できた場合。名称が両側とも規則に適合していてもpurpose等の役割が違えば`その他の差分`とする。明示された命名例外の根拠と両側の名称の対応は内部で確認し、許容された環境差異を差分の掲載・集計から除外する。
 - 比較対象CREATEの参照値は参照先のdesired resourceとidentityを解決し、両側で同じ役割に対応するかを確認する。参照先も比較対象CREATEなら正式名称まで解決し、各environmentの命名規則／明示例外への適合を確認する。参照先IMPORTの設定・名称確認は除外する。URL、ARN、physical IDそのものへ名称patternを適用しない。AthenaのOutputLocationはbucketとkey prefix、KmsKeyは実KMS Keyと所属Alias、SchedulerのTargetは接続先resourceとRole・Input等を分けて確認する。参照先不明は未確認とする。環境componentだけの違いと確認できない参照先・prefix・Target設定の違いは名称差へ混ぜず、その他の差分として残す。
 - 名称・参照差をまとめる前に上記の確認を行う。同じ役割の環境別の出力bucket・KMS Keyや、同じ部署・情報区分で環境componentだけが違う出力prefixは、許容された環境差異と確認できた場合に差分の掲載・集計から除外する。出力prefixや接続先の用途、権限、実設定が異なる場合は残す。参照先の命名規則不一致は参照先serviceへ記載し、参照元で同じ不一致を重複掲載・集計しない。diff.mdには残った差分の用途と内容が分かる説明を残し、件数やproperty名だけの説明にしない。分類別件数や全resource/propertyの判定一覧は要求しない。
@@ -103,7 +104,7 @@ python3 -B framework/scripts/compare-environments.py
 - 比較元を正として比較先の差分を保存する。`issues.md`へ転記せず、既存issuesを変更しない。diff.mdの項目を未解決issueとして数えず、差分の存在をtask停止理由にしない。desired比較とdiff.md保存は既存issues.mdによる停止判定の対象外とする。下記の保存限定migrationでは、未解決issueがあってもAI分類・保存・local validationを続け、Issue remediationは追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateを維持する。
 - 保存は`migration` taskとして行う。最初のrepository変更として`tasks/active.md`を今回のGoalへ切り替え、選択した比較対象の両側のenvironment/target/serviceだけをValidation scopeに列挙する。Allowed pathsはactive contractと選択した組の保存先diff.mdだけとし、各Required changesに一意なIDと対応する`exists:` Acceptance checkを付ける。framework変更や修復は混ぜない。
 - 冒頭は更新日時（Asia/Tokyo）、基準environment（正）・比較先・target、比較範囲と未検証範囲を数行で示す。許容された環境差異は差分対象・件数から除外した旨を一度示し、環境名・account等の実値の違いを列挙しない。
-- 本文は`## サービス別の差異`の下に`### <service-id>`を一つずつ置き、各serviceを数行程度でまとめる。要約と詳細の二重構成にしない。主な設定差、resourceの追加・不足、命名規則不一致、未確認・比較不能事項を具体的に記載し、同じ理由の差は集約する。件数は追加・不足の規模など説明に役立つ場合だけ示す。
+- 本文は差分・命名規則不一致・未確認・比較不能事項があるserviceだけを、`## サービス別の差異`の下に`### <service-id>`を一つずつ置き、数行程度でまとめる。要約と詳細の二重構成にしない。主な設定差、resourceの追加・不足、命名規則不一致、未確認・比較不能事項を具体的に記載し、同じ理由の差は集約する。件数は追加・不足の規模など説明に役立つ場合だけ示す。
 - 各差異は対象の用途・設定項目を短く示し、その下に「devは、…」「stgは、…」のように両環境を別の行で並べる。実行した比較組のenvironment名を使い、それぞれの実値・設定内容・有無を具体的に書く。「環境別名称・参照差」「設定が異なる」だけで済ませない。追加・不足も両側の有無を示す。不明な値は推測せず未確認とし、比較不能は原因と未検証範囲を記載する。
 - 容量・保持日数・有効／無効・権限・接続先などの実設定差をこの形式で示す。JSON／policyは変更された権限・対象・条件等を両環境ごとに要約する。コメントだけの差は一言でまとめる。同じ値の両側表記、全fieldの値、JSON全文、resource対応表、命名確認表、根拠リンクは載せない。詳細のための別fileや付録はhumanが求めた場合だけ作成する。
 
@@ -130,5 +131,5 @@ Snowflake接続・VPC接続
 
 - 比較不能: devのpolicy documentとartifactSha256が不一致。IAMの設定差は未検証。
 ```
-- 実行ごとに同じdiff.mdの今回比較したserviceの結果を更新し、対象外serviceの結果は保持する。比較不能となった範囲の旧結果は最新と扱わず未確認と明記する。今回IMPORTとして除外したresourceの旧差分・名称確認は最新結果から除去し、比較対象外の理由へ置き換える。今回許容された環境差異と確認した旧差分は掲載・件数から除去する。除外後の差分が0件でもfileを残し、未確認・比較不能のない比較完了範囲だけに`差分なし（許容された環境差異を除外）`と記載する。IMPORT除外だけでresource比較対象が0件なら`IMPORTのため比較対象外`とする。履歴用・timestamp別fileを増やさない。
+- 実行ごとに同じdiff.mdの今回比較したserviceの結果を更新し、対象外serviceの結果は保持する。比較不能となった範囲の旧結果は最新と扱わず未確認と明記する。今回IMPORTとして除外したresourceの旧差分・名称確認は最新結果から除去し、比較対象外の理由は冒頭の比較範囲へまとめる。今回許容された環境差異と確認した旧差分は掲載・件数から除去する。再比較で差分・命名規則不一致・未確認・比較不能事項がなくなったserviceは、旧見出しと本文を削除する。全serviceに掲載事項がなければfileの冒頭情報だけを残し、空の`## サービス別の差異`や`差分なし`の説明は書かない。履歴用・timestamp別fileを増やさない。
 - 保存後は`python3 -B framework/scripts/blueprint-loop.py --mode local`を実行する。選択した組の差分要約、未確認事項、diff.mdの保存先、検証結果を報告して終了する。設計・model・IaC修正、AWS API、deploy/applyへ進まない。
