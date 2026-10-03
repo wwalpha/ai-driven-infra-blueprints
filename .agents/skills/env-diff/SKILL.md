@@ -57,7 +57,7 @@ python3 -B framework/scripts/compare-environments.py
 | stg↔prod | cde | `issues/prod/cde/diff.md` |
 | stg↔prod | non-cde | `issues/prod/non-cde/diff.md` |
 
-- 比較元を正として比較先の差分を保存する。`issues.md`へ転記せず、既存issuesを変更しない。diff.mdの項目を未解決issueとして数えず、差分の存在をtask停止理由にしない。既存issues.mdに対する通常のissue gateは維持し、issue保存限定taskの停止判定免除を使わない。
+- 比較元を正として比較先の差分を保存する。`issues.md`へ転記せず、既存issuesを変更しない。diff.mdの項目を未解決issueとして数えず、差分の存在をtask停止理由にしない。desired比較とdiff.md保存は既存issues.mdによる停止判定の対象外とする。下記の保存限定migrationでは、未解決issueがあってもAI分類・保存・local validationを続け、Issue remediationは追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateを維持する。
 - 保存は`migration` taskとして行う。最初のrepository変更として`tasks/active.md`を今回のGoalへ切り替え、選択した比較対象の両側のenvironment/target/serviceだけをValidation scopeに列挙する。Allowed pathsはactive contractと選択した組の保存先diff.mdだけとし、各Required changesに一意なIDと対応する`exists:` Acceptance checkを付ける。framework変更や修復は混ぜない。
 - 冒頭に更新日時（Asia/Tokyo）、基準environment（正）・比較先・target、比較したserviceと未検証範囲を書く。`## 要約`と`## 差分`の両方に`### <service-id>`を置き、要約・全差分をサービス別に整理する。各差分にはresource、正式property／field、基準値、比較先の値（片側欠落は明記）、不足／追加／値の相違、区分、判断根拠を含める。命名確認だけの項目は規則不一致と明記する。長いJSON documentは省略せずcode block等で記載する。
 - 名称・参照差の詳細には両environmentの命名確認結果、適用pattern／例外の根拠、期待値または未確定component、実値と不一致箇所を追記する。分類の理由を「環境別名称・参照差」だけで済ませない。規則の該当箇所と両側modelへの相対根拠linkを付ける。

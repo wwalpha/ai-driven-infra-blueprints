@@ -52,6 +52,8 @@ def main():
         assert not issue_errors(root, scope)
         path.write_text("")
         assert not issue_errors(root, scope)
+        (path.parent / "diff.md").write_text("### ec2\n\n1. 環境間の差分\n")
+        assert not issue_errors(root, scope)  # Differences never enter the unresolved issue inventory.
         path.write_text(original)
 
         active = root / "tasks/active.md"
@@ -72,30 +74,36 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
-        investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
-            "\n## Allowed paths\n\n- `tasks/active.md`\n- `issues/dev/cde/issues.md`\n")
-        active.write_text(investigation)
-        instance = validator.Validator(root)
-        instance.task_type = "migration"
-        instance.changed_paths = {"tasks/active.md", "issues/dev/cde/issues.md"}
-        instance.check_issue_gate()
-        assert not instance.errors  # Inventory saving is investigation, not issue remediation.
-        path.write_text("### Unknown service\n\n1. 調査中\n")
-        instance.check_issue_gate()
-        assert not instance.errors  # Unknown ownership must not prevent recording the investigation.
-        path.write_text(original)
-        for task_type, allowed, changed in (
-            ("design", investigation, "issues/dev/cde/issues.md"),
-            ("infrastructure", investigation, "issues/dev/cde/issues.md"),
-            ("migration", investigation, "model/dev/cde/ec2.properties"),
-            ("migration", investigation + "- `infra/**`\n", "issues/dev/cde/issues.md"),
-            ("migration", investigation.replace("issues/dev/cde/issues.md", "issues/prod/cde/issues.md"), "issues/dev/cde/issues.md"),
-        ):
-            active.write_text(allowed)
+        for name in ("issues.md", "diff.md"):
+            report = f"issues/dev/cde/{name}"
+            investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
+                f"\n## Allowed paths\n\n- `tasks/active.md`\n- `{report}`\n")
+            active.write_text(investigation)
             instance = validator.Validator(root)
-            instance.task_type, instance.changed_paths = task_type, {changed}
+            instance.task_type = "migration"
+            instance.changed_paths = {"tasks/active.md", report}
             instance.check_issue_gate()
-            assert instance.errors, (task_type, allowed, changed)
+            assert not instance.errors  # Report saving does not require issue remediation.
+            path.write_text("### Unknown service\n\n1. 調査中\n")
+            instance.check_issue_gate()
+            assert not instance.errors  # Unknown ownership must not prevent recording the investigation.
+            path.write_text(original)
+            for task_type, allowed, changed in (
+                ("design", investigation, report),
+                ("infrastructure", investigation, report),
+                ("migration", investigation, "model/dev/cde/ec2.properties"),
+                ("migration", investigation + "- `infra/**`\n", report),
+                ("migration", investigation, "infra/dev/cde/ec2.yaml"),
+                ("migration", investigation, f"issues/prod/cde/{name}"),
+                ("migration", investigation.replace("## Validation scope", "## Missing scope"), report),
+                ("migration", investigation.replace("dev/cde/ec2", "all"), report),
+                ("migration", investigation.replace(report, f"issues/prod/cde/{name}"), report),
+            ):
+                active.write_text(allowed)
+                instance = validator.Validator(root)
+                instance.task_type, instance.changed_paths = task_type, {changed}
+                instance.check_issue_gate()
+                assert instance.errors, (task_type, allowed, changed)
         active.write_text(investigation)
         try:
             sync.sync(root, True, "dev", "cde", services=["ec2"])

@@ -1,28 +1,36 @@
-# 小規模修復の対象照合・生成・検証手順を明確化
+# env-diff保存を既存issueによる停止対象から除外
 
 ## Task contract
 - Task type: `governance`
-- Target: `framework/prompts/codex/03_implement.md`、`framework/prompts/codex/05_update.md`
-- Goal: 小規模修復で範囲と終了地点を先に確定し、既存IaCとの照合、必要な変更だけの契約、service指定の生成と重複しない検証を明記する。
+- Target: env-diff skill、issue gate validator、共通運用ルール
+- Goal: desiredの環境比較とdiff.md保存を既存issues.mdによる停止対象から除外し、通常task・model保存・AWS操作のgateを維持する。
 
 ## Validation scope
 - `framework`
 
 ## Required changes
-- [R1] implementで対象propertyを既存IaCと先に照合し、一致する箇所は確認対象として保持する。必要な変更だけを契約へ記載し、static validationとlocal loopを各一回にする。
-- [R2] updateの適用条件で手動model差分と明示issue修復を区別し、終了地点とtask boundaryを維持する。生成を対象serviceへ限定し、無関係な再読・追加検証を避ける。
+- [R1] 明示service scopeのissues.md／diff.mdとactive contractだけをAllowed paths・変更対象とするmigrationの停止判定を免除する。
+- [R2] env-diffと共通ルールに保存限定taskの免除条件を明記する。
+- [R3] diff保存・曖昧issueの免除と、scope外保存・通常task・model保存・AWS操作の拒否を既存回帰で確認する。
 
 ## Acceptance checks
-- [R1] `changed:framework/prompts/codex/03_implement.md`
-- [R2] `changed:framework/prompts/codex/05_update.md`
+- [R1] `changed:framework/scripts/validate-blueprint.py`
+- [R2] `changed:.agents/skills/env-diff/SKILL.md`
+- [R2] `changed:framework/rules/loop-engineering.md`
+- [R2] `changed:AGENTS.md`
+- [R3] `changed:framework/scripts/issue_gate.checks.py`
 
 ## Allowed paths
 - `tasks/active.md`
-- `framework/prompts/codex/03_implement.md`
-- `framework/prompts/codex/05_update.md`
+- `framework/scripts/validate-blueprint.py`
+- `framework/scripts/issue_gate.checks.py`
+- `.agents/skills/env-diff/SKILL.md`
+- `framework/rules/loop-engineering.md`
+- `AGENTS.md`
 
 ## Out of scope
-- framework実行コード・rules・skills・validator・issue gateの変更、consumer repositoryへの同期、model・設計・IaC・issues・project・catalog変更、AWS API、deploy/apply、commit、push、別task。
+- consumer repositoryへの同期、実環境のdiff.md作成、既存issue修復、model・設計・IaC・catalog・project変更、AWS API、deploy/apply、push、別task。
 
 ## Completion
-- python3 -B framework/scripts/blueprint-loop.py --mode fullを一回実行し、Requirement/Acceptance、framework regression、差分checkの結果を報告して終了する。
+- python3 -B framework/scripts/blueprint-loop.py --mode fullで検証する。
+- 今回の変更をcommitし、既存未commit変更を保持してmasterへmergeする。
