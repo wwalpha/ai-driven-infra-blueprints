@@ -645,10 +645,14 @@ def cfn_identity_checks(root):
         content += f'observed.row.{number}-001.value=vpc-{department}\n'
     path.write_text(content)
     ctx = Offline(root)
-    for index, resource in enumerate(ctx.model(path).resources):
-        department = ('ism', 'ced', 'sd')[index]
-        check(resource.resolve_json({'Ref': 'DepartmentVpc'}) == 'vpc-' + department, 'CFn JSON Ref respects originating stack instance')
-        rejects(lambda: resource.resolve_json({'Ref': 'Missing'}), m.Unresolved)
+    resources = ctx.model(path).resources
+    with patch.object(ctx, 'fetch', side_effect=lambda resource, getter: {'VpcId': 'vpc-' + ('ism', 'ced', 'sd')[int(resource.number) - 1]}):
+        for index, resource in enumerate(resources):
+            department = ('ism', 'ced', 'sd')[index]
+            check(resource.resolve_json({'Ref': 'DepartmentVpc'}) == 'vpc-' + department, 'CFn JSON Ref respects originating stack instance')
+            expect(m.Unresolved, lambda: resource.resolve_json({'Ref': 'Missing'}))
+        resources[1].spec['cfn-logicalId'] = resources[0].spec['cfn-logicalId']
+        expect(m.Unresolved, lambda: resources[0].resolve_json({'Ref': 'DepartmentVpc'}))
     ctx.finish()
 
 
