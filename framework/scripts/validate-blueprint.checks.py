@@ -8,6 +8,8 @@ if not __debug__:
 
 import importlib.util
 import json
+import re
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -533,6 +535,104 @@ def check_implementation_preflight_prompt() -> None:
     for required in ("blueprint-loop.py --mode task", "read-onlyの`sync-model.py`", "不一致ならFAIL", "check_design_tables",
                      "check_design_links", "check_stack_designs", "validationを省略・弱体化せず"):
         assert required in finish and required not in preflight, required
+
+
+def check_update_flow_prompt() -> None:
+    text = (SCRIPT.parents[2] / "framework/prompts/codex/05_update.md").read_text(encoding="utf-8")
+
+    def validate(prompt):
+        # Check instruction/engine boundaries and executable examples, not a full prose snapshot.
+        sections = dict(re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", prompt, re.M | re.S))
+
+        def engine(body, heading):
+            return body.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]
+
+        def commands(body):
+            return [[token.strip("[]") for token in shlex.split(line)] for line in re.findall(
+                r"(?:^|`)(python\s+framework/scripts/[^`\n]+)", body, re.M)]
+
+        reading = sections["Read before changing files"]
+        for token in ("authoritative model properties", "desired.row.*.document", "inputとして読まない",
+                      "--resource <resource-selector>", "parentReference", "path／file stem", "必要なpart"):
+            assert token in reading, token
+        instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
+        assert instructions and not any(re.search(
+            r"docs/designs/|cloudformation-stacks\.md|0[34]_(?:implement|deploy)\.md", line
+        ) for line in instructions), "generated artifacts/full prompts returned to the input list"
+        scope = sections["Resolve target and scope from repository state"]
+        assert "cloudformation-stacks.properties`だけ" in scope
+        assert "cloudformation-stacks.md" not in scope, "duplicate stack scope input"
+        for token in ("desired.stack.*.name", ".template", ".parameters", ".deployOrder",
+                      "desired.deployment.maxConcurrentStacks", "workspace", "backend", "variable input"):
+            assert token in scope, token
+        issue = commands(sections["Unresolved issue gate"])
+        assert len(issue) == 1 and issue[0][1].endswith("/issue_gate.py")
+        assert issue[0].count("--service") == 2, "repeatable services must share one process example"
+        assert "--task" in sections["Unresolved issue gate"]
+
+        deploy = sections["Preflight and deploy"]
+        dependency = engine(deploy, "CloudFormation read-only dependency check")
+        for token in ("--read-only", "describe-stacks", "list-exports", "ExportingStackId",
+                      "NOT_STARTED", "--pause-after-group", "通常のCloudFormation updateでは実行しない"):
+            assert token in dependency, token
+        cfn = engine(deploy, "CloudFormation controller")
+        cfn_commands = commands(cfn)
+        assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith("/cloudformation-deploy.py")
+        for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
+            assert option in cfn_commands[0], option
+        for token in ("最終preflight責任者", "account", "region", "issue gate", "immutable input",
+                      "cfn-lint", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
+            assert token in cfn, token
+        terraform = engine(deploy, "Terraform preflight and apply")
+        tf_commands = commands(terraform)
+        assert len(tf_commands) == 2 and all(c[1].endswith("/check-deploy-context.py") for c in tf_commands)
+        assert "--alias" in tf_commands[0] and "--aws-account-id" in tf_commands[1]
+        assert commands(deploy) == cfn_commands + tf_commands, "standalone normal CFn preflight was added"
+        for token in ("terraform fmt -check", "terraform validate", "terraform plan -out=",
+                      "terraform apply", "保存済みplan binary", "partial apply", "AWS_PROFILE"):
+            assert token in terraform, token
+
+        post = sections["Post-deployment model sync"]
+        cfn_post = engine(post, "CloudFormation")
+        assert not commands(cfn_post), "Agent must not run a second CFn observed/sync process"
+        for token in ("controller所有", "cloudformation_observed.py", "IDENTIFIER_OUTPUT",
+                      "PhysicalResourceId", "全参照元", "再実行しない", "AMBIGUOUS_OBSERVED_MAPPING"):
+            assert token in cfn_post, token
+        assert all("再実行しない" in line for line in cfn_post.splitlines() if "--write" in line)
+        tf_post = engine(post, "Terraform")
+        for token in ("Terraform output", "state", "non-sensitive", "IDENTIFIER_OUTPUT", "全参照元",
+                      "PENDING_DEPLOY", "sync-model.py --write"):
+            assert token in tf_post, token
+        approval = sections["Confirm unapproved delete/replacement"]
+        for token in ("未実行", "human確認待ち", "--approve-change-set", "CREATE_COMPLETE/AVAILABLE",
+                      "fingerprint", "一部だけの承認では実行しない", "以前の承認を流用しない"):
+            assert token in approval, token
+        finish = sections["Verify and finish"]
+        loop = commands(finish)
+        assert len(loop) == 1 and loop[0][1].endswith("/blueprint-loop.py")
+        assert loop[0][loop[0].index("--mode") + 1] == "task"
+        assert "--task-file" in loop[0] and "--all" not in loop[0]
+        for token in ("Validation scope", "Acceptance checks", "read-only", "不一致ならFAIL",
+                      "validation cache", "service parallelism", "framework全回帰を追加しない"):
+            assert token in finish, token
+
+    validate(text)
+    # Prohibitions alone must not hide contradictory executable/read instructions.
+    regressions = [
+        text.replace("6. Design scopeの正本", "6. 対象の`docs/designs/<environment>/<target-directory>/*.md`と関連JSON artifact\n7. Design scopeの正本", 1),
+        text.replace("cloudformation-stacks.properties`だけ", "cloudformation-stacks.properties`と`cloudformation-stacks.md`", 1),
+        text.replace("### CloudFormation controller\n", "### CloudFormation controller\n\npython framework/scripts/check-deploy-context.py --environment <environment> --alias <alias>\n", 1),
+        text.replace("### CloudFormation\n", "### CloudFormation\n\npython framework/scripts/sync-model.py --write --service <service-id>\n", 1),
+        text.replace("python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md", "最終validationを省略する", 1),
+    ]
+    for index, regression in enumerate(regressions, 1):
+        assert regression != text
+        try:
+            validate(regression)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"Update prompt regression {index} was accepted")
 
 
 def check_identifier_propagation() -> None:
@@ -1402,6 +1502,7 @@ def main() -> None:
     check_schema_backed_design_rows()
     check_description_design_constraints()
     check_implementation_preflight_prompt()
+    check_update_flow_prompt()
     check_identifier_propagation()
     check_name_tag_and_identifier_order_contract()
     check_cidr_pending_deploy()
@@ -1414,7 +1515,7 @@ def main() -> None:
     check_cloudformation_environment_parameters()
     check_cloudformation_stack_design()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (59 focused checks)")
+    print("validate-blueprint: PASS (60 focused checks)")
 
 
 if __name__ == "__main__":
