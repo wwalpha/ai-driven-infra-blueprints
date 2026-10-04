@@ -58,7 +58,7 @@ def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown_for(path, values, root), encoding="utf-8")
     projected = properties(SYNC.model_for(path, root))
-    expected = {key: value for key, value in values.items() if not key.startswith("display.")}
+    expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
 
@@ -871,13 +871,15 @@ def check_service_scoped_naming():
 
 def check_security_group_and_glue_catalog_naming():
     text = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
-    group_pattern = "{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg"
+    group_pattern = "{{application}}-{{environment}}-{{service}}-{{purpose}}[-{{number}}]-sg"
     assert f"| `EC2.SecurityGroup` | `GroupName` | `{group_pattern}` |" in text
     assert f"| `EC2.SecurityGroup` | Name tag | `{group_pattern}` |" in text
     assert "| `Glue.Catalog` | `Name` | `glct-{{application}}-{{environment}}-{{purpose}}` |" in text
     for kind, fields in (
-        ("EC2.SecurityGroup", [("GroupName", "dev-app-glue-data-01-sg")]),
-        ("EC2.SecurityGroup", [("Tags[].Key", "Name"), ("Tags[].Value", "dev-app-glue-data-01-sg")]),
+        ("EC2.SecurityGroup", [("GroupName", "app-dev-glue-data-sg")]),
+        ("EC2.SecurityGroup", [("GroupName", "app-dev-glue-data-01-sg")]),
+        ("EC2.SecurityGroup", [("Tags[].Key", "Name"), ("Tags[].Value", "app-dev-glue-data-sg")]),
+        ("EC2.SecurityGroup", [("Tags[].Key", "Name"), ("Tags[].Value", "app-dev-glue-data-01-sg")]),
         ("Glue.Catalog", [("Name", "glct-app-dev-data")]),
     ):
         for prefix in ("", kind + "."):
@@ -885,7 +887,7 @@ def check_security_group_and_glue_catalog_naming():
                     for number, (field, value) in enumerate(fields, 1)]
             assert not naming_errors(ROOT, kind, rows), kind
     assert not naming_errors(ROOT, "EC2.SecurityGroup", [])
-    print("Security Group and Glue Catalog naming: PASS (exact patterns, formal/short properties, optional Name tag)")
+    print("Security Group and Glue Catalog naming: PASS (exact patterns, optional number, formal/short properties, optional Name tag)")
 
 
 def check_security_naming():
@@ -1004,6 +1006,7 @@ def check_stack_mapping_roundtrip():
             ("VpcId", "[001](#ec2-vpc-app-dev-data)", "ネットワークのID"),
             ("CidrBlock", "`10.0.0.0/16`", "ネットワークの範囲")])
         del values["desired.resource.001.logicalId"]
+        values["desired.resource.001.resourceMode"] = "CREATE"
         values.update({"observed.row.001-002.property": "EC2.VPC.VpcId",
                        "observed.row.001-002.value": "`PENDING_DEPLOY`",
                        "observed.row.001-002.comment": "ネットワークのID"})
@@ -1012,7 +1015,7 @@ def check_stack_mapping_roundtrip():
         assert "cfn-logical-id:" not in rendered
         assert "desired.resource.001.logicalId" not in SYNC.model_for(path, root)
         project = root / "project.json"
-        project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}))
+        project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}) + "\n")
         roundtrip(path, values, root)
         values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-ism-DepartmentVpc"
         try:
@@ -1025,7 +1028,7 @@ def check_stack_mapping_roundtrip():
         stack_source = root / "model/dev/123456789012/cloudformation-stacks.properties"
         stack_source.parent.mkdir(parents=True)
         stack_source.write_text("\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
-                                          for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()))
+                                          for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()) + "\n")
         without_id = {key: value for key, value in values.items() if not key.endswith(".cfn-logicalId")}
         try:
             markdown_for(path, without_id, root)
@@ -1035,7 +1038,10 @@ def check_stack_mapping_roundtrip():
             raise AssertionError("new CloudFormation model has no stack/resource ID")
         rendered = roundtrip(path, values, root)
         assert cfn_resource_identity(values["desired.resource.001.cfn-logicalId"]) == ("cfn-stack-app-dev-ism", "DepartmentVpc")
-        assert "cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc" in rendered
+        assert "cfn-logical-id:" not in rendered
+        assert "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->" in rendered
+        assert "<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->" in rendered
+        SYNC.validate_views(root, root, [path], {path: values})
         for invalid in ("", "invalid", "stack-resource", "stack-Bad_Id", "stack-Resource-With-Hyphens", " stack-Resource", "stack-Resource "):
             try:
                 cfn_resource_identity(invalid)
@@ -1044,8 +1050,8 @@ def check_stack_mapping_roundtrip():
             else:
                 # Hyphens are valid inside StackName; only its final segment is the resource ID.
                 assert invalid == "stack-Resource-With-Hyphens"
-        for candidate in (rendered.replace("ism-DepartmentVpc -->", "ism-OtherVpc -->"),
-                          rendered.replace("<!-- resource-entry: ec2-vpc-app-dev-data 001 -->", "")):
+        for candidate in (rendered.replace("<!-- resource-entry: ec2-vpc-app-dev-data 001 -->", ""),
+                          rendered.replace("ec2-vpc-app-dev-data 001 -->", "ec2-vpc-app-dev-data 002 -->")):
             path.write_text(candidate)
             try:
                 SYNC.validate_views(root, root, [path], {path: values})
@@ -1053,12 +1059,42 @@ def check_stack_mapping_roundtrip():
                 assert "projection mismatch" in str(error), error
             else:
                 raise AssertionError("identity metadata change silently accepted")
+        path.write_text(rendered)
         try:
-            resource_identity_metadata(rendered.splitlines() + ["<!-- cfn-logical-id: absent stack-Resource -->"])
-        except ValueError:
-            pass
+            SYNC.imported_model(path, root)
+        except ValueError as error:
+            assert "cfn-logicalId unavailable in Markdown" in str(error), error
         else:
-            raise AssertionError("orphan CFn marker accepted")
+            raise AssertionError("CFn identity lost during Markdown import")
+        legacy = rendered + "<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
+        path.write_text(legacy)
+        assert not any(key.endswith(".cfn-logicalId") for key in properties(SYNC.model_for(path, root)))
+        assert properties(SYNC.imported_model(path, root)) == values
+        for marker in ("<!-- cfn-logical-id: absent stack-Resource -->",
+                       "<!-- cfn-logical-id: ec2-vpc-app-dev-data invalid -->",
+                       "<!-- cfn-logical-id: ec2-vpc-app-dev-data stack-Resource -->"):
+            try:
+                resource_identity_metadata(legacy.splitlines() + [marker], import_cfn_ids=True)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid/duplicate/orphan legacy CFn marker accepted")
+        source = stack_source.with_name("ec2.properties")
+        source.write_text(text(values), encoding="utf-8")
+        before = {file: file.read_bytes() for file in (source, stack_source)}
+        assert SYNC.sync(root, True, "dev", "123456789012", services=["ec2"]) == 0
+        assert path.read_text(encoding="utf-8") == rendered
+        assert SYNC.sync(root, False, "dev", "123456789012", services=["ec2"]) == 0
+        assert {file: file.read_bytes() for file in before} == before
+        assert properties(source.read_text())["desired.resource.001.cfn-logicalId"] == values["desired.resource.001.cfn-logicalId"]
+        for invalid, message in (("invalid", "invalid cfn-logicalId"),
+                                 ("absent-DepartmentVpc", "undeclared stack")):
+            try:
+                markdown_for(path, values | {"desired.resource.001.cfn-logicalId": invalid}, root)
+            except ValueError as error:
+                assert message in str(error), error
+            else:
+                raise AssertionError("invalid authoritative CFn identity accepted")
         # Independent numbering survives grouped display order; Key and Alias each have a CFn ID.
         kms_path = path.with_name("kms.md")
         anchor = "kms-app-dev-data"
@@ -1073,6 +1109,8 @@ def check_stack_mapping_roundtrip():
                     "desired.row.021-001.property": "KMS.Alias.AliasName", "desired.row.021-001.value": "`alias/app-dev-data`", "desired.row.021-001.comment": "keyを識別するalias"})
         grouped = roundtrip(kms_path, kms, root)
         assert "<!-- resource-entry: kms-alias-app-dev-data 021 -->" in grouped
+        assert "cfn-logical-id:" not in grouped
+        SYNC.validate_views(root, root, [kms_path], {kms_path: kms})
         # Stack identity is owned by each resource; a separate mapping table is rejected.
         stacks = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "shared.yaml",
                   "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10"}
@@ -1082,7 +1120,7 @@ def check_stack_mapping_roundtrip():
             assert "unknown stack design" in str(error)
         else:
             raise AssertionError("obsolete stack mapping accepted")
-    print("Resource identity checks: PASS (CFn stack/resource metadata, Terraform without logicalId, lossless projection, obsolete table rejection)")
+    print("Resource identity checks: PASS (comment-free CFn projection, unchanged models, explicit legacy import, missing identity rejection, grouped entry numbers, model validation)")
 
 
 def check_subnet_list_display():

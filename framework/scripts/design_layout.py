@@ -343,12 +343,14 @@ def stack_delivery(path: Path) -> dict[str, str]:
     return result
 
 
-def resource_identity_metadata(lines):
-    """Preserve engine-specific IDs and entry numbers separately from display headings."""
+def resource_identity_metadata(lines, *, import_cfn_ids=False):
+    """Read entry numbers; read legacy CFn comments only for explicit migration."""
     anchors = set(ANCHOR.findall("\n".join(lines)))
     result = {"resource-entry": {}, "cfn-logical-id": {}}
     for line in lines:
         for name, metadata in result.items():
+            if name == "cfn-logical-id" and not import_cfn_ids:
+                continue
             if not line.startswith("<!-- " + name + ":"):
                 continue
             match = re.fullmatch(r"<!-- " + name + r": (\S+) (\S+) -->", line)

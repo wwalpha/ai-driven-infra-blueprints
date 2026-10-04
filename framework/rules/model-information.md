@@ -75,7 +75,9 @@ stack一覧は引き続き`cloudformation-stacks.properties`を正本とする�
 
 新形式の内部resource identityはservice＋3桁entry番号とanchorで扱い、engine共通の`logicalId`は要求しない。Terraformには`cfn-logicalId`を保存しない。CFn用fieldはCREATEかつ正式CFn型に限り、登録済みStackNameを参照する。新形式のidentifier self-referenceと同service親参照は`[<entry番号>](#<anchor>)`を使用する。参照先の特定はanchorで行う。display label、正式名称、JSON artifactの既存pathを変更しない。
 
-生成Markdownは新形式の番号をservice metadataに続く`<!-- resource-entry: <anchor> <番号> -->`、CFn IDを`<!-- cfn-logical-id: <anchor> <StackName>-<Resources key> -->`へ保持する。再解析で番号とCFn IDを復元し、generic logicalIdを追加しない。grouped childにも同じ規約を適用する。markerの欠落・変更・重複・未定義anchorは生成物照合で拒否する。
+生成Markdownは新形式の番号だけをservice metadataに続く`<!-- resource-entry: <anchor> <番号> -->`へ保持する。CFn IDコメントは出力せず、CFn identityはmodelの`desired.resource.<番号>.cfn-logicalId`だけを正本とする。通常のMarkdown再解析ではCFn IDを復元・比較せず、コメントの欠落をmodel不一致として扱わない。再解析で番号を復元し、generic logicalIdを追加しない。grouped childにも同じ規約を適用する。resource-entry markerの欠落・変更・重複・未定義anchorは生成物照合で拒否する。CFn IDの形式、CREATE／正式CFn型、stack登録、template Resources keyへの対応検証はmodelを入力として維持する。
+
+明示migrationの`--import-markdown`だけは旧`cfn-logical-id`コメントを検証して取り込める。既存modelは上書きしない。コメントのない新形式のCloudFormation CREATE resourceは必要なCFn identityをMarkdownから取得できないためimportを拒否し、modelを保持する。resource名や表示labelからidentityを推測・補完しない。Terraform、IMPORT、API-only resource、旧logicalIdの読み取り互換性は既存規約に従う。
 
 旧`desired.resource.*.logicalId`と非表示logical ID markerは既存modelの読み取り互換性だけに維持する。CFn IDのない旧modelは、正式型と旧ID／機械的PascalCase変換がtarget内で一意な場合に限り従来照合できる。CFn IDを持つresourceはこの従来検索から除外し、不正・欠落した直接対応を名前で補わない。同じstackに直接IDがあれば全有効resourceに直接IDを必須とする。
 

@@ -24,8 +24,8 @@
 | Amazon VPC | Customer gateway | `EC2.CustomerGateway` | Name tag | `cgw-{{dc_location}}-{{number}}` |
 | Amazon VPC | Site-to-Site VPN connection | `EC2.VPNConnection` | Name tag | `s2s-{{dc_location}}-{{number}}` |
 | Amazon EC2 | Instance | `EC2.Instance` | Name tag | `{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |
-| Amazon EC2 | Security group | `EC2.SecurityGroup` | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
-| Amazon EC2 | Security group | `EC2.SecurityGroup` | Name tag | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
+| Amazon EC2 | Security group | `EC2.SecurityGroup` | `GroupName` | `{{application}}-{{environment}}-{{service}}-{{purpose}}[-{{number}}]-sg` |
+| Amazon EC2 | Security group | `EC2.SecurityGroup` | Name tag | `{{application}}-{{environment}}-{{service}}-{{purpose}}[-{{number}}]-sg` |
 | Amazon EC2 | Launch template | `EC2.LaunchTemplate` | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 
 ## Service-specific constraints
@@ -33,3 +33,4 @@
 - Amazon EC2 InstanceのName tagはapplication・environment・purposeの順とする。`number`はoptionalとし、単体では省略する。同じapplication・environment・purposeの複数台を区別する場合だけ、`-01`からの2桁連番を使用できる。例：単体は`venusinf-stg-vulnerability-scan`、複数台で番号を使用する場合は`venusinf-stg-vulnerability-scan-01`、`venusinf-stg-vulnerability-scan-02`。
 - VPC Block Public Access Optionsは名称propertyを持たないため命名patternを要求しない。Exclusionの`Name` tagはhumanが選択した場合だけ`vbpe` patternを適用し、必須化しない。
 - Amazon EC2 security groupの`GroupName`は`sg-`で開始できないため、このruleでは`-sg` suffixを使う。
+- Security groupの`GroupName`とhuman-selectedなName tagはapplication・environment・service・purposeの順とし、`number`は任意とする。例：番号なしは`app-dev-glue-data-sg`、番号ありは`app-dev-glue-data-01-sg`。

@@ -16,7 +16,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from design_catalog import design_material_files
+from design_catalog import DesignSchemaCatalog, design_material_files
 from validation_scope import active_scope, reference_lines, scoped_files
 from task_contract import task_path, require_writable
 from issue_gate import require_no_issues
@@ -94,7 +94,7 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
     return matches[0]
 
 
-def model_for(path: Path, root: Path | None = None) -> str:
+def model_for(path: Path, root: Path | None = None, *, import_cfn_ids: bool = False) -> str:
     """Read-only projection for verification and explicit migration; never save it by default."""
     if path.name == STACK_DESIGN:
         from design_layout import stack_delivery
@@ -114,7 +114,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
     lines = path.read_text(encoding="utf-8").splitlines()
     modes = resource_modes(lines)
     from design_layout import resource_identity_metadata
-    resource_numbers, cfn_ids = resource_identity_metadata(lines)
+    resource_numbers, cfn_ids = resource_identity_metadata(lines, import_cfn_ids=import_cfn_ids)
     lines = [line for line in lines if not line.startswith(("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))]
     identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
@@ -244,7 +244,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
 
 def imported_model(path: Path, root: Path) -> str:
     """Preserve display inputs when explicitly migrating an existing design."""
-    model = model_for(path, root)
+    model = model_for(path, root, import_cfn_ids=True)
     source = path.read_text(encoding="utf-8").splitlines()
     output = []
     if path.name == STACK_DESIGN:
@@ -266,6 +266,14 @@ def imported_model(path: Path, root: Path) -> str:
         _, children = expanded_design(without_policy_tables(source))
         headings.update({anchor: child["displayName"] for anchor, child in children.items() if "displayName" in child})
         for identity, resource in entries(values, "desired.resource."):
+            if design_target(path, root).get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE" and \
+                    f"desired.resource.{identity}.logicalId" not in values and "cfn-logicalId" not in resource:
+                try:
+                    DesignSchemaCatalog(root).cloudformation_type(resource["resourceType"])
+                except ValueError:
+                    pass  # API-only resources do not have a CFn identity.
+                else:
+                    raise ValueError(f"{identity}: cfn-logicalId unavailable in Markdown; preserve the authoritative model instead of importing")
             rows = resource_display_rows(values, identity, resource, root)
             label = headings.get(resource["anchor"])
             configured_name = resource_display_name(resource["resourceType"], rows, label, resource_mode(resource))
@@ -562,7 +570,8 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     for path in paths:
         actual = properties(model_for(path, root))
         source = sources[root / path.relative_to(stage)]
-        formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256"))}
+        # CFn identity is model-only and has no Markdown projection.
+        formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
         if path.name == STACK_DESIGN:
             from model_design import stack_model, deployment_settings

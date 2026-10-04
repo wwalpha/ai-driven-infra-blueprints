@@ -668,8 +668,6 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                for _, resource in resources if "resourceMode" in resource]
     output += [f'<!-- resource-entry: {resource["anchor"]} {identity} -->'
                for identity, resource in resources if f"desired.resource.{identity}.logicalId" not in values]
-    output += [f'<!-- cfn-logical-id: {resource["anchor"]} {resource["cfn-logicalId"]} -->'
-               for _, resource in resources if "cfn-logicalId" in resource]
     output += ["", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
         items = [item for item in independent if item[1]["resourceType"] == kind]

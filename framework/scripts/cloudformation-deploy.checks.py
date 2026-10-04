@@ -1128,6 +1128,7 @@ def check_shared_stack_mapping():
         stack_source = source.with_name("cloudformation-stacks.properties")
         save(stack_source, stack_values)
         view.write_text(markdown_for(view, values, root), encoding="utf-8")
+        assert "cfn-logical-id:" not in view.read_text(encoding="utf-8")
         stack_view = view.with_name("cloudformation-stacks.md")
         stack_view.write_text(markdown_for(stack_view, stack_values, root), encoding="utf-8")
         task = root / "tasks/active.md"
