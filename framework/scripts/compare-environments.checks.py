@@ -10,7 +10,12 @@ import json
 import subprocess
 import sys
 import tempfile
+from collections import Counter
+from contextlib import redirect_stdout
+from copy import deepcopy
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from model_files import model_file_contents
 
@@ -369,7 +374,132 @@ observed.row.001-001.value=ignored-{env}
         assert not pairs[0]["environment_differences"]
 
 
+def invocation_cache_checks():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        (root / "project.json").write_text(json.dumps({"targets": [
+            {"environment": env, "alias": target}
+            for env in ("dev", "stg", "prod") for target in ("cde", "non-cde")]}), encoding="utf-8")
+        for env, number, retention in (("dev", "001", "30"), ("stg", "007", "90"), ("prod", "009", "60")):
+            for target in ("cde", "non-cde"):
+                path = root / "model" / env / target / "logs.properties"
+                document = json.dumps({"Role": f"[{env} role](iam.md#iam-{env})"})
+                body = model(number, retention, document).replace("FlowLogs", f"{env}Flow")
+                body += f"desired.row.{number}-005.property=Logs.LogGroup.Role\n"
+                body += f"desired.row.{number}-005.value=[{env} role](iam.md#iam-{env})\n"
+                body += f"desired.resource.{number}.parentReference=[{env} role](iam.md#iam-{env})\n"
+                digest = hashlib.sha256(json.dumps(json.loads(document), ensure_ascii=False,
+                                                   sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                body += f"desired.row.{number}-002.artifactSha256={digest}\n"
+                for extra, logical_id, mode in (("020", "External", "IMPORT"), ("030", f"Unknown{env}", "CREATE")):
+                    body += model(extra).replace("desired.service.logs.serviceId=logs\n", "").replace(
+                        "FlowLogs", logical_id).replace("logs-flow", f"logs-{logical_id.lower()}")
+                    body += f"desired.resource.{extra}.resourceMode={mode}\n"
+                save(path, "# padding\n" * 600 + body if env == "stg" else body)
+                save(path.with_name("iam.properties"), f"""desired.service.iam.serviceId=iam
+desired.resource.001.resourceType=IAM.Role
+desired.resource.001.logicalId=Role
+desired.resource.001.anchor=iam-{env}
+desired.row.001-001.property=IAM.Role.RoleName
+desired.row.001-001.value={env}-role
+""")
+
+        maps = []
+        for left, right, target in compare.PAIRS:
+            mapping = root / f"{left}-{right}-{target}.json"
+            content = {"left": left, "right": right, "target": target, "resources": [
+                {"service": "logs", "resourceType": "Logs.LogGroup", "left": f"{left}Flow",
+                 "right": f"{right}Flow", "reason": "fixture confirms log purpose"}]}
+            mapping.write_text(json.dumps(content), encoding="utf-8")
+            raw = compare.compare_pair(root, left, right, target, [], mapping)
+            retention = next(item for item in raw["differences"] if "Logs.LogGroup.RetentionInDays" in item["identity"])
+            content["environment_differences"] = [{"service": retention["service"], "identity": retention["identity"],
+                "left": retention["left"]["value"], "right": retention["right"]["value"],
+                "reason": "fixture confirms retention difference"}]
+            mapping.write_text(json.dumps(content), encoding="utf-8")
+            maps.append(mapping)
+
+        def series(shared):
+            cache = {}
+            return [compare.compare_pair(root, *pair, [], mapping, field_cache=cache if shared else {})
+                    for pair, mapping in zip(compare.PAIRS, maps)]
+
+        fresh = series(False)
+        assert all(item["status"] == "unconfirmed" and item["differences"] and item["environment_differences"]
+                   and item["resource_matches"] and item["unconfirmed"] and item["excluded"] for item in fresh)
+        counts = Counter()
+        originals = {}
+        parsed = {}
+        desired_fields = compare.desired_fields
+
+        def counted(path, repository):
+            counts[path] += 1
+            fields = desired_fields(path, repository)
+            originals[path] = deepcopy(fields)  # Test-only snapshot of nested cached inputs.
+            parsed[path] = fields
+            return fields
+
+        with patch.object(compare, "desired_fields", side_effect=counted):
+            shared = series(True)
+        assert shared == fresh  # Includes every result field and all list ordering.
+        assert json.dumps(shared, ensure_ascii=False) == json.dumps(fresh, ensure_ascii=False)
+        assert parsed == originals  # Mapping, references, IMPORT and approvals leave inputs untouched.
+        expected_paths = set((root / "model").glob("*/*/*.properties"))
+        assert counts == Counter({path: 1 for path in expected_paths})
+        counts.clear()
+        with patch.object(compare, "desired_fields", side_effect=counted):
+            assert series(False) == fresh
+        assert counts == Counter({path: 2 if path.parts[-3] == "stg" else 1 for path in expected_paths})
+
+        # Exercise main's actual ownership, stdout schema/order, status and exit code.
+        counts.clear()
+        uncached = [compare.compare_pair(root, *pair, []) for pair in compare.PAIRS]
+
+        def invocation(*selectors):
+            output = StringIO()
+            with patch.object(sys, "argv", [str(SCRIPT), "--repository-root", str(root), *selectors]), redirect_stdout(output):
+                code = compare.main()
+            return code, json.loads(output.getvalue())
+
+        with patch.object(compare, "desired_fields", side_effect=counted):
+            code, report = invocation()
+        assert counts == Counter({path: 1 for path in expected_paths})
+        assert report == {"namespace": "desired", "comparisons": uncached}
+        assert code == int(any(item["status"] != "complete" for item in uncached)) == 1
+        assert cli(root) == (code, uncached)
+
+        # Failed parses are retried; downstream digest validation still runs on cache hits.
+        source = root / "model/stg/cde/logs.properties"
+        part = source.with_suffix("") / "part-002.properties"
+        original = part.read_text(encoding="utf-8")
+        for invalid, message in (
+            (original + "malformed-line\n", "invalid or duplicate model property"),
+            (original + "desired.service.logs.serviceId=logs\n", "invalid or duplicate model property"),
+            (original.replace(".artifactSha256=", ".artifactSha256=stale-"), "artifactSha256 differs"),
+        ):
+            part.write_text(invalid, encoding="utf-8")
+            expected = series(False)
+            assert series(True) == expected
+            assert all(item["status"] == "incomplete" and any(message in error["message"] for error in item["errors"])
+                       for item in expected[:2])
+            code, report = invocation()
+            assert code == 1 and report["comparisons"] == [compare.compare_pair(root, *pair, []) for pair in compare.PAIRS]
+        part.write_text(original, encoding="utf-8")
+
+        # A second main call and standalone calls see rewritten inputs in the same module.
+        before = compare.compare_pair(root, "dev", "stg", "cde", [])
+        part.write_text(original.replace(".value=90", ".value=120"), encoding="utf-8")
+        after = compare.compare_pair(root, "dev", "stg", "cde", [])
+        assert after != before
+        assert invocation()[1]["comparisons"][0] == after
+        counts.clear()
+        with patch.object(compare, "desired_fields", side_effect=counted):
+            invocation("--pair", "dev-stg", "--target", "cde", "--service", "iam")
+        assert counts == Counter({root / "model" / env / "cde/iam.properties": 1 for env in ("dev", "stg")})
+
+
 def main():
+    invocation_cache_checks()
     environment_difference_checks()
     import_mode_checks()
     logical_id_checks()
@@ -466,7 +596,7 @@ def main():
         assert cli(root)[1][3]["status"] == "incomplete"
         (root / "project.json").unlink()
         assert all(item["status"] == "incomplete" for item in cli(root)[1])
-    print("Environment desired comparison checks: PASS (confirmed environment exclusions/counts, stale/invalid confirmations, IMPORT exclusions, CREATE defaults/references, logical ID mapping, unconfirmed resources, actual settings, invalid maps/modes, four pairs, scope, desired-only, indexed models, evidence, read-only)")
+    print("Environment desired comparison checks: PASS (invocation cache equivalence/counts/isolation/immutability/errors/lifetime, confirmed environment exclusions/counts, stale/invalid confirmations, IMPORT exclusions, CREATE defaults/references, logical ID mapping, unconfirmed resources, actual settings, invalid maps/modes, four pairs, scope, desired-only, indexed models, evidence, read-only)")
 
 
 if __name__ == "__main__":

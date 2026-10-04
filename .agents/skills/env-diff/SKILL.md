@@ -31,6 +31,7 @@ python3 -B framework/scripts/compare-environments.py
 ```
 
 - serviceを限定する場合は選択引数に`--service vpc --service iam`等を追加する。引数なしのprogramは全4組を比較するため、限定依頼では選択引数を省略しない。
+- 選択した複数比較が1 commandで処理可能な場合は、理由なくpairごとの別processへ分割しない。同一CLI実行内で共通modelのparse結果を再利用するため、全4組を明示依頼された場合は上記の引数なしcommandを1回実行する。限定依頼では既存selectorを維持し、performanceを理由に未選択のpair／target／serviceを追加しない。
 - stdoutは選択した組それぞれの`status`、比較済み`services`、`differences`、`difference_count`、`environment_differences`、`errors`、`resource_matches`、`unconfirmed`、`excluded`を含むJSON。`difference_count`はPythonが検知した`differences`の件数で、確認済み環境差異の除外後の値とする。必要ならrepository外の一時fileへ保存し、組を個別に読む。差分があっても比較が完了すれば終了コード0、入力欠落・読込失敗・古い除外指定は`incomplete`、resource対応未確定は`unconfirmed`として終了コード1となる。生のfield・値・file・行番号は比較JSONで確認し、diff.mdへの全件転記は行わない。`difference_count=0`でも`incomplete`、`unconfirmed`、空の比較済みserviceを「問題なし」と扱わない。IMPORT除外だけで比較対象が0件の場合は、冒頭の比較範囲に`IMPORTのため比較対象外`と記載し、IMPORTの設定が一致したとは扱わない。
 - Logical ID自体は環境間の仕様差分に含めない。`logicalId`と表示名から派生する`anchor`は対応確認の根拠として保持するが、それらの文字列差だけを不足／追加／値の相違にしない。既存CloudFormation stack更新でのLogical ID変更の影響は、このdesired環境比較とは別に扱う。
 - 初回は`resourceType`＋同じ`logicalId`を対応候補として比較する。Logical IDが異なるresourceは自動で不足／追加にせず`unconfirmed`へ出す。同型だけ、resource件数、番号、並び順、設定値が似ていることだけでは対応を確定しない。正式名称・用途・親子関係・参照先とhuman指示／現行設計の根拠から同じ役割を確認する。同じLogical IDの対応も役割が違えば見直す。

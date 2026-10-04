@@ -216,7 +216,11 @@ def exclude_environment_differences(result: dict, approvals: list[dict], service
                              if (item["service"], tuple(item["identity"])) not in confirmed]
 
 
-def compare_pair(root: Path, left: str, right: str, target: str, services: list[str], resource_map: Path | None = None) -> dict:
+def compare_pair(root: Path, left: str, right: str, target: str, services: list[str], resource_map: Path | None = None,
+                 *, field_cache: dict[Path, dict] | None = None) -> dict:
+    # The caller owns the invocation lifetime; standalone calls start fresh.
+    if field_cache is None:
+        field_cache = {}
     result = {"left": left, "right": right, "target": target,
               "status": "complete", "services": [], "differences": [], "errors": [],
               "resource_matches": [], "unconfirmed": [], "excluded": [],
@@ -261,7 +265,15 @@ def compare_pair(root: Path, left: str, right: str, target: str, services: list[
             try:
                 if not any(service in model for model in models):
                     raise ValueError(f"service missing on both sides: {service}")
-                sides = [desired_fields(model[service], root) if service in model else {} for model in models]
+                sides = []
+                for model in models:
+                    if service not in model:
+                        sides.append({})
+                        continue
+                    path = model[service]
+                    if path not in field_cache:
+                        field_cache[path] = desired_fields(path, root)
+                    sides.append(field_cache[path])
                 translations, matches, unconfirmed, exclusions = align_resources(
                     sides, mappings, service, any(service not in model for model in models))
                 prepared[service] = (sides, translations, matches, unconfirmed, exclusions)
@@ -332,7 +344,9 @@ def main() -> int:
     pairs = [(left, right, target) for left, right, target in PAIRS
              if (args.pair is None or args.pair == f"{left}-{right}")
              and (args.target is None or args.target == target)]
-    results = [compare_pair(args.repository_root.resolve(), *pair, args.service, args.resource_map) for pair in pairs]
+    field_cache = {}
+    results = [compare_pair(args.repository_root.resolve(), *pair, args.service, args.resource_map,
+                            field_cache=field_cache) for pair in pairs]
     print(json.dumps({"namespace": "desired", "comparisons": results}, ensure_ascii=False, indent=2))
     return int(any(result["status"] != "complete" for result in results))
 
