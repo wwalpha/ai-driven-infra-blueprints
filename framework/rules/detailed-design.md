@@ -1,6 +1,6 @@
 # Detailed Design Rules
 
-- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresourceの明示的account ID設定・名称componentは`awsAccountId`を維持する。APIの暗黙のaccount context／owner検証は実行account、設計で明示されたaccount property／cross-account参照は承認済みの値を使用する。詳細は`AGENTS.md`のProject configurationに従う。
+- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresource作成時の明示的account ID設定・名称componentは`awsAccountId`を維持する。同じtargetに作成するresourceの所有account・source accountを照合するpolicyの値（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）とAPIの暗黙のaccount context／owner検証は実行accountを使用する。設計で明示されたaccount property／cross-account参照は承認済みの値を使用し、policy内のaccountを一括置換しない。詳細は`AGENTS.md`のProject configurationに従う。
 
 対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
 
@@ -22,6 +22,13 @@ catalog propertiesを項目の正本、model propertiesを設計値の正本と�
 IMPORTは許可されたread-only取得で選択済みAWS actual/current configurationを取得し、propertiesと詳細設計へ保持する。framework naming conventionに不一致でも名称・値をそのまま保存し、AWS resourceを変更せず、IaC生成対象にしない。CloudFormation Resource Import／Terraform importとは別概念で、provenanceは保存しない。
 
 以下のmandatory Name policyと命名patternの適用はCREATEだけとする。IMPORTでName tagがない場合はrowを省略し、blockerにせずtagや仮値を作らない。既存の名称があればそれを表示し、Name tagで命名するVPC／Subnet／RouteTable／Flow Log／VPCEndpoint／Instanceで名称がない場合は、human-confirmedなdisplay label、または同型単一resourceの型名表示を使う。表示labelをAWS propertyへ転記しない。内部logical ID・anchor・row順・schema・参照検証は維持する。
+
+## Policy account selection
+
+- resource作成時の明示的なaccount ID設定・名称componentとtarget識別には`awsAccountId`を使用する。同じtargetに作成するresourceの所有account・source accountをpolicyで照合する場合は、`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。resourceの実際の所属accountはAWS実行先で決まる。
+- VPC Flow Logsの信頼policyでは、`aws:SourceAccount`と`aws:SourceArn`内のaccount部分の両方を実行accountにする。例えば実行accountが`222222222222`、regionが`ap-northeast-1`なら、それぞれ`222222222222`と`arn:aws:ec2:ap-northeast-1:222222222222:vpc-flow-log/*`になる。これらはFlow Logの所有accountとARNを照合する（[AWS公式仕様](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-iam-role.html)）。
+- 信頼policy／権限policyのCondition、`Resource` ARN、`Principal`にあるaccountは参照先の実際の所有account・source accountに合わせる。humanが明示したcross-account参照はそのaccountを維持し、policy内の数字やARNを一括置換しない。参照先が未確定なら値を推測せず停止する。
+- design taskで確定したpolicyは正本modelのdocumentへ保存し、JSON／Markdownを生成する。infrastructure taskで承認済みmodelと実行accountの不整合を検出した場合は、modelを暗黙に修正せず対象policyと不足する設計修正を報告して停止する。
 
 ## Existing resource configuration
 

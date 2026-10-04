@@ -27,7 +27,9 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 設定時はpreflightとCloudFormation controllerが自動使用し、直接のAWS CLIにも`--profile`を付けます（[AWS CLIのnamed profile](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)）。SDKにはprofileを明示し、Terraformは対象processの`AWS_PROFILE`へ渡します（[AWS providerの認証設定](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#authentication-and-configuration)）。profile未設定時は従来の明示profile／default credential chainを維持します。設定済みprofileと異なる明示profileは実行前に停止します。account／regionの確認も引き続き行います。
 
-`awsAccountId`はresourceの明示的なaccount ID設定・名前とtargetの識別に使います。`awsExecutionAccountId`はAWS操作の認証account照合に使うASCII数字12桁の文字列です。省略時は`awsAccountId`で照合し、設定と異なるcaller accountでは停止します。設定だけで認証は切り替わりません。上の例では、選択したprofileのcaller accountが`210987654321`である必要があります。
+`awsAccountId`はresource作成時の明示的なaccount ID設定・名前とtargetの識別に使います。同じtargetに作成するresourceを認可するpolicyの所有account・source accountには`awsExecutionAccountId`を使います。`awsExecutionAccountId`はAWS操作の認証account照合にも使うASCII数字12桁の文字列です。省略時は`awsAccountId`を使い、設定と異なるcaller accountでは停止します。設定だけで認証は切り替わりません。上の例では、選択したprofileのcaller accountが`210987654321`である必要があります。
+
+例えば、このtargetのVPC Flow Logsの信頼policyでは、`aws:SourceAccount`は`210987654321`、`aws:SourceArn`は`arn:aws:ec2:ap-northeast-1:210987654321:vpc-flow-log/*`です。両条件は実際のFlow Logの所有accountを照合します（[AWS公式のFlow Logs信頼policy仕様](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-iam-role.html)）。権限policyの`Resource` ARNや`Principal`も参照先の実際の所有accountに合わせ、明示したcross-account参照はそのaccountを維持します。
 
 CFnの`AWS::AccountId`は実際のstack作成accountです（[AWS公式の擬似parameter仕様](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/pseudo-parameter-reference.html)）。両IDが異なる場合、名前などへ`awsAccountId`を含める実装は独立した明示parameterを使います。AWS APIの暗黙の所有者検証は実行accountを使い、設計に明示したaccount propertyやcross-account参照は維持します。
 

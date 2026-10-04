@@ -4,6 +4,8 @@
 
 このpromptは、承認済みの詳細設計の正本であるauthoritative model propertiesを`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
 
+resource作成時の名称・明示ID設定にはtargetの`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source accountには`awsExecutionAccountId`（未設定時は`awsAccountId`）を使用する。VPC Flow Logsの信頼policyでは`aws:SourceAccount`と`aws:SourceArn`内のaccount部分の両方が該当する。明示したcross-account参照を維持し、承認済みmodelのpolicyに不整合があればmodelを暗黙に修正せず停止する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
+
 ## Unresolved issue gate
 
 対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。

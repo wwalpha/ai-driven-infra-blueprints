@@ -4,7 +4,7 @@
 
 このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformを変更せずにdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。IaC修正とapplication behavior検証は行わない。
 
-AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resourceの明示的account ID値は設計どおりとし、CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。
+AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resource作成時の名称・明示ID設定には`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source account（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）には実行accountを使用し、明示したcross-account参照は維持する。承認済みmodelのpolicyがこの区別と不整合なら、infrastructure／scenario taskで暗黙に修正せず停止する。CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
 
 ## Unresolved issue gate
 

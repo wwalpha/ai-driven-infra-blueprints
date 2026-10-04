@@ -14,7 +14,7 @@
 
 契約のRequired changesとAllowed pathsは必要な変更だけに絞り、既存IaCの確認対象と区別する。以下の通常updateの適用条件を満たさない依頼に、その契約・AWS許可を流用しない。明示issue修復は対象serviceの生成、依頼された対象IaCの静的検証、local loopを各一回実行して指定の終了地点で終える。task type固有checkとissue gateは省略しない。
 
-AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resourceの明示的account ID値は設計どおりとし、CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。
+AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resource作成時の名称・明示ID設定には`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source account（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）には実行accountを使用し、明示したcross-account参照は維持する。承認済みmodelのpolicyがこの区別と不整合なら、infrastructure／scenario taskで暗黙に修正せず停止する。CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
 
 ## Unresolved issue gate
 
