@@ -32,6 +32,16 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 - 実行失敗や比較不能は未確認として記録し、解消や「問題なし」と扱わない。
 - 未deployのgenerated IDが`PENDING_DEPLOY`でも、設計の参照先が解決できれば参照欠落として扱わない。確認できていない事項は未確認と記載する。
 
+## 命名規則の確認
+
+ローカル調査を行う場合は、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/detailed-design.md`を読む。local loopの命名診断だけではpatternへの適合確認を完了扱いにしない。調査済み結果の保存だけを依頼された場合は再調査を自動追加せず、命名確認の未実施範囲を明記する。
+
+- 対象serviceの正本propertiesを入口indexとpartを合わせて読み、`desired.*`の選択済み名称property、必須`.Name`、必須またはhuman-selectedな`Name` tagを確認する。診断に出た名称だけへ限定せず、独立した子resourceも自身のresourceModeで判定する。observed値や生成Markdownの表示labelを名称の正本にしない。
+- CREATE（mode未指定を含む）はresource typeと正式propertyを命名ルールのNaming targetへ対応付け、coverage、pattern、service固有制約、必須Nameの有無を確認する。`environment`、`target_alias`、`account_id`、`region`は`project.json`の対象targetへ、application・purpose等はhuman-confirmedなcomponentへ照合する。名称の文字列から未知componentを推測して適合扱いにしない。
+- IMPORTにはframework命名convention・coverage・mandatory Name policyを適用しない。propertyごとの適用除外とhumanが明示した命名例外は、根拠と適用scopeを確認して尊重する。coverageだけの除外をpatternや値検証の除外へ拡張せず、env-diffだけの例外をissuesへ自動適用しない。AWS生成ID・ARN・DNS名・IP・表示labelへ名称patternを適用しない。provider schema、catalog、参照、確定値の検証は維持する。
+- 適用対象の不一致、命名ルール未登録、必須Nameの欠落は対象resource・property・実値と該当ruleを根拠に問題へ記録する。componentや例外の根拠不足、読込・検証失敗は不足する確認を具体的に示して`未確認`とし、`問題なし`や解消扱いにしない。
+- 参照値は同じenvironment・targetのdesired参照先を解決し、名称propertyと区別する。参照先serviceが調査対象なら命名不一致は参照先serviceへまとめる。対象外serviceは参照解決に必要な情報だけを確認し、命名調査へ自動拡大しない。名称の補正、rename、tag追加、model変更は行わない。
+
 ## 出力
 
 - H2を`環境／alias`、H3をservice名とし、その下に番号付きlistを置く。aliasがない場合のH2は`環境／AWS account ID`とする。
