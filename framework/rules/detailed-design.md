@@ -49,6 +49,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 
 ## AWS resource naming
 
+- 設計開始前に`aws-resource-naming.md`のNaming rule coverage checkを実行する。対象resource type／modeを確定した直後、設計質問やdesign契約登録より前に`check-design-naming.py`を対象全件で通す。名称値やmodelの存在を条件にせず、未登録・読込失敗・未実行なら設計を開始・継続しない。再開・対象変更・optional Name tag選択・保存前にも再確認し、不足type／propertyを示して停止する。
 - `CodeBuild.Project.Name`はprovider schemaのoptional指定にかかわらず詳細設計で必須とする。resourceごとに確定済みnon-empty literalを1 rowだけ保持し、欠落・空値・未確定値・重複を拒否する。Name tag、内部logical ID、表示labelで代替せず、未確定なら値を推測せず停止する。設計検証とmodel生成の共通名称検証で判定する。
 - human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用する。
 - root-levelの`Tags`または`HostedZoneTags`があっても`Name` tagを自動的に必須化しない。mandatory対象は`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`、`EC2.VPCEndpoint`／`EC2.Instance`とする。前4種類は詳細設計でそれぞれ`.Name`の1 rowで表す。

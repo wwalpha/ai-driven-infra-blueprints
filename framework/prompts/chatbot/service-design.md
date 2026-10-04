@@ -88,6 +88,20 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 
 既存詳細設計に記載済みの決定は再質問しないでください。system overview、既存設計、user 回答が矛盾する場合は推測せず、矛盾を説明してください。
 
+## Naming rule preflight（設計開始gate）
+
+対象catalog resource typeとCREATE／IMPORTを確定した直後、名称・parameter・policyなどの設計質問より前に、対象resource全件について次のread-only checkを実行してください。名称値やmodelは不要です。
+
+```text
+python3 framework/scripts/check-design-naming.py --resource-type <Catalog.ResourceType> --mode <CREATE|IMPORT>
+```
+
+CREATEはcatalogの名称propertyと必須Nameを確認します。human-selectedなoptional Name tagがあるresourceだけ`--name-tag`を追加してください。IMPORT、共通ルールで明示的に除外したproperty、名称を持たない型は従来の適用範囲を維持し、taggableだけでName tagを質問・追加しないでください。
+
+未登録rule、空pattern、rule fileの読込失敗、未知resource type、preflightの未実行・失敗では設計を開始・継続しないでください。不足するresource type／propertyと原因を示して停止し、通常の設計質問・名称候補の提案・完成設計の出力・保存依頼へ進まないでください。patternを推測せず、同じdesign taskで命名ルールを追加しないでください。checkを実行できない場合も通過扱いにしないでください。
+
+gate前に行える質問は対象resource type、CREATE／IMPORT、optional Name tagの選択に必要な確認だけです。再開時、対象type／modeの追加・変更時、optional Name tagの選択時にも再実行し、対象全件の通過後に設計質問へ進んでください。完成設計・Codex反映依頼の出力前にも再確認してください。
+
 ## Determine what to ask
 
 内部的に次を整理し、user が判断する必要のある内容だけを質問してください。
@@ -290,7 +304,7 @@ chat-only設計中は`tasks/<task-name>.md`を変更せず、完了済みの前t
 
 `Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全model propertiesのpathと完成内容、生成先Markdown／JSON artifactのpathを含め、Codexへ次の手順を明示してください。
 
-1. `AGENTS.md`、`README.md`、存在する場合は`tasks/<task-name>.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。
+1. `AGENTS.md`、`README.md`、存在する場合は`tasks/<task-name>.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。design契約登録前に`check-design-naming.py`を対象resource全件について明示したtype／modeとhuman-selectedなoptional Name tagの指定で実行する。未登録・読込失敗・未実行・失敗なら契約登録やmodel更新へ進まず、不足type／propertyを示して停止する。この事前checkの対象と実行指示をCodex反映依頼から省略しない。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
 3. 最初のrepository changeとして`tasks/<task-name>.md`を今回の契約へ新規登録する。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。`## Validation scope`へ保存対象ごとの``- `<environment>/<target-directory>/<service-id>` ``を列挙する（aliasがあるtarget directoryはalias）。生成scopeの指定不足は停止する。task loopのvalidationも同じscopeへ限定し、全serviceへ広げない。Required changes、対応するAcceptance checks、正本の`model/**`、生成対象の`docs/designs/**`、`tasks/<task-name>.md`だけをAllowed pathsへ記載する。
 4. 作成対象の選択済み名称property／必須.Name／必須またはhuman-selectedなName tagに対応する命名ルールがあることを確認する。名称を持たないSecurity Hub CSPM（SecurityHub.Hub）などは対象外とする。rule欠落はtype／propertyを明示して停止し、patternを推測しない。指定された全model propertiesを先に保存する。model更新が失敗したらMarkdown／JSONを変更せず停止する。

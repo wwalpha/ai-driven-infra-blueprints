@@ -19,7 +19,7 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 - 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と`framework/rules/loop-engineering.md`を読み、最初のrepository変更として`tasks/<task-name>.md`を今回の対象・Goalで新規登録する。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/<task-name>.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
 - この保存限定taskは既存issueによる停止判定の対象外となる。未解決issueがあっても調査と一覧の更新を続け、Issue remediationによる修復例外は追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateが適用される。
 - `docs/designs/<environment>/<target-directory>/`と同じ環境・target directory構成で保存する。複数targetは別ファイルに分け、必要なdirectoryだけ作成する。
-- 既存ファイルがあれば読んでから今回の範囲を再確認し、その範囲の問題を最新の調査結果へ置き換える。解消を確認した問題は除去し、新規・継続する問題を記載する。未確認の問題は未確認と記載し、解消扱いにしない。今回対象外のservice・問題は保持する。
+- 既存ファイルがあれば読んでから今回の範囲を再確認し、その範囲の問題を最新の調査結果へ置き換える。解消を確認した問題は除去し、新規・継続する問題を記載する。具体的な不整合・不足を検出済みで解消が未確認の問題は、未確認と記載して保持する。未検証範囲だけを新しいissueとして登録しない。今回対象外のservice・問題は保持する。
 - ファイル冒頭に更新日時（Asia/Tokyo）と今回確認した範囲を記載する。未検証範囲があれば冒頭に明記する。対象targetの問題がなくなった場合もファイルを残し、`未解決issueなし`と確認範囲を記載する。履歴用・timestamp別ファイルは増やさない。
 - 保存後は`python3 framework/scripts/blueprint-loop.py --mode local`を実行し、チャットには保存したファイルへのリンクと検証結果を報告する。検証失敗時も調査結果を保存したまま失敗を報告し、対象外の修正や別taskへ進まない。
 
@@ -29,8 +29,14 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 - serviceは対象設計のservice metadataで確認し、環境・aliasの異なる問題を同じblockへ混ぜない。
 - 参照不整合は同じ環境・targetの現行`docs/designs/**`と対応する`model/**`のresource、名称、anchorを照合する。移動前のfileや別環境だけを見てresource不在と断定しない。
 - 対象が不明なら質問し、別environment・target・serviceへ自動拡大しない。
-- 実行失敗や比較不能は未確認として記録し、解消や「問題なし」と扱わない。
-- 未deployのgenerated IDが`PENDING_DEPLOY`でも、設計の参照先が解決できれば参照欠落として扱わない。確認できていない事項は未確認と記載する。
+- 実行不能や比較不能は、check・対象・具体的errorを未検証範囲として記録し、AWS resourceの問題へ推測で置き換えない。実行済みcheckが検出した具体的なvalidation errorはissueとして記録し、未実行のcheckを成功扱いにしない。
+- 未deployのgenerated IDが`PENDING_DEPLOY`でも、設計の参照先が解決できれば参照欠落として扱わない。今回確認できていない事項は未検証範囲へ記載する。
+
+## issue登録の判定
+
+- 番号付きissueは、対象resource・propertyに対する具体的な不整合、適用ルール違反、必須設計値の不足、または指定checkの再現可能な失敗を根拠付きで確認した場合だけ登録する。今回AWS APIや動作を調べていないこと、任意の実装注記、account/regionの文字列差だけを問題の根拠にしない。未検証範囲は冒頭の通常文章にまとめ、service配下の番号付きissueと分ける。
+- humanが対象・構成・動作を確認済みと明示した事項は、確認範囲と根拠がhuman確認であることを冒頭に保持する。反証となる具体的な診断がなければ未確認として再掲しない。human確認を今回のAWS API実行や未実行checkの成功に置き換えず、無関係な既存issueは除去しない。
+- ARNは`framework/rules/observed-values.md`と`model-information.md`に従い、generated current ARNと既存またはhuman-provided design inputを区別する。文字列が実ARNであることやdesired注記に含まれることだけでgenerated ARNと断定しない。禁止対象への該当根拠が不足する場合は確認範囲の限界として記載し、規則違反issueを作らない。generated ARNの保存禁止は維持する。
 
 ## 命名規則の確認
 

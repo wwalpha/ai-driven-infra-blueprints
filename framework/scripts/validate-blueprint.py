@@ -587,6 +587,14 @@ class Validator:
         self.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
         self.check("blueprint-loop.py --mode task" in prompt, "service design prompt lacks local validation")
         self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
+        gate = "## Naming rule preflight（設計開始gate）"
+        self.check(gate in prompt and "## Determine what to ask" in prompt
+                   and prompt.index(gate) < prompt.index("## Determine what to ask"),
+                   "service design prompt lacks naming preflight before design questions")
+        self.check("check-design-naming.py --resource-type" in prompt,
+                   "service design prompt lacks executable naming preflight")
+        self.check("design契約登録前に`check-design-naming.py`" in prompt,
+                   "service design handoff lacks naming preflight before task registration")
         required_existing_resource_contract = {
             "--read-only": "service design prompt lacks read-only AWS context preflight",
             "aws cloudcontrol list-resources": "service design prompt lacks generic existing-resource discovery",

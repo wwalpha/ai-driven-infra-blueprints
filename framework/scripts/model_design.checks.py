@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from model_design import naming_rule_files, naming_targets, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
 from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
-from model_design import row_table
+from model_design import row_table, design_naming_errors
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
@@ -869,6 +869,59 @@ def check_service_scoped_naming():
     print("Service-scoped naming: PASS (selected service only, missing file rejected, legacy fixture)")
 
 
+def check_design_naming_preflight():
+    for kind in ("S3.Bucket", "EC2.Instance", "EC2.VPCEndpoint", "EC2.VPC", "IAM.Role",
+                 "SecurityHub.Hub", "SecretsManager.Secret", "Macie.ClassificationJob", "SSM.Association"):
+        assert not design_naming_errors(ROOT, kind), kind
+    assert design_naming_errors(ROOT, "CloudFront.CachePolicy") == ["naming rule missing: CloudFront.CachePolicy: CachePolicyConfig.Name"]
+    assert not design_naming_errors(ROOT, "CloudFront.CachePolicy", "IMPORT")
+    assert design_naming_errors(ROOT, "SecretsManager.Secret", name_tag=True) == ["naming rule missing: SecretsManager.Secret: Name tag"]
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        rules = root / "framework/rules"
+        rules.mkdir(parents=True)
+        materials = root / "framework/materials/aws"
+        materials.mkdir(parents=True)
+        for kind, fields in {
+            "S3.Bucket": ["BucketName", "Arn"],
+            "EC2.Instance": ["InstanceId", "Tags[].Key", "Tags[].Value"],
+            "CloudFront.CachePolicy": ["CachePolicyConfig.Name"],
+            "SecretsManager.Secret": ["Name", "Tags[].Key", "Tags[].Value"],
+            "SecurityHub.Hub": ["EnableDefaultStandards", "Tags"],
+        }.items():
+            (materials / (kind.replace(".", "_", 1) + ".properties")).write_text(
+                "".join(f"{kind}.{field}=" + ("IDENTIFIER_OUTPUT" if field in {"Arn", "InstanceId"} else "") + "\n" for field in fields),
+                encoding="utf-8")
+        entrance = rules / "aws-resource-naming.md"
+        entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `{{purpose}}` |\n", encoding="utf-8")
+
+        def run(kind, expected, *extra):
+            snapshot = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            result = subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/check-design-naming.py"),
+                                     "--root", str(root), "--resource-type", kind, *extra],
+                                    capture_output=True, text=True, encoding="utf-8")
+            assert result.returncode == (1 if expected else 0), result.stderr
+            assert expected in result.stderr if expected else "preflight: PASS" in result.stdout
+            assert snapshot == {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+        run("S3.Bucket", "")  # No model, target or design value exists yet.
+        run("EC2.Instance", "naming rule missing: EC2.Instance: Name tag")
+        run("CloudFront.CachePolicy", "naming rule missing: CloudFront.CachePolicy: CachePolicyConfig.Name")
+        run("SecretsManager.Secret", "")
+        run("SecretsManager.Secret", "naming rule missing: SecretsManager.Secret: Name tag", "--name-tag")
+        run("SecurityHub.Hub", "")
+        run("EC2.Instance", "", "--mode", "IMPORT")
+        run("Unknown.Type", "catalog resource type missing: Unknown.Type")
+        entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `` |\n", encoding="utf-8")
+        run("S3.Bucket", "naming rule missing: S3.Bucket: BucketName")
+        entrance.write_text("| `S3` | [S3](aws-resource-naming/S3.md) |\n", encoding="utf-8")
+        run("S3.Bucket", "S3.md")
+        entrance.unlink()
+        run("S3.Bucket", "aws-resource-naming.md")
+    print("Design naming preflight: PASS (before values/model, missing/empty/unreadable rules, nested names, mandatory/optional tags, exemptions, read-only CLI)")
+
+
 def check_security_group_and_glue_catalog_naming():
     text = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     group_pattern = "{{application}}-{{environment}}-{{service}}-{{purpose}}[-{{number}}]-sg"
@@ -1368,6 +1421,7 @@ def main():
     check_stack_mapping_roundtrip()
     check_security_naming()
     check_service_scoped_naming()
+    check_design_naming_preflight()
     check_security_group_and_glue_catalog_naming()
     check_naming_exclusions()
     check_codebuild_required_name()

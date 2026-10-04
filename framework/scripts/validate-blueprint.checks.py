@@ -1185,6 +1185,19 @@ def check_design_handoff_prompt() -> None:
     assert "AWS::<Service>::<Resource>" in prompt
     assert "VPC固有" not in prompt
     assert "Management owner" not in prompt
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "framework/prompts/chatbot/service-design.md"
+        path.parent.mkdir(parents=True)
+        for original, replacement, expected in (
+            ("## Naming rule preflight（設計開始gate）", "## Removed gate", "before design questions"),
+            ("check-design-naming.py --resource-type", "removed-preflight", "executable naming preflight"),
+            ("design契約登録前に`check-design-naming.py`", "removed-handoff", "before task registration"),
+        ):
+            path.write_text(prompt.replace(original, replacement), encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_framework_design_handoff()
+            assert any(expected in error for error in validator.errors), validator.errors
 
 
 def check_subnet_association_overview() -> None:

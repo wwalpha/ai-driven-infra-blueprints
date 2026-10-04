@@ -19,7 +19,7 @@ from design_layout import (
     glue_argument_rows,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
-from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents
+from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents, selected_properties
 from validation_cache import input_scope, memo_table, memoized
 
 
@@ -218,10 +218,43 @@ def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[st
             if not line.startswith("|"):
                 continue
             cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if len(cells) == 5 and cells[2].startswith("`") and cells[4].startswith("`"):
+            if len(cells) == 5 and cells[2].startswith("`") and re.fullmatch(r"`[^`]+`", cells[4]):
                 for kind in re.findall(r"`([^`]+)`", cells[2]):
                     targets.setdefault(kind, set()).add(cells[3].strip("`"))
     return targets
+
+
+def naming_coverage_errors(root: Path, kind: str, selected: set[str], name_tag: bool = False,
+                           mode: str = "CREATE") -> list[str]:
+    """Check rule existence without requiring any design values."""
+    if mode not in {"CREATE", "IMPORT"}:
+        raise ValueError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
+    if mode == "IMPORT":
+        return []
+    targets = naming_targets(root, kind.partition(".")[0])
+    expected = selected & set(resource_name_fields(kind))
+    expected.update(selected & targets.get(kind, set()))
+    if name_tag:
+        expected.add("Name tag")
+    return [f"naming rule missing: {kind}: {field}" for field in sorted(expected)
+            if kind + "." + field not in NAMING_EXEMPT_PROPERTIES
+            and field not in targets.get(kind, set()) and kind + "." + field not in targets.get(kind, set())
+            and field.rsplit(".", 1)[-1] not in targets.get(kind, set())]
+
+
+def design_naming_errors(root: Path, kind: str, mode: str = "CREATE", name_tag: bool = False) -> list[str]:
+    """Preflight a selected resource type before asking for design values."""
+    selected = set(selected_properties(root, kind))
+    if not selected:
+        raise ValueError(f"catalog resource type missing: {kind}")
+    selected -= {field.removeprefix(kind + ".") for field in catalog_outputs(root, kind)}
+    if name_tag and not selected.intersection({"Tags", "Tags[].Key", "HostedZoneTags", "HostedZoneTags[].Key"}):
+        raise ValueError(f"Name tag is not selectable: {kind}")
+    if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
+        selected.add("Name")
+    if kind in {"EC2.VPCEndpoint", "EC2.Instance"}:
+        name_tag = True
+    return naming_coverage_errors(root, kind, selected, name_tag, mode)
 
 
 def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CREATE") -> list[str]:
@@ -235,19 +268,10 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
             return [f"{kind}.{field} must be confirmed and non-empty"]
     if mode == "IMPORT":
         return []  # Confirmed actual names above and provider/schema checks remain mandatory.
-    targets = naming_targets(root, kind.partition(".")[0])
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}
-    expected = selected & set(resource_name_fields(kind))
-    # Registered nested names (e.g. BackupPlan) are also naming targets.
-    expected.update(selected & targets.get(kind, set()))
     tag_rows = [row for row in rows if row[1].removeprefix(kind + ".").startswith(("Tags", "HostedZoneTags"))]
-    if resource_display_name(kind, tag_rows) is not None:
-        expected.add("Name tag")
-    return [f"naming rule missing: {kind}: {field}" for field in sorted(expected)
-            if kind + "." + field not in NAMING_EXEMPT_PROPERTIES
-            and field not in targets.get(kind, set()) and kind + "." + field not in targets.get(kind, set())
-            and field.rsplit(".", 1)[-1] not in targets.get(kind, set())]
+    return naming_coverage_errors(root, kind, selected, resource_display_name(kind, tag_rows) is not None, mode)
 
 
 @memoized

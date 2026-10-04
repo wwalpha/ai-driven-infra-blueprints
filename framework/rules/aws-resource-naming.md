@@ -25,6 +25,9 @@
 
 ## Naming rule coverage check
 
+- 設計開始前の必須gateとする。対象catalog resource typeとCREATE／IMPORTを確定した直後、名称・parameter・policyなどの設計質問へ進む前に、`python3 framework/scripts/check-design-naming.py --resource-type <Catalog.ResourceType> --mode <CREATE|IMPORT>`を対象resourceごとに実行する。CREATEはcatalogの名称propertyと必須Nameを値未確定でも検査し、human-selectedなoptional Name tagがある場合だけ`--name-tag`を追加する。IMPORT、Scopeの明示除外、名称を持たない型は従来の適用範囲を維持する。
+- 未登録rule、空pattern、rule fileの読込失敗、未知resource type、preflightの未実行・失敗では設計を開始・継続しない。不足するresource type／propertyと原因を示して停止し、名称候補・代替patternを推測せず、modelやMarkdown／JSONを保存しない。命名ルールの追加を同じdesign taskで行わない。
+- 再開時、resource type／modeの追加・変更時、optional Name tagの選択時、design契約の登録前と保存前にも再実行する。対象・管理区分・optional Name tagの選択に必要な確認だけはgate前に行える。対象全件が通過するまで通常の設計質問へ進まない。
 - Scopeで対象外としたpropertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、対象service fileのcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
 - 名称propertyを選択していないresourceと、名称を持たない型（例：`SecurityHub.Hub` / Security Hub CSPM）は対象外とする。表示用label、内部logical ID、AWS生成identifierに命名patternを要求しない。taggableだけでName tagを追加しない。
 - 既存resourceの確定済み名称は変更しない。このcheckはruleの有無を確認し、patternへの自動renameはしない。
