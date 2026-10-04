@@ -33,7 +33,12 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 5. `framework/rules/loop-engineering.md`
 6. 対象の`tests/scenarios/<scenario-id>/`
 7. 対象の`tests/results/<scenario-id>/<environment>/<target-directory>/`
-8. 必要な`docs/designs/**`と`model/**`をread-only inputとして読む
+8. `framework/rules/model-information.md`
+9. 必要な`model/<environment>/<target-directory>/<service-id>.properties`を正本のread-only design inputとして読む
+
+設計値は`desired.*`、必要なcurrent identifierは`observed.*`から取得する。入口indexを確認し、既存の`model_files.py --find`で必要なproperty／identifierの位置を特定し、`model_files.py --resource`で対象resourceと必要な参照先resourceだけを部分読み取りする。分割modelは必要なpartの該当箇所だけをLLM contextへ読み込み、生成済み`docs/designs/**`のMarkdown本文を通常のdesign inputとして事前読込しない。
+
+Markdown／JSON artifactの生成と正本propertiesとの整合性検証は既存script／local loopで維持する。LLMの事前読込を省くことを理由に、Validation scopeや検証項目を縮小しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。result metadataのAWS accountにはdirectory名ではなく`project.json`の実際のAWS account IDを記録する。
 
