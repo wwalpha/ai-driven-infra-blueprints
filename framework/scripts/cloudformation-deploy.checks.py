@@ -1218,19 +1218,17 @@ def check_shared_stack_mapping():
         repo_templates[scoped[0]["name"]] = (repo_doc, {"Enabled": "yes"})
         # Extend fixture scope solely for this explicitly mapped resource.
         task.write_text(task.read_text().replace("## Allowed paths", "- `dev/123456789012/codecommit`\n## Allowed paths"))
-        rejects(lambda: mappings(root, "dev", "123456789012", repo_templates, scoped), "identifier row missing")
         try:
             mappings(root, "dev", "123456789012", repo_templates, scoped)
         except ValueError as error:
             assert "required GetAtt Output missing" in str(error)
-        repo_values.update({"desired.row.001-001.property": "CodeCommit.Repository.RepositoryId", "desired.row.001-001.value": "[department-repo](#codecommit-department-repo)", "desired.row.001-001.comment": "リポジトリ識別子"})
-        save(repo, repo_values)
-        repo_doc["Outputs"]["RepositoryId"] = {"Value": {"Ref": "Repository"}}
+            assert "CodeCommit.Repository.RepositoryId" not in str(error)
         repo_doc["Outputs"]["AllocationId"] = {"Value": {"Fn::GetAtt": "Eip.AllocationId"}, "Condition": "Disabled"}
         repo_doc["Outputs"]["PublicIp"] = {"Value": {"Fn::GetAtt": ["Eip", "PublicIp"]}}
         rejects(lambda: mappings(root, "dev", "123456789012", repo_templates, scoped), "required GetAtt Output missing")
         repo_doc["Outputs"]["AllocationId"].pop("Condition")
-        assert mappings(root, "dev", "123456789012", repo_templates, scoped)[1][scoped[0]["name"]]["Repository"][0] == repo
+        repo_mapping = mappings(root, "dev", "123456789012", repo_templates, scoped)[1][scoped[0]["name"]]["Repository"]
+        assert repo_mapping[0] == repo and not repo_mapping[4]
         # A removal is checked before execution even though the new Condition is false.
         save(stack_source, stack_values)
         save(source, actual)
@@ -1257,6 +1255,105 @@ def check_shared_stack_mapping():
     print("Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)")
 
 
+def check_integrated_child_mapping():
+    from cloudformation_observed import mappings, sync_successful
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        model = root / "model/dev/123456789012"
+        model.mkdir(parents=True)
+        task = root / "tasks/active.md"
+        task.parent.mkdir()
+        task_text = "## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+        task.write_text(task_text)
+        resources, documents = {}, {}
+        unit = {"name": "cfn-stack-app-dev-integrated"}
+        child_ids = []
+        # Reproduce all 17 reported failures with identity-free child rows and no RepositoryId.
+        for kind, parent_kind, parent_property, setting, count in (
+            ("S3.BucketPolicy", "S3.Bucket", "Bucket", "PolicyDocument", 11),
+            ("EC2.SubnetRouteTableAssociation", "EC2.Subnet", "SubnetId", "RouteTableId", 5),
+        ):
+            values = {}
+            for number in range(1, count + 1):
+                identity = f"{number:03d}"
+                logical = parent_kind.split(".")[1] + str(number)
+                child = "Child" + logical
+                anchor = "resource-" + logical.lower()
+                values.update({f"desired.resource.{identity}.resourceType": parent_kind,
+                               f"desired.resource.{identity}.cfn-logicalId": unit["name"] + "-" + logical,
+                               f"desired.resource.{identity}.anchor": anchor,
+                               f"desired.row.{identity}-001.property": parent_kind + (".BucketName" if parent_kind == "S3.Bucket" else ".SubnetId"),
+                               f"desired.row.{identity}-001.value": f"[{logical}](#{anchor})",
+                               f"desired.row.{identity}-001.comment": "親識別子",
+                               f"desired.row.{identity}-002.property": kind + "." + setting,
+                               f"desired.row.{identity}-002.value": "`設定値`",
+                               f"desired.row.{identity}-002.comment": "統合した子設定"})
+                # Child precedes parent; ownership must not depend on template order.
+                resources[child] = {"Type": "AWS::" + kind.replace(".", "::"),
+                                    "Properties": {parent_property: {"Ref": logical}}}
+                resources[logical] = {"Type": "AWS::" + parent_kind.replace(".", "::")}
+                child_ids.append(child)
+            path = model / ("s3.properties" if parent_kind == "S3.Bucket" else "ec2.properties")
+            path.write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
+            documents[path] = values
+        repo = model / "codecommit.properties"
+        repo.write_text(f"desired.resource.001.resourceType=CodeCommit.Repository\ndesired.resource.001.cfn-logicalId={unit['name']}-Repository\ndesired.resource.001.anchor=codecommit-repository\n")
+        resources["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
+        document = {"Conditions": {"Enabled": True, "Disabled": False}, "Resources": resources}
+        def mapping(doc=document):
+            return mappings(root, "dev", "123456789012", {unit["name"]: (doc, {})}, [unit], target=TARGET)
+        plan = mapping()
+        mapped = plan[1][unit["name"]]
+        assert len(mapped) == 33  # 16 parents plus the 17 originally failing resources.
+        for child in child_ids:
+            assert not mapped[child][4] and len(mapped[child][3]) == 1
+            parent = resources[child]["Properties"]
+            assert mapped[child][:2] == mapped[next(iter(parent.values()))["Ref"]][:2]
+        assert not mapped["Repository"][4]
+        def reject_change(logical, definition, message):
+            doc = M.copy.deepcopy(document)
+            doc["Resources"][logical] = definition
+            rejects(lambda: mapping(doc), message)
+        child = resources["ChildBucket1"]
+        reject_change("ChildBucket1", {**child, "Properties": {}}, "unambiguous local parent Ref")
+        reject_change("ChildBucket1", {**child, "Properties": {"Bucket": "unknown"}}, "unambiguous local parent Ref")
+        reject_change("ChildBucket1", {**child, "Properties": {"Bucket": {"Ref": "Subnet1"}}}, "formal CFn type mismatch")
+        reject_change("Bucket1", {**resources["Bucket1"], "Condition": "Disabled"}, "parent missing, inactive")
+        reject_change("DuplicateChild", child, "model resource also owned")
+        reject_change("ChildBucket1", {**child, "Condition": "Unknown"}, "unresolved or cyclic Condition")
+        conditional = {**child, "Properties": {"Bucket": {"Fn::If": ["Enabled", {"Ref": "Bucket1"}, "unknown"]}}}
+        assert mapping({**document, "Resources": resources | {"ChildBucket1": conditional}})[1][unit["name"]]["ChildBucket1"] == mapped["ChildBucket1"]
+        assert "ChildBucket1" not in mapping({**document, "Resources": resources | {"ChildBucket1": {**child, "Condition": "Disabled"}}})[1][unit["name"]]
+        source = model / "s3.properties"
+        original = source.read_text()
+        source.write_text(original + "desired.resource.001.resourceMode=IMPORT\n")
+        rejects(mapping, "requires CREATE")
+        source.write_text(original.replace("S3.BucketPolicy.PolicyDocument", "S3.Bucket.VersioningConfiguration.Status", 1))
+        rejects(mapping, "integrated child settings missing")
+        source.write_text(original.replace(unit["name"] + "-Bucket1\n", unit["name"] + "-Wrong\n", 1))
+        rejects(mapping, "legacy fallback forbidden")
+        source.write_text(original)
+        task.write_text("## Validation scope\n- `dev/123456789012/codecommit`\n")
+        rejects(mapping, "task scope violation")
+        task.write_text(task_text)
+        before = {path: path.read_bytes() for path in model.glob("*.properties")}
+        # Empty identifier sets must not collect child physical IDs or reset the parent's ID.
+        children = {key: mapped[key] for key in [*child_ids, "Repository"]}
+        backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET,
+                                  templates={unit["name"]: (document, {})}, mapping_plan=(plan[0], {unit["name"]: children}))
+        backend.aws = lambda operation, *args: ({"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe-stacks" else
+            {"StackResourceSummaries": [{"LogicalResourceId": key, "ResourceType": resources[key]["Type"], "PhysicalResourceId": "arn:aws:ignored"} for key in children]})
+        state = states([unit])
+        sync_successful(backend, [unit], state)
+        assert state[unit["name"]]["observedSynced"]
+        state[unit["name"]]["changes"] = [{"Action": "Remove", "LogicalResourceId": "ChildBucket1", "ResourceType": child["Type"], "PolicyAction": "Delete"}]
+        backend.aws = lambda operation, *args: {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe-stacks" else {"StackResourceSummaries": [{"LogicalResourceId": key, "ResourceType": resources[key]["Type"]} for key in children if key != "ChildBucket1"]}
+        sync_successful(backend, [unit], state)
+        assert before == {path: path.read_bytes() for path in before}
+    print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
+
+
 check_scheduler()
 check_aws_adapter()
 check_template_validation()
@@ -1266,4 +1363,5 @@ check_session_cli()
 check_parallel_and_restart()
 check_observed_collector()
 check_shared_stack_mapping()
+check_integrated_child_mapping()
 print("CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)")

@@ -10,7 +10,7 @@ from model_files import read_model, model_parts, model_file_contents, MAX_LINES
 from task_contract import require_writable, task_path, paths_in, matches
 from validation_scope import active_scope
 from issue_gate import require_target_no_issues
-from design_layout import CODEBUILD_FORMAL_VARIABLE
+from design_layout import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
 
 
 def ambiguous(detail):
@@ -91,11 +91,30 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     return primary, keys
 
 
+def mapped_resource(direct, legacy, name, logical, cfn_type, explicit):
+    candidates = direct.get((name, logical), [])
+    if candidates or explicit:
+        if len(candidates) != 1:
+            raise ValueError(f"cfn-logicalId matches={len(candidates)}; legacy fallback forbidden")
+    else:
+        candidates = legacy.get((cfn_type, logical), [])
+        if len(candidates) != 1:
+            raise ValueError(f"model resource matches={len(candidates)}; cfn-logicalId required")
+    entry = candidates[0]
+    if entry[2].get("resourceMode", "CREATE") != "CREATE":
+        raise ValueError("cfn-logicalId requires CREATE")
+    if entry[3] != cfn_type:
+        raise ValueError(f"formal CFn type mismatch: {cfn_type} != {entry[3]}")
+    return entry
+
+
 def mappings(root, environment, directory, templates, units, removed=None, target=None):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
     direct, legacy = resource_index(loaded, catalog)
+    integrated = {catalog.cloudformation_type(kind): (kind, rule) for kind, rule in GROUPED.items()
+                  if rule["identityProperty"] is None} if catalog else {}
     source = root / "model" / environment / directory / "cloudformation-stacks.properties"
     values = properties(read_model(source)) if source.is_file() else {}
     if values:
@@ -128,32 +147,36 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
             try:
                 if not deleting and not condition_active(document, parameters, pseudo, definition):
                     continue
-                candidates = direct.get((name, logical), [])
-                if candidates or explicit:
-                    if len(candidates) != 1:
-                        raise ValueError(f"cfn-logicalId matches={len(candidates)}; legacy fallback forbidden")
-                    entry = candidates[0]
-                    if entry[2].get("resourceMode", "CREATE") != "CREATE":
-                        raise ValueError("cfn-logicalId requires CREATE")
-                    if entry[3] != definition["Type"]:
-                        raise ValueError(f"formal CFn type mismatch: {definition['Type']} != {entry[3]}")
+                kind, rule = integrated.get(definition["Type"], (None, None))
+                if rule:
+                    reference = output_value(document, parameters, pseudo,
+                                             definition.get("Properties", {}).get(rule["parentProperty"]))
+                    if not isinstance(reference, dict) or set(reference) != {"Ref"} or not isinstance(reference["Ref"], str):
+                        raise ValueError("integrated child requires an unambiguous local parent Ref")
+                    parent_logical = reference["Ref"]
+                    parent = definitions.get(parent_logical, {})
+                    parent_type = catalog.cloudformation_type(rule["parent"])
+                    if parent.get("Type") != parent_type or (not deleting and not condition_active(document, parameters, pseudo, parent)):
+                        raise ValueError("integrated child parent missing, inactive or formal CFn type mismatch")
+                    entry = mapped_resource(direct, legacy, name, parent_logical, parent_type, explicit)
                 else:
-                    candidates = legacy.get((definition["Type"], logical), [])
-                    if len(candidates) != 1:
-                        raise ValueError(f"model resource matches={len(candidates)}; cfn-logicalId required")
-                    entry = candidates[0]
+                    entry = mapped_resource(direct, legacy, name, logical, definition["Type"], explicit)
                 path, identity, resource, _ = entry
                 service = tuple(path.relative_to(root / "model").with_suffix("").parts)
                 if scope is not None and service not in scope:
                     raise ValueError(f"task scope violation: stack resource outside Validation scope: {'/'.join(service)}")
-                owner = (path, identity)
+                owner = (path, identity, kind or resource["resourceType"])
                 if owner in owners:
                     previous = owners[owner]
                     errors.setdefault(previous[0], []).append(f"{previous[0]}/{previous[1]}: model resource also owned by {name}/{logical}")
                     raise ValueError(f"model resource also owned by {previous[0]}/{previous[1]}")
                 owners[owner] = (name, logical)
-                outputs = catalog_outputs(root, resource["resourceType"])
+                outputs = set() if rule else catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
                 rows = [(rid, row) for rid, row in entries(loaded[path], "desired.row.") if rid.startswith(identity + "-")]
+                if rule:
+                    rows = [(rid, row) for rid, row in rows if row["property"].startswith(kind + ".")]
+                    if not rows:
+                        raise ValueError(f"integrated child settings missing from parent model: {kind}")
                 for prop in outputs:
                     selected = [(rid, row) for rid, row in rows if row["property"] == prop]
                     link = LINK.fullmatch(selected[0][1]["value"]) if len(selected) == 1 else None

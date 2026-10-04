@@ -292,6 +292,47 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
         raise ValueError("\n- ".join(errors))
 
 
+def design_target(path: Path, root: Path) -> dict:
+    project = root / "project.json"
+    if project.is_file() and path.is_relative_to(root / "docs/designs"):
+        relative = path.parent.relative_to(root / "docs/designs")
+        if len(relative.parts) == 2:
+            environment, directory = relative.parts
+            return next((item for item in json.loads(project.read_text(encoding="utf-8")).get("targets", [])
+                         if item.get("environment") == environment and item.get("alias", item.get("awsAccountId")) == directory), {})
+    return {}
+
+
+def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
+    """Check local KMS account principals without rewriting explicit external grants."""
+    if not target:
+        return
+    execution = target.get("awsExecutionAccountId", target["awsAccountId"])
+    keys = {identity for identity, resource in entries(values, "desired.resource.")
+            if resource["resourceType"] == "KMS.Key" and resource_mode(resource) == "CREATE"}
+    for identity, row in entries(values, "desired.row."):
+        if not any(identity.startswith(key + "-") for key in keys) or row.get("property") != "KMS.Key.KeyPolicy" or "document" not in row:
+            continue
+        external = set(re.findall(r"\bcross-account:(arn:[A-Za-z0-9_+=,.@:/-]+)(?=$|[\s`])", row.get("comment", "")))
+        document = json.loads(row["document"], object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        if not isinstance(document, dict):
+            raise ValueError(f"KMS.Key.KeyPolicy {identity}: document must be an object")
+        statements = document.get("Statement", [])
+        for number, statement in enumerate(statements if isinstance(statements, list) else [statements], 1):
+            if not isinstance(statement, dict):
+                raise ValueError(f"KMS.Key.KeyPolicy {identity} Statement[{number}]: must be an object")
+            if statement.get("Effect") != "Allow":
+                continue
+            principal = statement.get("Principal", {})
+            principals = principal.get("AWS", []) if isinstance(principal, dict) else []
+            for arn in principals if isinstance(principals, list) else [principals]:
+                match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(root|role/aws-service-role/macie(?:\.[a-z0-9-]+)?\.amazonaws\.com/AWSServiceRoleForAmazonMacie)", str(arn))
+                if match and match[1] != execution and arn not in external:
+                    raise ValueError(f"KMS.Key.KeyPolicy {identity} Statement[{number}] Principal.AWS: {arn}: "
+                                     f"must use AWS execution account {execution}; explicit cross-account grant requires "
+                                     f"cross-account:{arn} in the policy row comment")
+
+
 def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
     """Apply the existing service displays without changing formal model values."""
     aliases = {formal: display for display, formal in DISPLAY_PROPERTY_ALIASES.items()}
@@ -521,13 +562,9 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
-    project = root / "project.json"
     relative = path.parent.relative_to(root / "docs/designs") if path.is_relative_to(root / "docs/designs") else None
-    target = {}
-    if project.is_file() and relative is not None and len(relative.parts) == 2:
-        environment, directory = relative.parts
-        target = next((item for item in json.loads(project.read_text(encoding="utf-8")).get("targets", [])
-                       if item.get("environment") == environment and item.get("alias", item.get("awsAccountId")) == directory), {})
+    target = design_target(path, root)
+    validate_kms_policy_accounts(values, target)
     stack_source = root / "model" / relative / "cloudformation-stacks.properties" if relative is not None else None
     stack_names = None
     identity_catalog = DesignSchemaCatalog(root)

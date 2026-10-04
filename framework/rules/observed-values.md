@@ -23,6 +23,9 @@ IMPORTの設定取得・observed更新は明示許可されたdesign taskのread
 
 ## Collection and propagation
 
+- identityなしで親modelのrowへ統合した子resourceは、`resource-layout.json`の親型・parentPropertyとtemplateの有効な親Refから対応を解決する。親のCREATE・正式型・直接IDまたは一意な旧ID・Validation scopeと子設定rowの存在を検証し、同じ親への同型子resourceの二重所有を拒否する。子へ独立したresource metadataやidentifier rowを要求せず、子のphysical IDを収集しない。親参照が未解決・不一致なら推測せず停止する。
+- `CodeCommit.Repository.RepositoryId`などmodelに保存しない`HIDDEN_PROPERTIES`は、identifier row・Outputsの必須検証とobserved収集から除外する。他の識別子の検証は維持する。
+
 - CloudFormationはstack詳細設計のStackNameと実行したtemplateのLogicalIdで対象resourceを特定し、service詳細設計と照合する。対応が曖昧なら推測せず停止する。必要なnon-ARN identifierをそのstackの`Outputs`から取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用し、同じlogical resourceについて両方が取得できる場合は一致を確認する。複数stackで同じtemplate/LogicalIdを使う場合も、別の設計resource rowへ反映する。
 - Terraformは必要なnon-sensitive identifierをroot module `output`から取得する。対象outputがない場合だけstateのresource attributeをread-onlyで参照し、同じresourceについて両方が取得できる場合は一致を確認する。
 - IaCに必要なoutputが不足する場合、`deploy` phaseではIaCを変更せず停止する。`implement`または`update` phaseは必要なoutputだけを追加し、CloudFormationはlogical resource参照、Terraformはresource attribute参照を維持する。

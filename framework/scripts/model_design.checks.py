@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from model_design import properties, markdown_for, naming_errors, stack_model, display_rows
+from model_design import properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
 from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
 from model_design import row_table
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
@@ -1211,7 +1211,81 @@ def check_athena_configuration_display():
     print("Athena configuration display checks: PASS (catalog aliases and model roundtrip)")
 
 
+def check_kms_policy_execution_account():
+    identity, execution = "111111111111", "222222222222"
+    target = {"environment": "dev", "awsAccountId": identity, "awsExecutionAccountId": execution,
+              "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+    root_arn = f"arn:aws:iam::{execution}:root"
+    macie_arn = f"arn:aws:iam::{execution}:role/aws-service-role/macie.amazonaws.com/AWSServiceRoleForAmazonMacie"
+    policy = {"Version": "2012-10-17", "Id": "key-default", "Statement": [
+        {"Sid": "EnableIamUserPermissions", "Effect": "Allow", "Principal": {"AWS": root_arn}, "Action": "kms:*", "Resource": "*"},
+        {"Sid": "AllowMacieToDecryptObjects", "Effect": "Allow", "Principal": {"AWS": macie_arn}, "Action": "kms:Decrypt", "Resource": "*"},
+    ]}
+    values = model("kms", "KMS.Key", "test-key", [
+        ("KeyId", "[Key](#kms-test-key)", "キーを識別するID"),
+        ("KeyPolicy", "[Policy](kms/test-key-policy.json)", "キーの利用権限"),
+    ], "Key", "test-key")
+    values.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`",
+                   "observed.row.001-001.comment": "キーを識別するID"})
+    document_key, comment_key = "desired.row.001-002.document", "desired.row.001-002.comment"
+    values[document_key] = json.dumps(policy, separators=(",", ":"))
+    original = dict(values)
+    validate_kms_policy_accounts(values, target)
+    assert values == original and all(s["Resource"] == "*" for s in policy["Statement"])
+
+    for number in (0, 1):
+        invalid = json.loads(values[document_key])
+        invalid["Statement"][number]["Principal"]["AWS"] = invalid["Statement"][number]["Principal"]["AWS"].replace(execution, identity)
+        for array in (False, True):
+            wrong = json.loads(json.dumps(invalid))
+            arn = wrong["Statement"][number]["Principal"]["AWS"]
+            if array:
+                wrong["Statement"][number]["Principal"]["AWS"] = [root_arn, arn]
+            candidate = {**values, document_key: json.dumps(wrong)}
+            for comment in ("キーの利用権限", f"cross-account:{root_arn}", f"cross-account:{arn}extra"):
+                try:
+                    validate_kms_policy_accounts({**candidate, comment_key: comment}, target)
+                except ValueError as error:
+                    assert f"Statement[{number + 1}]" in str(error) and execution in str(error)
+                else:
+                    raise AssertionError("stale root/Macie principal accepted")
+            validate_kms_policy_accounts({**candidate, comment_key: f"外部アカウントへ復号を許可 cross-account:{arn}"}, target)
+            validate_kms_policy_accounts({**candidate, "desired.resource.001.resourceMode": "IMPORT"}, target)
+    fallback = {key: value for key, value in target.items() if key != "awsExecutionAccountId"}
+    validate_kms_policy_accounts({**values, document_key: values[document_key].replace(execution, identity)}, fallback)
+    other = json.loads(values[document_key])
+    other["Statement"] = {"Effect": "Allow", "Principal": {"Service": "logs.ap-northeast-1.amazonaws.com"}, "Action": "kms:Decrypt", "Resource": "*"}
+    validate_kms_policy_accounts({**values, document_key: json.dumps(other)}, target)
+    other["Statement"]["Principal"] = {"AWS": macie_arn.replace("macie.amazonaws.com", "macie.me-south-1.amazonaws.com")}
+    validate_kms_policy_accounts({**values, document_key: json.dumps(other)}, target)
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [target]}) + "\n", encoding="utf-8")
+        source = root / f"model/dev/{identity}/kms.properties"
+        source.parent.mkdir(parents=True)
+        source.write_text(text(values), encoding="utf-8")
+        path = root / f"docs/designs/dev/{identity}/kms.md"
+        assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
+        artifact = path.with_suffix("") / "test-key-policy.json"
+        saved = path.read_bytes(), artifact.read_bytes()
+        invalid = {**values, document_key: values[document_key].replace(execution, identity)}
+        source.write_text(text(invalid), encoding="utf-8")
+        for write in (False, True):
+            try:
+                SYNC.sync(root, write, "dev", identity, services=["kms"])
+            except ValueError as error:
+                assert "Principal.AWS" in str(error) and execution in str(error)
+            else:
+                raise AssertionError("generation/local validation accepted stale KMS accounts")
+            assert (path.read_bytes(), artifact.read_bytes()) == saved
+            assert properties(source.read_text(encoding="utf-8")) == invalid
+    print("KMS policy account checks: PASS (root/Macie, arrays, fallback, explicit external principals, saved views)")
+
+
 def main():
+    check_kms_policy_execution_account()
     check_glue_argument_display()
     check_ec2_compact_display()
     check_subnet_list_display()

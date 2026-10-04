@@ -22,7 +22,7 @@ from task_contract import task_path, require_writable
 from issue_gate import require_no_issues
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
-from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties
+from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties, validate_kms_policy_accounts, design_target
 from model_files import read_model, model_parts, model_file_contents
 from validation_cache import input_scope, memoized
 from design_layout import resource_mode, resource_modes
@@ -410,6 +410,7 @@ def sync(
             artifacts = {}
             try:
                 validate_required_properties(values, root)
+                validate_kms_policy_accounts(values, design_target(staged, stage))
                 for identity, row in entries(values, "desired.row."):
                     match = JSON_LINK.fullmatch(row.get("value", ""))
                     if not match:
