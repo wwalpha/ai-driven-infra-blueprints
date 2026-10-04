@@ -1070,8 +1070,12 @@ def check_athena_configuration_display():
     rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
     displayed = display_rows(kind, rows)
     from design_layout import DISPLAY_PROPERTY_ALIASES, formal_property
+    encryption_labels = {
+        prefix + "ResultConfiguration.EncryptionConfiguration.EncryptionOption": "ResultConfiguration.Encryption.Option",
+        prefix + "ResultConfiguration.EncryptionConfiguration.KmsKey": "ResultConfiguration.Encryption.KmsKey",
+    }
     for original, shown in zip(rows, displayed):
-        expected = original[1].removeprefix(prefix if original[1].startswith(prefix) else kind + ".")
+        expected = encryption_labels.get(original[1], original[1].removeprefix(prefix if original[1].startswith(prefix) else kind + "."))
         assert shown == [original[0], expected, *original[2:]], (original, shown)
         restored = formal_property(shown[1], kind)
         assert DISPLAY_PROPERTY_ALIASES.get(restored, restored) == original[1]
@@ -1082,10 +1086,16 @@ def check_athena_configuration_display():
             ("Name", "`athwg-app-dev`", "クエリ実行用の名前"),
             ("WorkGroupConfiguration.EnforceWorkGroupConfiguration", "true", "設定を強制する"),
             ("WorkGroupConfiguration.EngineVersion.SelectedEngineVersion", "`Athena engine version 3`", "使用するエンジン"),
+            ("WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.EncryptionOption", "`SSE_KMS`", "結果を暗号化する方式"),
+            ("WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey", "`12345678-1234-1234-1234-123456789012`", "結果の暗号化に使用するキー"),
         ])
         output = roundtrip(root / "docs/designs/dev/123456789012/athena.md", values, root)
         assert "| EnforceWorkGroupConfiguration | true |" in output
         assert "| EngineVersion.SelectedEngineVersion |" in output
+        assert "| ResultConfiguration.Encryption.Option | `SSE_KMS` |" in output
+        assert "| ResultConfiguration.Encryption.KmsKey | `12345678-1234-1234-1234-123456789012` |" in output
+        assert "ResultConfiguration.EncryptionConfiguration.EncryptionOption" not in output
+        assert "ResultConfiguration.EncryptionConfiguration.KmsKey" not in output
         assert "WorkGroupConfiguration." not in output
     print("Athena configuration display checks: PASS (catalog aliases and model roundtrip)")
 
