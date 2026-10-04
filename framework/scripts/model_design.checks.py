@@ -892,7 +892,8 @@ def check_security_naming():
 
 def check_stack_policy():
     naming = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
-    assert "| `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |" in naming
+    assert "| `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]-{{account_id}}` |" in naming
+    assert "| `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}-{{account_id}}` |" in naming
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
