@@ -243,7 +243,9 @@ def check_aws_adapter():
     assert not any(op == "execute-change-set" for op, _ in backend.calls)
     backend.approvals = {state["changeSetId"]}
     assert backend.prepare(unit, state) == "READY"
-    backend.execute(unit, state)
+    with patch.object(M, "mappings", return_value=({}, {"A": {"App": ("model", "001")}})) as mapping_check:
+        backend.execute(unit, state)
+    assert mapping_check.call_count == 1
     assert sum(op == "create-change-set" for op, _ in backend.calls) == 1
     backend.change["Changes"][0]["ResourceChange"]["PolicyAction"] = "Retain"
     rejects(lambda: backend.prepare(unit, state), "approval invalid")
@@ -686,6 +688,9 @@ def check_session_cli():
         def backend_factory(root, environment, directory, target, profile, approvals):
             assert target["awsProfile"] == "dev-profile"
             backend = StubAws(destructive=destructive[0])
+            if destructive[0]:
+                # This scheduler/session fixture has no model; approval uses replacement.
+                backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement="True")
             backend.root, backend.approvals = root, set(approvals)
             def validate(unit):
                 validation_calls.append(unit["name"])
@@ -984,7 +989,9 @@ def check_observed_collector():
         assert source.read_bytes() == before
         output[0] = physical[0]
         # Shared template identities cannot be assigned to one model row by guessing.
-        backend.templates["B"] = (document, {})
+        duplicate = M.copy.deepcopy(document)
+        duplicate["Resources"]["VpcTestDev"].pop("Condition")
+        backend.templates["B"] = (duplicate, {})
         rejects(lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)), "also owned")
         assert source.read_bytes() == before
         # Out-of-scope incoming references block before writes, even with broad Allowed paths.
@@ -1045,6 +1052,176 @@ def check_observed_collector():
         assert properties(read_model(source))["observed.row.002-004.value"] == "PENDING_DEPLOY"
 
 
+def check_shared_stack_mapping():
+    from cloudformation_observed import mappings, sync_successful, preflight, validate_mapping_targets, removed_resources
+    from model_files import read_model
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
+        source = root / "model/dev/123456789012/ec2.properties"
+        source.parent.mkdir(parents=True)
+        view = root / "docs/designs/dev/123456789012/ec2.md"
+        view.parent.mkdir(parents=True)
+        values, stack_values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC",
+                                "display.service.title": "# EC2 詳細設計"}, {}
+        scoped = []
+        expected = {}
+        for index, department in enumerate(("ism", "ced", "sd"), 1):
+            identity = f"{index:03d}"
+            logical = department + "-network"
+            name = "vpc-app-dev-" + department
+            anchor = "ec2-" + name
+            unit = {"name": "cfn-stack-app-dev-" + department, "template": "department.yaml", "parameters": department + ".json", "deployOrder": "10"}
+            scoped.append(unit)
+            stack_values.update({f"desired.stack.{identity}.{key}": value for key, value in unit.items()})
+            stack_values[f"display.stack.{identity}.comment"] = department + "部署のネットワークを配置するstack"
+            stack_values.update({f"desired.mapping.{identity}.{key}": value for key, value in
+                                 {"stack": unit["name"], "resource": "DepartmentVpc", "service": "ec2", "logicalId": logical}.items()})
+            values.update({f"desired.resource.{identity}.resourceType": "EC2.VPC", f"desired.resource.{identity}.logicalId": logical,
+                           f"desired.resource.{identity}.anchor": anchor, f"display.resource.{identity}.comment": department + "部署のネットワーク"})
+            for number, (prop, value) in enumerate((("Name", "`" + name + "`"), ("VpcId", f"[{logical}](#{anchor})"),
+                                                    ("CidrBlock", f"`10.{index}.0.0/16`")), 1):
+                key = f"desired.row.{identity}-{number:03d}"
+                values.update({key + ".property": "EC2.VPC." + prop, key + ".value": value, key + ".comment": "ネットワークの設定値"})
+            expected[unit["name"]] = "vpc-" + str(index) * 17
+        def save(path, data):
+            path.write_text("\n".join(k + "=" + v for k, v in data.items()) + "\n", encoding="utf-8")
+        save(source, values)
+        stack_source = source.with_name("cloudformation-stacks.properties")
+        save(stack_source, stack_values)
+        view.write_text(markdown_for(view, values, root), encoding="utf-8")
+        stack_view = view.with_name("cloudformation-stacks.md")
+        stack_view.write_text(markdown_for(stack_view, stack_values, root), encoding="utf-8")
+        task = root / "tasks/active.md"
+        task.parent.mkdir()
+        task.write_text("- Task type: `infrastructure`\n## Validation scope\n- `dev/123456789012/ec2`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n")
+        document = {"Parameters": {"Enabled": {"Type": "String", "Default": "yes"}},
+                    "Conditions": {"Active": {"Fn::Equals": [{"Ref": "Enabled"}, "yes"]}, "Disabled": False},
+                    "Resources": {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "Condition": "Active"},
+                                  "OptionalRepository": {"Type": "AWS::CodeCommit::Repository", "Condition": "Disabled"}},
+                    "Outputs": {"VpcId": {"Condition": "Active", "Value": {"Fn::If": ["Active", {"Ref": "DepartmentVpc"}, {"Ref": "AWS::NoValue"}]}}}}
+        backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
+        backend.templates = {unit["name"]: (document, {"Enabled": "yes"}) for unit in scoped}
+        backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped)
+        assert len(backend.mapping_plan[1]) == 3
+        for index, unit in enumerate(scoped, 1):
+            assert backend.mapping_plan[1][unit["name"]]["DepartmentVpc"][1] == f"{index:03d}"
+        # Same parser and validator from the implementation CLI; defaults and stack inputs are local only.
+        template = root / "infra/cloudformation/templates/department.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text(json.dumps(document))
+        params = root / "infra/cloudformation/parameters/dev/123456789012"
+        params.mkdir(parents=True)
+        for unit in scoped:
+            (params / unit["parameters"]).write_text("[]")
+        with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda path: (json.loads(Path(path).read_text()), []))}), \
+                patch.object(M, "subprocess") as no_aws:
+            assert preflight(root, "dev", "123456789012", [u["name"] for u in scoped])[1] == backend.mapping_plan[1]
+            no_aws.run.assert_not_called()
+        def aws(operation, *args):
+            name = args[args.index("--stack-name") + 1]
+            if operation == "describe-stacks":
+                return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcId", "OutputValue": expected[name]}]}]}
+            assert operation == "list-stack-resources"
+            return {"StackResourceSummaries": [{"LogicalResourceId": "DepartmentVpc", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": expected[name]}]}
+        backend.aws = aws
+        with patch("cloudformation_observed.mappings", side_effect=AssertionError("must reuse validated mapping")), redirect_stdout(io.StringIO()):
+            sync_successful(backend, scoped, states(scoped))
+        actual = properties(read_model(source))
+        for index, unit in enumerate(scoped, 1):
+            assert actual[f"observed.row.{index:03d}-002.value"] == "`" + expected[unit["name"]] + "`"
+        assert {k: v for k, v in actual.items() if not k.startswith("observed.")} == values
+        before = source.read_bytes()
+        def check(data=stack_values, templates=None, message=""):
+            save(stack_source, data)
+            rejects(lambda: mappings(root, "dev", "123456789012", templates or backend.templates, scoped), message)
+            assert source.read_bytes() == before
+        check(stack_values | {"desired.mapping.001.logicalId": "missing"}, message="explicit model target matches=0")
+        check(stack_values | {"desired.mapping.001.service": "../ec2"}, message="invalid mapping service")
+        check(stack_values | {"desired.mapping.001.stack": "absent"}, message="invalid mapping stack/resource")
+        check(stack_values | {"desired.mapping.002.logicalId": "ism-network"}, message="also owned")
+        check({k: v for k, v in stack_values.items() if not k.startswith("desired.mapping.001.")} |
+              {f"desired.mapping.004.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "OptionalRepository", "service": "ec2", "logicalId": "ism-network"}.items()}, message="explicit mapping missing")
+        wrong_type = M.copy.deepcopy(document)
+        wrong_type["Resources"]["DepartmentVpc"]["Type"] = "AWS::S3::Bucket"
+        check(templates={u["name"]: (wrong_type, {"Enabled": "yes"}) for u in scoped}, message="formal CFn type mismatch")
+        # False resources do not claim ownership, even when two declarations would otherwise share a model row.
+        save(stack_source, stack_values | {"desired.mapping.002.logicalId": "ism-network"})
+        inactive = dict(backend.templates)
+        inactive[scoped[1]["name"]] = (document, {"Enabled": "no"})
+        assert not mappings(root, "dev", "123456789012", inactive, scoped)[1][scoped[1]["name"]]
+        save(stack_source, stack_values)
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+        save(source, values)
+        rejects(lambda: validate_mapping_targets(root, "dev", "123456789012", stack_values), "CREATE")
+        del values["desired.resource.001.resourceMode"]
+        save(source, values)
+        for condition in ({"Ref": "Unknown"}, {"Condition": "Active"}, "yes"):
+            invalid = M.copy.deepcopy(document)
+            invalid["Conditions"]["Active"] = condition
+            rejects(lambda: mappings(root, "dev", "123456789012", {u["name"]: (invalid, {}) for u in scoped}, scoped), "Condition" if condition == "yes" or "Condition" in condition else "unsupported")
+        # CodeCommit identifier rows and non-primary EIP Outputs are diagnosed together.
+        repo = source.with_name("codecommit.properties")
+        repo_values = {"desired.resource.001.resourceType": "CodeCommit.Repository", "desired.resource.001.logicalId": "department-repo",
+                       "desired.resource.001.anchor": "codecommit-department-repo"}
+        save(repo, repo_values)
+        addition = {f"desired.mapping.004.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "Repository", "service": "codecommit", "logicalId": "department-repo"}.items()}
+        eip = {"desired.resource.004.resourceType": "EC2.EIP", "desired.resource.004.logicalId": "department-eip",
+               "desired.resource.004.anchor": "ec2-department-eip"}
+        for number, prop in enumerate(("AllocationId", "PublicIp"), 1):
+            eip.update({f"desired.row.004-{number:03d}.property": "EC2.EIP." + prop,
+                        f"desired.row.004-{number:03d}.value": "[department-eip](#ec2-department-eip)",
+                        f"desired.row.004-{number:03d}.comment": "固定アドレスの識別子"})
+        save(source, values | eip)
+        eip_mapping = {f"desired.mapping.005.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "Eip", "service": "ec2", "logicalId": "department-eip"}.items()}
+        save(stack_source, stack_values | addition | eip_mapping)
+        repo_doc = M.copy.deepcopy(document)
+        repo_doc["Resources"]["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
+        repo_doc["Resources"]["Eip"] = {"Type": "AWS::EC2::EIP"}
+        repo_templates = dict(backend.templates)
+        repo_templates[scoped[0]["name"]] = (repo_doc, {"Enabled": "yes"})
+        # Extend fixture scope solely for this explicitly mapped resource.
+        task.write_text(task.read_text().replace("## Allowed paths", "- `dev/123456789012/codecommit`\n## Allowed paths"))
+        rejects(lambda: mappings(root, "dev", "123456789012", repo_templates, scoped), "identifier row missing")
+        try:
+            mappings(root, "dev", "123456789012", repo_templates, scoped)
+        except ValueError as error:
+            assert "required GetAtt Output missing" in str(error)
+        repo_values.update({"desired.row.001-001.property": "CodeCommit.Repository.RepositoryId", "desired.row.001-001.value": "[department-repo](#codecommit-department-repo)", "desired.row.001-001.comment": "リポジトリ識別子"})
+        save(repo, repo_values)
+        repo_doc["Outputs"]["RepositoryId"] = {"Value": {"Ref": "Repository"}}
+        repo_doc["Outputs"]["AllocationId"] = {"Value": {"Fn::GetAtt": "Eip.AllocationId"}, "Condition": "Disabled"}
+        repo_doc["Outputs"]["PublicIp"] = {"Value": {"Fn::GetAtt": ["Eip", "PublicIp"]}}
+        rejects(lambda: mappings(root, "dev", "123456789012", repo_templates, scoped), "required GetAtt Output missing")
+        repo_doc["Outputs"]["AllocationId"].pop("Condition")
+        assert mappings(root, "dev", "123456789012", repo_templates, scoped)[1][scoped[0]["name"]]["Repository"][0] == repo
+        # A removal is checked before execution even though the new Condition is false.
+        save(stack_source, stack_values)
+        save(source, actual)
+        repo.unlink()
+        backend.templates = inactive
+        removing = {scoped[1]["name"]: {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "PolicyAction": "Delete"}}}
+        backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped, removing)
+        def deletion_aws(operation, *args):
+            if operation == "describe-stacks":
+                return {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]}
+            return {"StackResourceSummaries": []}
+        backend.aws = deletion_aws
+        deleted = states(scoped)
+        deleted[scoped[1]["name"]]["changes"] = [{"Action": "Remove", "LogicalResourceId": "DepartmentVpc", "ResourceType": "AWS::EC2::VPC", "PolicyAction": "Delete"}]
+        with redirect_stdout(io.StringIO()):
+            sync_successful(backend, [scoped[1]], deleted)
+        assert properties(read_model(source))["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
+        # Resume restores removal ownership from the immutable recorded change set, without re-execution.
+        backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped,
+                                        removed_resources(scoped, deleted), target=TARGET)
+        with patch("cloudformation_observed.mappings", side_effect=AssertionError("resume must reuse validated plan")), redirect_stdout(io.StringIO()):
+            sync_successful(backend, [scoped[1]], deleted)
+        assert deleted[scoped[1]["name"]]["observedSynced"]
+    print("Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)")
+
+
 check_scheduler()
 check_aws_adapter()
 check_template_validation()
@@ -1053,4 +1230,5 @@ check_delivery()
 check_session_cli()
 check_parallel_and_restart()
 check_observed_collector()
+check_shared_stack_mapping()
 print("CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)")

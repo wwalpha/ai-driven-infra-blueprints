@@ -4,7 +4,8 @@ import importlib.util
 import re
 
 from design_catalog import DesignSchemaCatalog
-from model_design import properties, entries, catalog_outputs, LINK
+from model_design import properties, entries, catalog_outputs, stack_model, stack_resource_mappings, LINK
+from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
 from model_files import read_model, model_parts, model_file_contents, MAX_LINES
 from task_contract import require_writable, task_path, paths_in, matches
 from validation_scope import active_scope
@@ -33,72 +34,164 @@ def models(root, environment, directory):
             if path.stem != "cloudformation-stacks"}
 
 
-def mappings(root, environment, directory, templates, units, removed=None):
-    """Map type + existing logical identity, never names, file order or old physical IDs."""
-    loaded = models(root, environment, directory)
-    catalog = DesignSchemaCatalog(root) if loaded else None
-    resources = {}
+def resource_index(loaded, catalog):
+    exact, legacy = {}, {}
     for path, values in loaded.items():
-        if path.parent != root / "model" / environment / directory:
-            continue
         for identity, resource in entries(values, "desired.resource."):
-            if resource.get("resourceMode", "CREATE") != "CREATE":
-                continue
             try:
                 cfn_type = catalog.cloudformation_type(resource["resourceType"])
             except (KeyError, ValueError):
-                continue  # API-only resources never become stack resources.
-            for logical in {resource["logicalId"], cfn_identity(resource["logicalId"])}:
-                resources.setdefault((cfn_type, logical), []).append((path, identity, resource, cfn_type))
+                cfn_type = None
+            entry = (path, identity, resource, cfn_type)
+            exact.setdefault((path.stem, resource["logicalId"]), []).append(entry)
+            if cfn_type and resource.get("resourceMode", "CREATE") == "CREATE":
+                for logical in {resource["logicalId"], cfn_identity(resource["logicalId"])}:
+                    legacy.setdefault((cfn_type, logical), []).append(entry)
+    return exact, legacy
+
+
+def mapping_target(mapping, exact):
+    candidates = exact.get((mapping["service"], mapping["logicalId"]), [])
+    if len(candidates) != 1:
+        raise ValueError(f"explicit model target matches={len(candidates)}: {mapping['service']}/{mapping['logicalId']}")
+    entry = candidates[0]
+    if entry[2].get("resourceMode", "CREATE") != "CREATE" or not entry[3]:
+        raise ValueError(f"explicit model target must be CREATE with a formal CFn type: {mapping['service']}/{mapping['logicalId']}")
+    return entry
+
+
+def validate_mapping_targets(root, environment, directory, values):
+    """Check authoritative model endpoints even before templates have been implemented."""
+    declarations = stack_resource_mappings(values)
+    if not declarations:
+        return
+    loaded = models(root, environment, directory)
+    exact, _ = resource_index(loaded, DesignSchemaCatalog(root))
+    errors = {}
+    for _, mapping in declarations:
+        try:
+            mapping_target(mapping, exact)
+        except ValueError as error:
+            errors.setdefault(mapping["stack"], []).append(f"{mapping['stack']}/{mapping['resource']}: {error}")
+    if errors:
+        raise MappingError(errors)
+
+
+def active_outputs(document, parameters, pseudo):
+    return {key: output_value(document, parameters, pseudo, output.get("Value"))
+            for key, output in document.get("Outputs", {}).items()
+            if condition_active(document, parameters, pseudo, output)}
+
+
+def identifier_source(catalog, resource, outputs, logical, prop, values):
+    attribute = prop.removeprefix(resource["resourceType"] + ".")
+    primary = ("/properties/" + attribute in catalog.schema(resource["resourceType"]).get("primaryIdentifier", [])
+               and len(outputs) == 1)
+    keys = []
+    for key, value in values.items():
+        getatt = value.get("Fn::GetAtt") if isinstance(value, dict) else None
+        if isinstance(getatt, str):
+            getatt = getatt.split(".", 1)
+        if (value == {"Ref": logical} and primary) or getatt == [logical, attribute]:
+            keys.append(key)
+    return primary, keys
+
+
+def mappings(root, environment, directory, templates, units, removed=None, target=None):
+    """Shared read-only implement/deploy validation; explicit mappings never fall back."""
+    loaded = models(root, environment, directory)
+    catalog = DesignSchemaCatalog(root) if loaded else None
+    exact, legacy = resource_index(loaded, catalog)
+    source = root / "model" / environment / directory / "cloudformation-stacks.properties"
+    values = properties(read_model(source)) if source.is_file() else {}
+    if values:
+        stack_model(values)
+    declared = {}
+    for _, mapping in stack_resource_mappings(values):
+        declared.setdefault(mapping["stack"], {})[mapping["resource"]] = mapping
+    target = target or (load_target(root, environment, directory) if (root / "project.json").is_file() else {})
     result, owners, errors = {}, {}, {}
     scope = active_scope(root)
     for unit in units:
-        document, _ = templates[unit["name"]]
-        result[unit["name"]] = {}
-        definitions = document.get("Resources", {}) | (removed or {}).get(unit["name"], {})
+        name = unit["name"]
+        document, parameters = templates[name]
+        pseudo = {"AWS::StackName": name} | {"AWS::" + key: target[value] for key, value in
+                 (("AccountId", "awsAccountId"), ("Region", "awsRegion")) if value in target}
+        result[name] = {}
+        definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
+        explicit = declared.get(name)
+        try:
+            output_values = active_outputs(document, parameters, pseudo)
+        except (ValueError, Blocked) as error:
+            errors.setdefault(name, []).append(f"{name}/Outputs: {error}")
+            output_values = {}
         for logical, definition in definitions.items():
-            candidates = resources.get((definition["Type"], logical), [])
-            if len(candidates) != 1:
-                errors.setdefault(unit["name"], []).append(
-                    f"{unit['name']}/{logical}: model resource matches={len(candidates)}")
-                continue
-            path, identity, resource, _ = candidates[0]
-            service = tuple(path.relative_to(root / "model").with_suffix("").parts)
-            if scope is not None and service not in scope:
-                raise ValueError(f"task scope violation: stack resource outside Validation scope: {'/'.join(service)}")
-            owner = (path, identity)
-            if owner in owners:
-                errors.setdefault(unit["name"], []).append(
-                    f"{unit['name']}/{logical}: model resource also owned by {owners[owner]}")
-                errors.setdefault(owners[owner], []).append(
-                    f"{owners[owner]}: model resource also owned by {unit['name']}/{logical}")
-                continue
-            owners[owner] = unit["name"]
-            outputs = catalog_outputs(root, resource["resourceType"])
-            rows = [(rid, row) for rid, row in entries(loaded[path], "desired.row.") if rid.startswith(identity + "-")]
-            for prop in outputs:
-                selected = [(rid, row) for rid, row in rows if row["property"] == prop]
-                if len(selected) != 1 or not LINK.fullmatch(selected[0][1]["value"]):
-                    errors.setdefault(unit["name"], []).append(
-                        f"{unit['name']}/{logical}: identifier row missing/ambiguous: {prop}")
-            result[unit["name"]][logical] = (path, identity, resource, rows, outputs)
+            deleting = logical in (removed or {}).get(name, {})
+            try:
+                if not deleting and not condition_active(document, parameters, pseudo, definition):
+                    continue
+                if explicit is not None:
+                    if logical not in explicit:
+                        raise ValueError("explicit mapping missing; legacy fallback forbidden")
+                    entry = mapping_target(explicit[logical], exact)
+                    if entry[3] != definition["Type"]:
+                        raise ValueError(f"formal CFn type mismatch: {definition['Type']} != {entry[3]}")
+                else:
+                    candidates = legacy.get((definition["Type"], logical), [])
+                    if len(candidates) != 1:
+                        raise ValueError(f"model resource matches={len(candidates)}")
+                    entry = candidates[0]
+                path, identity, resource, _ = entry
+                service = tuple(path.relative_to(root / "model").with_suffix("").parts)
+                if scope is not None and service not in scope:
+                    raise ValueError(f"task scope violation: stack resource outside Validation scope: {'/'.join(service)}")
+                owner = (path, identity)
+                if owner in owners:
+                    previous = owners[owner]
+                    errors.setdefault(previous[0], []).append(f"{previous[0]}/{previous[1]}: model resource also owned by {name}/{logical}")
+                    raise ValueError(f"model resource also owned by {previous[0]}/{previous[1]}")
+                owners[owner] = (name, logical)
+                outputs = catalog_outputs(root, resource["resourceType"])
+                rows = [(rid, row) for rid, row in entries(loaded[path], "desired.row.") if rid.startswith(identity + "-")]
+                for prop in outputs:
+                    selected = [(rid, row) for rid, row in rows if row["property"] == prop]
+                    link = LINK.fullmatch(selected[0][1]["value"]) if len(selected) == 1 else None
+                    if not link:
+                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
+                    elif link.group(2) not in {"", path.stem + ".md"} or link.group(3) != resource["anchor"]:
+                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier must reference its own resource anchor: {prop}")
+                    primary, keys = identifier_source(catalog, resource, outputs, logical, prop, output_values)
+                    if not deleting and not primary and not keys:
+                        errors.setdefault(name, []).append(f"{name}/{logical}: required GetAtt Output missing: {prop}")
+                result[name][logical] = (path, identity, resource, rows, outputs)
+            except (ValueError, Blocked) as error:
+                errors.setdefault(name, []).append(f"{name}/{logical}: {error}")
     if errors:
         raise MappingError(errors)
     return loaded, result
+
+
+def removed_resources(units, states):
+    return {unit["name"]: {change["LogicalResourceId"]: {"Type": change["ResourceType"], "PolicyAction": change.get("PolicyAction")}
+                            for change in states[unit["name"]].get("changes", []) if change["Action"] == "Remove"}
+            for unit in units}
 
 
 def sync_successful(backend, units, states):
     """Plan every update before writing; success markers are saved only after generation passes."""
     root, environment, directory = backend.root, backend.environment, backend.directory
     require_target_no_issues(root, (environment, directory))
-    loaded, mapped = mappings(root, environment, directory, backend.templates, units)
+    removed = removed_resources(units, states)
+    plan = getattr(backend, "mapping_plan", None)
+    if plan is None:
+        # Direct read-only synchronization callers also pass through the same validator.
+        plan = mappings(root, environment, directory, backend.templates, units, removed, target=backend.target)
+    _, mapped = plan
+    if any(set(removed[name]) - mapped.get(name, {}).keys() for name in removed):
+        ambiguous("removed resource has no mapping validated before execution")
+    loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
     changes, identifiers = {}, {}
-    removed = {u["name"]: {c["LogicalResourceId"]: {"Type": c["ResourceType"], "PolicyAction": c.get("PolicyAction")}
-                           for c in states[u["name"]].get("changes", []) if c["Action"] == "Remove"}
-               for u in units} if loaded else {}
-    if any(removed.values()):
-        loaded, mapped = mappings(root, environment, directory, backend.templates, units, removed)
     for unit in units:
         name = unit["name"]
         document, parameters = backend.templates[name]
@@ -128,10 +221,6 @@ def sync_successful(backend, units, states):
                         identifiers[design.resolve(), resource["anchor"]] = "PENDING_DEPLOY"
                 continue
             definition = document["Resources"][logical]
-            if "Condition" in definition:
-                # The controller's evaluator is passed by the backend; do not duplicate intrinsics.
-                if not backend.resolve_condition(document, parameters, definition["Condition"], name):
-                    continue
             actual = by_logical.get(logical)
             if not actual or actual["ResourceType"] != definition["Type"]:
                 ambiguous(f"{name}/{logical}: actual resource missing/type mismatch")
@@ -139,22 +228,14 @@ def sync_successful(backend, units, states):
                 prop = row["property"]
                 if prop not in selected_outputs:
                     continue
-                attribute = prop.removeprefix(resource["resourceType"] + ".")
-                schema = catalog.schema(resource["resourceType"])
-                primary = ("/properties/" + attribute in schema.get("primaryIdentifier", [])
-                           and len(selected_outputs) == 1)
+                pseudo = {"AWS::StackName": name, "AWS::AccountId": backend.target["awsAccountId"], "AWS::Region": backend.target["awsRegion"]}
+                primary, keys = identifier_source(catalog, resource, selected_outputs, logical, prop,
+                                                 active_outputs(document, parameters, pseudo))
                 values = []
-                for key, output in document.get("Outputs", {}).items():
-                    if "Condition" in output and not backend.resolve_condition(document, parameters, output["Condition"], name):
-                        continue
-                    value = output.get("Value")
-                    getatt = value.get("Fn::GetAtt") if isinstance(value, dict) else None
-                    if isinstance(getatt, str):
-                        getatt = getatt.split(".", 1)
-                    if (value == {"Ref": logical} and primary) or getatt == [logical, attribute]:
-                        if key not in outputs:
-                            ambiguous(f"{name}/{logical}: required Output absent: {key}")
-                        values.append(outputs[key])
+                for key in keys:
+                    if key not in outputs:
+                        ambiguous(f"{name}/{logical}: required Output absent: {key}")
+                    values.append(outputs[key])
                 physical = actual.get("PhysicalResourceId") if primary else None
                 if values and (len(set(values)) != 1 or physical is not None and physical != values[0]):
                     ambiguous(f"{name}/{logical}: Outputs/physical identifier disagree: {prop}")
@@ -251,3 +332,51 @@ def sync_successful(backend, units, states):
         raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
     for unit in units:
         states[unit["name"]]["observedSynced"] = True
+
+
+def preflight(root, environment, directory, stack_names):
+    """Local inputs only: same mapping validator as the deploy controller."""
+    target = load_target(root, environment, directory)
+    if target["iacEngine"] != "cloudformation":
+        raise ValueError("mapping preflight requires CloudFormation target")
+    values = properties(read_model(root / "model" / environment / directory / "cloudformation-stacks.properties"))
+    _, stacks = stack_model(values)
+    names = {stack["name"] for _, stack in stacks}
+    if not stack_names or len(set(stack_names)) != len(stack_names) or set(stack_names) - names:
+        raise ValueError("scope must contain unique designed StackName values")
+    units = [stack for _, stack in stacks if stack["name"] in stack_names]
+    templates, errors = {}, {}
+    for unit in units:
+        try:
+            template = root / "infra/cloudformation/templates" / target.get("alias", "") / unit["template"]
+            parameters = root / "infra/cloudformation/parameters" / environment / directory / unit["parameters"]
+            templates[unit["name"]] = load_template_inputs(template, parameters)
+        except (OSError, ValueError, Blocked) as error:
+            errors.setdefault(unit["name"], []).append(f"{unit['name']}: input unavailable: {error}")
+    try:
+        plan = mappings(root, environment, directory, templates, [u for u in units if u["name"] in templates], target=target)
+    except MappingError as error:
+        errors.update(error.errors)
+    if errors:
+        raise MappingError(errors)
+    return plan
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Read-only local CloudFormation resource/identifier preflight; no AWS calls")
+    parser.add_argument("--environment", required=True)
+    parser.add_argument("--target-directory", required=True)
+    parser.add_argument("--stack", action="append", required=True)
+    args = parser.parse_args()
+    try:
+        _, mapped = preflight(Path(__file__).resolve().parents[2], args.environment, args.target_directory, args.stack)
+        print(f"CloudFormation mapping preflight: PASS ({len(mapped)} stacks)")
+    except (OSError, ValueError, Blocked) as error:
+        print(f"CloudFormation mapping preflight: FAIL ({error})")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

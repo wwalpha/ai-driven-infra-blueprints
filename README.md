@@ -65,6 +65,15 @@ python framework/scripts/blueprint-loop.py --mode task --task-file tasks/network
 
 local loopは全taskの競合と未登録変更を確認し、今回の変更だけへtask typeとAcceptance checksを適用します。成功後は今回の契約を`completed`へ変更します。完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除します。`tasks/active.md`だけを持つ旧repositoryは従来の単一taskとして読めます。並行taskを追加する前に既存契約を個別fileへ移し、statusとModified filesを記入します。
 
+Task statusは`running`、`suspend`、`completed`です。local loopのcheck失敗・事前検査error・中断では、原因が自taskか他taskかにかかわらず、今回選択したtaskだけを自動で`suspend`にします。契約の`## Suspension reason`に失敗checkと具体的error、repository外のlog pathを残し、全check終了または子process停止後にfile予約を解放します。未commit変更は保持され、他taskは同じfileも予約できます。staged検証ではsnapshot内の契約だけが対象です。
+
+単独checkなどのerrorで作業を停止するときは、具体的な問題を指定してsuspendにします。修正や再検証を再開するときは`--resume`で予約を取り直します。競合時はsuspendと理由を維持し、他taskを停止しません。
+
+```text
+python framework/scripts/task_contract.py --task-file tasks/network-design.md --suspend-reason 'validate-blueprint: model/dev/cde/ec2.propertiesの必須項目が不足'
+python framework/scripts/task_contract.py --task-file tasks/network-design.md --resume
+```
+
 read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
 
 active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、必要なframework regressionと差分checkを実行し、未対応または未実行のrequirementがある場合はFAILします。

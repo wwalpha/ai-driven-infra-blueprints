@@ -1480,6 +1480,41 @@ def check_cloudformation_stack_design() -> None:
         )
 
 
+def check_stack_mapping_targets():
+    from model_design import markdown_for
+    import shutil
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(SCRIPT.parents[2] / "framework", root / "framework")
+        model_dir = root / "model/dev/123456789012"
+        model_dir.mkdir(parents=True)
+        target = root / "docs/designs/dev/123456789012"
+        target.mkdir(parents=True)
+        values = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "department.yaml",
+                  "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10", "display.stack.001.comment": "部署用リソースを配置するstack",
+                  "desired.mapping.001.stack": "cfn-stack-app-dev-ism", "desired.mapping.001.resource": "DepartmentVpc",
+                  "desired.mapping.001.service": "ec2", "desired.mapping.001.logicalId": "ism-network"}
+        source = model_dir / "cloudformation-stacks.properties"
+        source.write_text("\n".join(k + "=" + v for k, v in values.items()))
+        path = target / "cloudformation-stacks.md"
+        path.write_text(markdown_for(path, values, root))
+        model = model_dir / "ec2.properties"
+        model.write_text("desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=ism-network\n")
+        def errors():
+            validator = MODULE.Validator(root)
+            validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
+            validator.check_stack_designs()
+            return validator.errors
+        assert not errors(), errors()
+        model.write_text(model.read_text() + "desired.resource.001.resourceMode=IMPORT\n")
+        assert any("CREATE" in error for error in errors()), errors()
+        model.unlink()
+        assert any("explicit model target matches=0" in error for error in errors()), errors()
+    prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text()
+    assert "python framework/scripts/cloudformation_observed.py --environment" in prompt
+    assert "生成・変更後も" in prompt and "identifier行の不足を自動補完せず" in prompt
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -1514,8 +1549,9 @@ def main() -> None:
     check_cloudformation_yaml_rules()
     check_cloudformation_environment_parameters()
     check_cloudformation_stack_design()
+    check_stack_mapping_targets()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (60 focused checks)")
+    print("validate-blueprint: PASS (61 focused checks)")
 
 
 if __name__ == "__main__":

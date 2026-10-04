@@ -17,7 +17,7 @@ import time
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
-from task_contract import SELECTOR, task_path, task_changes
+from task_contract import SELECTOR, task_path, task_changes, suspend
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -65,7 +65,7 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
             duration = time.perf_counter() - began
             result = "interrupted" if interrupted else "error" if error else "pass" if returncode == 0 else "fail"
             record("step_end", step=step, status=result, returncode=returncode,
-                   duration_seconds=round(duration, 6), error=error)
+                   duration_seconds=round(duration, 6), error=error, output=str(output))
             completed[index] = (step, output, duration, result, error)
 
         record("loop_start", repository=str(root), pid=os.getpid(), python=sys.executable,
@@ -262,6 +262,31 @@ def staged_snapshot(root, args, directory, environment):
     return result
 
 
+def suspend_selected(root, selected, reason):
+    if not selected:
+        return  # Never guess which task to release when selection failed.
+    try:
+        if suspend(root, selected, reason):
+            print(f"Task suspended: {selected}; reservations released; reason recorded in the contract.", flush=True)
+    except (OSError, ValueError) as error:
+        print(f"Task suspension failed: {selected}: {error}", file=sys.stderr)
+
+
+def failure_reason(directory, returncode):
+    details = [f"Local loop failed (exit {returncode}); logs: {directory}"]
+    timing = directory / "timing.jsonl"
+    if timing.is_file():
+        events = [json.loads(line) for line in timing.read_text(encoding="utf-8").splitlines()]
+        for event in events:
+            if event["event"] == "step_end" and event["status"] != "pass":
+                details.append(f"{event['step']}: {event['status']}, exit {event['returncode']}; {event['error']}")
+                output = Path(event["output"])
+                details.append(f"Diagnostic log: {output}")
+                if output.is_file():
+                    details.extend(output.read_text(encoding="utf-8", errors="replace").splitlines()[-20:])
+    return "\n".join(details)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
@@ -290,7 +315,12 @@ def main() -> int:
         cache_path = Path(cache_directory).resolve()
         if cache_path == root or root in cache_path.parents:
             parser.error("validation cache must be outside the repository")
+    selected_name = None if args.staged else os.environ.get(SELECTOR)
     try:
+        if not args.staged:
+            selected = task_path(root)
+            if selected.is_file():
+                selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
         changed = changed_paths(root) if not args.staged else set()
         if not args.staged:
@@ -298,6 +328,7 @@ def main() -> int:
             if selected.is_file():
                 changed = task_changes(root, changed - {".lock"}, selected.relative_to(root).as_posix())
     except (OSError, ValueError) as error:
+        suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
         parser.error(str(error))
     full_validation = scope is None
     regression = (args.mode == "full" or args.all or framework_changed(changed)
@@ -316,9 +347,11 @@ def main() -> int:
             authorize_full_regression(root)
         except KeyboardInterrupt:
             print("Full regression authorization cancelled; no checks started.", file=sys.stderr)
+            suspend_selected(root, selected_name, "Full regression authorization cancelled; no checks started.")
             return 130
         except (OSError, ValueError) as error:
             print(f"Blueprint local loop: LOCKED ({error}); no checks started.", file=sys.stderr)
+            suspend_selected(root, selected_name, f"Full regression authorization failed: {error}; no checks started.")
             return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
@@ -350,11 +383,16 @@ def main() -> int:
         utf8_preflight(directory, environment)
         if args.staged:
             return staged_snapshot(root, args, directory, environment)
-        return run_commands(root, commands, environment, directory, jobs=args.jobs)
+        result = run_commands(root, commands, environment, directory, jobs=args.jobs)
+        if result:
+            suspend_selected(root, selected_name, failure_reason(directory, result))
+        return result
     except KeyboardInterrupt:
+        suspend_selected(root, selected_name, f"Local loop interrupted; checks incomplete; logs: {directory}")
         return 130
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Blueprint local loop: ERROR ({error}); logs: {directory}", file=sys.stderr)
+        suspend_selected(root, selected_name, f"Local loop error: {error}; logs: {directory}")
         return 2
 
 

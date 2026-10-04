@@ -849,6 +849,63 @@ def check_stack_policy():
 
 
 
+def check_stack_mapping_roundtrip():
+    from model_design import stack_resource_mappings
+    from design_layout import stack_mapping, stack_delivery
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copytree(ROOT / "framework", root / "framework")
+        values = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "shared.yaml",
+                  "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10",
+                  "display.stack.001.comment": "部署用リソースを配置するstack"}
+        for identity, logical, model_id in (("007", "DepartmentPiiBucket", "ism-pii"), ("021", "DepartmentVpc", "ism-network")):
+            values.update({f"desired.mapping.{identity}.{key}": value for key, value in
+                          {"stack": values["desired.stack.001.name"], "resource": logical, "service": "s3" if identity == "007" else "ec2", "logicalId": model_id}.items()})
+        path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(markdown_for(path, values, root), encoding="utf-8")
+        projected = properties(SYNC.model_for(path, root))
+        assert stack_resource_mappings(projected) == stack_resource_mappings(values)
+        assert "| 007 |" in path.read_text() and "| 021 |" in path.read_text()
+        assert stack_mapping(path) == {key: value for key, value in values.items() if key.startswith("desired.mapping.")}
+        assert len(stack_design(path)) == 1 and stack_delivery(path) == {}
+        before = path.read_text()
+        path.write_text(before.replace("ism-pii", "ced-pii"))
+        try:
+            SYNC.validate_views(root, root, [path], {path: values})
+        except ValueError as error:
+            assert "projection mismatch" in str(error)
+        else:
+            raise AssertionError("mapping change lost during projection verification")
+        path.write_text(before)
+        for field, value in (("stack", "missing"), ("resource", "invalid-id"), ("service", "../s3"), ("logicalId", " ")):
+            try:
+                stack_model(values | {"desired.mapping.007." + field: value})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid mapping accepted: " + field)
+        duplicated = {key.replace(".007.", ".008."): value for key, value in values.items() if key.startswith("desired.mapping.007.")}
+        try:
+            stack_model(values | duplicated)
+        except ValueError as error:
+            assert "duplicate stack resource" in str(error)
+        else:
+            raise AssertionError("duplicate correspondence accepted")
+        # Delivery and mapping appendices coexist without consuming each other's rows.
+        artifact = {"stack": values["desired.stack.001.name"], "resource": "Function", "property": "Code",
+                    "source": "infra/cloudformation/artifacts/function.zip", "bucket": "[bucket](s3.md#s3-bucket)", "keyPrefix": "zip/"}
+        delivery = {f"desired.artifact.001.{key}": value for key, value in artifact.items()}
+        bucket = root / "model/dev/123456789012/s3.properties"
+        bucket.parent.mkdir(parents=True)
+        bucket.write_text("desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.anchor=s3-bucket\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`bucket`\n")
+        path.write_text(markdown_for(path, values | delivery, root))
+        assert stack_mapping(path) == {key: value for key, value in values.items() if key.startswith("desired.mapping.")}
+        assert stack_delivery(path) == delivery
+        assert len(stack_design(path)) == 1
+    print("Stack mapping model checks: PASS (entry IDs, exact projection, invalid mappings, delivery coexistence)")
+
+
 def check_subnet_list_display():
     # Catalog coverage is explicit: single IDs and arrays of objects keep their format.
     catalog = {line.partition("=")[0] for path in (ROOT / "framework/materials/aws").glob("*.properties")
@@ -1005,6 +1062,7 @@ def main():
     check_nameless_type_display()
     check_nameless_logical_id_label()
     check_stack_policy()
+    check_stack_mapping_roundtrip()
     check_security_naming()
     check_security_group_and_glue_catalog_naming()
     check_naming_exclusions()

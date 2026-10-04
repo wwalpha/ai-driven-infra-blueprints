@@ -1002,6 +1002,13 @@ class Validator:
                 from model_design import deployment_settings, deployment_bucket
                 stack_deployment_policy(path)
                 stacks = stack_design(path)
+                from cloudformation_observed import validate_mapping_targets
+                source = (self.root / "model" / path.relative_to(self.root / "docs" / "designs")).with_suffix(".properties")
+                if source.is_file():
+                    mapping_values = properties(read_model(source))
+                    from model_design import stack_model
+                    stack_model(mapping_values)
+                    validate_mapping_targets(self.root, target[0], target[1], mapping_values)
                 values = stack_delivery(path) | {f"desired.stack.{number:03d}.name": stack["name"]
                                                for number, stack in enumerate(stacks, 1)}
                 settings, artifacts = deployment_settings(values)

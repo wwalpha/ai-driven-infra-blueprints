@@ -18,6 +18,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 from types import SimpleNamespace
+import task_contract as tasks
 
 
 SCRIPT = Path(__file__).with_name("blueprint-loop.py")
@@ -154,6 +155,8 @@ display.resource.001.comment=通信ログを保存するLog Group
         command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(Path(temporary) / "logs")]
 
         def run():
+            if tasks.status(active.read_text(encoding="utf-8"), legacy=True) == "suspend":
+                tasks.resume(root, "tasks/active.md")
             result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
             assert "START validate-blueprint.py" in result.stdout
             assert "validation scope: dev/123456789012/logs" in result.stdout or result.returncode != 0
@@ -178,6 +181,8 @@ display.resource.001.comment=通信ログを保存するLog Group
         issue.write_text("### logs\n\n1. 未解決の設定問題\n", encoding="utf-8")
         blocked = run()
         assert blocked.returncode and "unresolved issue blocks task" in blocked.stdout, blocked.stdout
+        assert tasks.status(active.read_text()) == "suspend"
+        assert "unresolved issue blocks task" in "\n".join(tasks.section(active.read_text(), "## Suspension reason"))
         issue.unlink()
         for label, model_text, design_text, diagnostic in (
             ("model/view mismatch", good_model.replace("value=14", "value=7"), good_design, "generated Markdown is stale"),
@@ -192,6 +197,7 @@ display.resource.001.comment=通信ログを保存するLog Group
         model.write_text(good_model, encoding="utf-8")
         design.write_text(good_design, encoding="utf-8")
         # Contract scope remains enforced before design validation.
+        tasks.resume(root, "tasks/active.md")
         contract = active.read_text(encoding="utf-8")
         active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/999999999999/logs`"), encoding="utf-8")
         result = run()
@@ -435,7 +441,76 @@ def check_regression_authorization():
             authorize.assert_not_called()
 
 
+def check_failure_suspension():
+    with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {}, clear=True):
+        root = Path(temporary) / "repository"
+        scripts = root / "framework/scripts"
+        scripts.mkdir(parents=True)
+        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py"):
+            shutil.copyfile(SCRIPT.with_name(name), scripts / name)
+        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
+        validator = scripts / "validate-blueprint.py"
+        validator.write_text("print('baseline: model/dev/cde/ec2.properties schema mismatch')\nraise SystemExit(1)\n", encoding="utf-8")
+        check = scripts / "own.checks.py"
+        check.write_text("print('own check passed')\n", encoding="utf-8")
+        first, other = "tasks/first.md", "tasks/other.md"
+
+        def contract(name, file):
+            return (f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+                    f"## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n- `{file}`\n"
+                    f"## Allowed paths\n- `{name}`\n- `{file}`\n")
+
+        tasks.start(root, first, contract(first, "first.md"))
+        tasks.start(root, other, contract(other, "other.md"))
+        untouched = (root / other).read_bytes()
+        MODULE.git(root, "init", "-q")
+
+        def save_inputs():
+            MODULE.git(root, "add", ".")
+            MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
+
+        save_inputs()
+        command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
+                   "--log-dir", str(Path(temporary) / "logs")]
+        environment = MODULE.utf8_environment()
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        assert result.returncode == 1 and "Task suspended" in result.stdout, result.stdout + result.stderr
+        text = (root / first).read_text()
+        assert tasks.status(text) == "suspend" and "schema mismatch" in text
+        assert (root / other).read_bytes() == untouched
+        assert "PASS own.checks.py" in result.stdout, "remaining checks must finish before releasing reservations"
+        replacement = "tasks/replacement.md"
+        tasks.start(root, replacement, contract(replacement, "first.md"))
+        before = (root / first).read_bytes()
+        try:
+            tasks.resume(root, first)
+        except ValueError as error:
+            assert "conflict" in str(error)
+        else:
+            raise AssertionError("resume stole another task's reservation")
+        assert (root / first).read_bytes() == before
+        tasks.suspend(root, replacement, "replacement paused after check failure")
+        tasks.resume(root, first)
+        validator.write_text("print('validator passed')\n", encoding="utf-8")
+        check.write_text("assert False, 'own check: missing required field'\n", encoding="utf-8")
+        save_inputs()
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        text = (root / first).read_text()
+        assert result.returncode == 1 and tasks.status(text) == "suspend"
+        assert "own.checks.py" in text and "missing required field" in text
+        assert (root / other).read_bytes() == untouched
+        # No checks start when an unrelated unregistered change fails preflight.
+        tasks.resume(root, first)
+        (root / "unregistered.md").write_text("other work")
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        text = (root / first).read_text()
+        assert result.returncode == 2 and "START validate-blueprint.py" not in result.stdout
+        assert tasks.status(text) == "suspend" and "unregistered.md" in text
+        assert (root / other).read_bytes() == untouched
+
+
 def main() -> None:
+    check_failure_suspension()
     check_regression_authorization()
     check_parallel_and_selection()
     check_fixture_independence()
@@ -554,6 +629,7 @@ def main() -> None:
         model.write_text(model.read_text(encoding="utf-8") + "trailing whitespace  \n", encoding="utf-8")
         result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout
+        tasks.resume(root, "tasks/active.md")
         subprocess.run(["git", "add", str(model)], cwd=root, check=True)
         result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout

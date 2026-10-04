@@ -52,8 +52,9 @@
 
 `implement` phase:
 
-1. target regionを指定した`cfn-lint`でCloudFormation provider schemaに基づくproperty、型、制約のstatic checkを実行する。
-2. AWS API、`aws cloudformation validate-template`、change set、deploy/updateを実行しない。
+1. 既存templateの実装前と生成済みtemplateの完了前に`cloudformation_observed.py --environment <environment> --target-directory <target-directory> --stack <StackName>`（stackごとに`--stack`を繰返す）のlocal read-only対応付け検証を行う。deployも同じ`mappings`を使用する。stack正本の`desired.mapping.*`を優先し、CFn logical IDとmodel identityを分離する。stack固有parameter/defaultとaccount/region/StackNameでConditionを評価し、有効resourceだけCREATE・正式型・一意な対応先・identifier行・必要なGetAtt Outputs・二重所有を検証する。未解決、循環、非booleanのConditionは停止し、無効resourceはidentifier検証と所有判定に含めない。identifier行を自動追加せず、不足をstack別に集約する。新規templateの未作成は実装前の不足とせず、modelと配置先の入力を確認して生成後にこの共通検証を必ず行う。
+2. target regionを指定した`cfn-lint`でCloudFormation provider schemaに基づくproperty、型、制約のstatic checkを実行する。
+3. AWS API、`aws cloudformation validate-template`、change set、deploy/updateを実行しない。
 
 `deploy` phase:
 
@@ -115,7 +116,7 @@ deploy/update後は`framework/rules/observed-values.md`の優先順位で必要�
 
 通常deployは一回のcontroller起動で全DeployOrderを完了する。順次実行は全Deployment scopeを同じ起動へ渡し、`--sequential`で上限1に制限する。設計のMaxConcurrentStacksは変更せず、実行上限はsessionのimmutable inputに含める。1stackずつscopeやsessionを分割して停止条件を回避しない。failure／blocker後は外側のloopで残りのstackを起動せず、依存consumerを含む未着手stackをNOT_STARTEDとして報告する。group境界のobserved更新・service単位生成はcontroller内で行い、成功したbarrierだけをsessionへ保存する。明示updateのproducer/consumer IaC変更用途だけ`--pause-after-group`を使用できる。approval、failure、interruptionでは同じsessionをresumeし、成功済みstackを再実行しない。
 
-全scopeのtemplate／parameterを読んだ後、resource型・logical ID・identifier row・所有stackの一意な対応を全件確認する。型とlogical IDの索引を一度作り、最初の不一致で診断を打ち切らずstack別に集約する。一件でも不一致があればcfn-lintやchange set作成を行わずSTOPPEDとする。sessionのvalidationErrorsと各stackのpreflightErrorsへ診断を保存し、未着手stackのstatusはNOT_STARTEDを維持する。これらは実行前の診断であり、AWS作成失敗と区別する。再開時も対応付けを再確認し、成功した場合だけ同一validationDigestのlint結果を再利用する。
+全scopeのtemplate／parameterを読んだ後、implementと同じlocal read-only対応付け検証で、stack別対応表・Condition・resource型・identifier row・必要Outputs・所有stackの一意な対応を全件確認する。型とlogical IDの索引を一度作り、最初の不一致で診断を打ち切らずstack別に集約する。一件でも不一致があればcfn-lintやchange set作成を行わずSTOPPEDとする。sessionのvalidationErrorsと各stackのpreflightErrorsへ診断を保存し、未着手stackのstatusはNOT_STARTEDを維持する。これらは実行前の診断であり、AWS作成失敗と区別する。再開時も対応付けを再確認し、成功した場合だけ同一validationDigestのlint結果を再利用する。
 
 session v2のvalidationDigestはIaC／parameter／artifact／framework／project／Pythonを含む。同一digestのPASSだけを再利用し、入力変更は再検証またはimmutable guardで拒否する。v1は再検証して移行する。実AWS context、issue、Export、change set、execute直前のobject checksum/version照合はcacheで代替しない。
 

@@ -25,17 +25,14 @@ from model_design import (properties, stack_model, markdown_for, deployment_sett
 from model_files import read_model
 from issue_gate import require_target_no_issues
 from task_contract import task_path, status
-from cloudformation_observed import MappingError, mappings, sync_successful
+from cloudformation_inputs import Blocked, resolve_value, load_template_inputs
+from cloudformation_observed import MappingError, mappings, sync_successful, removed_resources
 from validation_scope import active_scope as validation_scope
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
           "UPDATE_FAILED", "UPDATE_ROLLBACK_COMPLETE", "UPDATE_ROLLBACK_FAILED",
           "IMPORT_ROLLBACK_COMPLETE", "IMPORT_ROLLBACK_FAILED"}
-
-
-class Blocked(RuntimeError):
-    pass
 
 
 def load_units(root, environment, directory, scope):
@@ -173,63 +170,6 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
         sleep(5)
 
 
-def resolve_value(value, parameters, pseudo, exports=None, conditions=None):
-    """Resolve the same explicit inputs for imports and artifact destinations."""
-    def resolve(value, seen=frozenset()):
-        if isinstance(value, (str, bool, int, float)):
-            return value
-        if isinstance(value, list):
-            return [resolve(part, seen) for part in value]
-        if not isinstance(value, dict) or len(value) != 1:
-            raise Blocked("cannot resolve ImportValue expression")
-        key, argument = next(iter(value.items()))
-        if key == "Condition":
-            if not isinstance(argument, str) or argument in seen or argument not in (conditions or {}):
-                raise Blocked(f"unresolved or cyclic Condition: {argument}")
-            result = resolve(conditions[argument], seen | {argument})
-            if type(result) is not bool:
-                raise Blocked(f"non-boolean Condition: {argument}")
-            return result
-        if key == "Fn::If" and isinstance(argument, list) and len(argument) == 3:
-            active = resolve({"Condition": argument[0]}, seen)
-            return resolve(argument[1 if active else 2], seen)
-        if key == "Fn::Equals" and isinstance(argument, list) and len(argument) == 2:
-            left, right = resolve(argument, seen)
-            return any(isinstance(left, kind) and isinstance(right, kind) and left == right
-                       for kind in (str, bool, int, float)) and isinstance(left, bool) == isinstance(right, bool)
-        if key in {"Fn::And", "Fn::Or", "Fn::Not"} and isinstance(argument, list):
-            operands = resolve(argument, seen)
-            if (all(type(part) is bool for part in operands) and
-                    (len(operands) == 1 if key == "Fn::Not" else 2 <= len(operands) <= 10)):
-                return not operands[0] if key == "Fn::Not" else all(operands) if key == "Fn::And" else any(operands)
-            raise Blocked(f"invalid condition operands: {key}")
-        if key == "Fn::ImportValue" and exports is not None:
-            name = resolve(argument, seen)
-            if name in exports:
-                return exports[name]
-            raise Blocked(f"unresolved artifact bucket export: {name}")
-        if key == "Ref" and argument in parameters | pseudo:
-            return (parameters | pseudo)[argument]
-        if key == "Fn::Join" and isinstance(argument, list) and len(argument) == 2:
-            delimiter, parts = resolve(argument, seen)
-            if isinstance(delimiter, str) and isinstance(parts, list) and all(isinstance(part, str) for part in parts):
-                return delimiter.join(parts)
-            raise Blocked("invalid Join operands")
-        if key == "Fn::Sub":
-            text, variables = (argument, {}) if isinstance(argument, str) else argument
-            substitutions = parameters | pseudo | {key: resolve(val, seen) for key, val in variables.items()}
-            def replace(match):
-                key = match.group(1)
-                if key.startswith("!"):
-                    return "${" + key[1:] + "}"
-                if key not in substitutions:
-                    raise Blocked(f"unresolved ImportValue variable: {key}")
-                return substitutions[key]
-            return re.sub(r"\$\{([^}]+)\}", replace, text)
-        raise Blocked(f"unsupported ImportValue expression: {key}")
-    return resolve(value)
-
-
 def import_names(template, parameters, pseudo):
     """Resolve only stack-independent intrinsic expressions; unknown expressions block."""
     names = set()
@@ -362,19 +302,8 @@ class AwsBackend:
 
     def load_inputs(self, unit):
         """Decode current immutable files cheaply; never persist parameter/secret contents."""
-        from cfnlint.decode import decode
         template, parameters = self.paths(unit)
-        document, errors = decode(str(template))
-        if errors or not isinstance(document, dict) or document.get("Transform"):
-            raise Blocked("invalid/transform template; imports must be resolvable before change set")
-        inputs = json.loads(parameters.read_text(encoding="utf-8"))
-        if not isinstance(inputs, list) or not all(isinstance(item, dict) and isinstance(item.get("ParameterKey"), str)
-                                                 and isinstance(item.get("ParameterValue"), str) for item in inputs):
-            raise Blocked("parameter file must contain explicit stack-specific ParameterKey/ParameterValue entries")
-        if len({item["ParameterKey"] for item in inputs}) != len(inputs):
-            raise Blocked("duplicate parameter key")
-        defaults = {key: str(value["Default"]) for key, value in document.get("Parameters", {}).items() if "Default" in value}
-        self.templates[unit["name"]] = (document, defaults | {item["ParameterKey"]: item["ParameterValue"] for item in inputs})
+        self.templates[unit["name"]] = load_template_inputs(template, parameters)
         for artifact in unit.get("artifacts", []):
             self.source_path(artifact)
             resource = document.get("Resources", {}).get(artifact["resource"], {})
@@ -533,14 +462,6 @@ class AwsBackend:
                 if owner in self.states and self.states[owner]["status"] != "SUCCESS":
                     raise Blocked(f"designed DeployOrder conflicts with Import/Export: producer {owner} has not succeeded")
 
-    def resolve_condition(self, document, parameters, name, stack_name=None):
-        pseudo = {"AWS::AccountId": self.target["awsAccountId"], "AWS::Region": self.target["awsRegion"]}
-        if stack_name is not None:
-            pseudo["AWS::StackName"] = stack_name
-        return resolve_value({"Condition": name}, parameters,
-                             pseudo,
-                             conditions=document.get("Conditions", {}))
-
     def describe_change_set(self, unit, state):
         return self.aws("describe-change-set", "--stack-name", unit["name"], "--change-set-name", state["changeSetId"])
 
@@ -635,6 +556,20 @@ class AwsBackend:
                 fingerprint(current.get("Changes", [])) != state["changeDigest"]:
             state["status"] = "BLOCKED"
             raise Blocked("change set expired or changed before execution; approval invalid")
+        removed = removed_resources([unit], {unit["name"]: state})
+        if removed[unit["name"]]:
+            # Deletions bypass the new template's false/absent Condition, but require ownership before mutation.
+            loaded, mapped = mappings(self.root, self.environment, self.directory, self.templates,
+                                     getattr(self, "mapping_units", [unit]), removed, target=self.target)
+            if hasattr(self, "mapping_plan"):
+                for name, resources in self.mapping_plan[1].items():
+                    for logical, previous in resources.items():
+                        if mapped[name].get(logical, ())[:2] != previous[:2]:
+                            raise Blocked("resource mapping changed before execution")
+                # Keep deletion mappings for earlier successful stacks in the same controller run.
+                for name, resources in self.mapping_plan[1].items():
+                    mapped[name] = resources | mapped[name]
+            self.mapping_plan = (loaded, mapped)
         self.aws("execute-change-set", "--stack-name", unit["name"], "--change-set-name", state["changeSetId"],
                  "--client-request-token", state["clientToken"])
 
@@ -885,7 +820,9 @@ def main(argv=None, root=None):
                 metrics["inputLoadSeconds"] += time.perf_counter() - started
             started = time.perf_counter()
             try:
-                mappings(root, args.environment, directory, backend.templates, units)
+                backend.mapping_units = units
+                backend.mapping_plan = mappings(root, args.environment, directory, backend.templates, units,
+                                                removed_resources(units, session["states"]), target=target)
             finally:
                 metrics["mappingCheckSeconds"] += time.perf_counter() - started
             digest = validation_digest(backend, unit_digests)

@@ -79,8 +79,10 @@ def status(text, legacy=False):
     entries = [line for line in section(text, "## Task contract") if line.startswith("- Task status:")]
     if legacy and not entries:
         return "running"
-    if len(entries) != 1 or entries[0] not in {"- Task status: `running`", "- Task status: `completed`"}:
-        raise ValueError("Task status must be exactly one of running/completed")
+    if len(entries) != 1 or entries[0] not in {f"- Task status: `{state}`" for state in ("running", "suspend", "completed")}:
+        raise ValueError("Task status must be exactly one of running/suspend/completed")
+    if entries[0] == "- Task status: `suspend`" and not section(text, "## Suspension reason"):
+        raise ValueError("suspend task must record a concrete Suspension reason")
     return entries[0].split("`")[1]
 
 
@@ -123,12 +125,16 @@ def task_path(root, selected=None):
             raise ValueError(f"invalid task selector: {selected}")
         if selected not in records:
             raise ValueError(f"selected task contract missing: {selected}")
+        if status(records[selected], selected == "tasks/active.md") == "suspend":
+            raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {selected} --resume")
         return root / selected
     running = [name for name, text in records.items() if status(text, name == "tasks/active.md") == "running"]
     if len(running) > 1:
         raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
     if running:
         return root / running[0]
+    if "tasks/active.md" in records and status(records["tasks/active.md"], legacy=True) == "suspend":
+        raise ValueError("suspend task cannot execute; resume with task_contract.py --task-file tasks/active.md --resume")
     return root / "tasks/active.md"  # Missing idle contract preserves the existing idle checks.
 
 
@@ -151,7 +157,7 @@ def task_changes(root, changed, selected=None):
     if owned is None:
         raise ValueError(f"selected task contract missing: {selected}")
     files = owned[1]
-    if owned[0] == "completed":
+    if owned[0] != "running":
         files = files - running_files
     return changed & files
 
@@ -167,7 +173,7 @@ def require_writable(root, paths):
         raise ValueError("active task prompt missing")
     state, files = reserved[name]
     if state != "running":
-        raise ValueError(f"completed task cannot write: {name}")
+        raise ValueError(f"{state} task cannot write: {name}")
     if files is not None:
         requested = {path.relative_to(root).as_posix() for path in paths}
         if requested - files:
@@ -204,14 +210,64 @@ def start(root, name, text):
             stream.write(text)
 
 
+def set_status(text, state):
+    text = re.sub(r"^## Suspension reason\n.*?(?=^## |\Z)", "", text, flags=re.M | re.S)
+    if any(line.startswith("- Task status:") for line in section(text, "## Task contract")):
+        prefix, body = text.split("## Task contract\n", 1)
+        return prefix + "## Task contract\n" + re.sub(r"^- Task status: `[^`]+`$", f"- Task status: `{state}`", body, count=1, flags=re.M)
+    if "## Task contract" not in text.splitlines():
+        text += "\n## Task contract\n"
+    return text.replace("## Task contract\n", f"## Task contract\n- Task status: `{state}`\n", 1)
+
+
+def suspend(root, name, reason):
+    if not reason.strip():
+        raise ValueError("suspend requires a concrete reason")
+    with registration_lock(root):
+        if not TASK_NAME.fullmatch(name):
+            raise ValueError(f"invalid task selector: {name}")
+        path = safe_path(root, name)
+        text = path.read_text(encoding="utf-8")
+        if status(text, name == "tasks/active.md") != "running":
+            return False
+        # Do not inspect other contracts: their errors must not prevent releasing this task.
+        text = set_status(text, "suspend")
+        text += "\n## Suspension reason\n\n" + "\n".join(f"    {line}".rstrip() for line in reason.strip().splitlines()) + "\n"
+        path.write_text(text, encoding="utf-8")
+    return True
+
+
+def resume(root, name):
+    with registration_lock(root):
+        records = contracts(root)
+        if name not in records:
+            raise ValueError(f"selected task contract missing: {name}")
+        if status(records[name], name == "tasks/active.md") != "suspend":
+            raise ValueError("only a suspend task can resume")
+        text = set_status(records[name], "running")
+        reservations(root, {**records, name: text})
+        safe_path(root, name).write_text(text, encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--task-file", required=True)
     parser.add_argument("--source", type=Path, help="Register a new contract from a file outside the repository")
+    transition = parser.add_mutually_exclusive_group()
+    transition.add_argument("--suspend-reason", help="Suspend only this task, record the problem and release its reservations")
+    transition.add_argument("--resume", action="store_true", help="Resume a suspended task after checking reservation conflicts")
     args = parser.parse_args()
     root = args.repository_root.resolve()
     try:
+        if args.source and (args.suspend_reason is not None or args.resume):
+            raise ValueError("--source cannot be combined with a status transition")
+        if args.suspend_reason is not None:
+            changed = suspend(root, args.task_file, args.suspend_reason)
+            print(f"Task contract: {args.task_file} ({'suspend; reservations released' if changed else 'status unchanged'})")
+            return 0
+        if args.resume:
+            resume(root, args.task_file)
         if args.source:
             if args.source.resolve().is_relative_to(root):
                 raise ValueError("new contract source must be outside the repository")

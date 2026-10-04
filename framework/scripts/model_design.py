@@ -94,13 +94,38 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
             if path.name != stack[field] or "\\" in stack[field] or path.suffix not in suffixes:
                 raise ValueError(f"invalid stack {field} filename: {stack[field]}")
     deployment_settings(values)
+    stack_resource_mappings(values)
     unknown = [key for key in values if key.startswith("desired.") and
-               not key.startswith(("desired.stack.", "desired.artifact.")) and
+               not key.startswith(("desired.stack.", "desired.artifact.", "desired.mapping.")) and
                key not in {"desired.deployment." + field for field in
                            ("maxConcurrentStacks", "templateBucket", "templateKeyPrefix")}]
     if unknown:
         raise ValueError(f"unknown stack design fields: {unknown}")
     return limit, sorted(stacks, key=lambda entry: (int(entry[1]["deployOrder"]), entry[1]["name"]))
+
+
+MAPPING_FIELDS = ("stack", "resource", "service", "logicalId")
+
+
+def stack_resource_mappings(values):
+    """Keep model identity separate from the template's logical ID, keyed by StackName."""
+    declarations = entries(values, "desired.mapping.")
+    names = {stack.get("name") for _, stack in entries(values, "desired.stack.")}
+    seen = set()
+    for identity, mapping in declarations:
+        if not re.fullmatch(r"[0-9]{3}", identity) or set(mapping) != set(MAPPING_FIELDS):
+            raise ValueError(f"mapping {identity} requires only {list(MAPPING_FIELDS)} and a three-digit entry ID")
+        if not all(value and value == value.strip() and not any(c in value for c in "|`\r\n\0") for value in mapping.values()):
+            raise ValueError(f"invalid mapping value: {identity}")
+        if mapping["stack"] not in names or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", mapping["resource"]):
+            raise ValueError(f"invalid mapping stack/resource: {identity}")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", mapping["service"]) or mapping["service"] == "cloudformation-stacks":
+            raise ValueError(f"invalid mapping service: {identity}")
+        key = (mapping["stack"], mapping["resource"])
+        if key in seen:
+            raise ValueError(f"duplicate stack resource mapping: {key}")
+        seen.add(key)
+    return declarations
 
 
 ARTIFACT_FIELDS = ("stack", "resource", "property", "source", "bucket", "keyPrefix")
@@ -490,13 +515,20 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                 deployment_bucket(settings["templateBucket"], path, root)
             for _, artifact in artifacts:
                 deployment_bucket(artifact["bucket"], path, root)
+        mapping_view = []
+        declarations = stack_resource_mappings(values)
+        if declarations:
+            mapping_view = ["", "## Resource対応", "", "| No. | StackName | CFnLogicalId | ModelService | ModelLogicalId |",
+                            "| ---: | --- | --- | --- | --- |"]
+            mapping_view += ["| " + " | ".join([identity] + [mapping[field] for field in MAPPING_FIELDS]) + " |"
+                             for identity, mapping in declarations]
         return "\n".join(["# CloudFormation stack 詳細設計", "",
             f"<!-- max-concurrent-stacks: {limit} -->", "",
             "## Stack一覧", "", "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",
             "| ---: | ---: | --- | --- | --- | --- |", *[
                 "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],
                     stack["parameters"], values[f"display.stack.{identity}.comment"]]) + " |"
-                for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
+                for number, (identity, stack) in enumerate(stacks, 1)], *delivery, *mapping_view]) + "\n"
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")

@@ -61,6 +61,19 @@ display.stack.002.comment=月次集計jobを配置するstack
 - 同じDeployOrderと同じTemplateは許可する。`DependsOn`、`AfterStack`、`DependsOnStack`、`Dependencies`を追加しない。
 - 表示はDeployOrder数値昇順、StackName文字列昇順とし、No.は表示用の連番。model entry IDやcommentの所属を並べ替えで変更しない。
 
+### Stack別resource対応表
+
+`cloudformation-stacks.properties`の任意の`desired.mapping.<3桁entry ID>`に`stack`（StackName）、`resource`（CFn logical ID）、`service`（modelのfile stem）、`logicalId`（model側resource logical ID）を保持する。entry IDとresource番号は独立する。CFn logical IDとmodel logical IDは別identityであり、既存値を変更しない。
+
+```properties
+desired.mapping.001.stack=cfn-stack-app-dev-ism
+desired.mapping.001.resource=DepartmentPiiBucket
+desired.mapping.001.service=s3
+desired.mapping.001.logicalId=ism-pii-bucket
+```
+
+StackNameとCFn logical IDの組は一意とし、対応先は同target内の一意なCREATE resourceかつ正式CFn型を持つresourceだけを許可する。Markdownの`## Resource対応`はgenerated viewであり、再解析でもentry IDと4項目を保持する。対応表を持つstackでは有効resourceの対応漏れを拒否し、名前検索や従来照合で補わない。表のないstackだけ既存logical ID／機械的PascalCase変換と正式型による一意な照合を維持する。重複所有はstack固有parameter/defaultでConditionを評価した有効resource間で検証する。
+
 ## Properties先行更新と表示生成
 
 1. 保存前に作成対象resourceの命名ルール有無、catalog選択項目、型・制約、未確定値を確認する。

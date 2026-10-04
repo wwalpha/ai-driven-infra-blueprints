@@ -97,10 +97,10 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
 def model_for(path: Path, root: Path | None = None) -> str:
     """Read-only projection for verification and explicit migration; never save it by default."""
     if path.name == STACK_DESIGN:
-        from design_layout import stack_delivery
+        from design_layout import stack_delivery, stack_mapping
         stacks = stack_design(path)
         output = ["# Stack design projection", f"desired.deployment.maxConcurrentStacks={stack_deployment_policy(path)}"]
-        output += [f"{key}={value}" for key, value in stack_delivery(path).items()]
+        output += [f"{key}={value}" for key, value in (stack_delivery(path) | stack_mapping(path)).items()]
         for number, stack in enumerate(stacks, 1):
             key = f"desired.stack.{number:03d}"
             output.extend((
@@ -375,6 +375,13 @@ def sync(
                     referenced = models / path.parent.relative_to(docs) / "s3.properties"
                     if referenced.is_file():
                         model_inputs.update([referenced, *model_parts(referenced)])
+            from model_design import stack_resource_mappings
+            for path, values in destinations.items():
+                if path.name == STACK_DESIGN:
+                    for _, mapping in stack_resource_mappings(values):
+                        referenced = models / path.parent.relative_to(docs) / (mapping["service"] + ".properties")
+                        if referenced.is_file():
+                            model_inputs.update([referenced, *model_parts(referenced)])
             for path in [*model_inputs, *views]:
                 destination = stage / path.relative_to(root)
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -547,14 +554,15 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
         if path.name == STACK_DESIGN:
-            from model_design import stack_model, deployment_settings
+            from model_design import stack_model, deployment_settings, stack_resource_mappings
             # Display numbering is independent of authoritative entry IDs.
             actual_limit, actual_stacks = stack_model(actual)
             formal_limit, formal_stacks = stack_model(formal)
             actual_delivery, actual_artifacts = deployment_settings(actual)
             formal_delivery, formal_artifacts = deployment_settings(formal)
             if actual_limit != formal_limit or [s for _, s in actual_stacks] != [s for _, s in formal_stacks] or \
-                    actual_delivery != formal_delivery or [a for _, a in actual_artifacts] != [a for _, a in formal_artifacts]:
+                    actual_delivery != formal_delivery or [a for _, a in actual_artifacts] != [a for _, a in formal_artifacts] or \
+                    stack_resource_mappings(actual) != stack_resource_mappings(formal):
                 raise ValueError(f"model/display projection mismatch: {path.name}")
             continue
         if actual != formal:

@@ -36,6 +36,8 @@
 - `## Required changes`の各項目には一意なRequirement IDを付け、`## Acceptance checks`で同じIDへ一つ以上の機械検証を対応付ける。
 - Acceptance checkは`changed:<path-or-glob>`、`exists:<path-or-glob>`、`absent:<path-or-glob>`、またはvalidatorへ登録済みの`check:<check-id>`だけを使用する。任意commandをactive taskから実行しない。
 - Requirement IDに対応するAcceptance checkまたはtask type固有checkが未実装、未実行、失敗の場合はtaskを完了扱いにしない。
+- task実行中にcheck errorで停止する場合は、自task／他task／baselineのどの原因でも今回の契約だけを`suspend`へ変更し、`## Suspension reason`へ失敗check、対象file、具体的errorと必要なrepository外log pathを記載する。local loopは失敗・事前検査error・中断時に自動で行い、単独checkなどでは`task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`を使う。子processの停止後に予約を解放し、他taskの契約や未commit変更は維持する。
+- `suspend`契約はfile予約を持たず、他taskの登録を妨げない。再開前に`task_contract.py --task-file tasks/<task-name>.md --resume`でrunning taskとの競合を検査し、成功した場合だけ`running`へ戻す。競合時は理由と`suspend`を保持し、他taskを停止・上書きしない。
 
 ## Task boundary
 
@@ -46,7 +48,7 @@
 - infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
 - scenario-test taskだけが`tests/scenarios/**`と`tests/results/**`を変更できる。
 - non-scenario taskのvalidation/deployment結果を`tests/results/**`へ保存しない。verification outputは原則として完了報告だけに記載する。
-- `tasks/`には独立した契約だけを置き、task履歴やevidenceを保存しない。Task statusは`running`または`completed`。local loop成功後に今回の契約だけをcompletedへ変更する。未commit差分の所属を保持する間だけ完了済み契約を残し、差分がなくなれば削除する。
+- `tasks/`には独立した契約だけを置き、task履歴やevidenceを保存しない。Task statusは`running`、`suspend`、`completed`。現在の停止理由はsuspend契約に記載してよい。local loop成功後に今回の契約だけをcompletedへ変更する。suspend契約は再開と未commit差分の所属のため保持し、完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除する。
 - scenario evidenceの過去版はGit履歴で追跡し、実行別・timestamp別directoryを追加しない。
 
 ## 詳細ルール

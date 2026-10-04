@@ -98,6 +98,10 @@ def check_completed_legacy_and_paths():
         assert tasks.task_path(root) == root / "tasks/active.md"
         assert tasks.task_changes(root, {"README.md"}, "tasks/active.md") == {"README.md"}
         blocked(lambda: tasks.start(root, new, contract(new, ["new.md"])), "migrate tasks/active.md")
+        tasks.suspend(root, "tasks/active.md", "legacy check failed: README.md")
+        blocked(lambda: tasks.task_path(root), "suspend task cannot execute")
+        tasks.resume(root, "tasks/active.md")
+        assert tasks.task_path(root) == root / "tasks/active.md"
         (root / "tasks/active.md").unlink()
         for value in ("../escape", "/tmp/escape", "./file", "a//file", "a/../file", "*.md", "a/**", ".git/config", "."):
             blocked(lambda value=value: tasks.start(root, new, contract(new, [value])), "exact repository-relative path")
@@ -121,6 +125,45 @@ def check_simultaneous_registration():
             results = list(executor.map(register, ["tasks/one.md", "tasks/two.md"]))
         assert sum(results) == 1
         assert len(tasks.contracts(root)) == 1
+
+
+def check_suspend_and_resume():
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        first, second = "tasks/first.md", "tasks/second.md"
+        tasks.start(root, first, contract(first, ["shared.md", "own.md"]))
+        blocked(lambda: tasks.suspend(root, first, " "), "concrete reason")
+        assert tasks.suspend(root, first, "other task: schema failure in model/dev/cde/ec2.properties")
+        saved = (root / first).read_bytes()
+        assert tasks.status(saved.decode()) == "suspend"
+        assert "schema failure in model/dev/cde/ec2.properties" in saved.decode()
+        assert tasks.task_path(root) == root / "tasks/active.md"
+        assert active_scope(root) == set()
+        assert tasks.task_changes(root, {"shared.md", "own.md"}) == set()
+        with patch.dict(os.environ, {tasks.SELECTOR: first}):
+            blocked(lambda: tasks.require_writable(root, [root / "own.md"]), "suspend task cannot execute")
+        tasks.start(root, second, contract(second, ["shared.md"]))
+        assert tasks.task_path(root) == root / second
+        assert tasks.task_changes(root, {"shared.md", "own.md"}, second) == {"shared.md"}
+        blocked(lambda: tasks.resume(root, first), "task file conflict")
+        assert (root / first).read_bytes() == saved, "failed resume must preserve status and reason"
+        other = (root / second).read_bytes()
+        assert not tasks.suspend(root, first, "overwrite")
+        assert (root / first).read_bytes() == saved and (root / second).read_bytes() == other
+        tasks.suspend(root, second, "own acceptance check failed: changed:shared.md")
+        tasks.resume(root, first)
+        assert tasks.status((root / first).read_text()) == "running"
+        assert "## Suspension reason" not in (root / first).read_text()
+        blocked(lambda: tasks.resume(root, second), "task file conflict")
+        # Invalid other contracts cannot prevent suspension of the explicitly selected task.
+        (root / second).write_text("invalid contract")
+        assert tasks.suspend(root, first, "invalid contract: tasks/second.md")
+        blocked(lambda: tasks.status(contract(first, ["shared.md"], state="suspend")), "Suspension reason")
+        # A reason is diagnostic text, even if an error contains Markdown headings.
+        (root / second).unlink()
+        tasks.resume(root, first)
+        tasks.suspend(root, first, "error\n## Modified files\n- `unexpected.md`")
+        assert tasks.paths_in((root / first).read_text(), "## Modified files") == {first, "shared.md", "own.md"}
 
 
 def check_validator_isolation():
@@ -168,5 +211,6 @@ if __name__ == "__main__":
     check_admission_selection()
     check_completed_legacy_and_paths()
     check_simultaneous_registration()
+    check_suspend_and_resume()
     check_validator_isolation()
     print("task-contract: PASS (selection, conflict, future files, concurrent admission, ownership, compatibility)")
