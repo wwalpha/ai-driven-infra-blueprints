@@ -500,14 +500,39 @@ def check_implementation_preflight_prompt() -> None:
     assert text.index("## Read-only implementation preflight") < text.index("## Create active task contract") < text.index("## Implement and validate")
     for required in (
         "active contract作成・IaC生成より前", "AWS API、IaC生成、deployは実行しない",
-        "check_design_tables", "check_design_links", "check_stack_designs", "DesignSchemaCatalog.literal_errors",
-        "必要な依存先の設計・model", "正本stack登録", "template・parameterの対応", "dependency cycle",
+        "model_design.validate_required_properties", "DesignSchemaCatalog.literal_errors",
+        "必要な依存先のproperties", "正本stack登録", "template・parameterの対応", "dependency cycle",
         "対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由",
         "一回でまとめて提示", "最初の不足だけで報告を終えない", "不足があれば実装せず",
         "追加承認を要求せず", "変更scopeや全service検証へ自動拡張しない",
         "日本語の表示用Comment", "不正値を自動翻訳・置換しない", "別taskを自動作成・実行しない",
     ):
         assert required in preflight, required
+    reading = text.split("## Read before changing files\n", 1)[1].split("\n## ", 1)[0]
+    for required in (
+        "設計inputはauthoritative model propertiesだけ", "propertiesとgenerated Markdownの事前二重比較をAgentへ要求しない",
+        "本文はImplement開始時・IaC生成時・参照解決時に読まず", "Markdown／JSONの生成・保存とlocal loopの整合性検証は既存どおり維持",
+        "scope selectorとして扱う", "本文を読まず", "path／file stem", "対応するmodelを一意に特定できない場合は推測せず停止",
+        "python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>",
+        "resource number", "logical ID、anchorの完全一致", "単一fileと分割入口index", "同じgroupの親・子・兄弟、service metadata／notes",
+        "service全体のscopeならservice properties全体", "対象accountの承認済み設計すべて", "target全Markdownをfallbackとして読むことは禁止",
+        "desired value、resource、reference、stack assignment、human decision", "design taskが必要として停止",
+    ):
+        assert required in reading, required
+    assert not any(line.startswith("5. 対象の`docs/designs/") for line in reading.splitlines())
+    assert "生成設計" not in preflight and "model生成一致検証" not in preflight
+    units = text.split("## Resolve implementation units\n", 1)[1].split("\n## ", 1)[0]
+    for required in ("cloudformation-stacks.properties`だけを読む", "desired.stack.*.name", "`.template`", "`.parameters`", "`.deployOrder`",
+                     "desired.deployment.maxConcurrentStacks", "実効値は既存契約どおり1", "Implement inputとして読まない"):
+        assert required in units, required
+    implementation = text.split("## Implement and validate\n", 1)[1].split("\n## ", 1)[0]
+    for required in ("authoritative model propertiesだけ", "`desired.row.*`", "`.document`", "desired.resource.*.anchor", "desired.resource.*.logicalId",
+                     "producer model properties", "parentReference", "generated Markdown本文を読まない", "physical IDをIaCへ直書きしない"):
+        assert required in implementation, required
+    finish = text.split("## Verify and finish\n", 1)[1]
+    for required in ("blueprint-loop.py --mode task", "read-onlyの`sync-model.py`", "不一致ならFAIL", "check_design_tables",
+                     "check_design_links", "check_stack_designs", "validationを省略・弱体化せず"):
+        assert required in finish and required not in preflight, required
 
 
 def check_identifier_propagation() -> None:

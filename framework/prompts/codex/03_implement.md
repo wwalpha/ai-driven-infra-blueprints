@@ -2,7 +2,7 @@
 
 契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
 
-このpromptは、承認済みの詳細設計を`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
+このpromptは、承認済みの詳細設計の正本であるauthoritative model propertiesを`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
 
 ## Unresolved issue gate
 
@@ -24,7 +24,7 @@ fileを変更する前にUser inputを確認する。placeholder、空、不明�
 3. Target AWS account
 4. Implementation scope
 
-environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。`project.json`、対象の承認済み詳細設計、または対応するservice modelが存在しない場合は、値を推測せず停止する。
+environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。`project.json`または対象の承認済み詳細設計の正本model propertiesが存在しない場合は、値を推測せず停止する。
 
 ## Read before changing files
 
@@ -32,20 +32,29 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 2. `README.md`
 3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
-5. 対象の`docs/designs/<environment>/<target-directory>/*.md`
-6. 対応する`model/<environment>/<target-directory>/*.properties`
-7. `framework/rules/detailed-design.md`
-8. `framework/rules/aws-resource-naming.md`
-9. `framework/rules/model-information.md`
-10. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
-11. `framework/rules/observed-values.md`
-12. `framework/rules/loop-engineering.md`
-13. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
-14. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
+5. implementation scopeに対応する正本`model/<environment>/<target-directory>/<service>.properties`（読取範囲は下記に従う）
+6. `framework/rules/detailed-design.md`
+7. `framework/rules/aws-resource-naming.md`
+8. `framework/rules/model-information.md`
+9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
+10. `framework/rules/observed-values.md`
+11. `framework/rules/loop-engineering.md`
+12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
+13. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
 
-詳細設計とservice modelの矛盾、またはIaC実装に必要なhuman decisionの不足は、下記の実装前確認の不足一覧へ含める。
+Implementの設計inputはauthoritative model propertiesだけとする。generated `docs/designs/<environment>/<target-directory>/*.md`（`cloudformation-stacks.md`を含む）の本文はImplement開始時・IaC生成時・参照解決時に読まず、値を再取得しない。propertiesとgenerated Markdownの事前二重比較をAgentへ要求しない。必要なdesired value、resource、reference、stack assignment、human decisionがpropertiesに不足する場合は、下記の実装前確認の不足一覧へ含め、design taskが必要として停止する。Markdown／JSONの生成・保存とlocal loopの整合性検証は既存どおり維持する。
 
-読取対象はimplementation scopeのresource/propertyと参照解決に必要な箇所へ絞る。分割modelは入口indexから必要なpartだけを読む。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
+Implementation scopeに詳細設計の`.md` fileが指定された場合はscope selectorとして扱う。本文を読まず、`docs/designs/<environment>/<target-directory>/<service>.md`のpath／file stemから同じenvironment／target／serviceの`model/<environment>/<target-directory>/<service>.properties`へ対応付け、選択済みproject targetとの一致を確認する。対応するmodelを一意に特定できない場合は推測せず停止する。
+
+resource限定scopeでは次の既存commandで正本を部分読み取りする。selectorはresource number（`001`など）、logical ID、anchorの完全一致とし、未一致・曖昧な選択は停止する。
+
+```console
+python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>
+```
+
+対象resourceと既存仕様上必要な同じgroupの親・子・兄弟、service metadata／notesだけを取得し、独自の抽出処理を追加しない。単一fileと分割入口indexの両方に同じcommandを使い、無関係なresourceや全partをcontextへ取り込まない。service全体のscopeならservice properties全体、「対象accountの承認済み設計すべて」なら対象service model群を使用できる。分割modelは既存`model_files.py`の入口indexとpart構成に従い、必要なpartだけを読む。
+
+読取対象はimplementation scopeのresource/propertyと参照解決に必要なproducer側propertiesへ絞る。追加取得にもproducerの`model_files.py --resource`を使い、変更scopeを広げない。target全Markdownをfallbackとして読むことは禁止する。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
 
@@ -53,9 +62,9 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 
 User inputとissue gateの確認後、active contract作成・IaC生成より前に、下記のCheck implementation support、Resolve implementation units、既存IaCとの照合をすべてread-onlyで行う。AWS API、IaC生成、deployは実行しない。既存のschema検証と依存関係確認を再利用し、新しい検証エンジンや承認工程を追加しない。
 
-1. 対象resourceの正本modelと生成設計の一致、CREATE／IMPORT、正式CFn型、必須property、未確定値を確認する。既存`validate-blueprint.py`の`Validator`による`check_design_tables`・`check_design_links`・`check_stack_designs`、read-onlyのmodel生成一致検証と`DesignSchemaCatalog.literal_errors`を使い、型・enum・pattern・長さ・範囲と補完されたAWS文字制約を確認する。前taskのValidation scopeを流用せず、対象serviceと必要な参照先を明示して検証する。日本語の表示用Commentは正式property値と区別し、不正値を自動翻訳・置換しない。
-2. resource/propertyの参照をたどり、必要な依存先の設計・model・anchor・logical/current identifier、受渡し値を確認し、利用するpropertyにも同じschema検証を適用する。既存のlink解決とResolve implementation unitsの依存確認を使い、参照先は必要なresource/propertyだけ読む。依存先調査で変更scopeや全service検証へ自動拡張しない。
-3. CloudFormationでは正本stack登録と生成設計を照合し、対象resourceの所有stack、template・parameterの対応、DeployOrder、共有templateの各stack instanceを確認する。既存templateのResources・Parameters・Outputs／Export／ImportValueと設計propertyの対応、parameter値／defaultの不足、参照先不明、dependency cycleを確認する。新規IaC fileの未作成自体は不足とせず、配置先と入力の設計が未確定なら不足にする。Terraformでは既存module・environment入力・outputの対応を確認する。
+1. 対象resourceの正本propertiesからCREATE／IMPORT、正式CFn型、必須property、未確定値を確認する。既存`model_design.validate_required_properties`と`DesignSchemaCatalog.literal_errors`などpropertiesに適用できるschema検証を再利用し、型・enum・pattern・長さ・範囲と補完されたAWS文字制約を確認する。前taskのValidation scopeを流用せず、対象serviceと必要な参照先を明示して検証する。日本語の表示用Commentは正式property値と区別し、不正値を自動翻訳・置換しない。
+2. properties内のresource/propertyの参照をたどり、必要な依存先のproperties・anchor・logical/current identifier、受渡し値を確認し、利用するpropertyにも同じschema検証を適用する。下記のpropertiesによるreference解決とResolve implementation unitsの依存確認を使い、参照先は必要なresource/propertyだけ読む。依存先調査で変更scopeや全service検証へ自動拡張しない。
+3. CloudFormationでは正本stack登録のpropertiesから対象resourceの所有stack、template・parameterの対応、DeployOrder、共有templateの各stack instanceを確認する。既存templateのResources・Parameters・Outputs／Export／ImportValueとpropertiesのdesired rowの対応、parameter値／defaultの不足、参照先不明、dependency cycleを確認する。新規IaC fileの未作成自体は不足とせず、配置先と入力の設計が未確定なら不足にする。Terraformでは既存module・environment入力・outputの対応を確認する。
 4. 確認可能な全対象と依存先の診断を集約し、`対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由`の不足一覧を一回でまとめて提示する。読取不能の対象はその理由を記載して他の確認を続け、最初の不足だけで報告を終えない。不足0件ならその結果と実装対象差分を報告し、追加承認を要求せず契約作成・実装へ進む。不足があれば実装せず、別のdesign taskが必要であることと未確認事項を示して停止する。設計・model・IaCをここで修正せず、別taskを自動作成・実行しない。
 
 ## Compare existing IaC before creating the contract
@@ -78,7 +87,7 @@ file変更前に、下記の実装対応確認とimplementation unit解決を行
 
 ## Check implementation support
 
-詳細設計に載るresourceと選択済みengineで実装可能なresourceを分けて確認する。CloudFormationでは実装scope内の各typeに`python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`を実行し、成功した正式型だけを使う。`Macie.ClassificationJob`はCFn非対応であり、Jobをtemplate、Outputs、`!Ref`へ変換しない。
+正本propertiesに載るresourceと選択済みengineで実装可能なresourceを分けて確認する。CloudFormationでは実装scope内の各typeに`python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`を実行し、成功した正式型だけを使う。`Macie.ClassificationJob`はCFn非対応であり、Jobをtemplate、Outputs、`!Ref`へ変換しない。
 
 Jobが要求scopeに含まれる場合は未実装対象として明示し、対応resourceだけの実装を要求全体の完了としない。既にCFn対応範囲へ限定されたtaskはその範囲で終了できる。非対応を理由にCustom Resource、別engine、API mutationを追加しない。
 
@@ -87,22 +96,22 @@ Jobが要求scopeに含まれる場合は未実装対象として明示し、対
 対象scopeから必要なtemplate/module、parameter、dependencyを特定する。既存boundaryと共通部品があれば再利用し、未使用resource、将来用module、compatibility layerは作成しない。
 
 CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従う。AWS service単位で機械的に分割しない。dependency cycle、parameter不足、参照先不明がある場合は、不足情報を報告して停止する。
-CloudFormationでは対象targetの正本`cloudformation-stacks.properties`と生成済み`cloudformation-stacks.md`を読み、StackName、templateのファイル名、個別parameterのファイル名、DeployOrder、MaxConcurrentStacksを特定する。DeployOrderをIaC resource dependencyへ変換せず、この機能のためにtemplateへDependsOnを追加しない。scope内resourceをどのtemplateへ配置するかは承認済みservice設計と既存IaCから確認し、曖昧な場合は推測で作らずdesign taskが必要であることを報告する。同じtemplateを複数stackで共用する場合もstackごとのparameterと生成resource名・Export名の一意性を確認する。
-CloudWatch Logs resourceとSecurity Groupは利用するresourceのtemplateへ含め、これらだけの単独templateを作らない。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateへ含める。同targetの設計resourceからRoleへの直接参照がなく、用途とAssumeRole元が詳細設計で確認できる場合は、Roleと付随するIAM Policy/ManagedPolicyだけの専用templateに置き、`Metadata`直下へ`RolePlacement: standalone`を宣言する。利用側resourceまたはRole専用stackの設計が不明なら推測せず停止する。
+CloudFormationでは対象targetの正本`model/<environment>/<target-directory>/cloudformation-stacks.properties`だけを読む。既存`desired.stack.*.name`からStackName、`.template`からtemplateのファイル名、`.parameters`から個別parameterのファイル名、`.deployOrder`からDeployOrder、`desired.deployment.maxConcurrentStacks`からMaxConcurrentStacksを取得する。省略時のMaxConcurrentStacksの実効値は既存契約どおり1とし、DeployOrderを推測しない。`cloudformation-stacks.md`は表示用generated artifactでありImplement inputとして読まない。DeployOrderをIaC resource dependencyへ変換せず、この機能のためにtemplateへDependsOnを追加しない。scope内resourceをどのtemplateへ配置するかは承認済みservice propertiesと既存IaCから確認し、曖昧な場合は推測で作らずdesign taskが必要であることを報告する。同じtemplateを複数stackで共用する場合もstackごとのparameterと生成resource名・Export名の一意性を確認する。
+CloudWatch Logs resourceとSecurity Groupは利用するresourceのtemplateへ含め、これらだけの単独templateを作らない。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateへ含める。同targetの設計resourceからRoleへの直接参照がなく、用途とAssumeRole元がservice propertiesで確認できる場合は、Roleと付随するIAM Policy/ManagedPolicyだけの専用templateに置き、`Metadata`直下へ`RolePlacement: standalone`を宣言する。利用側resourceまたはRole専用stackの設計が不明なら推測せず停止する。
 
-対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、設計linkと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
+対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、properties内のlogical referenceと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
 
 ## Implement and validate
 
-承認済みdesignと対応するservice modelだけをinputとして、選択済みengineの最小構成を実装する。
+承認済みdesignの機械可読inputであるauthoritative model propertiesだけを使用し、選択済みengineの最小構成を実装する。resource設定、tag、Name、policy document、identifier referenceはpropertiesの`desired.row.*`（JSON本文は`.document`）から取得し、generated Markdown／JSON artifactから値を再取得しない。
 
-詳細設計に記載されたtagはCloudFormation／Terraformへそのまま反映する。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`はprovider propertyとして出力せず、case-sensitiveな`Name` keyと同じvalueを持つtagへ変換する。対象resourceに対応する`.Name`とnon-empty valueがない場合だけ、値を推測せず別の`design` taskが必要であることを報告して停止する。
+propertiesのdesired rowに記載されたtagはCloudFormation／Terraformへそのまま反映する。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`はprovider propertyとして出力せず、case-sensitiveな`Name` keyと同じvalueを持つtagへ変換する。対象resourceに対応する`.Name`とnon-empty valueがない場合だけ、値を推測せず別の`design` taskが必要であることを報告して停止する。
 
-identifierを参照するMarkdown linkはanchorから参照先resourceのlogical IDを解決する。link表示textの`PENDING_DEPLOY`またはphysical IDをIaCへ直書きしない。後続resourceが必要とするcatalog `IDENTIFIER_OUTPUT`だけをCloudFormation OutputsまたはTerraform outputへ追加し、logical resource参照／resource attribute参照を維持する。generated ARNはobserved value用outputにしない。
+propertiesのdesired row／reference valueに保存された`[表示値](#anchor)`形式のlogical referenceは、同じmodelの`desired.resource.*.anchor`と`desired.resource.*.logicalId`から参照先を一意に解決する。`[表示値](<service>.md#anchor)`形式の別service参照もpath／file stemを対応するproducer model propertiesへ対応付け、必要なresourceだけを追加取得して同じmetadataから解決する。grouped resourceの`parentReference`もproperties内のanchorで解決する。参照先が不明・曖昧なら推測せず停止し、generated Markdown本文を読まない。link表示textの`PENDING_DEPLOY`またはphysical IDをIaCへ直書きしない。後続resourceが必要とするcatalog `IDENTIFIER_OUTPUT`だけをCloudFormation OutputsまたはTerraform outputへ追加し、logical resource参照／resource attribute参照を維持する。generated ARNはobserved value用outputにしない。
 
 CloudFormationの場合:
 
-1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用する。stack詳細設計に記載されたparameterのファイル名を`infra/cloudformation/parameters/<environment>/<target-directory>/`に配置し、その個別fileだけを変更する。template `Resources`のlogical IDと対象service設計resourceの対応を全stack instanceで照合する。
+1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用する。stack propertiesに記載されたparameterのファイル名を`infra/cloudformation/parameters/<environment>/<target-directory>/`に配置し、その個別fileだけを変更する。template `Resources`のlogical IDと対象service propertiesのresourceの対応を全stack instanceで照合する。
 2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、設計logical IDとの対応、template内参照、export/importの一致と一意性を確認する。`Resources`配下のresource間には1行以上の空行を入れる。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
 3. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 4. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
@@ -118,7 +127,7 @@ static validationが失敗した場合は根本原因を調査する。確定済
 ## Verify and finish
 
 1. 選択済みIaCのlocal static validation結果を確認する。成功後に対象IaC・parameter・依存入力が変わっていなければ再実行しない。
-2. `python framework/scripts/blueprint-loop.py --mode task`を一回実行する。差分checkもこのloopに含まれる。
+2. `python framework/scripts/blueprint-loop.py --mode task`を一回実行する。propertiesとgenerated Markdown／JSON artifactの一致は、この既存local loopが`validate-blueprint.py`とread-onlyの`sync-model.py`で確認し、不一致ならFAILとする。既存`check_design_tables`・`check_design_links`・`check_stack_designs`による表示・参照・stack検証も維持する。AgentがMarkdownを事前読込・比較しなくても、これらのvalidationを省略・弱体化せず、不一致を無視して完了しない。差分checkもこのloopに含まれる。
 
 成功した対象検証の後に追加の全体検証を行わない。再実行は修正、新しい失敗、未解決の懸念がある場合だけとし、tool待機timeoutでは同じ実行を追跡する。
 
