@@ -57,7 +57,7 @@ def text(values):
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown_for(path, values, root), encoding="utf-8")
-    projected = properties(SYNC.model_for(path, root))
+    projected = properties(SYNC.model_for(path, root, source=values))
     expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
@@ -1066,7 +1066,7 @@ def check_stack_mapping_roundtrip():
         # Terraform needs neither a generic logicalId nor a CFn identity.
         rendered = roundtrip(path, values, root)
         assert "cfn-logical-id:" not in rendered
-        assert "desired.resource.001.logicalId" not in SYNC.model_for(path, root)
+        assert "desired.resource.001.logicalId" not in SYNC.model_for(path, root, source=values)
         project = root / "project.json"
         project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}) + "\n")
         roundtrip(path, values, root)
@@ -1092,8 +1092,7 @@ def check_stack_mapping_roundtrip():
         rendered = roundtrip(path, values, root)
         assert cfn_resource_identity(values["desired.resource.001.cfn-logicalId"]) == ("cfn-stack-app-dev-ism", "DepartmentVpc")
         assert "cfn-logical-id:" not in rendered
-        assert "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->" in rendered
-        assert "<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->" in rendered
+        assert "resource-entry:" not in rendered and "resource-mode:" not in rendered
         SYNC.validate_views(root, root, [path], {path: values})
         for invalid in ("", "invalid", "stack-resource", "stack-Bad_Id", "stack-Resource-With-Hyphens", " stack-Resource", "stack-Resource "):
             try:
@@ -1103,23 +1102,23 @@ def check_stack_mapping_roundtrip():
             else:
                 # Hyphens are valid inside StackName; only its final segment is the resource ID.
                 assert invalid == "stack-Resource-With-Hyphens"
-        for candidate in (rendered.replace("<!-- resource-entry: ec2-vpc-app-dev-data 001 -->", ""),
-                          rendered.replace("ec2-vpc-app-dev-data 001 -->", "ec2-vpc-app-dev-data 002 -->")):
+        for candidate in (rendered.replace('id="ec2-vpc-app-dev-data"', 'id="ec2-missing"'),
+                          rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
             path.write_text(candidate)
             try:
                 SYNC.validate_views(root, root, [path], {path: values})
             except ValueError as error:
-                assert "projection mismatch" in str(error), error
+                assert "projection mismatch" in str(error) or "absent from authoritative model" in str(error), error
             else:
-                raise AssertionError("identity metadata change silently accepted")
+                raise AssertionError("anchor/property change silently accepted")
         path.write_text(rendered)
         try:
             SYNC.imported_model(path, root)
         except ValueError as error:
-            assert "cfn-logicalId unavailable in Markdown" in str(error), error
+            assert "unavailable in Markdown" in str(error), error
         else:
             raise AssertionError("CFn identity lost during Markdown import")
-        legacy = rendered + "<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
+        legacy = rendered + "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->\n<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->\n<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
         path.write_text(legacy)
         assert not any(key.endswith(".cfn-logicalId") for key in properties(SYNC.model_for(path, root)))
         assert properties(SYNC.imported_model(path, root)) == values
@@ -1161,9 +1160,22 @@ def check_stack_mapping_roundtrip():
                     "desired.resource.021.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.021.parentReference": f"[007](#{anchor})",
                     "desired.row.021-001.property": "KMS.Alias.AliasName", "desired.row.021-001.value": "`alias/app-dev-data`", "desired.row.021-001.comment": "keyを識別するalias"})
         grouped = roundtrip(kms_path, kms, root)
-        assert "<!-- resource-entry: kms-alias-app-dev-data 021 -->" in grouped
+        assert "resource-entry:" not in grouped and "resource-mode:" not in grouped
         assert "cfn-logical-id:" not in grouped
         SYNC.validate_views(root, root, [kms_path], {kms_path: kms})
+        # The normal parser reads indexed models without renumbering grouped children.
+        from model_files import INDEX_HEADER, PART_PREFIX
+        kms_source = stack_source.with_name("kms.properties")
+        part = kms_source.with_suffix("") / "part-001.properties"
+        part.parent.mkdir()
+        part.write_text(text(kms), encoding="utf-8")
+        kms_source.write_text(INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n", encoding="utf-8")
+        before = {file: file.read_bytes() for file in (kms_source, part, stack_source)}
+        assert properties(SYNC.model_for(kms_path, root)) == {key: value for key, value in kms.items()
+                                                            if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
+        assert SYNC.sync(root, True, "dev", "123456789012", services=["kms"]) == 0
+        assert SYNC.sync(root, False, "dev", "123456789012", services=["kms"]) == 0
+        assert {file: file.read_bytes() for file in before} == before
         # Stack identity is owned by each resource; a separate mapping table is rejected.
         stacks = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "shared.yaml",
                   "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10"}

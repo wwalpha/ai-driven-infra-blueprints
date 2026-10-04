@@ -1577,7 +1577,10 @@ def check_stack_mapping_targets():
         root = Path(directory)
         path = root / "docs/designs/dev/123456789012/iam.md"
         path.parent.mkdir(parents=True)
-        path.write_text('<!-- resource-entry: iam-confirmed-role 007 -->\n<a id="iam-confirmed-role"></a>\n')
+        path.write_text('<a id="iam-confirmed-role"></a>\n')
+        model = root / "model/dev/123456789012/iam.properties"
+        model.parent.mkdir(parents=True)
+        model.write_text('desired.resource.007.resourceType=IAM.Role\ndesired.resource.007.anchor=iam-confirmed-role\n')
         validator = MODULE.Validator(root)
         validator.check_markdown_iam_policy_artifacts(path, "007", [["1", "AssumeRolePolicyDocument", "[Trust](iam/confirmed-role-trust-policy.json)", "信頼ポリシー"]])
         assert not validator.errors, validator.errors

@@ -688,10 +688,6 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
             raise ValueError(f"{kind}: {resource['logicalId']}: too many grouped children for {parent[1]['logicalId']}: {resource['parentProperty']}")
     output = [values["display.service.title"], "", f"- Design service ID: `{service}`",
               "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned)]
-    output += [f'<!-- resource-mode: {resource["anchor"]} {resource_mode(resource)} -->'
-               for _, resource in resources if "resourceMode" in resource]
-    output += [f'<!-- resource-entry: {resource["anchor"]} {identity} -->'
-               for identity, resource in resources if f"desired.resource.{identity}.logicalId" not in values]
     output += ["", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
         items = [item for item in independent if item[1]["resourceType"] == kind]

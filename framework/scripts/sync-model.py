@@ -25,7 +25,7 @@ from policy_tables import without_policy_tables, rendered_design, resources_in, 
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties, validate_kms_policy_accounts, design_target
 from model_files import read_model, model_parts, model_file_contents
 from validation_cache import input_scope, memoized
-from design_layout import resource_mode, resource_modes
+from design_layout import resource_mode, resource_modes, design_model_values
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -94,7 +94,7 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
     return matches[0]
 
 
-def model_for(path: Path, root: Path | None = None, *, import_cfn_ids: bool = False) -> str:
+def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None, import_cfn_ids: bool = False) -> str:
     """Read-only projection for verification and explicit migration; never save it by default."""
     if path.name == STACK_DESIGN:
         from design_layout import stack_delivery
@@ -112,9 +112,12 @@ def model_for(path: Path, root: Path | None = None, *, import_cfn_ids: bool = Fa
         return "\n".join(output) + "\n"
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
-    modes = resource_modes(lines)
+    if source is None and root is not None and not import_cfn_ids:
+        source = design_model_values(path, root)
+    modes = resource_modes(lines, source)
     from design_layout import resource_identity_metadata
-    resource_numbers, cfn_ids = resource_identity_metadata(lines, import_cfn_ids=import_cfn_ids)
+    resource_numbers, cfn_ids = resource_identity_metadata(lines, values=source, import_cfn_ids=import_cfn_ids)
+    model_numbers = {resource["anchor"]: identity for identity, resource in entries(source, "desired.resource.")} if source is not None else {}
     lines = [line for line in lines if not line.startswith(("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))]
     identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
@@ -150,7 +153,11 @@ def model_for(path: Path, root: Path | None = None, *, import_cfn_ids: bool = Fa
             current_logical_id = identities.get(match.groups(), current_logical_id)
             current_anchor = pending_anchor
             resource_anchors.add(current_anchor)
-            key = resource_numbers.get(current_anchor, f"{resource_number:03d}")
+            if source is not None and current_anchor not in model_numbers:
+                raise ValueError(f"resource anchor is absent from authoritative model: {current_anchor}")
+            if import_cfn_ids and current_anchor not in resource_numbers and re.fullmatch(r"[0-9]{3}", identities.get(match.groups(), "")):
+                raise ValueError("resource entry/resourceMode unavailable in Markdown; preserve the authoritative model instead of importing")
+            key = model_numbers.get(current_anchor, resource_numbers.get(current_anchor, f"{resource_number:03d}"))
             current_resource_number = key
             output.extend(
                 (
@@ -568,8 +575,8 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]]) -> None:
     """Use the existing parsers/schema validator before touching any saved view."""
     for path in paths:
-        actual = properties(model_for(path, root))
         source = sources[root / path.relative_to(stage)]
+        actual = properties(model_for(path, root, source=source))
         # CFn identity is model-only and has no Markdown projection.
         formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
@@ -590,6 +597,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     if not paths:
         return
     validator = view_validator(stage, root)
+    validator.design_sources = {path: sources[root / path.relative_to(stage)] for path in paths}
     validator.check_project_topology()
     for path in paths:
         validator.check_target_file(path, stage / "docs/designs")

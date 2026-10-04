@@ -45,7 +45,7 @@ userが一度に複数のinputを提示した場合は有効な値を採用し�
 
 `framework/rules/model-information.md`と`detailed-design.md`のresourceMode契約に従う。CREATE（既存modelの未指定を含む）には以下のframework命名・mandatory Name policyを従来どおり適用する。IMPORTでは取得したactual/current名称・設定を保持し、framework命名不一致とName tag不存在をblockerにしない。Name tagや仮値の追加・rename・AWS設定変更は行わない。Name tagの現在値確認は不存在も有効な結果とし、存在する場合だけ従来の正式row／design-only .Nameに保持する。不存在時の表示は既存display labelまたは6種類のName tag対象型の単一resourceでの型名表示を使う。表示labelをAWS propertyへ変換しない。
 
-resourceModeはpropertiesのresource metadataと生成Markdownの非表示resource-mode markerへ保持し、AWS property表へ入れない。IMPORTはIaC生成対象外で、CloudFormation Resource Import／Terraform importを行わない。schema・構造・参照の検証と出自を保存しない方針は維持する。
+resourceModeとresource番号はpropertiesのresource metadataで管理し、生成Markdownへresource-mode／resource-entryコメントを出力しない。通常の表示検証はanchorでmodelを参照し、AWS property表へmetadataを入れない。IMPORTはIaC生成対象外で、CloudFormation Resource Import／Terraform importを行わない。schema・構造・参照の検証と出自を保存しない方針は維持する。
 
 ## CFn非対応の設計対象
 

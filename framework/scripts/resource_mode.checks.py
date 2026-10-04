@@ -84,6 +84,8 @@ def main():
             assert source.read_text(encoding="utf-8") == original
             projected = properties(SYNC.model_for(path, root))
             assert projected == {key: value for key, value in values.items() if not key.startswith("display.")}
+            assert "resource-mode:" not in path.read_text(encoding="utf-8")
+            assert "resource-entry:" not in path.read_text(encoding="utf-8")
             return ""
 
         # Required cases exercise the generator, schema/catalog validator and projection.
@@ -151,18 +153,22 @@ def main():
         marker = "<!-- resource-mode: ec2-private_subnet_01 IMPORT -->"
         for replacement in (marker + "\n" + marker, marker.replace("IMPORT", "REFERENCE"), marker.replace("private_subnet_01", "missing")):
             try:
-                resource_modes(original.replace(marker, replacement).splitlines())
+                resource_modes((original + replacement + "\n").splitlines())
             except ValueError:
                 pass
             else:
                 raise AssertionError("invalid resourceMode metadata accepted")
-        path.write_text(original.replace(marker, marker.replace("IMPORT", "CREATE")), encoding="utf-8")
+        # Legacy comments cannot override the authoritative mode during verification.
+        stale = original + marker.replace("IMPORT", "CREATE") + "\n"
+        assert resource_modes(stale.splitlines(), imported)["ec2-private_subnet_01"] == "IMPORT"
+        path.write_text(stale, encoding="utf-8")
+        SYNC.validate_views(root, root, [path], {path: imported})
         try:
-            SYNC.validate_views(root, root, [path], {path: imported})
+            SYNC.sync(root, False, "dev", "123456789012", services=["ec2"])
         except ValueError as error:
-            assert "projection mismatch" in str(error)
+            assert "stale or missing" in str(error), error
         else:
-            raise AssertionError("model/display mode mismatch accepted")
+            raise AssertionError("stale generated view accepted")
         # Coverage-only exemption does not waive confirmed actual name checks.
         rows = [["1", "CachePolicyConfig.Name", "LEGACY", "名前"]]
         assert naming_errors(root, "CloudFront.CachePolicy", rows)
@@ -203,7 +209,7 @@ def main():
             "desired.row.002-001.comment": "鍵を識別するalias",
         }
         kms_path.write_text(markdown_for(kms_path, kms, root), encoding="utf-8")
-        assert properties(SYNC.model_for(kms_path, root)) == {
+        assert properties(SYNC.model_for(kms_path, root, source=kms)) == {
             key: value for key, value in kms.items() if not key.startswith("display.")
         }
         assert "### KMS.Alias" not in kms_path.read_text(encoding="utf-8")

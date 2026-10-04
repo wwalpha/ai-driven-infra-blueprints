@@ -1296,6 +1296,11 @@ class Validator:
     def is_policy_document_property(property_name: str) -> bool:
         return property_name in POLICY_FORMATS
 
+    def design_model_values(self, path: Path) -> dict[str, str] | None:
+        from design_layout import design_model_values
+        sources = getattr(self, "design_sources", {})
+        return sources[path] if path in sources else design_model_values(path, self.root)
+
     def check_markdown_iam_policy_artifacts(
         self, path: Path, logical_id: str, rows: list[list[str]]
     ) -> None:
@@ -1304,7 +1309,7 @@ class Validator:
             return
         target = (relative.parts[0], relative.parts[1])
         from design_layout import resource_identity_metadata
-        entry_numbers, _ = resource_identity_metadata(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else ({}, {})
+        entry_numbers, _ = resource_identity_metadata(path.read_text(encoding="utf-8").splitlines(), values=self.design_model_values(path)) if path.is_file() else ({}, {})
         legacy = logical_id not in entry_numbers.values()
         properties = [row[1].removeprefix("IAM.Role.") for row in rows]
 
@@ -1349,11 +1354,11 @@ class Validator:
             lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
             try:
                 identities = resource_logical_ids(lines)
-                modes = resource_modes(lines)
+                values = self.design_model_values(path)
+                modes = resource_modes(lines, values)
                 lines = security_group_table_lines(lines)
                 lines = expanded_display_rows(lines)
-                model_path = (self.root / "model" / path.relative_to(self.root / "docs/designs")).with_suffix(".properties")
-                values = properties(read_model(model_path)) if model_path.is_file() else {}
+                values = values or {}
                 labels = {
                     (resource.get("resourceType"), resource.get("logicalId"), label)
                     for identity, resource in entries(values, "desired.resource.")
@@ -1422,7 +1427,7 @@ class Validator:
             lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
             try:
                 identities = resource_logical_ids(lines)
-                modes = resource_modes(lines)
+                modes = resource_modes(lines, self.design_model_values(path))
                 heading_modes = {}
                 anchor = ""
                 for line in lines:

@@ -17,7 +17,7 @@ catalog propertiesを項目の正本、model propertiesを設計値の正本と�
 
 ## Resource management mode
 
-`model-information.md`の`desired.resource.<nnn>.resourceMode=CREATE|IMPORT`を使用する。未指定はCREATE互換とする。CREATE／IMPORTとも実際の設計値を同じ詳細表へ保持する。resourceModeはframework metadataとしてservice metadata後の非表示`<!-- resource-mode: <resource-anchor> CREATE -->`／`IMPORT`へ生成し、AWS property表には入れない。
+`model-information.md`の`desired.resource.<nnn>.resourceMode=CREATE|IMPORT`を使用する。未指定はCREATE互換とする。CREATE／IMPORTとも実際の設計値を同じ詳細表へ保持する。resourceModeは正本propertiesのframework metadataだけへ保持する。Markdownへresource-mode／resource-entryコメントを生成せず、表示検証はanchorでmodelの区分と番号を参照する。AWS property表には入れない。
 
 IMPORTは許可されたread-only取得で選択済みAWS actual/current configurationを取得し、propertiesと詳細設計へ保持する。framework naming conventionに不一致でも名称・値をそのまま保存し、AWS resourceを変更せず、IaC生成対象にしない。CloudFormation Resource Import／Terraform importとは別概念で、provenanceは保存しない。
 

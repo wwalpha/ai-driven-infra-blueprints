@@ -163,8 +163,24 @@ def resource_mode(resource: dict[str, str]) -> str:
     return mode
 
 
-def resource_modes(lines: list[str]) -> dict[str, str]:
-    """Read explicit mode metadata by anchor, including identified grouped children."""
+def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
+    """Read the authoritative service model, including indexed parts, if present."""
+    from model_files import read_model
+    from model_design import properties
+    try:
+        relative = path.relative_to(root / "docs/designs")
+    except ValueError:
+        return None
+    source = (root / "model" / relative).with_suffix(".properties")
+    return properties(read_model(source)) if source.is_file() else None
+
+
+def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
+    """Use model modes for validation; read legacy comments only without a model."""
+    if values is not None:
+        from model_design import entries
+        return {resource["anchor"]: resource_mode(resource)
+                for _, resource in entries(values, "desired.resource.") if "resourceMode" in resource}
     modes = {}
     anchors = set(ANCHOR.findall("\n".join(lines)))
     for line in lines:
@@ -343,8 +359,12 @@ def stack_delivery(path: Path) -> dict[str, str]:
     return result
 
 
-def resource_identity_metadata(lines, *, import_cfn_ids=False):
-    """Read entry numbers; read legacy CFn comments only for explicit migration."""
+def resource_identity_metadata(lines, *, values=None, import_cfn_ids=False):
+    """Use model entry identities; legacy comments remain explicit-import input."""
+    if values is not None:
+        from model_design import entries
+        return ({resource["anchor"]: identity for identity, resource in entries(values, "desired.resource.")
+                 if f"desired.resource.{identity}.logicalId" not in values}, {})
     anchors = set(ANCHOR.findall("\n".join(lines)))
     result = {"resource-entry": {}, "cfn-logical-id": {}}
     for line in lines:
