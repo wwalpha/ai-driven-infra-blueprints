@@ -122,7 +122,7 @@ def align_resources(sides: list[dict], mappings: list[dict], service: str, absen
                                "resourceType": identity[0], "logicalId": identity[1],
                                "resourceMode": mode["value"] if mode else "CREATE",
                                "reason": "IMPORT" if identity in imported[index] else "corresponding resource is IMPORT",
-                               "evidence": evidence(mode or sides[index][("resource", *identity, "logicalId")])})
+                               "evidence": evidence(mode or sides[index][("resource", *identity, "resourceType")])})
     for match in matches:
         match["excluded"] = any((match["resourceType"], match[side]) in excluded[index]
                                 for index, side in enumerate(("left", "right")))
@@ -173,7 +173,7 @@ def comparison_fields(fields: dict, translations: dict, service: str, references
             continue  # Derived document digest, not an independent setting.
         if key[0] in {"resource", "row"}:
             identity = translations.get(key[1:3])
-            if identity is None or key[0] == "resource" and key[-1] in {"logicalId", "anchor", "resourceMode"}:
+            if identity is None or key[0] == "resource" and key[-1] in {"logicalId", "cfn-logicalId", "anchor", "resourceMode"}:
                 continue
             key = (key[0], *identity, *key[3:])
         # Preserve literals, names and artifact paths; only resolved Markdown references

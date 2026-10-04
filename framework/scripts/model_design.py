@@ -61,6 +61,12 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
             if not separator:
                 raise ValueError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
+    if prefix == "desired.resource.":
+        for identity, fields in groups.items():
+            # Legacy identity remains readable; new models use their entry number internally.
+            fields.setdefault("logicalId", identity)
+            if "cfn-logicalId" in fields:
+                cfn_resource_identity(fields["cfn-logicalId"])
     result = sorted(groups.items())
     if memo is not None:
         # Hold the immutable invocation input so object IDs cannot be recycled.
@@ -94,9 +100,8 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
             if path.name != stack[field] or "\\" in stack[field] or path.suffix not in suffixes:
                 raise ValueError(f"invalid stack {field} filename: {stack[field]}")
     deployment_settings(values)
-    stack_resource_mappings(values)
     unknown = [key for key in values if key.startswith("desired.") and
-               not key.startswith(("desired.stack.", "desired.artifact.", "desired.mapping.")) and
+               not key.startswith(("desired.stack.", "desired.artifact.")) and
                key not in {"desired.deployment." + field for field in
                            ("maxConcurrentStacks", "templateBucket", "templateKeyPrefix")}]
     if unknown:
@@ -104,28 +109,12 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     return limit, sorted(stacks, key=lambda entry: (int(entry[1]["deployOrder"]), entry[1]["name"]))
 
 
-MAPPING_FIELDS = ("stack", "resource", "service", "logicalId")
-
-
-def stack_resource_mappings(values):
-    """Keep model identity separate from the template's logical ID, keyed by StackName."""
-    declarations = entries(values, "desired.mapping.")
-    names = {stack.get("name") for _, stack in entries(values, "desired.stack.")}
-    seen = set()
-    for identity, mapping in declarations:
-        if not re.fullmatch(r"[0-9]{3}", identity) or set(mapping) != set(MAPPING_FIELDS):
-            raise ValueError(f"mapping {identity} requires only {list(MAPPING_FIELDS)} and a three-digit entry ID")
-        if not all(value and value == value.strip() and not any(c in value for c in "|`\r\n\0") for value in mapping.values()):
-            raise ValueError(f"invalid mapping value: {identity}")
-        if mapping["stack"] not in names or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", mapping["resource"]):
-            raise ValueError(f"invalid mapping stack/resource: {identity}")
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", mapping["service"]) or mapping["service"] == "cloudformation-stacks":
-            raise ValueError(f"invalid mapping service: {identity}")
-        key = (mapping["stack"], mapping["resource"])
-        if key in seen:
-            raise ValueError(f"duplicate stack resource mapping: {key}")
-        seen.add(key)
-    return declarations
+def cfn_resource_identity(value):
+    """A hyphen cannot occur in a template resource ID, so the final one is unambiguous."""
+    stack, separator, logical = value.rpartition("-")
+    if not separator or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack) or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", logical):
+        raise ValueError(f"invalid cfn-logicalId (expected StackName-TemplateResourceId): {value!r}")
+    return stack, logical
 
 
 ARTIFACT_FIELDS = ("stack", "resource", "property", "source", "bucket", "keyPrefix")
@@ -515,20 +504,13 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                 deployment_bucket(settings["templateBucket"], path, root)
             for _, artifact in artifacts:
                 deployment_bucket(artifact["bucket"], path, root)
-        mapping_view = []
-        declarations = stack_resource_mappings(values)
-        if declarations:
-            mapping_view = ["", "## Resource対応", "", "| No. | StackName | CFnLogicalId | ModelService | ModelLogicalId |",
-                            "| ---: | --- | --- | --- | --- |"]
-            mapping_view += ["| " + " | ".join([identity] + [mapping[field] for field in MAPPING_FIELDS]) + " |"
-                             for identity, mapping in declarations]
         return "\n".join(["# CloudFormation stack 詳細設計", "",
             f"<!-- max-concurrent-stacks: {limit} -->", "",
             "## Stack一覧", "", "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",
             "| ---: | ---: | --- | --- | --- | --- |", *[
                 "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],
                     stack["parameters"], values[f"display.stack.{identity}.comment"]]) + " |"
-                for number, (identity, stack) in enumerate(stacks, 1)], *delivery, *mapping_view]) + "\n"
+                for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")
@@ -536,6 +518,40 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
+    project = root / "project.json"
+    relative = path.parent.relative_to(root / "docs/designs") if path.is_relative_to(root / "docs/designs") else None
+    target = {}
+    if project.is_file() and relative is not None and len(relative.parts) == 2:
+        environment, directory = relative.parts
+        target = next((item for item in json.loads(project.read_text(encoding="utf-8")).get("targets", [])
+                       if item.get("environment") == environment and item.get("alias", item.get("awsAccountId")) == directory), {})
+    stack_source = root / "model" / relative / "cloudformation-stacks.properties" if relative is not None else None
+    stack_names = None
+    identity_catalog = DesignSchemaCatalog(root)
+    for identity, resource in resources:
+        if "cfn-logicalId" not in resource:
+            if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE" and f"desired.resource.{identity}.logicalId" not in values:
+                try:
+                    cfn_type = identity_catalog.cloudformation_type(resource["resourceType"])
+                except ValueError:
+                    cfn_type = None  # API-only design resources have no CFn identity.
+                if cfn_type:
+                    raise ValueError(f"{identity}: cfn-logicalId required for CloudFormation CREATE resource")
+            continue
+        if target.get("iacEngine") == "terraform":
+            raise ValueError(f"{identity}: cfn-logicalId is forbidden for Terraform")
+        if resource_mode(resource) != "CREATE":
+            raise ValueError(f"{identity}: cfn-logicalId requires CREATE with a formal CFn type")
+        identity_catalog.cloudformation_type(resource["resourceType"])
+        if target.get("iacEngine") == "cloudformation" and (stack_source is None or not stack_source.is_file()):
+            raise ValueError(f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties")
+        if stack_source is not None and stack_source.is_file():
+            if stack_names is None:
+                from model_files import read_model
+                _, stacks = stack_model(properties(read_model(stack_source)))
+                stack_names = {stack["name"] for _, stack in stacks}
+            if cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
+                raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
     counts = Counter(resource["resourceType"] for _, resource in resources)
     by_anchor = {}
     details = []
@@ -549,7 +565,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         configured_name = None if rule_table else resource_display_name(
             kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label"), mode
         )
-        name = resource["logicalId"] if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
+        name = (values.get(f"display.resource.{identity}.label") or resource["logicalId"]) if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
         type_display = not rule_table and configured_name is None and (name is None or name == kind)
         if type_display:
             if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
@@ -596,6 +612,10 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
               "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned)]
     output += [f'<!-- resource-mode: {resource["anchor"]} {resource_mode(resource)} -->'
                for _, resource in resources if "resourceMode" in resource]
+    output += [f'<!-- resource-entry: {resource["anchor"]} {identity} -->'
+               for identity, resource in resources if f"desired.resource.{identity}.logicalId" not in values]
+    output += [f'<!-- cfn-logical-id: {resource["anchor"]} {resource["cfn-logicalId"]} -->'
+               for _, resource in resources if "cfn-logicalId" in resource]
     output += ["", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
         items = [item for item in independent if item[1]["resourceType"] == kind]

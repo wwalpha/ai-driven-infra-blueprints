@@ -94,9 +94,9 @@ def resource_keys(text: str, selector: str) -> set[str]:
     values = properties(text)
     resources = dict(entries(values, "desired.resource."))
     matches = [identity for identity, resource in resources.items()
-               if selector and selector in (identity, resource.get("logicalId"), resource.get("anchor"))]
+               if selector and selector in (identity, resource.get("logicalId"), resource.get("cfn-logicalId"), resource.get("anchor"))]
     if len(matches) != 1:
-        raise ValueError(f"resource selector must match exactly one number, logical ID or anchor: {selector!r} ({len(matches)} matches)")
+        raise ValueError(f"resource selector must match exactly one number, cfn-logicalId, legacy logical ID or anchor: {selector!r} ({len(matches)} matches)")
     anchors: dict[str, list[str]] = {}
     for identity, resource in resources.items():
         if anchor := resource.get("anchor"):

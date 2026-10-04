@@ -850,60 +850,96 @@ def check_stack_policy():
 
 
 def check_stack_mapping_roundtrip():
-    from model_design import stack_resource_mappings
-    from design_layout import stack_mapping, stack_delivery
+    from model_design import cfn_resource_identity
+    from design_layout import resource_identity_metadata
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
-        values = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "shared.yaml",
-                  "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10",
-                  "display.stack.001.comment": "部署用リソースを配置するstack"}
-        for identity, logical, model_id in (("007", "DepartmentPiiBucket", "ism-pii"), ("021", "DepartmentVpc", "ism-network")):
-            values.update({f"desired.mapping.{identity}.{key}": value for key, value in
-                          {"stack": values["desired.stack.001.name"], "resource": logical, "service": "s3" if identity == "007" else "ec2", "logicalId": model_id}.items()})
-        path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-        path.parent.mkdir(parents=True)
-        path.write_text(markdown_for(path, values, root), encoding="utf-8")
-        projected = properties(SYNC.model_for(path, root))
-        assert stack_resource_mappings(projected) == stack_resource_mappings(values)
-        assert "| 007 |" in path.read_text() and "| 021 |" in path.read_text()
-        assert stack_mapping(path) == {key: value for key, value in values.items() if key.startswith("desired.mapping.")}
-        assert len(stack_design(path)) == 1 and stack_delivery(path) == {}
-        before = path.read_text()
-        path.write_text(before.replace("ism-pii", "ced-pii"))
+        path = root / "docs/designs/dev/123456789012/ec2.md"
+        values = model("ec2", "EC2.VPC", "vpc-app-dev-data", [
+            ("Name", "`vpc-app-dev-data`", "ネットワークの名称"),
+            ("VpcId", "[001](#ec2-vpc-app-dev-data)", "ネットワークのID"),
+            ("CidrBlock", "`10.0.0.0/16`", "ネットワークの範囲")])
+        del values["desired.resource.001.logicalId"]
+        values.update({"observed.row.001-002.property": "EC2.VPC.VpcId",
+                       "observed.row.001-002.value": "`PENDING_DEPLOY`",
+                       "observed.row.001-002.comment": "ネットワークのID"})
+        # Terraform needs neither a generic logicalId nor a CFn identity.
+        rendered = roundtrip(path, values, root)
+        assert "cfn-logical-id:" not in rendered
+        assert "desired.resource.001.logicalId" not in SYNC.model_for(path, root)
+        project = root / "project.json"
+        project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}))
+        roundtrip(path, values, root)
+        values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-ism-DepartmentVpc"
         try:
-            SYNC.validate_views(root, root, [path], {path: values})
+            markdown_for(path, values, root)
         except ValueError as error:
-            assert "projection mismatch" in str(error)
+            assert "forbidden for Terraform" in str(error)
         else:
-            raise AssertionError("mapping change lost during projection verification")
-        path.write_text(before)
-        for field, value in (("stack", "missing"), ("resource", "invalid-id"), ("service", "../s3"), ("logicalId", " ")):
+            raise AssertionError("Terraform accepted CFn metadata")
+        project.write_text(project.read_text().replace('"terraform"', '"cloudformation"'))
+        stack_source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+        stack_source.parent.mkdir(parents=True)
+        stack_source.write_text("\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
+                                          for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()))
+        without_id = {key: value for key, value in values.items() if not key.endswith(".cfn-logicalId")}
+        try:
+            markdown_for(path, without_id, root)
+        except ValueError as error:
+            assert "cfn-logicalId required" in str(error)
+        else:
+            raise AssertionError("new CloudFormation model has no stack/resource ID")
+        rendered = roundtrip(path, values, root)
+        assert cfn_resource_identity(values["desired.resource.001.cfn-logicalId"]) == ("cfn-stack-app-dev-ism", "DepartmentVpc")
+        assert "cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc" in rendered
+        for invalid in ("", "invalid", "stack-resource", "stack-Bad_Id", "stack-Resource-With-Hyphens", " stack-Resource", "stack-Resource "):
             try:
-                stack_model(values | {"desired.mapping.007." + field: value})
+                cfn_resource_identity(invalid)
             except ValueError:
                 pass
             else:
-                raise AssertionError("invalid mapping accepted: " + field)
-        duplicated = {key.replace(".007.", ".008."): value for key, value in values.items() if key.startswith("desired.mapping.007.")}
+                # Hyphens are valid inside StackName; only its final segment is the resource ID.
+                assert invalid == "stack-Resource-With-Hyphens"
+        for candidate in (rendered.replace("ism-DepartmentVpc -->", "ism-OtherVpc -->"),
+                          rendered.replace("<!-- resource-entry: ec2-vpc-app-dev-data 001 -->", "")):
+            path.write_text(candidate)
+            try:
+                SYNC.validate_views(root, root, [path], {path: values})
+            except ValueError as error:
+                assert "projection mismatch" in str(error), error
+            else:
+                raise AssertionError("identity metadata change silently accepted")
         try:
-            stack_model(values | duplicated)
-        except ValueError as error:
-            assert "duplicate stack resource" in str(error)
+            resource_identity_metadata(rendered.splitlines() + ["<!-- cfn-logical-id: absent stack-Resource -->"])
+        except ValueError:
+            pass
         else:
-            raise AssertionError("duplicate correspondence accepted")
-        # Delivery and mapping appendices coexist without consuming each other's rows.
-        artifact = {"stack": values["desired.stack.001.name"], "resource": "Function", "property": "Code",
-                    "source": "infra/cloudformation/artifacts/function.zip", "bucket": "[bucket](s3.md#s3-bucket)", "keyPrefix": "zip/"}
-        delivery = {f"desired.artifact.001.{key}": value for key, value in artifact.items()}
-        bucket = root / "model/dev/123456789012/s3.properties"
-        bucket.parent.mkdir(parents=True)
-        bucket.write_text("desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.anchor=s3-bucket\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`bucket`\n")
-        path.write_text(markdown_for(path, values | delivery, root))
-        assert stack_mapping(path) == {key: value for key, value in values.items() if key.startswith("desired.mapping.")}
-        assert stack_delivery(path) == delivery
-        assert len(stack_design(path)) == 1
-    print("Stack mapping model checks: PASS (entry IDs, exact projection, invalid mappings, delivery coexistence)")
+            raise AssertionError("orphan CFn marker accepted")
+        # Independent numbering survives grouped display order; Key and Alias each have a CFn ID.
+        kms_path = path.with_name("kms.md")
+        anchor = "kms-app-dev-data"
+        kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", f"[007](#{anchor})", "一意に識別するID")], label="app-dev-data")
+        kms = {key.replace(".001", ".007"): value for key, value in kms.items() if not key.endswith(".logicalId")}
+        kms.update({"desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
+                    "desired.resource.007.cfn-logicalId": "cfn-stack-app-dev-key-Key",
+                    "observed.row.007-001.property": "KMS.Key.KeyId", "observed.row.007-001.value": "`PENDING_DEPLOY`", "observed.row.007-001.comment": "一意に識別するID",
+                    "desired.resource.021.resourceType": "KMS.Alias", "desired.resource.021.anchor": "kms-alias-app-dev-data",
+                    "desired.resource.021.cfn-logicalId": "cfn-stack-app-dev-key-Alias",
+                    "desired.resource.021.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.021.parentReference": f"[007](#{anchor})",
+                    "desired.row.021-001.property": "KMS.Alias.AliasName", "desired.row.021-001.value": "`alias/app-dev-data`", "desired.row.021-001.comment": "keyを識別するalias"})
+        grouped = roundtrip(kms_path, kms, root)
+        assert "<!-- resource-entry: kms-alias-app-dev-data 021 -->" in grouped
+        # Stack identity is owned by each resource; a separate mapping table is rejected.
+        stacks = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "shared.yaml",
+                  "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10"}
+        try:
+            stack_model(stacks | {"desired.mapping.001.stack": "cfn-stack-app-dev-ism"})
+        except ValueError as error:
+            assert "unknown stack design" in str(error)
+        else:
+            raise AssertionError("obsolete stack mapping accepted")
+    print("Resource identity checks: PASS (CFn stack/resource metadata, Terraform without logicalId, lossless projection, obsolete table rejection)")
 
 
 def check_subnet_list_display():

@@ -281,7 +281,8 @@ def stack_design(path: Path) -> list[dict[str, str]]:
     if not result:
         raise ValueError("CloudFormation stack design table must not be empty")
     stack_delivery(path)
-    stack_mapping(path)
+    if "## Resource対応" in lines:
+        raise ValueError("stack resource mapping table is obsolete; use resource cfn-logicalId")
     return result
 
 
@@ -328,28 +329,26 @@ def stack_delivery(path: Path) -> dict[str, str]:
     return result
 
 
-def stack_mapping(path: Path) -> dict[str, str]:
-    """Read the generated explicit correspondence, preserving entry IDs across projection."""
-    from model_design import MAPPING_FIELDS, stack_resource_mappings
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-    if "## Resource対応" not in lines:
-        return {}
-    if lines.count("## Resource対応") != 1:
-        raise ValueError("duplicate Resource mapping section")
-    lines = lines[lines.index("## Resource対応") + 1:]
-    if lines[:2] != ["| No. | StackName | CFnLogicalId | ModelService | ModelLogicalId |", "| ---: | --- | --- | --- | --- |"] or len(lines) < 3:
-        raise ValueError("invalid Resource mapping table header")
-    result, seen = {}, set()
-    for line in lines[2:]:
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if not line.startswith("|") or not line.endswith("|") or len(cells) != 5 or not re.fullmatch(r"[0-9]{3}", cells[0]) or cells[0] in seen:
-            raise ValueError("invalid/duplicate Resource mapping row")
-        seen.add(cells[0])
-        result.update({f"desired.mapping.{cells[0]}.{field}": value for field, value in zip(MAPPING_FIELDS, cells[1:])})
-    # StackName references are checked by the stack model after projection.
-    names = {value for key, value in result.items() if key.endswith(".stack")}
-    stack_resource_mappings(result | {f"desired.stack.{i:03d}.name": name for i, name in enumerate(sorted(names), 1)})
-    return result
+def resource_identity_metadata(lines):
+    """Preserve engine-specific IDs and entry numbers separately from display headings."""
+    anchors = set(ANCHOR.findall("\n".join(lines)))
+    result = {"resource-entry": {}, "cfn-logical-id": {}}
+    for line in lines:
+        for name, metadata in result.items():
+            if not line.startswith("<!-- " + name + ":"):
+                continue
+            match = re.fullmatch(r"<!-- " + name + r": (\S+) (\S+) -->", line)
+            if not match or match[1] not in anchors or match[1] in metadata:
+                raise ValueError(f"invalid/duplicate {name} metadata")
+            anchor, value = match.groups()
+            if name == "resource-entry":
+                if not re.fullmatch(r"[0-9]{3}", value) or value in metadata.values():
+                    raise ValueError("invalid/duplicate resource entry number")
+            else:
+                from model_design import cfn_resource_identity
+                cfn_resource_identity(value)
+            metadata[anchor] = value
+    return result["resource-entry"], result["cfn-logical-id"]
 
 
 def layout_errors(root: Path) -> list[str]:

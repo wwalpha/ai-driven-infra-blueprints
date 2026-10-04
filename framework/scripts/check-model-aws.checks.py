@@ -633,8 +633,47 @@ def association_checks(root):
         ctx.finish()
 
 
+def cfn_identity_checks(root):
+    directory = root / 'model/dev' / ACCOUNT
+    directory.mkdir(parents=True)
+    path = directory / 'vpc.properties'
+    content = ''
+    for index, department in enumerate(('ism', 'ced', 'sd'), 1):
+        number = f'{index:03d}'
+        content += model_text('EC2.VPC', [('EC2.VPC.VpcId', f'[{number}](#vpc-{department})')], number=number, anchor='vpc-' + department,
+                              metadata=f'desired.resource.{number}.cfn-logicalId=cfn-stack-app-dev-{department}-DepartmentVpc\n').replace(f'desired.resource.{number}.logicalId=fixture\n', '')
+        content += f'observed.row.{number}-001.value=vpc-{department}\n'
+    path.write_text(content)
+    ctx = Offline(root)
+    for index, resource in enumerate(ctx.model(path).resources):
+        department = ('ism', 'ced', 'sd')[index]
+        check(resource.resolve_json({'Ref': 'DepartmentVpc'}) == 'vpc-' + department, 'CFn JSON Ref respects originating stack instance')
+        rejects(lambda: resource.resolve_json({'Ref': 'Missing'}), m.Unresolved)
+    ctx.finish()
+
+
+def fixture_coverage(root):
+    directory = root / 'model/dev' / ACCOUNT
+    directory.mkdir(parents=True)
+    (root / 'project.json').write_text(json.dumps({'targets': [TARGET]}))
+    for service in m.SERVICES:
+        module = m.service_module(service)
+        if service == 'cloudformation-stacks':
+            text = 'desired.stack.001.name=cfn-stack-app-dev-fixture\ndesired.stack.001.template=fixture.yaml\ndesired.stack.001.parameters=fixture.json\ndesired.stack.001.deployOrder=10\n'
+        else:
+            text = ''
+            for index, kind in enumerate(sorted(module.RESOURCE_TYPES), 1):
+                number = f'{index:03d}'
+                text += model_text(kind, [(prop, '`fixture`') for prop in sorted(module.FIELDS) if prop.startswith(kind + '.')], number=number).replace(f'desired.resource.{number}.logicalId=fixture\n', '')
+        (directory / (service + '.properties')).write_text(text)
+    report = m.coverage(root, m.inventory(root, m.targets(root, all_targets=True)))
+    check(not report['problems'], 'fixture coverage: ' + repr(report['problems']))
+    check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated without logicalId')
+    print(f"Offline model coverage: {report['modelCount']} models / {report['resourceTypeCount']} types / {report['keyCount']} keys")
+
+
 def main():
-    consumer = Path(os.environ.get('AWS_COMPARE_COVERAGE_ROOT', '/Users/macmini/Documents/projects/viewcard-code'))
+    consumer = Path(os.environ['AWS_COMPARE_COVERAGE_ROOT']) if 'AWS_COMPARE_COVERAGE_ROOT' in os.environ else None
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network is forbidden in offline checks')):
         with tempfile.TemporaryDirectory(prefix='aws-compare-checks-') as tmp:
             root = Path(tmp)
@@ -642,9 +681,10 @@ def main():
             common_checks(root)
             association_checks(root)
             batch_checks(root / 'batch')
-        # Optional consumer on other machines is not a fixture. In this task it
-        # must exist; explicit override to a missing path is always rejected.
-        if consumer.is_dir():
+            cfn_identity_checks(root / 'cfn-identity')
+            fixture_coverage(root / 'coverage')
+        # Explicit read-only consumer audit is optional; regression has no host-path dependency.
+        if consumer is not None and consumer.is_dir():
             report = m.coverage(consumer, m.inventory(consumer, m.targets(consumer, all_targets=True)))
             check(not report['problems'], 'consumer coverage: ' + repr(report['problems']))
             check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated')

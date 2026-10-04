@@ -61,18 +61,23 @@ display.stack.002.comment=月次集計jobを配置するstack
 - 同じDeployOrderと同じTemplateは許可する。`DependsOn`、`AfterStack`、`DependsOnStack`、`Dependencies`を追加しない。
 - 表示はDeployOrder数値昇順、StackName文字列昇順とし、No.は表示用の連番。model entry IDやcommentの所属を並べ替えで変更しない。
 
-### Stack別resource対応表
+### Resource単位のCloudFormation identity
 
-`cloudformation-stacks.properties`の任意の`desired.mapping.<3桁entry ID>`に`stack`（StackName）、`resource`（CFn logical ID）、`service`（modelのfile stem）、`logicalId`（model側resource logical ID）を保持する。entry IDとresource番号は独立する。CFn logical IDとmodel logical IDは別identityであり、既存値を変更しない。
+CloudFormationで作成するresourceはservice model自身の`desired.resource.<番号>.cfn-logicalId`に、確定済みの`<StackName>-<template Resources key>`を保持する。最後のhyphenで分離し、StackNameに含まれるhyphenは維持する。templateのresource IDにhyphenは使えない。例:
 
 ```properties
-desired.mapping.001.stack=cfn-stack-app-dev-ism
-desired.mapping.001.resource=DepartmentPiiBucket
-desired.mapping.001.service=s3
-desired.mapping.001.logicalId=ism-pii-bucket
+desired.resource.005.resourceType=S3.Bucket
+desired.resource.005.cfn-logicalId=cfn-stack-venusinf-dev-s3-cde-AuditLogBucket
+desired.resource.005.anchor=s3-venusinf-dev-audit-log-639200939566-cde
 ```
 
-StackNameとCFn logical IDの組は一意とし、対応先は同target内の一意なCREATE resourceかつ正式CFn型を持つresourceだけを許可する。Markdownの`## Resource対応`はgenerated viewであり、再解析でもentry IDと4項目を保持する。対応表を持つstackでは有効resourceの対応漏れを拒否し、名前検索や従来照合で補わない。表のないstackだけ既存logical ID／機械的PascalCase変換と正式型による一意な照合を維持する。重複所有はstack固有parameter/defaultでConditionを評価した有効resource間で検証する。
+stack一覧は引き続き`cloudformation-stacks.properties`を正本とする。resource対応の`desired.mapping.*`とgenerated `## Resource対応`表は廃止し、使用時は拒否する。既存modelからの移行ではStackNameとtemplate IDをhuman-confirmedな値で設定し、名前から推測しない。
+
+新形式の内部resource identityはservice＋3桁entry番号とanchorで扱い、engine共通の`logicalId`は要求しない。Terraformには`cfn-logicalId`を保存しない。CFn用fieldはCREATEかつ正式CFn型に限り、登録済みStackNameを参照する。新形式のidentifier self-referenceと同service親参照は`[<entry番号>](#<anchor>)`を使用する。参照先の特定はanchorで行う。display label、正式名称、JSON artifactの既存pathを変更しない。
+
+生成Markdownは新形式の番号をservice metadataに続く`<!-- resource-entry: <anchor> <番号> -->`、CFn IDを`<!-- cfn-logical-id: <anchor> <StackName>-<Resources key> -->`へ保持する。再解析で番号とCFn IDを復元し、generic logicalIdを追加しない。grouped childにも同じ規約を適用する。markerの欠落・変更・重複・未定義anchorは生成物照合で拒否する。
+
+旧`desired.resource.*.logicalId`と非表示logical ID markerは既存modelの読み取り互換性だけに維持する。CFn IDのない旧modelは、正式型と旧ID／機械的PascalCase変換がtarget内で一意な場合に限り従来照合できる。CFn IDを持つresourceはこの従来検索から除外し、不正・欠落した直接対応を名前で補わない。同じstackに直接IDがあれば全有効resourceに直接IDを必須とする。
 
 ## Properties先行更新と表示生成
 
@@ -82,11 +87,11 @@ StackNameとCFn logical IDの組は一意とし、対応先は同target内の一
 4. 保存前に同targetの保持された参照元も検証し、保存済み表示では解決していたlinkを候補生成物が新たに切断する場合は、参照先serviceの生成物を元へ戻す。対象service・参照元・linkを報告し、復元後の候補を再検証する。既存の参照エラーは新たな切断と区別する。成功したserviceのMarkdownとJSON artifactをまとめて保存する。書き込み失敗時も元の表示へ戻し、保持された参照元と保存済み候補を同じ基準で再検証する。無関係な成功serviceは保存できるが、失敗が残る場合はservice別エラーを報告し、command全体の終了コードを非zeroとする。modelを正本として再実行できる状態を保つ。
 5. local loopはread-only生成結果と保存済み表示を照合する。propertiesの上書きは行わない。
 
-`display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型では、同じservice内に同型の独立resourceが1件だけあり、選択済みName tagと既存の確定済み表示labelもなければ、resource typeを表示名として導出する。この場合`display.resource.<番号>.label`を必須とせず、型名をlabelへ重複保存しない。詳細headingは`### <catalog-resource-type>`、一覧・通常の参照linkもresource type、anchorは型名由来とする。同型複数件を区別するhuman-confirmedな表示名、または既存の確定済み表示名は`display.resource.<番号>.label`へ保持する。型名表示でも非表示logical IDを必須とし、既存値を維持して型名から推測しない。名称propertyの省略・必須Name tag不足には適用しない。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
+`display.service.title`にH1 title（`# ...`を含む）を保持する。`display.resource.<番号>.comment`はresourceの機能・用途・役割を日本語で記す。名称propertyのない型では、同じservice内に同型の独立resourceが1件だけあり、選択済みName tagと既存の確定済み表示labelもなければ、resource typeを表示名として導出する。この場合`display.resource.<番号>.label`を必須とせず、型名をlabelへ重複保存しない。詳細headingは`### <catalog-resource-type>`、一覧・通常の参照linkもresource type、anchorは型名由来とする。同型複数件を区別するhuman-confirmedな表示名、または既存の確定済み表示名は`display.resource.<番号>.label`へ保持する。型名表示でも新形式のentry番号または旧形式の非表示logical IDを保持し、型名からIaC IDを推測しない。名称propertyの省略・必須Name tag不足には適用しない。名称propertyがある型の表示名は正式rowの値から生成し、重複保存しない。`display.*`は表示入力であり、catalog AWS propertyやIaC設定へ追加しない。resource番号・row番号は既存の3桁形式を使用する。
 
 JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複JSON key・不正な定数・object以外を拒否する。artifact hashは生成時に照合可能な派生値であり、設計値の正本にしない。
 
-名称propertyがない型のhuman-confirmedな`display.resource.<番号>.label`は、内部logical IDと同じ文字列でも表示名として有効とする。validatorは同じ番号の`desired.resource.<番号>.resourceType`・`logicalId`・明示labelを対応する詳細headingと照合する。labelがない内部IDの流用、別resource typeや別logical IDのlabelによる代替は拒否する。非表示logical ID markerを必須とし、表示label由来anchor、desired／observedのnamespaceと値を維持する。表示labelからName tagやcatalog property、IaC設定を作らない。
+名称propertyがない型のhuman-confirmedな`display.resource.<番号>.label`は、内部logical IDと同じ文字列でも表示名として有効とする。validatorは同じ番号の`desired.resource.<番号>.resourceType`・`logicalId`・明示labelを対応する詳細headingと照合する。labelがない内部IDの流用、別resource typeや別logical IDのlabelによる代替は拒否する。新形式のentry番号または旧形式の非表示logical ID markerを保持し、表示label由来anchor、desired／observedのnamespaceと値を維持する。表示labelからName tagやcatalog property、IaC設定を作らない。
 
 サービス別の短縮property、CodePipeline index／Configuration展開、CodeBuild変数、GuardDuty Features、CloudTrail記録対象、Security Group横書きrule、KMS Aliasの親内表示、policy表は既存表示ruleに従ってmodelから生成する。検証parserは表示を正式propertyへ展開してlosslessな一致を確認するためだけに使用する。
 

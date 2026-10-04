@@ -599,5 +599,21 @@ def main():
     print("Environment desired comparison checks: PASS (invocation cache equivalence/counts/isolation/immutability/errors/lifetime, confirmed environment exclusions/counts, stale/invalid confirmations, IMPORT exclusions, CREATE defaults/references, logical ID mapping, unconfirmed resources, actual settings, invalid maps/modes, four pairs, scope, desired-only, indexed models, evidence, read-only)")
 
 
+def check_entry_identity():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "ec2.properties"
+        path.write_text("desired.service.ec2.serviceId=ec2\ndesired.resource.007.resourceType=EC2.VPC\ndesired.resource.007.anchor=ec2-vpc\ndesired.resource.007.cfn-logicalId=cfn-stack-app-dev-network-Vpc\n")
+        fields = compare.desired_fields(path, root)
+        assert ("resource", "EC2.VPC", "007", "resourceType") in fields
+        compared = compare.comparison_fields(fields, {("EC2.VPC", "007"): ("EC2.VPC", "007")}, "ec2", {}, set())
+        assert ("resource", "EC2.VPC", "007", "resourceType") in compared
+        assert ("resource", "EC2.VPC", "007", "cfn-logicalId") not in compared
+        path.write_text(path.read_text().replace("desired.resource.007.cfn-logicalId=cfn-stack-app-dev-network-Vpc\n", ""))
+        assert ("resource", "EC2.VPC", "007", "resourceType") in compare.desired_fields(path, root)
+
+
+check_entry_identity()
+
 if __name__ == "__main__":
     main()

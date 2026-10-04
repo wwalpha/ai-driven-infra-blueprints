@@ -4,7 +4,7 @@ import importlib.util
 import re
 
 from design_catalog import DesignSchemaCatalog
-from model_design import properties, entries, catalog_outputs, stack_model, stack_resource_mappings, LINK
+from model_design import properties, entries, catalog_outputs, stack_model, cfn_resource_identity, LINK
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
 from model_files import read_model, model_parts, model_file_contents, MAX_LINES
 from task_contract import require_writable, task_path, paths_in, matches
@@ -35,7 +35,7 @@ def models(root, environment, directory):
 
 
 def resource_index(loaded, catalog):
-    exact, legacy = {}, {}
+    direct, legacy = {}, {}
     for path, values in loaded.items():
         for identity, resource in entries(values, "desired.resource."):
             try:
@@ -43,36 +43,30 @@ def resource_index(loaded, catalog):
             except (KeyError, ValueError):
                 cfn_type = None
             entry = (path, identity, resource, cfn_type)
-            exact.setdefault((path.stem, resource["logicalId"]), []).append(entry)
-            if cfn_type and resource.get("resourceMode", "CREATE") == "CREATE":
+            if "cfn-logicalId" in resource:
+                direct.setdefault(cfn_resource_identity(resource["cfn-logicalId"]), []).append(entry)
+            elif cfn_type and resource.get("resourceMode", "CREATE") == "CREATE" and f"desired.resource.{identity}.logicalId" in values:
+                # Read-only transition support for pre-existing models, never for new identities.
                 for logical in {resource["logicalId"], cfn_identity(resource["logicalId"])}:
                     legacy.setdefault((cfn_type, logical), []).append(entry)
-    return exact, legacy
-
-
-def mapping_target(mapping, exact):
-    candidates = exact.get((mapping["service"], mapping["logicalId"]), [])
-    if len(candidates) != 1:
-        raise ValueError(f"explicit model target matches={len(candidates)}: {mapping['service']}/{mapping['logicalId']}")
-    entry = candidates[0]
-    if entry[2].get("resourceMode", "CREATE") != "CREATE" or not entry[3]:
-        raise ValueError(f"explicit model target must be CREATE with a formal CFn type: {mapping['service']}/{mapping['logicalId']}")
-    return entry
+    return direct, legacy
 
 
 def validate_mapping_targets(root, environment, directory, values):
-    """Check authoritative model endpoints even before templates have been implemented."""
-    declarations = stack_resource_mappings(values)
-    if not declarations:
-        return
+    """Validate resource-owned stack identities before templates exist."""
+    stack_model(values)
+    names = {stack["name"] for _, stack in entries(values, "desired.stack.")}
     loaded = models(root, environment, directory)
-    exact, _ = resource_index(loaded, DesignSchemaCatalog(root))
+    direct, _ = resource_index(loaded, DesignSchemaCatalog(root))
     errors = {}
-    for _, mapping in declarations:
-        try:
-            mapping_target(mapping, exact)
-        except ValueError as error:
-            errors.setdefault(mapping["stack"], []).append(f"{mapping['stack']}/{mapping['resource']}: {error}")
+    for (name, logical), candidates in direct.items():
+        if name not in names:
+            errors.setdefault(name, []).append(f"{name}/{logical}: cfn-logicalId references an undeclared stack")
+        if len(candidates) != 1:
+            errors.setdefault(name, []).append(f"{name}/{logical}: duplicate cfn-logicalId")
+        for path, identity, resource, cfn_type in candidates:
+            if resource.get("resourceMode", "CREATE") != "CREATE" or not cfn_type:
+                errors.setdefault(name, []).append(f"{path.name}/{identity}: cfn-logicalId requires CREATE with a formal CFn type")
     if errors:
         raise MappingError(errors)
 
@@ -98,19 +92,21 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
 
 
 def mappings(root, environment, directory, templates, units, removed=None, target=None):
-    """Shared read-only implement/deploy validation; explicit mappings never fall back."""
+    """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
-    exact, legacy = resource_index(loaded, catalog)
+    direct, legacy = resource_index(loaded, catalog)
     source = root / "model" / environment / directory / "cloudformation-stacks.properties"
     values = properties(read_model(source)) if source.is_file() else {}
     if values:
         stack_model(values)
-    declared = {}
-    for _, mapping in stack_resource_mappings(values):
-        declared.setdefault(mapping["stack"], {})[mapping["resource"]] = mapping
     target = target or (load_target(root, environment, directory) if (root / "project.json").is_file() else {})
     result, owners, errors = {}, {}, {}
+    if values:
+        names = {stack["name"] for _, stack in entries(values, "desired.stack.")}
+        for name, logical in direct:
+            if name not in names:
+                errors.setdefault(name, []).append(f"{name}/{logical}: cfn-logicalId references an undeclared stack")
     scope = active_scope(root)
     for unit in units:
         name = unit["name"]
@@ -119,7 +115,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                  (("AccountId", "awsAccountId"), ("Region", "awsRegion")) if value in target}
         result[name] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
-        explicit = declared.get(name)
+        explicit = any(stack == name for stack, _ in direct)
         try:
             output_values = active_outputs(document, parameters, pseudo)
         except (ValueError, Blocked) as error:
@@ -130,16 +126,19 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
             try:
                 if not deleting and not condition_active(document, parameters, pseudo, definition):
                     continue
-                if explicit is not None:
-                    if logical not in explicit:
-                        raise ValueError("explicit mapping missing; legacy fallback forbidden")
-                    entry = mapping_target(explicit[logical], exact)
+                candidates = direct.get((name, logical), [])
+                if candidates or explicit:
+                    if len(candidates) != 1:
+                        raise ValueError(f"cfn-logicalId matches={len(candidates)}; legacy fallback forbidden")
+                    entry = candidates[0]
+                    if entry[2].get("resourceMode", "CREATE") != "CREATE":
+                        raise ValueError("cfn-logicalId requires CREATE")
                     if entry[3] != definition["Type"]:
                         raise ValueError(f"formal CFn type mismatch: {definition['Type']} != {entry[3]}")
                 else:
                     candidates = legacy.get((definition["Type"], logical), [])
                     if len(candidates) != 1:
-                        raise ValueError(f"model resource matches={len(candidates)}")
+                        raise ValueError(f"model resource matches={len(candidates)}; cfn-logicalId required")
                     entry = candidates[0]
                 path, identity, resource, _ = entry
                 service = tuple(path.relative_to(root / "model").with_suffix("").parts)

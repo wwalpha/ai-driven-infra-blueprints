@@ -476,9 +476,17 @@ class Resource:
         if "Fn::GetAtt" in value or "Ref" in value:
             item = value.get("Fn::GetAtt", value.get("Ref"))
             logical = item[0] if isinstance(item, list) else item.split(".")[0]
+            from model_design import cfn_resource_identity
+            stack = cfn_resource_identity(self.spec["cfn-logicalId"])[0] if "cfn-logicalId" in self.spec else None
             matches = []
             for path in self.model.path.parent.glob("*.properties"):
-                matches.extend(r for r in self.ctx.model(path).resources if r.spec.get("logicalId") == logical)
+                for resource in self.ctx.model(path).resources:
+                    if "cfn-logicalId" in resource.spec:
+                        matched = stack is not None and cfn_resource_identity(resource.spec["cfn-logicalId"]) == (stack, logical)
+                    else:
+                        matched = stack is None and resource.spec.get("logicalId") == logical
+                    if matched:
+                        matches.append(resource)
             if len(matches) != 1:
                 raise Unresolved("model logical reference is missing or ambiguous")
             resource = matches[0]

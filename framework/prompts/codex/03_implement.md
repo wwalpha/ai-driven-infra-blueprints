@@ -46,7 +46,7 @@ Implementの設計inputはauthoritative model propertiesだけとする。genera
 
 Implementation scopeに詳細設計の`.md` fileが指定された場合はscope selectorとして扱う。本文を読まず、`docs/designs/<environment>/<target-directory>/<service>.md`のpath／file stemから同じenvironment／target／serviceの`model/<environment>/<target-directory>/<service>.properties`へ対応付け、選択済みproject targetとの一致を確認する。対応するmodelを一意に特定できない場合は推測せず停止する。
 
-resource限定scopeでは次の既存commandで正本を部分読み取りする。selectorはresource number（`001`など）、logical ID、anchorの完全一致とし、未一致・曖昧な選択は停止する。
+resource限定scopeでは次の既存commandで正本を部分読み取りする。selectorはresource number（`001`など）、cfn-logicalId、旧logical ID、anchorの完全一致とし、未一致・曖昧な選択は停止する。
 
 ```console
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>
@@ -65,7 +65,7 @@ User inputとissue gateの確認後、active contract作成・IaC生成より前
 1. 対象resourceの正本propertiesからCREATE／IMPORT、正式CFn型、必須property、未確定値を確認する。既存`model_design.validate_required_properties`と`DesignSchemaCatalog.literal_errors`などpropertiesに適用できるschema検証を再利用し、型・enum・pattern・長さ・範囲と補完されたAWS文字制約を確認する。前taskのValidation scopeを流用せず、対象serviceと必要な参照先を明示して検証する。日本語の表示用Commentは正式property値と区別し、不正値を自動翻訳・置換しない。
 2. properties内のresource/propertyの参照をたどり、必要な依存先のproperties・anchor・logical/current identifier、受渡し値を確認し、利用するpropertyにも同じschema検証を適用する。下記のpropertiesによるreference解決とResolve implementation unitsの依存確認を使い、参照先は必要なresource/propertyだけ読む。依存先調査で変更scopeや全service検証へ自動拡張しない。
 3. CloudFormationでは正本stack登録のpropertiesから対象resourceの所有stack、template・parameterの対応、DeployOrder、共有templateの各stack instanceを確認する。既存templateのResources・Parameters・Outputs／Export／ImportValueとpropertiesのdesired rowの対応、parameter値／defaultの不足、参照先不明、dependency cycleを確認する。新規IaC fileの未作成自体は不足とせず、配置先と入力の設計が未確定なら不足にする。Terraformでは既存module・environment入力・outputの対応を確認する。
-既存CloudFormation templateがあるstackは、共通local read-only検証を実装前に実行する。`desired.mapping.*`のStackName／CFn logical ID → service／model logical IDを優先し、対応表を持つstackの対応漏れ・不正対応を従来照合で補わない。対応表がないstackだけ型＋既存IDの一意な照合を維持する。stack固有parameter/defaultでConditionを評価し、有効resourceのCREATE区分・正式型・対応先・二重所有・identifier行・必要Outputsの不足をまとめて報告する。falseのresourceは処理せず、未解決Conditionは停止する。新規templateの未作成はこの段階で不足とせず、modelのidentifier行と配置先の確定を確認する。
+既存CloudFormation templateがあるstackは、共通local read-only検証を実装前に実行する。各resourceの`desired.resource.*.cfn-logicalId=<StackName>-<Resources key>`を直接照合する。別対応表を使用せず、同じstackに直接IDがある場合の対応漏れ・不正対応を従来照合で補わない。直接IDのない旧modelだけ型＋旧logicalIdの一意な照合を維持する。stack固有parameter/defaultでConditionを評価し、有効resourceのCREATE区分・正式型・対応先・二重所有・identifier行・必要Outputsの不足をまとめて報告する。falseのresourceは処理せず、未解決Conditionは停止する。新規templateの未作成はこの段階で不足とせず、modelのidentifier行と配置先の確定を確認する。
 
 ```console
 python framework/scripts/cloudformation_observed.py --environment <environment> --target-directory <target-directory> --stack <StackName> --stack <another-StackName>
@@ -117,8 +117,8 @@ propertiesのdesired row／reference valueに保存された`[表示値](#anchor
 
 CloudFormationの場合:
 
-1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用する。stack propertiesに記載されたparameterのファイル名を`infra/cloudformation/parameters/<environment>/<target-directory>/`に配置し、その個別fileだけを変更する。template `Resources`のlogical IDと対象service propertiesのresourceの対応を全stack instanceで照合する。生成・変更後も上記`cloudformation_observed.py`でdeployと同じ共通検証を必ず実行する。identifier行の不足を自動補完せず、model不足とIaC Outputs不足を区別して報告する。
-2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、設計logical IDとの対応、template内参照、export/importの一致と一意性を確認する。`Resources`配下のresource間には1行以上の空行を入れる。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
+1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用する。stack propertiesに記載されたparameterのファイル名を`infra/cloudformation/parameters/<environment>/<target-directory>/`に配置し、その個別fileだけを変更する。各resourceの`cfn-logicalId=<StackName>-<Resources key>`からtemplate `Resources`のlogical IDと対象service propertiesのresourceの対応を全stack instanceで照合する。Terraformにはこのfieldもgeneric logicalIdも要求しない。生成・変更後も上記`cloudformation_observed.py`でdeployと同じ共通検証を必ず実行する。identifier行の不足を自動補完せず、model不足とIaC Outputs不足を区別して報告する。
+2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、resourceのcfn-logicalIdとの対応、template内参照、export/importの一致と一意性を確認する。`Resources`配下のresource間には1行以上の空行を入れる。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
 3. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
 4. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
 

@@ -312,5 +312,14 @@ def main():
     print("model-files: PASS (600-line limit, indexes, lookup, resource extraction across 60 resources/parts, grouped context, read-only, lossless values/order, service scope, generation, stacks and invalid parts)")
 
 
+def check_cfn_selector():
+    from model_files import resource_keys
+    text = "desired.resource.007.resourceType=EC2.VPC\ndesired.resource.007.anchor=ec2-network\ndesired.resource.007.cfn-logicalId=cfn-stack-app-dev-network-Vpc\n"
+    expected = resource_keys(text, "007")
+    assert expected == resource_keys(text, "ec2-network") == resource_keys(text, "cfn-stack-app-dev-network-Vpc")
+
+
+check_cfn_selector()
+
 if __name__ == "__main__":
     main()

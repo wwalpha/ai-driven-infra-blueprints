@@ -1069,16 +1069,14 @@ def check_shared_stack_mapping():
         expected = {}
         for index, department in enumerate(("ism", "ced", "sd"), 1):
             identity = f"{index:03d}"
-            logical = department + "-network"
+            logical = identity
             name = "vpc-app-dev-" + department
             anchor = "ec2-" + name
             unit = {"name": "cfn-stack-app-dev-" + department, "template": "department.yaml", "parameters": department + ".json", "deployOrder": "10"}
             scoped.append(unit)
             stack_values.update({f"desired.stack.{identity}.{key}": value for key, value in unit.items()})
             stack_values[f"display.stack.{identity}.comment"] = department + "部署のネットワークを配置するstack"
-            stack_values.update({f"desired.mapping.{identity}.{key}": value for key, value in
-                                 {"stack": unit["name"], "resource": "DepartmentVpc", "service": "ec2", "logicalId": logical}.items()})
-            values.update({f"desired.resource.{identity}.resourceType": "EC2.VPC", f"desired.resource.{identity}.logicalId": logical,
+            values.update({f"desired.resource.{identity}.resourceType": "EC2.VPC", f"desired.resource.{identity}.cfn-logicalId": unit["name"] + "-DepartmentVpc",
                            f"desired.resource.{identity}.anchor": anchor, f"display.resource.{identity}.comment": department + "部署のネットワーク"})
             for number, (prop, value) in enumerate((("Name", "`" + name + "`"), ("VpcId", f"[{logical}](#{anchor})"),
                                                     ("CidrBlock", f"`10.{index}.0.0/16`")), 1):
@@ -1133,21 +1131,21 @@ def check_shared_stack_mapping():
             assert actual[f"observed.row.{index:03d}-002.value"] == "`" + expected[unit["name"]] + "`"
         assert {k: v for k, v in actual.items() if not k.startswith("observed.")} == values
         before = source.read_bytes()
-        def check(data=stack_values, templates=None, message=""):
-            save(stack_source, data)
+        def check(data=None, templates=None, message=""):
+            save(source, data if data is not None else actual)
             rejects(lambda: mappings(root, "dev", "123456789012", templates or backend.templates, scoped), message)
-            assert source.read_bytes() == before
-        check(stack_values | {"desired.mapping.001.logicalId": "missing"}, message="explicit model target matches=0")
-        check(stack_values | {"desired.mapping.001.service": "../ec2"}, message="invalid mapping service")
-        check(stack_values | {"desired.mapping.001.stack": "absent"}, message="invalid mapping stack/resource")
-        check(stack_values | {"desired.mapping.002.logicalId": "ism-network"}, message="also owned")
-        check({k: v for k, v in stack_values.items() if not k.startswith("desired.mapping.001.")} |
-              {f"desired.mapping.004.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "OptionalRepository", "service": "ec2", "logicalId": "ism-network"}.items()}, message="explicit mapping missing")
+        check(actual | {"desired.resource.001.cfn-logicalId": "invalid"}, message="invalid cfn-logicalId")
+        check(actual | {"desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="legacy fallback forbidden")
+        check(actual | {"desired.resource.002.cfn-logicalId": scoped[0]["name"] + "-DepartmentVpc"}, message="matches=2")
+        # A same-name legacy resource cannot repair an explicitly wrong direct identity.
+        check(actual | {"desired.resource.001.logicalId": "DepartmentVpc", "desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="legacy fallback forbidden")
+        check(actual | {"desired.resource.001.cfn-logicalId": "absent-DepartmentVpc"}, message="undeclared stack")
+        save(source, actual)
         wrong_type = M.copy.deepcopy(document)
         wrong_type["Resources"]["DepartmentVpc"]["Type"] = "AWS::S3::Bucket"
         check(templates={u["name"]: (wrong_type, {"Enabled": "yes"}) for u in scoped}, message="formal CFn type mismatch")
-        # False resources do not claim ownership, even when two declarations would otherwise share a model row.
-        save(stack_source, stack_values | {"desired.mapping.002.logicalId": "ism-network"})
+        # False resources do not require model endpoints or identifier rows.
+        save(source, actual)
         inactive = dict(backend.templates)
         inactive[scoped[1]["name"]] = (document, {"Enabled": "no"})
         assert not mappings(root, "dev", "123456789012", inactive, scoped)[1][scoped[1]["name"]]
@@ -1163,19 +1161,17 @@ def check_shared_stack_mapping():
             rejects(lambda: mappings(root, "dev", "123456789012", {u["name"]: (invalid, {}) for u in scoped}, scoped), "Condition" if condition == "yes" or "Condition" in condition else "unsupported")
         # CodeCommit identifier rows and non-primary EIP Outputs are diagnosed together.
         repo = source.with_name("codecommit.properties")
-        repo_values = {"desired.resource.001.resourceType": "CodeCommit.Repository", "desired.resource.001.logicalId": "department-repo",
+        repo_values = {"desired.resource.001.resourceType": "CodeCommit.Repository", "desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Repository",
                        "desired.resource.001.anchor": "codecommit-department-repo"}
         save(repo, repo_values)
-        addition = {f"desired.mapping.004.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "Repository", "service": "codecommit", "logicalId": "department-repo"}.items()}
-        eip = {"desired.resource.004.resourceType": "EC2.EIP", "desired.resource.004.logicalId": "department-eip",
+        eip = {"desired.resource.004.resourceType": "EC2.EIP", "desired.resource.004.cfn-logicalId": scoped[0]["name"] + "-Eip",
                "desired.resource.004.anchor": "ec2-department-eip"}
         for number, prop in enumerate(("AllocationId", "PublicIp"), 1):
             eip.update({f"desired.row.004-{number:03d}.property": "EC2.EIP." + prop,
                         f"desired.row.004-{number:03d}.value": "[department-eip](#ec2-department-eip)",
                         f"desired.row.004-{number:03d}.comment": "固定アドレスの識別子"})
         save(source, values | eip)
-        eip_mapping = {f"desired.mapping.005.{k}": v for k, v in {"stack": scoped[0]["name"], "resource": "Eip", "service": "ec2", "logicalId": "department-eip"}.items()}
-        save(stack_source, stack_values | addition | eip_mapping)
+        save(stack_source, stack_values)
         repo_doc = M.copy.deepcopy(document)
         repo_doc["Resources"]["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
         repo_doc["Resources"]["Eip"] = {"Type": "AWS::EC2::EIP"}

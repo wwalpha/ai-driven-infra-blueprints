@@ -97,10 +97,10 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
 def model_for(path: Path, root: Path | None = None) -> str:
     """Read-only projection for verification and explicit migration; never save it by default."""
     if path.name == STACK_DESIGN:
-        from design_layout import stack_delivery, stack_mapping
+        from design_layout import stack_delivery
         stacks = stack_design(path)
         output = ["# Stack design projection", f"desired.deployment.maxConcurrentStacks={stack_deployment_policy(path)}"]
-        output += [f"{key}={value}" for key, value in (stack_delivery(path) | stack_mapping(path)).items()]
+        output += [f"{key}={value}" for key, value in stack_delivery(path).items()]
         for number, stack in enumerate(stacks, 1):
             key = f"desired.stack.{number:03d}"
             output.extend((
@@ -113,7 +113,9 @@ def model_for(path: Path, root: Path | None = None) -> str:
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
     lines = path.read_text(encoding="utf-8").splitlines()
     modes = resource_modes(lines)
-    lines = [line for line in lines if not line.startswith("<!-- resource-mode:")]
+    from design_layout import resource_identity_metadata
+    resource_numbers, cfn_ids = resource_identity_metadata(lines)
+    lines = [line for line in lines if not line.startswith(("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))]
     identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
@@ -129,6 +131,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
         f"desired.service.{service_id}.ownedCatalogResourceTypes={owned}",
     ]
     pending_anchor = ""
+    resource_anchors = set()
     current_type = ""
     current_logical_id = ""
     current_anchor = ""
@@ -146,14 +149,19 @@ def model_for(path: Path, root: Path | None = None) -> str:
             current_type, current_logical_id = match.groups()
             current_logical_id = identities.get(match.groups(), current_logical_id)
             current_anchor = pending_anchor
-            key = f"{resource_number:03d}"
+            resource_anchors.add(current_anchor)
+            key = resource_numbers.get(current_anchor, f"{resource_number:03d}")
+            current_resource_number = key
             output.extend(
                 (
                     f"desired.resource.{key}.resourceType={current_type}",
-                    f"desired.resource.{key}.logicalId={current_logical_id}",
                     f"desired.resource.{key}.anchor={pending_anchor}",
                 )
             )
+            if current_anchor not in resource_numbers:
+                output.append(f"desired.resource.{key}.logicalId={current_logical_id}")
+            if current_anchor in cfn_ids:
+                output.append(f"desired.resource.{key}.cfn-logicalId={cfn_ids.pop(current_anchor)}")
             if child := children.get(current_anchor):
                 output.extend((
                     f'desired.resource.{key}.parentProperty={child["parentProperty"]}',
@@ -176,7 +184,7 @@ def model_for(path: Path, root: Path | None = None) -> str:
                 if len(cells) != 4:
                     raise ValueError(f"resource table row must have four cells: {path}")
                 row_number += 1
-                key = f"{resource_number:03d}-{row_number:03d}"
+                key = f"{current_resource_number}-{row_number:03d}"
                 linked = linked_resource(path, cells[2])
                 is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
                 is_identifier_reference = bool(
@@ -225,6 +233,10 @@ def model_for(path: Path, root: Path | None = None) -> str:
             note_number += 1
             output.append(f"desired.note.{note_number:03d}.text={line}")
         index += 1
+    if set(resource_numbers) - resource_anchors:
+        raise ValueError("resource entry metadata must identify a resource anchor")
+    if cfn_ids:
+        raise ValueError(f"cfn-logicalId metadata must identify a resource anchor: {sorted(cfn_ids)}")
     if modes:
         raise ValueError(f"resource mode metadata must identify a resource anchor: {sorted(modes)}")
     return "\n".join(output) + "\n"
@@ -375,13 +387,11 @@ def sync(
                     referenced = models / path.parent.relative_to(docs) / "s3.properties"
                     if referenced.is_file():
                         model_inputs.update([referenced, *model_parts(referenced)])
-            from model_design import stack_resource_mappings
             for path, values in destinations.items():
-                if path.name == STACK_DESIGN:
-                    for _, mapping in stack_resource_mappings(values):
-                        referenced = models / path.parent.relative_to(docs) / (mapping["service"] + ".properties")
-                        if referenced.is_file():
-                            model_inputs.update([referenced, *model_parts(referenced)])
+                if any(key.endswith(".cfn-logicalId") for key in values):
+                    referenced = models / path.parent.relative_to(docs) / "cloudformation-stacks.properties"
+                    if referenced.is_file():
+                        model_inputs.update([referenced, *model_parts(referenced)])
             for path in [*model_inputs, *views]:
                 destination = stage / path.relative_to(root)
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -554,15 +564,14 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
         if path.name == STACK_DESIGN:
-            from model_design import stack_model, deployment_settings, stack_resource_mappings
+            from model_design import stack_model, deployment_settings
             # Display numbering is independent of authoritative entry IDs.
             actual_limit, actual_stacks = stack_model(actual)
             formal_limit, formal_stacks = stack_model(formal)
             actual_delivery, actual_artifacts = deployment_settings(actual)
             formal_delivery, formal_artifacts = deployment_settings(formal)
             if actual_limit != formal_limit or [s for _, s in actual_stacks] != [s for _, s in formal_stacks] or \
-                    actual_delivery != formal_delivery or [a for _, a in actual_artifacts] != [a for _, a in formal_artifacts] or \
-                    stack_resource_mappings(actual) != stack_resource_mappings(formal):
+                    actual_delivery != formal_delivery or [a for _, a in actual_artifacts] != [a for _, a in formal_artifacts]:
                 raise ValueError(f"model/display projection mismatch: {path.name}")
             continue
         if actual != formal:

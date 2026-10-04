@@ -1283,6 +1283,9 @@ class Validator:
         if len(relative.parts) < 3:
             return
         target = (relative.parts[0], relative.parts[1])
+        from design_layout import resource_identity_metadata
+        entry_numbers, _ = resource_identity_metadata(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else ({}, {})
+        legacy = logical_id not in entry_numbers.values()
         properties = [row[1].removeprefix("IAM.Role.") for row in rows]
 
         for index, row in enumerate(rows):
@@ -1291,7 +1294,7 @@ class Validator:
             if property_name == "AssumeRolePolicyDocument" and link:
                 artifact = (path.parent / link.group(1)).resolve()
                 expected = iam_role_policy_artifact_filename(logical_id)
-                self.check(artifact.name == expected, f"invalid IAM trust policy artifact name: {self.relative(path)}: expected {expected}")
+                self.check(not legacy or artifact.name == expected, f"invalid IAM trust policy artifact name: {self.relative(path)}: expected {expected}")
                 key = (*target, logical_id, "trust")
                 self.check(key not in self.markdown_iam_policy_artifacts, f"duplicate IAM trust policy artifact: {self.relative(path)}: {logical_id}")
                 self.markdown_iam_policy_artifacts.setdefault(key, artifact)
@@ -1312,7 +1315,7 @@ class Validator:
                 continue
             artifact = (path.parent / link.group(1)).resolve()
             expected = iam_role_policy_artifact_filename(logical_id, policy_name)
-            self.check(artifact.name == expected, f"invalid IAM inline policy artifact name: {self.relative(path)}: expected {expected}")
+            self.check(not legacy or artifact.name == expected, f"invalid IAM inline policy artifact name: {self.relative(path)}: expected {expected}")
             key = (*target, logical_id, f"inline:{policy_name}")
             self.check(key not in self.markdown_iam_policy_artifacts, f"duplicate IAM inline PolicyName: {self.relative(path)}: {logical_id}: {policy_name}")
             self.markdown_iam_policy_artifacts.setdefault(key, artifact)
