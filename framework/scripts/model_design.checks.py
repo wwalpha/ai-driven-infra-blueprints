@@ -1303,6 +1303,7 @@ def main():
     check_iam_role_name()
     for kind in ("EC2.VPCEndpoint", "EC2.Instance"):
         check_required_name_tag(kind)
+    assert "| `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |" in (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
