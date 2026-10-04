@@ -313,7 +313,7 @@ class AwsBackend:
             raise Blocked("template exceeds the 1 MiB CloudFormation limit")
 
     def verify_object(self, obj):
-        arguments = ["--bucket", obj["bucket"], "--key", obj["key"], "--expected-bucket-owner", self.target["awsAccountId"],
+        arguments = ["--bucket", obj["bucket"], "--key", obj["key"], "--expected-bucket-owner", self.target.get("awsExecutionAccountId", self.target["awsAccountId"]),
                      "--checksum-mode", "ENABLED"]
         if obj.get("version"):
             arguments += ["--version-id", obj["version"]]
@@ -324,7 +324,7 @@ class AwsBackend:
 
     def upload(self, path, bucket, prefix):
         if bucket not in self.bucket_regions:
-            location = self.aws("get-bucket-location", "--bucket", bucket, "--expected-bucket-owner", self.target["awsAccountId"], service="s3api")
+            location = self.aws("get-bucket-location", "--bucket", bucket, "--expected-bucket-owner", self.target.get("awsExecutionAccountId", self.target["awsAccountId"]), service="s3api")
             region = location.get("LocationConstraint") or "us-east-1"
         else:
             region = self.bucket_regions[bucket]
@@ -344,7 +344,7 @@ class AwsBackend:
                 raise
             try:
                 current = self.aws("put-object", "--bucket", bucket, "--key", obj["key"], "--body", str(path),
-                    "--expected-bucket-owner", self.target["awsAccountId"], "--if-none-match", "*",
+                    "--expected-bucket-owner", self.target.get("awsExecutionAccountId", self.target["awsAccountId"]), "--if-none-match", "*",
                     "--checksum-algorithm", "SHA256", "--checksum-sha256", obj["checksum"], service="s3api")
             except Blocked as error:
                 if "(PreconditionFailed)" not in str(error):
@@ -357,7 +357,7 @@ class AwsBackend:
         return obj
 
     def artifact_bindings(self, unit, document, parameters):
-        pseudo = {"AWS::AccountId": self.target["awsAccountId"], "AWS::Region": self.target["awsRegion"], "AWS::StackName": unit["name"]}
+        pseudo = {"AWS::AccountId": self.target.get("awsExecutionAccountId", self.target["awsAccountId"]), "AWS::Region": self.target["awsRegion"], "AWS::StackName": unit["name"]}
         # Resolve every mapping before the first upload, including bucket/prefix consistency.
         bindings = []
         exports = {e["Name"]: e["Value"] for e in self.aws("list-exports").get("Exports", [])} if unit.get("artifacts") else {}
@@ -449,7 +449,7 @@ class AwsBackend:
 
     def check_imports(self, unit):
         document, parameters = self.templates[unit["name"]]
-        names = import_names(document, parameters, {"AWS::AccountId": self.target["awsAccountId"],
+        names = import_names(document, parameters, {"AWS::AccountId": self.target.get("awsExecutionAccountId", self.target["awsAccountId"]),
             "AWS::Region": self.target["awsRegion"], "AWS::StackName": unit["name"]})
         if names:
             exports = {entry["Name"]: entry for entry in self.aws("list-exports").get("Exports", [])}

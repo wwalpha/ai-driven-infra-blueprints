@@ -53,7 +53,7 @@ def fetch(ctx, r, getter):
     name = r.value('BucketName')
     if getter == 'base':
         bucket = one([v for v in ctx.pages('s3','list_buckets').get('Buckets',[]) if v['Name'] == name], 's3.list_buckets')
-        location = ctx.call('s3','get_bucket_location',Bucket=name,ExpectedBucketOwner=ctx.target['awsAccountId']).get('LocationConstraint')
+        location = ctx.call('s3','get_bucket_location',Bucket=name,ExpectedBucketOwner=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId'])).get('LocationConstraint')
         if not bucket.get('BucketArn'):
             # General-purpose bucket ARN is the documented identity format, from
             # SDK-confirmed bucket name and verified STS partition; no guessed IDs.
@@ -63,7 +63,7 @@ def fetch(ctx, r, getter):
         return bucket
     operations = {'encryption':'get_bucket_encryption','lifecycle':'get_bucket_lifecycle_configuration','ownership':'get_bucket_ownership_controls','public':'get_public_access_block','versioning':'get_bucket_versioning','lock':'get_object_lock_configuration','policy':'get_bucket_policy'}
     try:
-        result = ctx.call('s3',operations[getter],Bucket=name,ExpectedBucketOwner=ctx.target['awsAccountId'])
+        result = ctx.call('s3',operations[getter],Bucket=name,ExpectedBucketOwner=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId']))
     except AcquisitionError as error:
         absent = {'ServerSideEncryptionConfigurationNotFoundError','NoSuchLifecycleConfiguration','OwnershipControlsNotFoundError','NoSuchOwnershipControls','NoSuchPublicAccessBlockConfiguration','ObjectLockConfigurationNotFoundError','NoSuchBucketPolicy'}
         if error.code in absent:

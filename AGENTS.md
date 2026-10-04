@@ -71,6 +71,10 @@
 - 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとし、同じAWS account IDを持つalias間で統一する。
 - humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
 - `awsProfile`は確定済みの空でない文字列とし、前後の空白、改行、NUL、`UNSET`を禁止する。指定しない場合はkey自体を省略し、credential値を保存しない。profileはtargetごとに設定でき、alias／account／region／IaC engineの制約を変更しない。
+- `awsAccountId`はresource作成時の明示的なaccount ID設定・名称componentとtarget identityの正本とする。target directory、selector、task scopeは従来どおりalias、aliasなしは`awsAccountId`を使用する。
+- 各targetは任意の`awsExecutionAccountId`を持てる。指定時はASCII数字12桁の文字列とし、未指定時はkeyを省略して`awsAccountId`を実行accountとして使用する。AWS CLI／SDK、CloudFormation、Terraform、既存resource取得、observed値取得、model対AWS比較、scenarioのcaller account検証には実行accountを使用し、不一致・認証失敗ではAWS操作前に停止する。ID設定だけでcredentialは切り替わらず、既存の`awsProfile`／明示profile／default credential chainを使用し、AssumeRoleや別accountへのfallbackを自動追加しない。
+- AWS APIの暗黙のaccount context／owner検証とCloudFormationの`AWS::AccountId`は実行accountを使用する。設計に明示したaccount propertyやcross-account参照は書き換えない。名前等に`awsAccountId`が必要で両IDが異なる場合は、`AWS::AccountId`へ置換せず独立した明示parameter／設定値として渡す。通常のresourceの所属accountは実際のAWS実行先で決まり、`awsAccountId`設定だけでは変更できない。
+- 同じenvironment/実行accountを持つtargetでもIaC engineを統一する。初期化・target追加では任意の実行account IDを確認し、既存targetへの追加・変更・解除はhumanが明示した`migration` taskでCodexが行う。`awsAccountId`やalias、path、設計、IaCを暗黙に変更せず、AWS接続を行わずlocal validationする。
 - `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
 
 ## Generated service model

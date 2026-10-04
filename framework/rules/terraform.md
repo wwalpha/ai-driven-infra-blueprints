@@ -1,12 +1,14 @@
 # Terraform Rules
 
+- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresourceの明示的account ID設定・名称componentは`awsAccountId`を維持する。APIの暗黙のaccount context／owner検証は実行account、設計で明示されたaccount property／cross-account参照は承認済みの値を使用する。詳細は`AGENTS.md`のProject configurationに従う。
+
 対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
 
 - Terraformは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがTerraformを選択した場合だけ使用する。
-- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
+- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。同じenvironment/実行accountのtargetでもengineを統一する。
 - aliasなしの共通moduleは`infra/terraform/modules/`、alias別moduleは`infra/terraform/modules/<alias>/`に置く。同じaliasのmoduleをenvironment間で共用し、異なるaliasのmoduleを共用しない。
 - target固有root、backend、state設定は`infra/terraform/environments/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - 未使用infrastructureを先回りして生成しない。
@@ -27,6 +29,7 @@
 ## Validation and execution
 
 - 対象targetの`awsProfile`があれば、Terraformのinit／plan／applyとAWS値取得で同じprofileを使用する。対象processと子processだけに`AWS_PROFILE`を渡し、global shellやAWS設定fileを書き換えない。AWS providerとAWS backendの両方でprofileを維持し、明示profileや直接credentialなどが選択を上書きする設定は実行前に矛盾として停止する。AWS CLIには同じ`--profile`、SDKにはprofileを明示する。未設定時は従来の明示profile／default credential chainを維持し、account／region検証を省略しない。
+- providerとAWS backendのaccount制限・接続検証はそれぞれの承認済み設定と実行accountを照合する。resource名等の明示account ID値には`awsAccountId`を渡し、caller identityから得る実行accountで置換しない。
 - `implement` phaseは`terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行し、plan、apply、AWS APIを実行しない。
 - `deploy` phaseはIaCを変更せず、`terraform fmt -check`、`terraform validate`、repository外へ保存する`terraform plan`を実行する。
 - `update` phaseはhumanがtask開始前に手動修正したmodel propertiesを変更せずMarkdownを生成し、implement phaseのlocal validation後、repository外へ保存するplanを確認してapplyする。このphase内で生成した対象IaCのuncommitted diffだけをapply対象として許可する。

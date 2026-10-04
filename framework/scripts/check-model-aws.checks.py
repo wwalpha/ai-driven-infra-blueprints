@@ -482,6 +482,36 @@ def common_checks(root):
     ctx2.target = bad
     expect(m.AcquisitionError, ctx2.verify)
     check(not ctx2.verified and set(ctx2.clients) == {'sts'}, 'account mismatch stops all service APIs')
+    split = Offline(root)
+    split.target = dict(TARGET, awsAccountId='999999999999', awsExecutionAccountId=ACCOUNT)
+    split.verify()
+    check(split.verified and split.target['awsAccountId'] == '999999999999', 'execution account verification preserves resource account')
+    split_resource = split.model(path).resources[0]
+    check(split_resource.resolve_json({'Fn::Sub': 'account-${AWS::AccountId}'}, None) == 'account-' + ACCOUNT,
+          'live CFN pseudo account uses verified execution account')
+    check(split_resource.resolve_json({'Ref': 'AWS::AccountId'}) == ACCOUNT,
+          'live CFN Ref pseudo account uses verified execution account')
+    split.finish()
+    wrong_execution = Offline(root)
+    wrong_execution.target = dict(TARGET, awsExecutionAccountId='999999999999')
+    expect(m.AcquisitionError, wrong_execution.verify)
+    check(not wrong_execution.verified and set(wrong_execution.clients) == {'sts'}, 'execution mismatch stops all service APIs')
+    # Implicit API account contexts use execution IDs; explicit model values stay untouched.
+    execution = '999999999999'
+    api_ctx = SimpleNamespace(target=dict(TARGET, awsExecutionAccountId=execution))
+    resource_stub = SimpleNamespace(kind='SQS.Queue', value=lambda key: 'fixture', current=lambda key: None)
+    with patch.object(api_ctx, 'call', create=True, return_value={'QueueUrl': 'url'}) as call:
+        m.service_module('sqs').fetch(api_ctx, resource_stub, 'base')
+        check(call.call_args_list[0].kwargs['QueueOwnerAWSAccountId'] == execution, 'SQS implicit owner is execution account')
+    with patch.object(api_ctx, 'call', create=True, return_value={}) as call:
+        m.service_module('s3').fetch(api_ctx, resource_stub, 'versioning')
+        check(call.call_args.kwargs['ExpectedBucketOwner'] == execution, 'S3 implicit owner is execution account')
+        check(m.service_module('macie').fetch(api_ctx, resource_stub, 'session')['AwsAccountId'] == execution,
+              'Macie session actual account is execution account')
+    resource_stub.kind = 'Glue.Catalog'
+    with patch.object(api_ctx, 'pages', create=True, return_value={'CatalogList': [{'Name': 'fixture'}]}) as pages:
+        m.service_module('glue').fetch(api_ctx, resource_stub, 'base')
+        check(pages.call_args.kwargs['ParentCatalogId'] == execution, 'Glue implicit parent catalog is execution account')
     calls = []
     expect(ValueError, lambda: m.run(root, [(dict(TARGET, awsProfile='confirmed'), path)], profile='wrong', session_factory=lambda **kw: calls.append(kw)))
     check(not calls, 'profile conflict rejected before session creation')

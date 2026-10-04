@@ -39,10 +39,11 @@ Project nameを入力してください。
 1. Project name
 2. Environment IDを一つ確認し、別のenvironmentを追加するか確認する。追加がなくなるまで繰り返す
 3. 各environmentについて論理配置先が一件か複数かを確認する。複数の場合だけaliasを一つずつ確認し、追加がなくなるまで繰り返す
-4. 各targetについてAWS account IDを一つずつ確認する。同じAWS account IDを異なるaliasへ設定してよい
+4. 各targetについてresource作成時のID設定・名称とtarget identityに使うAWS account ID（`awsAccountId`）を一つずつ確認する。同じAWS account IDを異なるaliasへ設定してよい
 5. 各targetについてAWS regionを一つずつ確認する
 6. 各targetについてIaC engineを一つずつ確認する
 7. 各targetについてAWS profileを任意項目として一つずつ確認する。不要なら省略でき、未設定でも初期化を進める
+8. 各targetについてAWS実行account ID（`awsExecutionAccountId`）を任意項目として一つずつ確認する。省略時は`awsAccountId`で認証照合する
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。aliasはhumanが入力した値だけを使用し、`cde`、`non-cde`などの固定候補を持たない。
 
@@ -68,6 +69,7 @@ file変更前に次を確認する。
 - targetが1件以上ある
 - Environment IDがlower-kebab-case
 - AWS account IDが12桁
+- 任意のAWS実行account IDはASCII数字12桁の文字列。同じenvironment/実行accountのtarget間でもIaC engineを統一する。認証の自動切替は行わず、AWS接続はこのtaskで行わない
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
 - 一件だけのenvironmentではaliasがなく、複数targetのenvironmentでは全targetに一意で有効なaliasがある
@@ -105,6 +107,7 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
       "environment": "<confirmed-environment-id>",
       "alias": "<confirmed-optional-alias>",
       "awsAccountId": "<confirmed-12-digit-account-id>",
+      "awsExecutionAccountId": "<confirmed-optional-12-digit-execution-account-id>",
       "awsRegion": "<confirmed-region>",
       "iacEngine": "<cloudformation-or-terraform>",
       "awsProfile": "<confirmed-optional-profile>"
@@ -114,6 +117,7 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
+AWS実行account IDを指定しないtargetでは`awsExecutionAccountId` key自体を省略する。selectorとpathは`awsAccountId`を維持する。
 AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 
 ## Create target paths

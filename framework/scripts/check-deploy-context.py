@@ -79,6 +79,11 @@ def load_target(
     }
     if alias:
         resolved["alias"] = alias
+    if "awsExecutionAccountId" in target:
+        execution_account = target["awsExecutionAccountId"]
+        if not isinstance(execution_account, str) or not re.fullmatch(r"[0-9]{12}", execution_account):
+            raise DeployContextError("target AWS execution account ID is invalid")
+        resolved["awsExecutionAccountId"] = execution_account
     if "awsProfile" in target:
         profile = target["awsProfile"]
         if (not isinstance(profile, str) or not profile or profile != profile.strip()
@@ -140,9 +145,10 @@ def check_deploy_context(
         caller_account = json.loads(result.stdout).get("Account")
     except (json.JSONDecodeError, AttributeError) as error:
         raise DeployContextError("AWS caller identity response is invalid") from error
-    if caller_account != target["awsAccountId"]:
+    execution_account = target.get("awsExecutionAccountId", target["awsAccountId"])
+    if caller_account != execution_account:
         raise DeployContextError(
-            f"AWS account mismatch: expected {target['awsAccountId']}, actual {caller_account or 'unknown'}"
+            f"AWS account mismatch: expected {execution_account}, actual {caller_account or 'unknown'}"
         )
     return target
 
@@ -179,7 +185,8 @@ def main() -> int:
     print(f"- environment: {args.environment}")
     if args.alias:
         print(f"- alias: {args.alias}")
-    print(f"- AWS account: {target['awsAccountId']}")
+    print(f"- AWS resource account: {target['awsAccountId']}")
+    print(f"- AWS execution account: {target.get('awsExecutionAccountId', target['awsAccountId'])}")
     print(f"- AWS region: {target['awsRegion']}")
     if target.get("awsProfile") or args.profile:
         print(f"- AWS profile: {target.get('awsProfile') or args.profile}")

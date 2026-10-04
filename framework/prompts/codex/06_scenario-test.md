@@ -4,6 +4,8 @@
 
 このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
 
+AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resourceの明示的account ID値は設計どおりとし、CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。
+
 ## Unresolved issue gate
 
 対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。

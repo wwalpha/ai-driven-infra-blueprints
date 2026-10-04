@@ -1,5 +1,7 @@
 # CloudFormation Rules
 
+- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresourceの明示的account ID設定・名称componentは`awsAccountId`を維持する。APIの暗黙のaccount context／owner検証は実行account、設計で明示されたaccount property／cross-account参照は承認済みの値を使用する。詳細は`AGENTS.md`のProject configurationに従う。
+
 対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
 
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
@@ -30,7 +32,8 @@
 - target固有parameterは`infra/cloudformation/parameters/<environment>/<target-directory>/`に置く。target directoryはaliasがあればalias、なければAWS account IDとする。
 - resourceの正式な名前propertyまたは`Name` tagにEnvironment IDを含める場合、templateの`Parameters`に独立した`Environment`を宣言し、target別parameter fileでは`Environment`に`project.json`の対象Environment IDを設定する。名前はresourceのproperty／tag valueで`!Sub`、`!Join`、`!Ref`などから合成し、AWS account ID等の独立したcomponentと同様に扱う。詳細設計にある確定済みの完成名は変更しない。
 - target別parameter fileの`Environment`以外のparameter value（resource名、prefix、suffix等）に対象Environment IDを名称componentとして含めない。例えば`Environment=dev`、`NamePrefix=app`から`app-dev-role`をtemplate内で作る。`NamePrefix=app-dev`は`Environment` parameterの有無にかかわらず違反とする。templateに完成名を固定したり、別parameterにEnvironmentを埋め込んで二重に付加したりしない。
-- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。
+- 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。同じenvironment/実行accountのtargetでもengineを統一する。
+- local/deployのCondition、ImportValue、artifact参照、Outputsを評価する`AWS::AccountId`は実行accountを使用する。resource名等へ`awsAccountId`を渡す場合は独立した明示parameterを使用し、native擬似parameterで代用しない。stack/resourceの実際の所属accountはAWS実行先から決まる。
 - authorized operationはAWS CLIで行う。
 
 ## Design coverage and CloudFormation support

@@ -797,15 +797,16 @@ class Validator:
         order: list[tuple[str, str]] = []
         environment_targets: dict[str, list[dict[str, str]]] = {}
         account_engines: dict[tuple[str, str], str] = {}
+        execution_account_engines: dict[tuple[str, str], str] = {}
         required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
-        allowed = required | {"alias", "awsProfile"}
+        allowed = required | {"alias", "awsProfile", "awsExecutionAccountId"}
         for index, target_values in enumerate(targets, 1):
             self.check(isinstance(target_values, dict), f"target {index} must be an object")
             if not isinstance(target_values, dict):
                 continue
             self.check(
                 required <= set(target_values) <= allowed,
-                f"target {index} must contain {sorted(required)} and optional alias/awsProfile only",
+                f"target {index} must contain {sorted(required)} and optional alias/awsProfile/awsExecutionAccountId only",
             )
             if not required <= set(target_values):
                 continue
@@ -820,6 +821,11 @@ class Validator:
             alias = target_values.get("alias", "")
             target_directory = alias or account
             target = f"{environment}/{target_directory}"
+            execution_account = target_values.get("awsExecutionAccountId", account)
+            self.check(
+                re.fullmatch(r"[0-9]{12}", execution_account) is not None,
+                f"invalid AWS execution account: {target}",
+            )
             if "awsProfile" in target_values:
                 profile = target_values["awsProfile"]
                 self.check(
@@ -862,6 +868,12 @@ class Validator:
                 f"aliases for the same environment/AWS account must use one IaC engine: {environment}/{account}",
             )
             account_engines.setdefault(account_key, engine)
+            execution_key = (environment, execution_account)
+            self.check(
+                execution_account_engines.get(execution_key) in {None, engine},
+                f"targets for the same environment/AWS execution account must use one IaC engine: {environment}/{execution_account}",
+            )
+            execution_account_engines.setdefault(execution_key, engine)
 
         for environment, environment_values in environment_targets.items():
             aliases = [value.get("alias", "") for value in environment_values]
@@ -1892,8 +1904,9 @@ class Validator:
         sources = self.design_files() if paths is None else paths
         references = {path.resolve() for path in sources}
         fragments = {}
+        visible_text = {source: re.sub(r"<!--.*?-->", "", source.read_text(encoding="utf-8"), flags=re.DOTALL) for source in sources}
         for source in sources:
-            for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
+            for raw in LINK_PATTERN.findall(visible_text[source]):
                 target, separator, fragment = raw.partition("#")
                 if separator and not raw.startswith(("http://", "https://", "mailto:")):
                     linked = (source.parent / target if target else source).resolve()
@@ -1963,7 +1976,7 @@ class Validator:
                     ):
                         resources[current][1][cells[1]] = self.unquoted(cells[2])
         for source in sources:
-            for line in source.read_text(encoding="utf-8").splitlines():
+            for line in visible_text[source].splitlines():
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
                     label, target_text, fragment = link.groups()
@@ -1981,7 +1994,7 @@ class Validator:
                         observed = resources.get((target, fragment), ("", {}))[1].values()
                         identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
                         self.check(label == name or identifier_reference, f"nameless resource link must display resource type or observed identifier: {self.relative(source)}: {label}")
-            for raw in LINK_PATTERN.findall(source.read_text(encoding="utf-8")):
+            for raw in LINK_PATTERN.findall(visible_text[source]):
                 if raw.startswith(("http://", "https://", "mailto:")):
                     continue
                 target_text, separator, fragment = raw.partition("#")

@@ -12,12 +12,13 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
-`project.json`の各targetには任意の`awsProfile`を設定できます。initialization／target追加時にprofile名を指定し、不要なら項目を省略します。
+`project.json`の各targetには任意の`awsProfile`と`awsExecutionAccountId`を設定できます。initialization／target追加時に確認済みの値を指定し、不要なら項目を省略します。既存targetへの実行account IDの登録・変更・解除は、対象targetと値を明示したmigration taskをCodexへ依頼します。
 
 ```json
 {
   "environment": "dev",
   "awsAccountId": "123456789012",
+  "awsExecutionAccountId": "210987654321",
   "awsRegion": "ap-northeast-1",
   "iacEngine": "cloudformation",
   "awsProfile": "dev-admin"
@@ -26,7 +27,11 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 設定時はpreflightとCloudFormation controllerが自動使用し、直接のAWS CLIにも`--profile`を付けます（[AWS CLIのnamed profile](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)）。SDKにはprofileを明示し、Terraformは対象processの`AWS_PROFILE`へ渡します（[AWS providerの認証設定](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#authentication-and-configuration)）。profile未設定時は従来の明示profile／default credential chainを維持します。設定済みprofileと異なる明示profileは実行前に停止します。account／regionの確認も引き続き行います。
 
-一つのenvironmentにtargetが一件だけならaliasを使用しません。複数の論理配置先がある場合は全targetへhuman-confirmed aliasを設定し、異なるaliasへ同じAWS account IDを設定できます。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値は禁止します。target directoryはaliasがあればalias、なければAWS account IDです。
+`awsAccountId`はresourceの明示的なaccount ID設定・名前とtargetの識別に使います。`awsExecutionAccountId`はAWS操作の認証account照合に使うASCII数字12桁の文字列です。省略時は`awsAccountId`で照合し、設定と異なるcaller accountでは停止します。設定だけで認証は切り替わりません。上の例では、選択したprofileのcaller accountが`210987654321`である必要があります。
+
+CFnの`AWS::AccountId`は実際のstack作成accountです（[AWS公式の擬似parameter仕様](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/pseudo-parameter-reference.html)）。両IDが異なる場合、名前などへ`awsAccountId`を含める実装は独立した明示parameterを使います。AWS APIの暗黙の所有者検証は実行accountを使い、設計に明示したaccount propertyやcross-account参照は維持します。
+
+一つのenvironmentにtargetが一件だけならaliasを使用しません。複数の論理配置先がある場合は全targetへhuman-confirmed aliasを設定し、異なるaliasへ同じAWS account IDを設定できます。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値は禁止します。target directoryはaliasがあればalias、なければ`awsAccountId`です。同じenvironment/実行accountのtargetでもIaC engineを統一します。
 
 ## Repository instructions
 

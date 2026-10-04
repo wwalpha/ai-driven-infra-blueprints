@@ -26,7 +26,7 @@ def sensitive(prop):
 def fetch(ctx, r, getter):
     if r.kind=='SQS.Queue':
         name=r.value('QueueName')
-        url=ctx.call('sqs','get_queue_url',QueueName=name,QueueOwnerAWSAccountId=ctx.target['awsAccountId'])['QueueUrl']
+        url=ctx.call('sqs','get_queue_url',QueueName=name,QueueOwnerAWSAccountId=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId']))['QueueUrl']
         return {'QueueName':name,'QueueUrl':url,**ctx.call('sqs','get_queue_attributes',QueueUrl=url,AttributeNames=['All'])}
     queues=[r.parse(row,'id') for _,row in r.rows_for('Queues[]')]
     urls=[url for value in queues for url in (value if isinstance(value,list) else [value])]

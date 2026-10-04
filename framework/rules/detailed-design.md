@@ -1,5 +1,7 @@
 # Detailed Design Rules
 
+- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresourceの明示的account ID設定・名称componentは`awsAccountId`を維持する。APIの暗黙のaccount context／owner検証は実行account、設計で明示されたaccount property／cross-account参照は承認済みの値を使用する。詳細は`AGENTS.md`のProject configurationに従う。
+
 対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
 
 ## 正本と更新順

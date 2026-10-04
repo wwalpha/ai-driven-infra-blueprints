@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import sys
 
+from array_display import restored_rows
 from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
 
 START = "<!-- policy-tables:start -->"
@@ -170,9 +171,11 @@ def resources_in(lines: list[str]) -> list[Resource]:
             cells = [part.strip() for part in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError(f"invalid resource property row: {logical_id}")
-            cells[1] = formal_property(cells[1], current_type)
             rows.append(cells)
             index += 1
+        rows = restored_rows(rows, current_type)
+        for row in rows:
+            row[1] = formal_property(row[1], current_type)
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]
         if len(names) > 1:
             raise ValueError(f"duplicate IAM RoleName: {logical_id}")

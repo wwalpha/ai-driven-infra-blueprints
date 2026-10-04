@@ -385,6 +385,23 @@ def check_inputs():
         run.assert_not_called()
         M.AwsBackend(ROOT, "dev", "123456789012", TARGET).aws("list-exports")
         assert "--profile" not in run.call_args.args[0]
+    # Native CFN pseudo parameters describe the stack account, independent of explicit resource IDs.
+    execution = "999999999999"
+    backend = StubAws([execution + "VpcId"])
+    backend.target = {**TARGET, "awsExecutionAccountId": execution}
+    backend.templates["A"] = ({"Fn::ImportValue": {"Fn::Sub": "${AWS::AccountId}VpcId"}}, {})
+    backend.check_imports(units(1)[0])
+    backend.exports = []
+    artifact = {"resource": "Function", "property": "Code", "bucket": "bucket", "keyPrefix": execution + "/"}
+    document = {"Resources": {"Function": {"Type": "AWS::Lambda::Function", "Properties": {
+        "Code": {"S3Bucket": "bucket", "S3Key": {"Fn::Sub": "${AWS::AccountId}/code.zip"}}}}}}
+    assert backend.artifact_bindings({"name": "A", "artifacts": [artifact]}, document, {})[0][0] == artifact
+    assert backend.target["awsAccountId"] == TARGET["awsAccountId"]
+    backend = M.AwsBackend(ROOT, "dev", "123456789012", {**TARGET, "awsExecutionAccountId": execution})
+    with patch.object(backend, "aws", return_value={"ChecksumSHA256": "checksum", "ContentLength": 1}) as aws:
+        backend.verify_object({"bucket": "bucket", "key": "key", "checksum": "checksum", "size": 1})
+        arguments = aws.call_args.args
+        assert arguments[arguments.index("--expected-bucket-owner") + 1] == execution
 
 
 class DeliveryAws(StubAws):
@@ -937,7 +954,7 @@ def check_observed_collector():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET, "awsExecutionAccountId": "999999999999"}]}) + "\n")
         source = root / "model/dev/123456789012/ec2.properties"
         source.parent.mkdir(parents=True)
         design = root / "docs/designs/dev/123456789012/ec2.md"
@@ -972,7 +989,10 @@ def check_observed_collector():
         document = {"Resources": {"VpcTestDev": {"Type": "AWS::EC2::VPC"}},
                     "Outputs": {"VpcIdentity": {"Value": {"Ref": "VpcTestDev"}}}}
         backend.templates = {"A": (document, {})}
-        document["Conditions"] = {"ThisStack": {"Fn::Equals": [{"Ref": "AWS::StackName"}, "A"]}}
+        backend.target = {**TARGET, "awsExecutionAccountId": "999999999999"}
+        document["Conditions"] = {"ThisStack": {"Fn::And": [
+            {"Fn::Equals": [{"Ref": "AWS::StackName"}, "A"]},
+            {"Fn::Equals": [{"Ref": "AWS::AccountId"}, "999999999999"]}]}}
         document["Resources"]["VpcTestDev"]["Condition"] = "ThisStack"
         document["Outputs"]["VpcIdentity"]["Condition"] = "ThisStack"
         physical, output, removed = ["vpc-0123456789abcdef0"], ["vpc-0123456789abcdef0"], [False]

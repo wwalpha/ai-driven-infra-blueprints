@@ -36,10 +36,11 @@ Step 1: Environment
 
 1. Environment ID
 2. 既存environmentがalias targetを持つ場合だけ、新しいalias
-3. AWS account ID
+3. resource作成時のID設定・名称とtarget identityに使うAWS account ID（`awsAccountId`）
 4. AWS region
 5. IaC engine
 6. AWS profile（任意。不要なら省略してtarget追加を進める）
+7. AWS実行account ID（`awsExecutionAccountId`、任意。省略時は`awsAccountId`で認証照合する）
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
@@ -59,6 +60,7 @@ file変更前に次を確認する。
 - `project.json`が現在のschemaで有効
 - Environment IDがlower-kebab-case
 - AWS account IDが12桁
+- 任意のAWS実行account IDはASCII数字12桁の文字列。同じenvironment/実行accountのtarget間でもIaC engineを統一する。認証の自動切替は行わず、AWS接続はこのtaskで行わない
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
 - 任意のAWS profileを指定した場合は、前後の空白、改行、NUL、`UNSET`を含まない空でない文字列。profileの存在確認やAWS接続はこのtaskでは行わない
@@ -93,6 +95,7 @@ file変更前に次を確認する。
   "environment": "<confirmed-environment-id>",
   "alias": "<confirmed-optional-alias>",
   "awsAccountId": "<confirmed-12-digit-account-id>",
+  "awsExecutionAccountId": "<confirmed-optional-12-digit-execution-account-id>",
   "awsRegion": "<confirmed-region>",
   "iacEngine": "<cloudformation-or-terraform>",
   "awsProfile": "<confirmed-optional-profile>"
@@ -100,6 +103,7 @@ file変更前に次を確認する。
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。
+AWS実行account IDを指定しないtargetでは`awsExecutionAccountId` key自体を省略する。selectorとpathは`awsAccountId`を維持する。
 AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 
 ## Create target paths

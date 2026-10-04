@@ -221,6 +221,7 @@ def check_optional_alias_targets() -> None:
                     "environment": "dev",
                     "alias": "cde",
                     "awsProfile": "dev-cde",
+                    "awsExecutionAccountId": "999999999999",
                     "awsAccountId": "123456789012",
                     "awsRegion": "ap-northeast-1",
                     "iacEngine": "cloudformation",
@@ -263,6 +264,7 @@ def check_optional_alias_targets() -> None:
         assert not validator.errors, validator.errors
         assert validator.accounts[("dev", "cde")]["account"] == "123456789012"
         assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
+        assert validator.accounts[("sandbox", "210987654321")]["account"] == "210987654321"
 
         invalid_targets = [
             ([topology["targets"][0]], "single-target environment must omit alias"),
@@ -302,9 +304,20 @@ def check_optional_alias_targets() -> None:
                 [{**topology["targets"][0], "awsProfile": invalid}, *topology["targets"][1:]],
                 "values must be strings" if not isinstance(invalid, str) else "invalid AWS profile",
             ))
+        for invalid in (None, 123456789012, "", "UNSET", "123", "1234567890123", " 123456789012", "123456789012\n", "１２３４５６７８９０１２"):
+            invalid_targets.append((
+                [{**topology["targets"][0], "awsExecutionAccountId": invalid}, *topology["targets"][1:]],
+                "values must be strings" if not isinstance(invalid, str) else "invalid AWS execution account",
+            ))
+        invalid_targets.append((
+            [topology["targets"][0],
+             {**topology["targets"][1], "awsAccountId": "210987654321",
+              "awsExecutionAccountId": "999999999999", "iacEngine": "terraform"}],
+            "same environment/AWS execution account must use one IaC engine",
+        ))
         invalid_targets.append((
             [{**topology["targets"][0], "profile": "unsupported"}, *topology["targets"][1:]],
-            "optional alias/awsProfile only",
+            "optional alias/awsProfile/awsExecutionAccountId only",
         ))
         for targets, expected_error in invalid_targets:
             (root / "project.json").write_text(
@@ -709,6 +722,44 @@ def check_identifier_propagation() -> None:
         validator = MODULE.Validator(root)
         validator.check_design_links(identifier_outputs)
         assert any("identifier reference does not match observed target" in error for error in validator.errors)
+
+
+def check_array_source_role_links() -> None:
+    from array_display import indexed_rows
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/iam.md"
+        path.parent.mkdir(parents=True)
+        role = """<a id="iam-role"></a>
+### IAM.Role: Role
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | RoleName | `app-role` | Role name |
+
+<a id="iam-profile"></a>
+### IAM.InstanceProfile: Profile
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+"""
+        def errors(label):
+            rows = indexed_rows([
+                ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
+                ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
+            ], "IAM.InstanceProfile")
+            content = role + "\n".join("| " + " | ".join(row) + " |" for row in rows) + "\n"
+            # Hidden links must not enter reference discovery or broken-link checks.
+            content += "<!--\n[hidden](missing.md#missing)\n-->\n"
+            assert "<!-- array-source:" in content
+            path.write_text(content, encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_design_links({}, paths=[path])
+            return validator.errors
+
+        assert not errors("app-role"), errors("app-role")
+        assert any("IAM Role link must display RoleName" in error for error in errors("wrong-role")), errors("wrong-role")
 
 
 def check_name_tag_and_identifier_order_contract() -> None:
@@ -1546,6 +1597,7 @@ def main() -> None:
     check_implementation_preflight_prompt()
     check_update_flow_prompt()
     check_identifier_propagation()
+    check_array_source_role_links()
     check_name_tag_and_identifier_order_contract()
     check_cidr_pending_deploy()
     check_catalog_display_order()
@@ -1558,7 +1610,7 @@ def main() -> None:
     check_cloudformation_stack_design()
     check_stack_mapping_targets()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (61 focused checks)")
+    print("validate-blueprint: PASS (62 focused checks)")
 
 
 if __name__ == "__main__":

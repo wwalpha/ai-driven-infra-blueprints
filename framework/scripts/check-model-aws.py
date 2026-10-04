@@ -311,7 +311,7 @@ class Context:
 
     def verify(self):
         response = self.call("sts", "get_caller_identity")
-        if response.get("Account") != self.target["awsAccountId"]:
+        if response.get("Account") != self.target.get("awsExecutionAccountId", self.target["awsAccountId"]):
             raise AcquisitionError("sts.get_caller_identity", "AccountMismatch")
         self.verified = True
 
@@ -473,6 +473,10 @@ class Resource:
             return [self.resolve_json(item, norm) for item in value]
         if not isinstance(value, dict):
             return value
+        if value == {"Ref": "AWS::AccountId"}:
+            return self.ctx.call("sts", "get_caller_identity")["Account"]
+        if value == {"Ref": "AWS::Region"}:
+            return self.ctx.target["awsRegion"]
         if "Fn::GetAtt" in value or "Ref" in value:
             item = value.get("Fn::GetAtt", value.get("Ref"))
             logical = item[0] if isinstance(item, list) else item.split(".")[0]
@@ -499,7 +503,7 @@ class Resource:
                 substitutions = self.resolve_json(substitutions, norm)
             # Partition is obtained from verified STS ARN, never inferred from region.
             caller = self.ctx.call("sts", "get_caller_identity")
-            substitutions.update({"AWS::AccountId": self.ctx.target["awsAccountId"],
+            substitutions.update({"AWS::AccountId": caller["Account"],
                                   "AWS::Region": self.ctx.target["awsRegion"],
                                   "AWS::Partition": caller["Arn"].split(":")[1]})
             def replace(match):

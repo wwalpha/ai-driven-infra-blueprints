@@ -30,7 +30,7 @@ def sensitive(prop):
 
 def fetch(ctx, r, getter):
     if getter=='session':
-        return dict(ctx.call('macie2','get_macie_session'),AwsAccountId=ctx.target['awsAccountId'])
+        return dict(ctx.call('macie2','get_macie_session'),AwsAccountId=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId']))
     current=r.current('jobId')
     if not current:
         names=ctx.pages('macie2','list_classification_jobs',filterCriteria={'includes':[{'key':'NAME','comparator':'EQ','values':[r.value('name')]}]}).get('items',[])

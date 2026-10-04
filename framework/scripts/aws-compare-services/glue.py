@@ -81,7 +81,7 @@ def fetch(ctx, r, getter):
         current=r.current('CatalogId')
         if current:
             return ctx.call('glue','get_catalog',CatalogId=current)['Catalog']
-        return one([v for v in ctx.pages('glue','get_catalogs',ParentCatalogId=ctx.target['awsAccountId']).get('CatalogList',[]) if v['Name']==r.value('Name')], 'glue.get_catalogs')
+        return one([v for v in ctx.pages('glue','get_catalogs',ParentCatalogId=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId'])).get('CatalogList',[]) if v['Name']==r.value('Name')], 'glue.get_catalogs')
     if r.kind == 'Glue.Connection':
         catalog=r.value('CatalogId')
         record=ctx.call('glue','get_connection',CatalogId=catalog,Name=r.value('ConnectionInput.Name'),HidePassword=True)['Connection']

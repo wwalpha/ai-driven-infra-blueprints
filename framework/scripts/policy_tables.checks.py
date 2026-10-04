@@ -6,11 +6,14 @@ if not __debug__:
 
 import importlib.util
 import json
+
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
+from array_display import indexed_rows
+from design_layout import HEADER, ALIGNMENT
 from policy_tables import IAM_END as END, IAM_START as START, policy_lines, rendered_design, resources_in, without_policy_tables
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -138,6 +141,27 @@ def main():
         assert errors(rendered.replace(START, "", 1))
         assert errors(rendered.replace(END, "", 1))
         assert errors(rendered.replace("### IAM.Role: RoleB", "### IAM.Role: RoleA"))
+
+        # Generated one-based rows retain both inline policies for every Role.
+        indexed_lines = text.splitlines()
+        for resource in reversed(resources_in(indexed_lines)):
+            start = resource.table_end
+            while indexed_lines[start - 1].startswith("|") and indexed_lines[start - 1] not in {HEADER, ALIGNMENT}:
+                start -= 1
+            rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in indexed_lines[start:resource.table_end]]
+            shown = indexed_rows(rows, resource.resource_type)
+            indexed_lines[start:resource.table_end] = ["| " + " | ".join(row) + " |" for row in shown]
+        indexed = "\n".join(indexed_lines) + "\n"
+        assert "Policies[1].PolicyDocument" in indexed and "Policies[2].PolicyDocument" in indexed
+        path.write_text(indexed, encoding="utf-8")
+        indexed_rendered = rendered_design(path)
+        assert indexed_rendered.count("#### インラインポリシー：Logging") == 2
+        assert indexed_rendered.count("#### インラインポリシー：Extra") == 2
+        assert indexed_rendered.count("\n#### ") == 6
+        assert "\n".join(without_policy_tables(indexed_rendered.splitlines())) + "\n" == indexed
+        assert not errors(indexed_rendered), errors(indexed_rendered)
+        assert rendered_design(path) == indexed_rendered, "indexed policy generation must be idempotent"
+        assert MODEL.model_for(path) == baseline_model, "array display and policy views must preserve the model"
         path.write_text(rendered, encoding="utf-8")
 
         # JSON changes affect the existing hash and must invalidate the derived view.

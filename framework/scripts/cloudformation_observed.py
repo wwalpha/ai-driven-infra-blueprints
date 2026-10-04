@@ -113,6 +113,8 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
         document, parameters = templates[name]
         pseudo = {"AWS::StackName": name} | {"AWS::" + key: target[value] for key, value in
                  (("AccountId", "awsAccountId"), ("Region", "awsRegion")) if value in target}
+        if "awsExecutionAccountId" in target:
+            pseudo["AWS::AccountId"] = target["awsExecutionAccountId"]
         result[name] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
         explicit = any(stack == name for stack, _ in direct)
@@ -227,7 +229,7 @@ def sync_successful(backend, units, states):
                 prop = row["property"]
                 if prop not in selected_outputs:
                     continue
-                pseudo = {"AWS::StackName": name, "AWS::AccountId": backend.target["awsAccountId"], "AWS::Region": backend.target["awsRegion"]}
+                pseudo = {"AWS::StackName": name, "AWS::AccountId": backend.target.get("awsExecutionAccountId", backend.target["awsAccountId"]), "AWS::Region": backend.target["awsRegion"]}
                 primary, keys = identifier_source(catalog, resource, selected_outputs, logical, prop,
                                                  active_outputs(document, parameters, pseudo))
                 values = []

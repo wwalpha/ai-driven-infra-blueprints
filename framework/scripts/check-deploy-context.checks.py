@@ -156,6 +156,39 @@ def main() -> None:
             assert run.call_count == 1
             assert run.call_args.args[0][2] == "stg-cde"
 
+        topology["targets"][1]["awsExecutionAccountId"] = "999999999999"
+        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+        with mock.patch.object(MODULE.shutil, "which", return_value="/mock/aws"), mock.patch.object(
+            MODULE.subprocess, "run",
+            return_value=subprocess.CompletedProcess([], 0, '{"Account":"999999999999"}', ""),
+        ) as run:
+            for read_only in (False, True):
+                target = MODULE.check_deploy_context(root, "stg", alias="cde", read_only=read_only)
+                assert target["awsAccountId"] == "123456789012"
+                assert target["awsExecutionAccountId"] == "999999999999"
+                assert run.call_args.args[0][2] == "stg-cde"
+            run.return_value = subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', "")
+            try:
+                MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
+            except MODULE.DeployContextError as error:
+                assert "expected 999999999999, actual 123456789012" in str(error)
+            else:
+                raise AssertionError("resource account was accepted as execution account")
+        topology["targets"][0]["awsExecutionAccountId"] = "999999999999"
+        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+        assert MODULE.load_target(root, "production", account_id="210987654321")["awsAccountId"] == "210987654321"
+        for invalid in (None, 123456789012, "", "UNSET", "123", "1234567890123", " 123456789012", "123456789012\n", "１２３４５６７８９０１２"):
+            topology["targets"][1]["awsExecutionAccountId"] = invalid
+            (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+            with mock.patch.object(MODULE.subprocess, "run") as run:
+                try:
+                    MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
+                except MODULE.DeployContextError as error:
+                    assert "AWS execution account ID is invalid" in str(error)
+                else:
+                    raise AssertionError(f"invalid execution account was accepted: {invalid!r}")
+                run.assert_not_called()
+        del topology["targets"][1]["awsExecutionAccountId"]
         for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
             topology["targets"][1]["awsProfile"] = invalid
             (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
