@@ -1331,6 +1331,7 @@ class Validator:
                 identities = resource_logical_ids(lines)
                 modes = resource_modes(lines)
                 lines = security_group_table_lines(lines)
+                lines = expanded_display_rows(lines)
                 model_path = (self.root / "model" / path.relative_to(self.root / "docs/designs")).with_suffix(".properties")
                 values = properties(read_model(model_path)) if model_path.is_file() else {}
                 labels = {

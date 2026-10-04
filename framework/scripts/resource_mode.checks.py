@@ -120,7 +120,7 @@ def main():
         tagged["desired.resource.001.anchor"] = "ec2-resource"
         tagged["desired.row.001-001.value"] = "[InternalId](#ec2-resource)"
         assert not (error := check(tagged)), error
-        assert "| Tags[].Key | name |" in path.read_text(encoding="utf-8")
+        assert "| Tags[1].Key | name |" in path.read_text(encoding="utf-8")
 
         # A mixed service must not exempt its CREATE neighbour.
         mixed = model(name="LEGACY_NAME_01", mode="IMPORT")

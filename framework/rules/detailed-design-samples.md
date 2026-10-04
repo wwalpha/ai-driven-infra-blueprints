@@ -141,8 +141,8 @@ IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical I
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | Endpointを識別するID |
 | 2 | ServiceName | `com.amazonaws.ap-northeast-1.s3` | 接続先のS3 service |
-| 3 | Tags[].Key | `Name` | 名前を識別するタグのキー |
-| 4 | Tags[].Value | `vpce-app-dev-s3` | Endpointを識別する名前 |
+| 3 | Tags[1].Key | `Name` | <!-- array-source: ["Tags[].Key", "`Name`", 1] --> 名前を識別するタグのキー |
+| 4 | Tags[1].Value | `vpce-app-dev-s3` | <!-- array-source: ["Tags[].Value", "`vpce-app-dev-s3`", 1] --> Endpointを識別する名前 |
 | 5 | VpcEndpointType | `Gateway` | Endpointの接続方式 |
 | 6 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Endpointが所属するVPC |
 ```
@@ -174,13 +174,17 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | InstanceId | `PENDING_DEPLOY` | Instanceを識別するID |
-| 2 | ImageId | `ami-0123456789abcdef0` | 起動するAMI |
-| 3 | InstanceType | `t3.micro` | Instanceの種類 |
-| 4 | Tags[].Key | `Name` | 名前を識別するタグのキー |
-| 5 | Tags[].Value | `dev-app-vulnerability-scan-01` | Instanceを識別する名前 |
+| 2 | BlockDeviceMappings[1].DeviceName | `/dev/sda1` | 起動ディスクのデバイス名 |
+| 3 | BlockDeviceMappings[1].Ebs.VolumeSize | `30` | 起動ディスクの容量 |
+| 4 | BlockDeviceMappings[1].Ebs.VolumeType | `gp3` | 起動ディスクの種類 |
+| 5 | ImageId | `ami-0123456789abcdef0` | 起動するAMI |
+| 6 | InstanceType | `t3.micro` | Instanceの種類 |
+| 7 | Name | `dev-app-vulnerability-scan-01` | <!-- ec2-name-tag: ["`Name`","名前を識別するタグのキー"] --> Instanceを識別する名前 |
 ```
 
 通常の参照linkもName tagの値を表示する。InstanceIdの参照はcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesired logical reference／observed IDの分離を維持する。設計専用.Nameや表示labelでName tagを代替しない。
+
+設定表の`Name`は正式なTags Key／Valueをまとめた表示であり、modelでは2 rowを維持する。BlockDeviceMappingsが複数なら、2件目のDeviceNameとEbs各項目を`BlockDeviceMappings[2].DeviceName`、`BlockDeviceMappings[2].Ebs.VolumeSize`などと表示する。
 
 <a id="resource-detail-table"></a>
 

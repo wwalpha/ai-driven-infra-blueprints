@@ -101,6 +101,13 @@ JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複J
 
 以下の表示展開は、propertiesから生成した表示を検証・明示migrationで採用するための逆変換規則とする。通常taskでMarkdownを設計入力にせず、propertiesの正式rowを上書きしない。
 
+- `Glue.Job.DefaultArguments`と`NonOverridableArguments`は正本のJSON objectを保持し、表示だけ`DefaultArguments["--job-language"]`のkey別rowへ展開する。最初のrowに`<!-- glue-arguments-source: [<元property>,<元value>,<表示行数>] -->`を生成し、元のJSON形式・空白・key順・文字列値・commentへlosslessに復元する。markerを再生成した表示と照合し、key・値・comment・所属・行数の改変とmarker欠落を拒否する。JSONの`|`・`<`・`>`はmarker内でUnicode escapeする。空objectは元rowを表示し、非object・非文字列値・重複keyを拒否する。表示keyとmarkerをdesired／observedへ保存しない。
+- 全serviceのobject配列・入れ子・scalar配列の番号表示は共通処理で生成する。直接fieldの再出現が次object要素の開始、子配列の再出現は同じ親の次の子要素とする。JSON配列の展開と、schemaでarray型だが正式pathに`[]`のない項目も対象とする。空配列はcontainerとして表示する。
+- 変更した表示rowのcomment先頭へ`<!-- array-source: [<元の表示property>,<元value>,<表示行数>] -->`を生成する。JSONの`|`・`<`・`>`はUnicode escapeする。parserは先に共通markerから元rowを復元し、同じ処理で再生成した全要素のproperty・番号・値・commentと照合する。欠番・重複・0始まり・先頭ゼロ付き番号、要素欠落や改変、不正marker、元rowと異なるcommentを拒否する。その後、従来のservice別短縮表示を正式propertyへ展開する。markerと番号をdesired／observedへ保存しない。
+
+- `EC2.Instance`の`BlockDeviceMappings[N].<field>`は1始まりの連続した要素番号を検証し、正式な`BlockDeviceMappings[].<field>`へ戻す。各要素の先頭は`DeviceName`とし、同じ要素の重複field、0・欠番・逆順・先頭ゼロ付き番号を拒否する。modelのrow番号・順序・値・commentは維持する。
+- `EC2.Instance`の生成表示の`Name` rowは、comment先頭の`<!-- ec2-name-tag: [<Keyの元の値>,<Keyの元のcomment>] -->`と表示Value／commentから正式な`Tags[].Key`／`Tags[].Value`の2 rowへ復元する。metadataはJSON文字列配列とし、`|`・`<`・`>`をUnicode escapeする。Keyはcase-sensitiveなNameを維持し、marker欠落・不正な所属・形式・Keyを拒否する。modelへ設計専用`.Name`やmetadataを保存しない。Name tag以外のタグとIMPORTでのName tag不存在は維持する。
+
 ## Properties format
 
 ### File size and service index
@@ -127,9 +134,9 @@ Markdown設定表で使う`Config.ConfigurationRecorder.RoleName`、`EC2.RouteTa
 
 `CodeCommit.Repository.RepositoryId`は非表示propertyとしてmodelへ生成せず、identifier output参照判定からも除外する。RepositoryNameとresource anchorによる参照はdesiredへ保持する。catalogを変更しない。
 
-CodePipelineの`Stages[N]`と単一`Actions`／複数`Actions[M]`はmodelで正式な`Stages[]`／`Actions[]`へ戻し、stage/actionごとの元の行順と所属を維持する。同じactionの連続した`Configuration.<Key>` rowを一つの正式property `CodePipeline.Pipeline.Stages[].Actions[].Configuration`へまとめ、Valueを元の文字列値からなるJSON objectとして生成する。resource linkはJSON objectの該当keyの文字列値へlosslessに保持し、CFn import式やExport名へ戻さない。各keyの日本語commentはkey名付きで出現順にまとめる。表示専用indexとConfigurationのkey別propertyをmodelのpropertyとして保存しない。元Markdownを生成時に書き換えない。
+CodePipelineの`Stages[N]`と単一を含む`Actions[M]`はmodelで正式な`Stages[]`／`Actions[]`へ戻し、stage/actionごとの元の行順と所属を維持する。同じactionの連続した`Configuration.<Key>` rowを一つの正式property `CodePipeline.Pipeline.Stages[].Actions[].Configuration`へまとめ、Valueを元の文字列値からなるJSON objectとして生成する。resource linkはJSON objectの該当keyの文字列値へlosslessに保持し、CFn import式やExport名へ戻さない。各keyの日本語commentはkey名付きで出現順にまとめる。表示専用indexとConfigurationのkey別propertyをmodelのpropertyとして保存しない。元Markdownを生成時に書き換えない。
 
-`CodeBuild.Project.Environment.Variables.<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
+`CodeBuild.Project.Environment.Variables[N].<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `EnvironmentVariables[].Name`、`Type`、`Value`の3行へ展開する。literalはType=PLAINTEXTとし、Valueをそのまま保持する。リソースlinkは`Source / Comment`先頭の非表示`codebuild-variable-type` markerからTypeを復元する。Valueのresource link、表示textの確定済み名称・selector、literal中の`:`をlosslessに保持し、identifier output参照への変換やobservedへの分離を行わない。表示専用の`Variables.<Name>`とType markerはmodelへ保存しない。
 
 `CodeBuild.Project.VpcConfig.Subnets[N]`／`SecurityGroupIds[N]`の1リソース1行表示は、表示の検証時にそれぞれ正式property `VpcConfig.Subnets`／`VpcConfig.SecurityGroupIds`の複数行へ戻し、resource linkと順序を保持する。表示専用の`N`はmodelのpropertyへ保存しない。
 
@@ -137,9 +144,9 @@ Subnet一覧の`[N]`表示は`detailed-design.md`の全対象へ共通適用す�
 
 既存のJSON配列、`[]`末尾propertyの単一literal、Secrets Managerのカンマ区切り文字列は、表示時だけ要素別rowへ分割する。最初の表示rowの`Source / Comment`先頭に`<!-- subnet-list-source: <元valueをJSON文字列でescapeした値> -->`を生成する。HTML comment／tableを壊す文字をescapeする。検証parserはmarkerに記録した元valueから全表示要素とcommentの一致を検証し、一つの元rowへ正確に戻す。modelのvalue・空白・backtickの有無・desired/observed・row番号を保存形式のまま保持する。markerは表示専用でありmodelやnoteへ保存しない。markerをhumanの設計入力として要求せず、Markdownから正本を上書きしない。
 
-`GuardDuty.Detector.Features.<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`は正式propertyのまま保持する。
+`GuardDuty.Detector.Features[N].<Name>`の1行表示は、表示の検証時に同じ配列要素の正式property `Features[].Name`、`Features[].Status`の2行へ展開する。表示専用の`Features.<Name>`はmodelへ保存しない。`Features[].AdditionalConfiguration[]`も表示では各階層に番号を付け、modelでは正式propertyのまま保持する。
 
-`CloudTrail.Trail.EventSelectors.DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、表示の検証時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。
+`CloudTrail.Trail.EventSelectors[M].DataResources[N].S3`／`.Lambda`の1記録対象1行表示は、表示の検証時に行順を保って正式property `EventSelectors[].DataResources[].Type`と`EventSelectors[].DataResources[].Values`へ展開する。`Type`には対応するAWS resource type、個別resource指定の`Values`には対象resource linkを保持する。`.S3`のValueがbacktickで囲った`All current and future S3 buckets`の場合は、`Type`を`AWS::S3::Object`、`Values`をJSON配列`["arn:aws:s3"]`としてdesiredへ生成する。このARN prefixは設計上の記録対象であり、observedへ保存しない。表示専用の選択値、`N`と短いType名はmodelのproperty/valueへ保存しない。
 
 UTF-8の`.properties` fileを使用する。一つのservice modelにdesiredとobservedをnamespaceで分けて出力する。
 

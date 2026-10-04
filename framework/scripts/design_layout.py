@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import html
 import re
 from pathlib import Path
+from array_display import restored_rows
 
 from design_catalog import design_material_files
 from validation_cache import memoized
@@ -81,6 +83,8 @@ REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+EC2_BLOCK_DEVICE = "EC2.Instance.BlockDeviceMappings[]."
+EC2_NAME_TAG = re.compile(r"^<!-- ec2-name-tag: (.+?) -->\s*")
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
@@ -620,6 +624,128 @@ def permission_rows(rows: list[list[str]]) -> list[list[str]]:
     return result
 
 
+def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Number block devices and compact only the Instance's Name tag."""
+    result = []
+    device = 0
+    fields = set()
+    index = 0
+    while index < len(rows):
+        identity, prop, value, comment = rows[index]
+        if prop.startswith("BlockDeviceMappings[]."):
+            field = prop.removeprefix("BlockDeviceMappings[].")
+            if field == "DeviceName":
+                device += 1
+                fields = set()
+            if not device or field in fields:
+                raise ValueError("EC2 block device rows must start with DeviceName and contain unique fields")
+            fields.add(field)
+            prop = f"BlockDeviceMappings[{device}].{field}"
+        elif prop == "Tags[].Key" and value.strip("`\"") == "Name":
+            if index + 1 >= len(rows) or rows[index + 1][1] != "Tags[].Value":
+                raise ValueError("EC2.Instance Name tag requires the corresponding Tags[].Value")
+            metadata = json.dumps([value, comment], ensure_ascii=True)
+            for char in "|<>":
+                metadata = metadata.replace(char, f"\\u{ord(char):04x}")
+            prop = "Name"
+            value, comment = rows[index + 1][2:]
+            comment = f"<!-- ec2-name-tag: {metadata} --> " + comment
+            index += 1
+        result.append([identity, prop, value, comment])
+        index += 1
+    return result
+
+
+def ec2_formal_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Restore compact EC2 rows without losing tag values or source comments."""
+    result = []
+    device = 0
+    fields = set()
+    for identity, prop, value, comment in rows:
+        display = prop.removeprefix("EC2.Instance.")
+        marker = EC2_NAME_TAG.match(comment)
+        if "<!-- ec2-name-tag:" in comment and (not marker or display != "Name"):
+            raise ValueError("EC2 Name tag source marker requires a Name display row")
+        if display == "Name":
+            if not marker:
+                raise ValueError("EC2 Name display requires its Name tag source marker")
+            source = json.loads(marker[1])
+            if not isinstance(source, list) or len(source) != 2 or any(not isinstance(item, str) for item in source) or source[0].strip("`\"") != "Name":
+                raise ValueError("invalid EC2 Name tag source marker")
+            result.append([identity, "EC2.Instance.Tags[].Key", *source])
+            result.append([identity, "EC2.Instance.Tags[].Value", value, comment[marker.end():]])
+            continue
+        if display.startswith("BlockDeviceMappings[") and not display.startswith("BlockDeviceMappings[]."):
+            match = re.fullmatch(r"BlockDeviceMappings\[([1-9]\d*)\]\.(.+)", display)
+            if not match:
+                raise ValueError("EC2 block devices must use BlockDeviceMappings[N], starting at 1")
+            number, field = int(match[1]), match[2]
+            if number != device:
+                if number != device + 1 or field != "DeviceName":
+                    raise ValueError("EC2 block device indexes must be sequential and start with DeviceName")
+                device, fields = number, set()
+            if field in fields:
+                raise ValueError("duplicate EC2 block device field")
+            fields.add(field)
+            prop = EC2_BLOCK_DEVICE + field
+        result.append([identity, prop, value, comment])
+    return result
+
+
+GLUE_ARGUMENTS = {"DefaultArguments", "NonOverridableArguments"}
+GLUE_ARGUMENT_SOURCE = re.compile(r"^<!-- glue-arguments-source: (.+?) --> ")
+
+
+def glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
+    from policy_tables import code, literal, unique_object, invalid_constant
+
+    result = []
+    for identity, prop, value, comment in rows:
+        if kind != "Glue.Job" or prop not in GLUE_ARGUMENTS:
+            result.append([identity, prop, value, comment])
+            continue
+        arguments = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        if not isinstance(arguments, dict) or any(not isinstance(item, str) for item in arguments.values()):
+            raise ValueError(f"Glue.Job.{prop} must be a string object")
+        if not arguments:
+            result.append([identity, prop, value, comment])
+            continue
+        source = json.dumps([prop, value, len(arguments)], ensure_ascii=True)
+        for char in "|<>":
+            source = source.replace(char, f"\\u{ord(char):04x}")
+        for offset, (key, item) in enumerate(arguments.items()):
+            field = html.escape(prop + "[" + json.dumps(key, ensure_ascii=False) + "]", quote=False)
+            field = field.replace("|", "&#124;").replace("`", "&#96;")
+            marker = f"<!-- glue-arguments-source: {source} --> " if offset == 0 else ""
+            result.append([identity, field, code(item), marker + comment])
+    return result
+
+
+def restored_glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
+    result, index = [], 0
+    while index < len(rows):
+        identity, prop, value, comment = rows[index]
+        marker = GLUE_ARGUMENT_SOURCE.match(comment)
+        if marker:
+            source = json.loads(marker[1])
+            if (kind != "Glue.Job" or not isinstance(source, list) or len(source) != 3 or
+                    not all(isinstance(item, str) for item in source[:2]) or source[0] not in GLUE_ARGUMENTS or
+                    type(source[2]) is not int or not 1 <= source[2] <= len(rows) - index):
+                raise ValueError("invalid Glue argument source row or count")
+            original = [identity, *source[:2], comment[marker.end():]]
+            expected = glue_argument_rows([original], kind)
+            if [row[1:] for row in expected] != [row[1:] for row in rows[index:index + source[2]]]:
+                raise ValueError("Glue argument keys, values or comments differ from their source row")
+            result.append(original)
+            index += source[2]
+        else:
+            if "<!-- glue-arguments-source:" in comment or (kind == "Glue.Job" and any(prop.startswith(field + "[") for field in GLUE_ARGUMENTS)):
+                raise ValueError("Glue argument display requires a valid source marker")
+            result.append(rows[index])
+            index += 1
+    return result
+
+
 def expanded_display_rows(lines: list[str]) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     lines = resource_heading_lines(lines)
@@ -646,6 +772,21 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
         changed = False
         normalized = False
         kind = ""
+        # Generic array markers are removed before service-specific compact rows.
+        stop = index
+        source_rows = []
+        while stop < len(lines) and lines[stop].startswith("|"):
+            source_rows.append([cell.strip() for cell in lines[stop].strip("|").split("|")])
+            stop += 1
+        if any(len(row) != 4 for row in source_rows):
+            raise ValueError("resource table row must have four cells")
+        restored = restored_glue_argument_rows(restored_rows(source_rows, resource_type), resource_type)
+        if restored != source_rows:
+            if [row[0] for row in source_rows] != [str(number) for number in range(1, len(source_rows) + 1)]:
+                raise ValueError("Array table numbering error")
+            lines = [*lines[:index], *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(restored, 1)), *lines[stop:]]
+            changed = True
+            kind = "Array"
         while index < len(lines) and lines[index].startswith("|"):
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
@@ -768,6 +909,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             rows = pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
+        if resource_type == "EC2.Instance":
+            rows = ec2_formal_rows(rows)
+            changed = True
+            kind = "EC2 Instance"
         if changed:
             if row_numbers != [str(number) for number in range(1, len(row_numbers) + 1)]:
                 raise ValueError(f"{kind} table numbering error")

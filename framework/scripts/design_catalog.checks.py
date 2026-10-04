@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from array_display import indexed_rows
+from model_design import row_table
 
 from cloudformation_schema import CloudFormationSchemaCatalog
 from design_catalog import MACIE_JOB, DesignSchemaCatalog, api_snapshot_errors
@@ -83,11 +85,13 @@ def markdown(values):
 | ---: | --- | --- | --- |
 """
     order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / "framework/materials/api/Macie_ClassificationJob.properties").read_text(encoding="utf-8").splitlines()]
+    rows = []
     for number, key in enumerate(sorted(values, key=lambda key: order.index(key) if key in order else len(order)), 1):
         value = values[key]
         raw = value if isinstance(value, str) else json.dumps(value)
         cell = "[対象条件](macie/job-scope.json)" if key == "s3JobDefinition" and isinstance(value, dict) and value.get("bucketDefinitions") else f"`{raw}`"
-        text += f"| {number} | {key} | {cell} | Jobの{key}を設定する項目 |\n"
+        rows.append([str(number), key, cell, f"Jobの{key}を設定する項目"])
+    text += "\n".join(row_table(indexed_rows(rows, MACIE_JOB))[2:]) + "\n"
     scope = values.get("s3JobDefinition", {})
     if isinstance(scope, dict) and scope.get("bucketDefinitions"):
         text += "\n#### 対象S3 bucket\n\n| Job | AWS account ID | Bucket |\n| --- | --- | --- |\n"

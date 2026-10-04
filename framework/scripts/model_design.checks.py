@@ -63,6 +63,116 @@ def roundtrip(path, values, root):
     return path.read_text(encoding="utf-8")
 
 
+def check_glue_argument_display():
+    arguments = '{ "--job-language": "python", "--job-bookmark-option": "job-bookmark-disable", "--enable-spark-ui": "true", "--spark-event-logs-path": "s3://data/temp/spark-ui/", "--SECRET_NAME": "snowflake-keypair", "--ENVIRONMENT": "dev", "--TempDir": "s3://data/temp/", "--custom-logGroup-prefix": "/aws-glue/jobs/app", "--custom-logStream-prefix": "if-outbound-001" }'
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "docs/designs/dev/123456789012/glue.md"
+        values = model("glue", "Glue.Job", "app-dev-outbound", [
+            ("Name", "`app-dev-outbound`", "処理ジョブの名前"),
+            ("DefaultArguments", f"`{arguments}`", "ジョブの既定引数"),
+            ("NonOverridableArguments", '`{"--LOCKED":"false","--empty":"","--特殊\\u007c<key>`":"line\\n\\u007c<>&`"}`', "上書きできない引数"),
+            ("Tags", "`{}`", "ジョブのタグ"),
+            ("Role", "[app-dev-glue](iam.md#iam-app-dev-glue)", "処理ジョブの実行ロール"),
+            ("Command.Name", "`glueetl`", "処理ジョブの種類"),
+        ])
+        output = roundtrip(path, values, ROOT)
+        for key, item in json.loads(arguments).items():
+            assert f'DefaultArguments["{key}"] | `{item}` |' in output
+        assert 'NonOverridableArguments["--LOCKED"] | `false` |' in output
+        assert 'NonOverridableArguments["--empty"] | `""` |' in output
+        assert "&#124;" in output and "<code>line&#10;&#124;&lt;&gt;&amp;`</code>" in output
+        assert output.index('--job-language"]') < output.index('--job-bookmark-option"]') < output.index('--custom-logStream-prefix"]')
+        invalid = [
+            output.replace('DefaultArguments["--job-language"]', 'DefaultArguments["--missing"]'),
+            output.replace('DefaultArguments["--job-bookmark-option"]', 'DefaultArguments["--job-language"]'),
+            output.replace(' | `python` |', ' | `scala` |'),
+            output.replace(' | ジョブの既定引数 |', ' | 変更された引数 |', 1),
+            output.replace('glue-arguments-source:', 'missing-source:'),
+            output.replace(', 9] -->', ', 8] -->'),
+            '\n'.join(line for line in output.splitlines() if 'DefaultArguments["--ENVIRONMENT"]' not in line),
+            output.replace('### Glue.Job:', '### Glue.Connection:'),
+        ]
+        for bad in invalid:
+            assert bad != output
+            try:
+                expanded_display_rows(bad.splitlines())
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid Glue argument display accepted")
+        for value in ('`{}`', '`{"--one":"one"}`'):
+            values["desired.row.001-002.value"] = value
+            roundtrip(path, values, ROOT)
+        for value in ('`[]`', '`{"--one":true}`', '`{"--one":"first","--one":"second"}`'):
+            values["desired.row.001-002.value"] = value
+            try:
+                markdown_for(path, values, ROOT)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid Glue argument object accepted")
+    print("Glue Job arguments: PASS (key rows, exact JSON round trip, invalid displays)")
+
+
+def check_ec2_compact_display():
+    name = "app-dev-worker"
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "docs/designs/dev/123456789012/ec2.md"
+        for count in (1, 5):
+            devices = []
+            for number in range(1, count + 1):
+                devices += [("BlockDeviceMappings[].DeviceName", f"`/dev/sd{chr(96 + number)}`", "デバイス名"),
+                            ("BlockDeviceMappings[].Ebs.VolumeSize", f"`{number * 10}`", "ディスク容量")]
+                if number % 2:
+                    devices.append(("BlockDeviceMappings[].Ebs.VolumeType", "`gp3`", "ディスク種別"))
+            values = model("ec2", "EC2.Instance", name, [
+                *devices,
+                ("ImageId", "`ami-0123456789abcdef0`", "起動するイメージ"),
+                ("InstanceType", "`t3.micro`", "インスタンス種別"),
+                ("Tags[].Key", "`purpose`", "用途タグのキー"),
+                ("Tags[].Value", "`worker`", "用途タグの値"),
+                ("Tags[].Key", '"Name"', "名前タグのキー <識別>"),
+                ("Tags[].Value", f"`{name}`", "インスタンス名"),
+                ("Tags[].Key", "`owner`", "所有者タグのキー"),
+                ("Tags[].Value", "`team`", "所有者タグの値"),
+                ("Tenancy", "`default`", "実行するテナンシー"),
+            ], "Worker")
+            output = roundtrip(path, values, ROOT)
+            assert "BlockDeviceMappings[]" not in output
+            for number in range(1, count + 1):
+                assert f"BlockDeviceMappings[{number}].DeviceName |" in output
+                assert f"BlockDeviceMappings[{number}].Ebs.VolumeSize | `{number * 10}`" in output
+                assert (f"BlockDeviceMappings[{number}].Ebs.VolumeType |" in output) == bool(number % 2)
+            assert f"| Name | `{name}` |" in output
+            assert '| Tags[].Key | "Name" |' not in output
+            assert "| Tags[1].Key | `purpose` |" in output and "| Tags[3].Key | `owner` |" in output
+            invalid = [
+                output.replace("BlockDeviceMappings[1]", "BlockDeviceMappings[0]"),
+                output.replace("BlockDeviceMappings[1]", "BlockDeviceMappings[2]"),
+                output.replace("BlockDeviceMappings[1]", "BlockDeviceMappings[01]"),
+                output.replace("BlockDeviceMappings[1].DeviceName", "BlockDeviceMappings[1].Ebs.VolumeSize"),
+                output.replace("ec2-name-tag:", "missing-name-tag:"),
+                output.replace('["\\\"Name\\\""', '["\\\"name\\\""'),
+                output.replace("| Name |", "| Tenancy |"),
+            ]
+            if count > 1:
+                invalid.append(output.replace("BlockDeviceMappings[2]", "BlockDeviceMappings[3]"))
+            for bad in invalid:
+                assert bad != output
+                try:
+                    expanded_display_rows(bad.splitlines())
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError("invalid EC2 compact display accepted")
+        # IMPORT without a Name tag keeps its existing absence.
+        values = model("ec2", "EC2.Instance", "EC2.Instance", [("ImageId", "`ami-0123456789abcdef0`", "起動するイメージ")])
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+        output = roundtrip(path, values, ROOT)
+        assert "| Name |" not in output and "ec2-name-tag:" not in output
+    print("EC2 block device indexes and compact Name tag: PASS (lossless round trip and invalid displays)")
+
+
 def check_config_typed_anchors():
     recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
     recorder_anchor = "config-configuration-recorder-default"
@@ -698,7 +808,7 @@ def check_naming_exclusions():
             assert not validator.errors, validator.errors
             # Exemption does not bypass value checks or apply to Name tags.
             for invalid in ("", "UNSET", "PENDING_DEPLOY"):
-                path.write_text(output.replace("`example`", f"`{invalid}`"), encoding="utf-8")
+                path.write_text(output.replace(f"| {field} | `example` |", f"| {field} | `{invalid}` |"), encoding="utf-8")
                 validator = validator_module.Validator(root)
                 validator.check_resource_names(metadata, [path])
                 assert any("resource display name must be confirmed" in error for error in validator.errors)
@@ -1101,6 +1211,8 @@ def check_athena_configuration_display():
 
 
 def main():
+    check_glue_argument_display()
+    check_ec2_compact_display()
     check_subnet_list_display()
     check_athena_configuration_display()
     check_config_typed_anchors()
@@ -1382,11 +1494,11 @@ def main():
         build = model("codebuild", "CodeBuild.Project", "cbld-app-dev-build", [("Name", "`cbld-app-dev-build`", "projectの名前"), ("Environment.EnvironmentVariables[].Name", "`TARGET`", "実行対象"), ("Environment.EnvironmentVariables[].Type", "`PLAINTEXT`", "実行対象"), ("Environment.EnvironmentVariables[].Value", "`cde`", "実行対象")])
         build.update({"desired.row.001-005.property": "CodeBuild.Project.ServiceRole", "desired.row.001-005.value": "[BuildRole](iam.md#iam-build-role)", "desired.row.001-005.comment": "実行に使用するロール"})
         output = roundtrip(base / "codebuild.md", build, ROOT)
-        assert "Environment.Variables.TARGET" in output and "EnvironmentVariables[]" not in output
+        assert "| Environment.Variables[1].TARGET | `cde` |" in output and "EnvironmentVariables[]" not in output
         detector = model("guardduty", "GuardDuty.Detector", "security-detector", [("Features[].Name", "`S3_DATA_EVENTS`", "検査を有効にする設定"), ("Features[].Status", "`ENABLED`", "検査を有効にする設定")], "Detector", "security-detector")
         detector.update({"desired.row.001-003.property": "GuardDuty.Detector.Enable", "desired.row.001-003.value": "`true`", "desired.row.001-003.comment": "検出の有効化"})
         output = roundtrip(base / "guardduty.md", detector, ROOT)
-        assert "Features.S3_DATA_EVENTS" in output
+        assert "| Features[1].S3_DATA_EVENTS | `ENABLED` |" in output
         trail = model("cloudtrail", "CloudTrail.Trail", "audit", [
             ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"),
             ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket"),
@@ -1396,15 +1508,15 @@ def main():
             ("S3BucketName", "`audit-logs`", "記録先のバケット"),
         ], "Trail", "audit")
         output = roundtrip(base / "cloudtrail.md", trail, ROOT)
-        assert "EventSelectors.DataResources[1].S3" in output and "All current and future" in output
-        assert "| EventSelectors.IncludeManagementEvents | `true` | 管理イベントを記録する |" in output
-        assert "| EventSelectors.ReadWriteType | `All` | 読み取りと書き込みを記録する |" in output
+        assert "| EventSelectors[1].DataResources[1].S3 |" in output and "All current and future" in output
+        assert "| EventSelectors[1].IncludeManagementEvents | `true` |" in output
+        assert "| EventSelectors[1].ReadWriteType | `All` |" in output
         assert "EventSelectors[].IncludeManagementEvents" not in output
         assert "EventSelectors[].ReadWriteType" not in output
         pipeline = model("codepipeline", "CodePipeline.Pipeline", "cpln-app-dev-build", [("Name", "`cpln-app-dev-build`", "pipelineの名前"), ("Stages[].Name", "`Source`", "入力を取得するstage"), ("Stages[].Actions[].Name", "`Source`", "入力を取得するaction"), ("Stages[].Actions[].Configuration", '`{"BranchName":"main","PollForSourceChanges":"false"}`', "BranchName: 対象branch / PollForSourceChanges: polling設定"), ("Stages[].Name", "`Build`", "buildを実行するstage"), ("Stages[].Actions[].Name", "`BuildOne`", "最初のbuild"), ("Stages[].Actions[].Configuration", '`{"ProjectName":"one"}`', "ProjectName: 実行するproject"), ("Stages[].Actions[].Name", "`BuildTwo`", "次のbuild")])
         pipeline.update({"desired.row.001-009.property": "CodePipeline.Pipeline.RoleArn", "desired.row.001-009.value": "[PipelineRole](iam.md#iam-pipeline-role)", "desired.row.001-009.comment": "実行に使用するロール"})
         output = roundtrip(base / "codepipeline.md", pipeline, ROOT)
-        assert "Stages[1].Actions.Configuration.BranchName" in output
+        assert "Stages[1].Actions[1].Configuration.BranchName" in output
         assert "Stages[2].Actions[1].Name" in output and "Stages[2].Actions[2].Name" in output
         pipeline["desired.row.001-010.property"] = "CodePipeline.Pipeline.Tags[].Key"
         pipeline["desired.row.001-010.value"] = "`purpose`"
@@ -1430,10 +1542,10 @@ def main():
             ("Tags[].Value", "`build`", "タグの値"),
         ])
         output = roundtrip(base / "codepipeline.md", trailing_names, ROOT)
-        assert "Stages[1].Actions.Name | `SourceAction`" in output
+        assert "Stages[1].Actions[1].Name | `SourceAction`" in output
         assert "Stages[2].Actions[1].Name | `BuildAction`" in output
         assert "Stages[2].Actions[2].Name | `TestAction`" in output
-        assert output.index("Stages[1].Actions.Name") < output.index("Stages[1].Name") < output.index("Stages[2].Actions[1].Name")
+        assert output.index("Stages[1].Actions[1].Name") < output.index("Stages[1].Name") < output.index("Stages[2].Actions[1].Name")
         hub = model("securityhub", "SecurityHub.Hub", "security-hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub", "security-hub")
         roundtrip(base / "securityhub.md", hub, ROOT)
         s3 = model("s3", "S3.Bucket", "app-dev-data", [("BucketName", "`app-dev-data`", "データを保管する名前"), ("Region", "`ap-northeast-1`", "配置するregion"), ("BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm", "`aws:kms`", "暗号化方式")])
