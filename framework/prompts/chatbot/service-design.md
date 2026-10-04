@@ -80,6 +80,8 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 11. `framework/rules/resource-layout.json`（全resourceの詳細blockの独立表示・親への統合関係）
 12. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのCloudFormation provider schema、API resourceは`framework/materials/api/`の同名JSON設計schema
 
+命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
+
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。複数targetまたは複数AWS accountが対象の場合は、各resourceの所有targetとcross-account dependencyを先に確認してください。
@@ -107,7 +109,7 @@ S3 Bucketのregionが既存設計、system overview、またはuser回答で確�
 回答を設計値へ正規化するときは、対象propertyがschemaに存在し、literal値が`type`、`enum`、`pattern`、長さ、範囲へ適合することを確認してください。上記4種類のdesign-only `.Name`と`S3.Bucket.Region`以外にschemaにないpropertyを作らず、optional propertyを使用しない場合はrowを省略してください。これらのdesign-only propertyは省略せず、`not-used`、`none`、`UNSET`などを代替値として記載してはいけません。propertiesとschemaの対応を解決できない場合は推測せず、catalog/framework保守が必要なblockerとして停止してください。
 
 
-設計質問・保存を始める前に、作成対象resourceの選択済み名称property、必須.Name、必須またはhuman-selectedなName tagに対応する命名ルールがあるかを`framework/rules/aws-resource-naming.md`のCatalog resource types／Naming targetで照合してください。欠けている場合はtypeとpropertyを示して停止し、命名patternを作らないでください。名称のないSecurity Hub CSPM（SecurityHub.Hub）などにはruleを要求しません。表示labelや内部logical IDをAWS名称と扱わず、optional name／Name tagを追加する質問もしません。
+設計質問・保存を始める前に、作成対象resourceの選択済み名称property、必須.Name、必須またはhuman-selectedなName tagに対応する命名ルールがあるかを命名規則の対象service fileのCatalog resource types／Naming targetで照合してください。欠けている場合はtypeとpropertyを示して停止し、命名patternを作らないでください。名称のないSecurity Hub CSPM（SecurityHub.Hub）などにはruleを要求しません。表示labelや内部logical IDをAWS名称と扱わず、optional name／Name tagを追加する質問もしません。
 
 human-selectedなAWS resource name、identifier、または`Name` tagを新規決定する場合は`framework/rules/aws-resource-naming.md`を適用してください。`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`には対応する`.Name`とnon-empty valueを1 rowで必ず設計し、resource heading identifierをそのvalueと完全一致させてください。`Tags[].Key=Name`と`Tags[].Value`の2 rowは作りません。`EC2.VPCEndpoint`／`EC2.Instance`では正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`を必ず設計してください。設計専用`.Name`を追加せず、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しないでください。一覧・heading・通常の参照linkはValueを使用し、その表示名からanchorを生成します。内部logical IDは非表示metadataへ保持し、identifier参照のdesired／observed分離を維持してください。その他のresourceではtaggableであることを理由に`Name` tagを質問または追加せず、humanが明示した場合だけ設計してください。patternのcomponentが確定済みなら候補を一意に導出し、patternがない場合またはcomponentが未確定の場合は不足値だけを一つずつ質問してください。final nameがprovider schemaまたはservice固有制約を満たさない場合は自動truncate、hash付与、略語化をせず、短い値をhumanへ確認してください。
 

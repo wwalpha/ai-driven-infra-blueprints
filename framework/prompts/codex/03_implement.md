@@ -44,6 +44,8 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 13. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
 
+命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
+
 Implementの設計inputはauthoritative model propertiesだけとする。generated `docs/designs/<environment>/<target-directory>/*.md`（`cloudformation-stacks.md`を含む）の本文はImplement開始時・IaC生成時・参照解決時に読まず、値を再取得しない。propertiesとgenerated Markdownの事前二重比較をAgentへ要求しない。必要なdesired value、resource、reference、stack assignment、human decisionがpropertiesに不足する場合は、下記の実装前確認の不足一覧へ含め、design taskが必要として停止する。Markdown／JSONの生成・保存とlocal loopの整合性検証は既存どおり維持する。
 
 Implementation scopeに詳細設計の`.md` fileが指定された場合はscope selectorとして扱う。本文を読まず、`docs/designs/<environment>/<target-directory>/<service>.md`のpath／file stemから同じenvironment／target／serviceの`model/<environment>/<target-directory>/<service>.properties`へ対応付け、選択済みproject targetとの一致を確認する。対応するmodelを一意に特定できない場合は推測せず停止する。

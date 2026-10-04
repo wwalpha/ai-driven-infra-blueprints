@@ -25,7 +25,7 @@
 
 ## Naming rule coverage check
 
-- Scopeで対象外としたpropertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、下表のcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
+- Scopeで対象外としたpropertyを除き、作成対象の選択済み名称property、必須`.Name`、human-selectedな`Name` tagについて、対象service fileのcatalog resource typeとNaming targetが対応する行を保存前に確認する。未登録の場合は対象type／propertyを明示して停止し、patternを推測しない。
 - 名称propertyを選択していないresourceと、名称を持たない型（例：`SecurityHub.Hub` / Security Hub CSPM）は対象外とする。表示用label、内部logical ID、AWS生成identifierに命名patternを要求しない。taggableだけでName tagを追加しない。
 - 既存resourceの確定済み名称は変更しない。このcheckはruleの有無を確認し、patternへの自動renameはしない。
 
@@ -43,7 +43,7 @@
 - final nameは対象propertyのprovider schemaにあるtype、pattern、lengthとAWSのuniqueness scopeを満たすことを確認する。超過時に自動truncate、hash付与、略語化をせず、短い値をhumanへ確認する。
 - explicit nameの変更がreplacementを伴う場合は、design taskでrenameを確定するだけとし、IaC変更やreplacement実行へ進まない。
 - `Naming target`が`.Name`または`Name tag`のrowは、必須またはhuman-selectedな`Name` tag valueへpatternを適用する。
-- 必須またはhuman-selectedな`Name` tagのpatternがこのtableにない場合は、nameを推測せずhumanへ一つ質問する。
+- 必須またはhuman-selectedな`Name` tagのpatternが対象service fileのtableにない場合は、nameを推測せずhumanへ一つ質問する。
 
 ## Name tag policy
 
@@ -55,113 +55,52 @@
 
 個別に`EC2.Instance`として詳細設計するresourceはName tagを表示名とする。Auto Scalingなどが作成し、個別の詳細設計resourceとして扱わない一時的なEC2 Instanceへ同一の`Name` tagを必須化しない。Security groupは必須の`GroupName`を使用し、`Name` tagを重複要求しない。
 
-## Naming patterns
+## Service rule lookup
 
-| AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
-| --- | --- | --- | --- | --- |
-| Amazon VPC | VPC | `EC2.VPC` | `EC2.VPC.Name` | `vpc-{{application}}-{{environment}}` |
-| Amazon VPC | Subnet | `EC2.Subnet` | `EC2.Subnet.Name` | `sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}` |
-| Amazon VPC | Route table | `EC2.RouteTable` | `EC2.RouteTable.Name` | `rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}` |
-| Amazon VPC | Flow Log | `EC2.FlowLog` | `EC2.FlowLog.Name` | `flowlog-{{application}}-{{environment}}[-{{target_alias}}]` |
-| Amazon VPC | VPC peering connection | `EC2.VPCPeeringConnection` | Name tag | `pcx-{{requester_vpc}}-to-{{accepter_vpc}}-{{number}}` |
-| Amazon VPC | Internet gateway | `EC2.InternetGateway` | Name tag | `igw-{{application}}-{{environment}}` |
-| Amazon VPC | VPC endpoint | `EC2.VPCEndpoint` | Name tag | `vpce-{{application}}-{{environment}}-{{service}}` |
-| Amazon VPC | Block Public Access exclusion | `EC2.VPCBlockPublicAccessExclusion` | Name tag | `vbpe-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon VPC | NAT gateway | `EC2.NatGateway` | Name tag | `natgw-{{application}}-{{environment}}-{{zone}}` |
-| Amazon VPC | Elastic IP address | `EC2.EIP` | Name tag | `eip-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Transit gateway | `EC2.TransitGateway` | Name tag | `tgw-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Transit gateway attachment | `EC2.TransitGatewayVpcAttachment` | Name tag | `tgwa-{{application}}-{{environment}}-{{vpc_token}}-{{number}}` |
-| Amazon VPC | Transit gateway route table | `EC2.TransitGatewayRouteTable` | Name tag | `tgwrtb-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon VPC | Workload transit gateway attachment | `EC2.TransitGatewayVpcAttachment` | Name tag | `tgwa-{{account_id}}-{{target_alias}}` |
-| Amazon VPC | Workload transit gateway route table | `EC2.TransitGatewayRouteTable` | Name tag | `tgwrtb-{{account_id}}-{{target_alias}}` |
-| Amazon VPC | Customer gateway | `EC2.CustomerGateway` | Name tag | `cgw-{{dc_location}}-{{number}}` |
-| Amazon VPC | Site-to-Site VPN connection | `EC2.VPNConnection` | Name tag | `s2s-{{dc_location}}-{{number}}` |
-| Amazon S3 | General purpose bucket | `S3.Bucket` | `BucketName` | `{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |
-| Amazon S3 | Lifecycle rule | `S3.Bucket` | `LifecycleConfiguration.Rules[].Id` | `{{purpose}}-{{lifecycle_action}}` |
-| Amazon RDS | DB instance | `RDS.DBInstance` | `DBInstanceIdentifier` | `rds-{{application}}-{{environment}}-{{engine}}-{{number}}` |
-| Amazon RDS | DB subnet group | `RDS.DBSubnetGroup` | `DBSubnetGroupName` | `rdbsg-{{application}}-{{environment}}-{{number}}` |
-| Amazon RDS | DB parameter group | `RDS.DBParameterGroup` | `DBParameterGroupName` | `rdbpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon RDS | DB cluster parameter group | `RDS.DBClusterParameterGroup` | `DBClusterParameterGroupName` | `rdbcpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon RDS | Option group | `RDS.OptionGroup` | `OptionGroupName` | `rdbog-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon EC2 | Instance | `EC2.Instance` | Name tag | `{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |
-| Amazon EC2 | Security group | `EC2.SecurityGroup` | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
-| Amazon EC2 | Security group | `EC2.SecurityGroup` | Name tag | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
-| Amazon EC2 | Launch template | `EC2.LaunchTemplate` | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Elastic Load Balancing | Load balancer | `ElasticLoadBalancingV2.LoadBalancer` | `Name` | `{{load_balancer_type}}-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Elastic Load Balancing | Target group | `ElasticLoadBalancingV2.TargetGroup` | `Name` | `tgp-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| EC2 Auto Scaling | Auto Scaling group | `AutoScaling.AutoScalingGroup` | `AutoScalingGroupName` | `asg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon CloudWatch | Alarm | `CloudWatch.Alarm` | `AlarmName` | `{{account_id}}:{{environment}}:{{resource_token}}:{{aws_service}}.{{metric_name}}[.{{statistic}}][.{{condition}}][.{{severity}}]` |
-| Amazon CloudWatch Logs | Log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon Athena | Workgroup | `Athena.WorkGroup` | `Name` | `athwg-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Glue | Job | `Glue.Job` | `Name` | `glue-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Glue | Security configuration | `Glue.SecurityConfiguration` | `Name` | `glsc-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Glue | Catalog | `Glue.Catalog` | `Name` | `glct-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon QuickSight | Data source | `QuickSight.DataSource` | `Name` | `qsds-{{application}}-{{environment}}-{{source_type}}-{{purpose}}` |
-| Amazon QuickSight | VPC connection | `QuickSight.VPCConnection` | `Name` | `qsvc-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon MWAA | Environment | `MWAA.Environment` | `Name` | `mwaa-{{application}}-{{environment}}[-{{purpose}}]` |
-| Amazon Macie | Classification job | `Macie.ClassificationJob` | `name` | `macie-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |
-| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]-{{account_id}}` |
-| AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
-| AWS CloudFormation | Change set | `CloudFormation.ChangeSet` | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
-| AWS CodeBuild | Project | `CodeBuild.Project` | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CodePipeline | Pipeline | `CodePipeline.Pipeline` | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}` |
-| AWS CodeCommit | Repository | `CodeCommit.Repository` | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}` |
-| AWS KMS | Customer managed key alias | `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}-{{account_id}}` |
-| Amazon Data Firehose | Delivery stream | `KinesisFirehose.DeliveryStream` | `DeliveryStreamName` | `kdf-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon Kinesis Data Streams | Data stream | `Kinesis.Stream` | `StreamName` | `kds-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon EventBridge | Rule | `Events.Rule` | `Name` | `ebr-{{rule_type}}-{{application}}-{{environment}}-{{purpose}}[-{{source}}-to-{{destination}}]` |
-| Amazon EventBridge Scheduler | Schedule | `Scheduler.Schedule` | `Name` | `ebs-{{application}}-{{environment}}-{{purpose}}-{{pattern}}-{{timeslot}}` |
-| Amazon SNS | Topic | `SNS.Topic` | `TopicName` | `sns-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
-| Amazon SQS | Queue | `SQS.Queue` | `QueueName` | `sqs-{{application}}-{{environment}}-{{purpose}}[.fifo]` |
-| AWS Lambda | Function | `Lambda.Function` | `FunctionName` | `lmda-{{application}}-{{environment}}-{{purpose}}` |
-| AWS IAM | Role | `IAM.Role` | `RoleName` | `{{application}}-{{environment}}-{{purpose}}-role` |
-| AWS RAM | Resource share | `RAM.ResourceShare` | `Name` | `ram-{{service}}-{{application}}-{{environment}}-share-with-{{target_type}}-{{target_token}}` |
-| Amazon Route 53 Resolver | Resolver endpoint | `Route53Resolver.ResolverEndpoint` | `Name` | `rslv-{{endpoint_type}}-{{application}}-{{environment}}-{{purpose}}` |
-| Amazon Route 53 Resolver | Resolver rule | `Route53Resolver.ResolverRule` | `Name` | `rslvr-{{application}}-{{environment}}-{{from}}-to-{{to}}-{{domain_token}}` |
-| Amazon Route 53 Profiles | Profile | `Route53Profiles.Profile` | `Name` | `rpf-{{application}}-{{environment}}-{{region}}` |
-| AWS Backup | Backup vault | `Backup.BackupVault` | `BackupVaultName` | `backup-vault-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Backup | Backup plan | `Backup.BackupPlan` | `BackupPlanName` | `backup-plan-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon API Gateway | REST, HTTP, or WebSocket API | `ApiGateway.RestApi`, `ApiGatewayV2.Api` | `Name` | `apigw-{{protocol}}-{{application}}-{{environment}}-{{purpose}}` |
-| AWS WAF | Web ACL | `WAFv2.WebACL` | `Name` | `wafacl-{{application}}-{{environment}}-{{purpose}}` |
-| AWS WAF | Rule group | `WAFv2.RuleGroup` | `Name` | `wafrg-{{application}}-{{environment}}-{{purpose}}` |
-| AWS WAF | IP set | `WAFv2.IPSet` | `Name` | `wafip-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Network Firewall | Firewall | `NetworkFirewall.Firewall` | `FirewallName` | `nfwl-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Network Firewall | Firewall policy | `NetworkFirewall.FirewallPolicy` | `FirewallPolicyName` | `nfwp-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Network Firewall | Rule group | `NetworkFirewall.RuleGroup` | `RuleGroupName` | `nfwr-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Organizations | Service control policy | `Organizations.Policy` | `Name` | `scp-{{application}}[-{{environment}}]-{{purpose}}` |
-| AWS Firewall Manager | Policy | `FMS.Policy` | `PolicyName` | `fmsp-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Systems Manager | Patch baseline | `SSM.PatchBaseline` | `Name` | `sspb-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Systems Manager | Association | `SSM.Association` | `AssociationName` | `ssma-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Systems Manager | Maintenance window | `SSM.MaintenanceWindow` | `Name` | `ssmw-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Systems Manager | Maintenance window target | `SSM.MaintenanceWindowTarget` | `Name` | `mwtg-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Systems Manager | Maintenance window task | `SSM.MaintenanceWindowTask` | `Name` | `mwts-{{application}}-{{environment}}-{{purpose}}` |
-| AWS Config | Config rule | `Config.ConfigRule` | `ConfigRuleName` | `cfgr-{{application}}-{{environment}}-{{purpose}}` |
+共通ルールを読んだ後、対象resource typeの`.`より前のcatalog namespaceに対応するfileだけを読む。例：`S3.Bucket`は`S3.md`、VPC・Subnet・EC2 Instance・Security groupは`EC2.md`。複数serviceを扱う場合も対象namespaceだけを読み、directory全体を一括で読まない。対象ruleがない場合はcoverage checkに従い、命名patternを推測しない。
 
-## Service-specific constraints
+| Catalog namespace | Rule file |
+| --- | --- |
+| `ApiGateway` | [ApiGateway](aws-resource-naming/ApiGateway.md) |
+| `ApiGatewayV2` | [ApiGatewayV2](aws-resource-naming/ApiGatewayV2.md) |
+| `Athena` | [Athena](aws-resource-naming/Athena.md) |
+| `AutoScaling` | [AutoScaling](aws-resource-naming/AutoScaling.md) |
+| `Backup` | [Backup](aws-resource-naming/Backup.md) |
+| `CloudFormation` | [CloudFormation](aws-resource-naming/CloudFormation.md) |
+| `CloudTrail` | [CloudTrail](aws-resource-naming/CloudTrail.md) |
+| `CloudWatch` | [CloudWatch](aws-resource-naming/CloudWatch.md) |
+| `CodeBuild` | [CodeBuild](aws-resource-naming/CodeBuild.md) |
+| `CodeCommit` | [CodeCommit](aws-resource-naming/CodeCommit.md) |
+| `CodePipeline` | [CodePipeline](aws-resource-naming/CodePipeline.md) |
+| `Config` | [Config](aws-resource-naming/Config.md) |
+| `EC2` | [EC2](aws-resource-naming/EC2.md) |
+| `ElasticLoadBalancingV2` | [ElasticLoadBalancingV2](aws-resource-naming/ElasticLoadBalancingV2.md) |
+| `Events` | [Events](aws-resource-naming/Events.md) |
+| `FMS` | [FMS](aws-resource-naming/FMS.md) |
+| `Glue` | [Glue](aws-resource-naming/Glue.md) |
+| `IAM` | [IAM](aws-resource-naming/IAM.md) |
+| `KMS` | [KMS](aws-resource-naming/KMS.md) |
+| `Kinesis` | [Kinesis](aws-resource-naming/Kinesis.md) |
+| `KinesisFirehose` | [KinesisFirehose](aws-resource-naming/KinesisFirehose.md) |
+| `Lambda` | [Lambda](aws-resource-naming/Lambda.md) |
+| `Logs` | [Logs](aws-resource-naming/Logs.md) |
+| `MWAA` | [MWAA](aws-resource-naming/MWAA.md) |
+| `Macie` | [Macie](aws-resource-naming/Macie.md) |
+| `NetworkFirewall` | [NetworkFirewall](aws-resource-naming/NetworkFirewall.md) |
+| `Organizations` | [Organizations](aws-resource-naming/Organizations.md) |
+| `QuickSight` | [QuickSight](aws-resource-naming/QuickSight.md) |
+| `RAM` | [RAM](aws-resource-naming/RAM.md) |
+| `RDS` | [RDS](aws-resource-naming/RDS.md) |
+| `Route53Profiles` | [Route53Profiles](aws-resource-naming/Route53Profiles.md) |
+| `Route53Resolver` | [Route53Resolver](aws-resource-naming/Route53Resolver.md) |
+| `S3` | [S3](aws-resource-naming/S3.md) |
+| `SNS` | [SNS](aws-resource-naming/SNS.md) |
+| `SQS` | [SQS](aws-resource-naming/SQS.md) |
+| `SSM` | [SSM](aws-resource-naming/SSM.md) |
+| `Scheduler` | [Scheduler](aws-resource-naming/Scheduler.md) |
+| `WAFv2` | [WAFv2](aws-resource-naming/WAFv2.md) |
 
-- Amazon EC2 InstanceのName tagはapplication・environment・purposeの順とする。`number`はoptionalとし、単体では省略する。同じapplication・environment・purposeの複数台を区別する場合だけ、`-01`からの2桁連番を使用できる。例：単体は`venusinf-stg-vulnerability-scan`、複数台で番号を使用する場合は`venusinf-stg-vulnerability-scan-01`、`venusinf-stg-vulnerability-scan-02`。
-- AWS WAFのWebACL／RuleGroup／IPSetのprefixはそれぞれ`wafacl`／`wafrg`／`wafip`とし、すべて`waf`を含める。
-- AWS Organizations Policyの`scp` patternは`Type=SERVICE_CONTROL_POLICY`のSCPに使用する。環境間で同じSCPを共有する場合は`environment`を省略し、環境別に分ける場合は含める。他のpolicy typeへ`scp` prefixを自動適用しない。
-- AWS Systems Manager Association自身の名称は`AssociationName`を対象とする。`Name`は参照するSSM document名（例：`AWS-RunPatchBaseline`）であり、この命名patternで変更しない。
-- VPC Block Public Access Optionsは名称propertyを持たないため命名patternを要求しない。Exclusionの`Name` tagはhumanが選択した場合だけ`vbpe` patternを適用し、必須化しない。
-- AWS Glue JobとSecurityConfigurationの`Name`はlower-kebab-case・1〜255文字とし、`purpose`は用途を識別するhuman-confirmedなtokenを使用する。SecurityConfigurationのprefixは`glsc`（Glue Security Configuration）とし、prefix内にhyphenを含めない。
-- Amazon QuickSight DataSourceの`source_type`は`athena`、`snowflake`などの接続種別をlowercaseで表し、`purpose`は部署・情報区分などデータソースの用途を識別するhuman-confirmedな値とする。DataSourceとVPCConnectionの`Name`は1〜128文字の表示名とし、`DataSourceId`／`VPCConnectionId`とは別に扱う。
-- Amazon MWAA Environmentの`purpose`は用途別にenvironmentを分ける場合だけ含める。`Name`は英字で開始し、英数字、hyphen、underscoreだけを使い、1〜80文字とする。この命名patternではlower-kebab-caseを使用する。
-- Amazon Macie ClassificationJobの`purpose`は検出内容を識別するhuman-confirmedな値とし、`name`はnon-emptyかつ500文字以内とする。
-- AWS CodeCommit repositoryの`environment`は、環境間で同じrepositoryを共有する場合は省略し、環境ごとにrepositoryを分ける場合は含める。
-- Amazon S3 bucket nameはlowercaseの3〜63文字とし、partition内でglobalに一意にする。patternの全componentを含めたfinal nameを検証する。
-- Elastic Load Balancingのload balancerとtarget groupは32文字以内とする。
-- AWS IAM Roleは64文字以内、customer managed policyは128文字以内とし、caseだけが異なる名前を作らない。
-- AWS Lambda function、Amazon Data Firehose delivery stream、Amazon EventBridge rule／schedule、Route 53 Resolver endpoint／rule／profileは64文字以内とする。
-- Amazon SQS queueは80文字以内とし、FIFO queueは`.fifo`で終える。Amazon SNS FIFO topicも`.fifo`で終える。
-- AWS Backup vaultとconsoleで作成するbackup planは50文字以内とする。
-- AWS CloudFormation StackNameの`number`はoptionalとし、通常は省略する。同じapplication・environment・purposeの複数stackを区別する場合だけ、`account_id`の前に`-01`からの2桁連番を付ける。例：通常は`cfn-stack-app-dev-network-123456789012`、同用途の複数stackは`cfn-stack-app-dev-job-01-123456789012`、`cfn-stack-app-dev-job-02-123456789012`。
-- AWS CloudFormation stack、StackSet、change setは英字で開始し、英数字とhyphenだけを使い、128文字以内とする。Change setはdeployment operationの名前であり、詳細設計resourceとして追加しない。
-- AWS KMS aliasは`alias/`で開始し、AWS reservedの`alias/aws/`を使用しない。
-- Amazon EC2 security groupの`GroupName`は`sg-`で開始できないため、このruleでは`-sg` suffixを使う。
-
-provider schemaまたはAWS serviceの現在の制約がこのsectionより厳しい場合は、厳しい方を適用する。制約を満たせない場合は名称を推測して補正せず、humanへ確認して停止する。
+provider schemaまたはAWS serviceの現在の制約が対象service fileの制約より厳しい場合は、厳しい方を適用する。制約を満たせない場合は名称を推測して補正せず、humanへ確認して停止する。
 
 ## 設定表の表示順
 

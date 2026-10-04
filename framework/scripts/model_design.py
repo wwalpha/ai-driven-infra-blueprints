@@ -197,16 +197,30 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
 
 
 @memoized
-def naming_targets(root: Path) -> dict[str, set[str]]:
-    targets: dict[str, set[str]] = {}
+def naming_rule_files(root: Path, namespace: str | None = None) -> tuple[Path, ...]:
+    """Read the common entry and only explicitly indexed service rules."""
     path = root / "framework/rules/aws-resource-naming.md"
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) == 5 and cells[2].startswith("`") and cells[4].startswith("`"):
-            for kind in re.findall(r"`([^`]+)`", cells[2]):
-                targets.setdefault(kind, set()).add(cells[3].strip("`"))
+    files = [path]
+    for name, reference in re.findall(
+        r"^\| `([A-Za-z0-9]+)` \| \[[^\]]+\]\((aws-resource-naming/[A-Za-z0-9]+\.md)\) \|$",
+        path.read_text(encoding="utf-8"), re.MULTILINE,
+    ):
+        if namespace is None or name == namespace:
+            files.append(path.parent / reference)
+    return tuple(files)
+
+
+@memoized
+def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[str]]:
+    targets: dict[str, set[str]] = {}
+    for path in naming_rule_files(root, namespace):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) == 5 and cells[2].startswith("`") and cells[4].startswith("`"):
+                for kind in re.findall(r"`([^`]+)`", cells[2]):
+                    targets.setdefault(kind, set()).add(cells[3].strip("`"))
     return targets
 
 
@@ -221,7 +235,7 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
             return [f"{kind}.{field} must be confirmed and non-empty"]
     if mode == "IMPORT":
         return []  # Confirmed actual names above and provider/schema checks remain mandatory.
-    targets = naming_targets(root)
+    targets = naming_targets(root, kind.partition(".")[0])
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}
     expected = selected & set(resource_name_fields(kind))

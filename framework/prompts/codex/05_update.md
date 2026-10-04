@@ -63,6 +63,8 @@ scope外のuncommitted changeがある場合は取り込まず停止する。rep
 12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 13. CloudFormationの場合は対象resourceのprovider schema
 
+命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
+
 Updateの設計inputはauthoritative model propertiesだけとする。generated Markdown本文とgenerated JSON artifactは開始時・IaC生成時・参照解決時のinputとして読まない。`cloudformation-stacks.md`も表示用生成物であり、同じstack scope情報をAgentが再取得・二重比較しない。JSON本文は`desired.row.*.document`を使う。03/04 prompt全文の読込は不要とし、Updateに必要な手順はこのprompt、共通契約は上記の既存rulesに従う。Markdown／JSONの生成・保存、controllerとlocal loopによる整合性検証は維持する。
 
 resourceが限定される場合は、単一file／分割入口indexの両方で既存部分読込を使用する。selectorはresource number、logical ID、anchorの完全一致とし、未一致・曖昧なら停止する。

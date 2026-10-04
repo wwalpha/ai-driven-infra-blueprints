@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from model_design import properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
+from model_design import naming_rule_files, naming_targets, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
 from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
 from model_design import row_table
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
@@ -837,8 +837,40 @@ def check_naming_exclusions():
     print("Naming exclusions: PASS (12 properties; design, generation, value/schema checks and coverage boundaries)")
 
 
+def check_service_scoped_naming():
+    selected = naming_rule_files(ROOT, "S3")
+    assert [path.name for path in selected] == ["aws-resource-naming.md", "S3.md"]
+    read_text = Path.read_text
+
+    def scoped_read(path, *args, **kwargs):
+        if path.parent.name == "aws-resource-naming":
+            assert path.name == "S3.md", f"unselected naming rule read: {path}"
+        return read_text(path, *args, **kwargs)
+
+    with patch.object(Path, "read_text", scoped_read):
+        assert not naming_errors(ROOT, "S3.Bucket", [["1", "BucketName", "`app-dev-data-123456789012`", "名前"]])
+        assert set(naming_targets(ROOT, "S3")) == {"S3.Bucket"}
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        rules = root / "framework/rules"
+        rules.mkdir(parents=True)
+        entrance = rules / "aws-resource-naming.md"
+        entrance.write_text("| `S3` | [S3](aws-resource-naming/S3.md) |\n", encoding="utf-8")
+        try:
+            naming_targets(root, "S3")
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("missing indexed service rule accepted")
+        entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `{{purpose}}` |\n", encoding="utf-8")
+        assert naming_targets(root, "S3") == {"S3.Bucket": {"BucketName"}}
+        assert naming_targets(root, "CloudFront") == {"S3.Bucket": {"BucketName"}}
+    print("Service-scoped naming: PASS (selected service only, missing file rejected, legacy fixture)")
+
+
 def check_security_group_and_glue_catalog_naming():
-    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     group_pattern = "{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg"
     assert f"| `EC2.SecurityGroup` | `GroupName` | `{group_pattern}` |" in text
     assert f"| `EC2.SecurityGroup` | Name tag | `{group_pattern}` |" in text
@@ -859,7 +891,7 @@ def check_security_group_and_glue_catalog_naming():
 def check_security_naming():
     from design_catalog import DesignSchemaCatalog
     schema = DesignSchemaCatalog(ROOT)
-    text = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     patterns = {}
     for line in text.splitlines():
         cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
@@ -891,7 +923,7 @@ def check_security_naming():
 
 
 def check_stack_policy():
-    naming = (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     assert "| `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]-{{account_id}}` |" in naming
     assert "| `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}-{{account_id}}` |" in naming
     with tempfile.TemporaryDirectory() as directory:
@@ -1297,13 +1329,14 @@ def main():
     check_stack_policy()
     check_stack_mapping_roundtrip()
     check_security_naming()
+    check_service_scoped_naming()
     check_security_group_and_glue_catalog_naming()
     check_naming_exclusions()
     check_codebuild_required_name()
     check_iam_role_name()
     for kind in ("EC2.VPCEndpoint", "EC2.Instance"):
         check_required_name_tag(kind)
-    assert "| `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |" in (ROOT / "framework/rules/aws-resource-naming.md").read_text(encoding="utf-8")
+    assert "| `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |" in "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])

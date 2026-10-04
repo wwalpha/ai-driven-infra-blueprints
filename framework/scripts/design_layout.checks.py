@@ -869,6 +869,7 @@ def check_resource_name_headings() -> None:
         metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
         (root / "framework/rules").mkdir(parents=True)
         shutil.copyfile(REPOSITORY / "framework/rules/aws-resource-naming.md", root / "framework/rules/aws-resource-naming.md")
+        shutil.copytree(REPOSITORY / "framework/rules/aws-resource-naming", root / "framework/rules/aws-resource-naming")
 
         def errors(markdown):
             path.write_text(markdown, encoding="utf-8")
