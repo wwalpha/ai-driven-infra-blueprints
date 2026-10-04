@@ -53,7 +53,7 @@ CFnの`AWS::AccountId`は実際のstack作成accountです（[AWS公式の擬似
 - `framework/scripts/model_files.py`: `<service.properties> --resource '<resource-number-or-logical-id-or-anchor>'`で対象resourceの正本と同じ表示group・共通注記だけを位置付きで読む。`--find '<key-or-logical-id>'`は値を表示せず対象fileと行を検索する。600行超のmodelの物理分割は明示design/migration taskで`--split`を実行する
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: CloudFormation targetの管理対象stack、templateと個別parameterのファイル名を記す詳細設計
 - `project.json`: Codexがinitialization時に生成するmachine-readable project topology
-- `tasks/<task-name>.md`: taskごとの契約。変更予定fileが重複しない複数taskを同時進行できる
+- `tasks/<task-name>.md`: taskごとの契約。`issues/`配下以外の変更予定fileが重複しない複数taskを同時進行できる
 
 ## Task transition
 
@@ -61,7 +61,7 @@ repositoryを変更する新しい依頼では、task type、target、Goalを今
 
 各契約の`Task contract`へTask statusを記載し、`## Modified files`へ変更予定fileの具体的なrepository-relative pathを列挙します。globやdirectoryは使わず、新規file、生成artifact、model part、契約自身も含めます。`Allowed paths`は従来どおり許可範囲を示し、変更予定fileはその範囲内である必要があります。
 
-進行中taskと同じfileが一つでもあれば、新規taskを登録前に停止します。既存taskは継続します。契約の候補をrepository外へ用意し、次で登録します。同時登録も直列化されるため、同じfileを二つのtaskが同時に確保できません。
+repository rootの`issues/`配下以外に進行中taskと同じfileが一つでもあれば、新規taskを登録前に停止します。既存taskは継続します。`issues/`配下は`issue.md`、`issues.md`、`diff.md`などfile名や階層にかかわらず、登録・契約更新・再開・local loopで重複を許可します。各taskの`Modified files`への記載と`Allowed paths`、未登録変更、task boundary、issue gateの検査は維持します。契約の候補をrepository外へ用意し、次で登録します。同時登録は直列化されます。
 
 ```text
 python framework/scripts/task_contract.py --task-file tasks/network-design.md --source <repository外の契約候補file>

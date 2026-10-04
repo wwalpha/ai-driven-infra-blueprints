@@ -112,6 +112,63 @@ def check_completed_legacy_and_paths():
         blocked(lambda: tasks.start(root, new, contract(new, ["file.md"], state="paused")), "Task status")
 
 
+def check_shared_issue_files():
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        first, second = "tasks/first.md", "tasks/second.md"
+        reports = ["issues/issue.md", "issues/dev/cde/issues.md", "issues/dev/cde/diff.md",
+                   "issues/deep/nested/result.json"]
+        tasks.start(root, first, contract(first, [*reports, "first.md"]))
+        before = (root / first).read_bytes()
+        tasks.start(root, second, contract(second, [*reports, "second.md"]))
+        assert (root / first).read_bytes() == before
+        blocked(lambda: tasks.task_path(root), "multiple running tasks")
+        changed = {first, second, *reports, "first.md", "second.md"}
+        for name, own in [(first, "first.md"), (second, "second.md")]:
+            assert tasks.task_changes(root, changed, name) == {name, own, *reports}
+            with patch.dict(os.environ, {tasks.SELECTOR: name}):
+                tasks.require_writable(root, [root / path for path in reports])
+                blocked(lambda: tasks.require_writable(root, [root / "issues/unlisted.md"]),
+                        "no selected task reservation")
+        blocked(lambda: tasks.task_changes(root, changed | {"issues/unlisted.md"}, first),
+                "no task reservation")
+        # Report overlap is also allowed when resuming and when extending a contract.
+        tasks.suspend(root, first, "report check failed: issues/issue.md")
+        tasks.resume(root, first)
+        assert tasks.task_path(root, first) == root / first
+        (root / first).write_text(contract(first, [*reports, "first.md", "issues/new.txt"]))
+        (root / second).write_text(contract(second, [*reports, "second.md", "issues/new.txt"]))
+        tasks.reservations(root, tasks.contracts(root))
+        # An exempt overlap cannot hide an ordinary conflict or appear in its diagnostic.
+        third = "tasks/third.md"
+        try:
+            tasks.start(root, third, contract(third, [*reports, "first.md"]))
+        except ValueError as error:
+            assert "task file conflict" in str(error) and "first.md" in str(error)
+            assert not any(path in str(error) for path in reports), str(error)
+        else:
+            raise AssertionError("ordinary file overlap must block mixed-report admission")
+        assert not (root / third).exists()
+
+    for path in ["issue.md", "issues.md", "issues-other/issue.md", "docs/issues/issue.md"]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tasks.start(root, first, contract(first, [path]))
+            blocked(lambda: tasks.start(root, second, contract(second, [path])), "task file conflict")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        blocked(lambda: tasks.start(root, first, contract(first, ["issues/../escape.md"])),
+                "exact repository-relative path")
+        (root / "issues").symlink_to(root / "elsewhere")
+        blocked(lambda: tasks.start(root, first, contract(first, ["issues/issue.md"])), "symlinks")
+        (root / "issues").unlink()
+        outside = contract(first, ["issues/issue.md"]).replace(
+            "## Allowed paths\n- `tasks/first.md`\n- `issues/issue.md`",
+            "## Allowed paths\n- `tasks/first.md`")
+        blocked(lambda: tasks.start(root, first, outside), "outside Allowed paths")
+
+
 def check_simultaneous_registration():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -210,7 +267,8 @@ def check_validator_isolation():
 if __name__ == "__main__":
     check_admission_selection()
     check_completed_legacy_and_paths()
+    check_shared_issue_files()
     check_simultaneous_registration()
     check_suspend_and_resume()
     check_validator_isolation()
-    print("task-contract: PASS (selection, conflict, future files, concurrent admission, ownership, compatibility)")
+    print("task-contract: PASS (selection, conflict, shared issue files, future files, concurrent admission, ownership, compatibility)")

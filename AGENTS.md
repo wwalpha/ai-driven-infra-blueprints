@@ -28,9 +28,9 @@
 
 - 契約登録は`framework/scripts/task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`を使用する。同時登録を直列化し、競合時は候補を保存しない。既存taskの変更予定fileを追加・変更する場合も、実変更前に同じ競合検査を通す。
 - 各chat/processは`BLUEPRINT_TASK_FILE=tasks/<task-name>.md`を指定する。local loopとvalidatorは`--task-file`でも選べる。running taskが複数ある場合は未指定で停止し、別taskへ推測で切り替えない。
-- 他taskの登録済み変更は今回のtask type判定とAcceptance checksから分離する。未登録の変更file、変更予定外の生成先、進行中task間の重複は拒否する。
+- 他taskの登録済み変更は今回のtask type判定とAcceptance checksから分離する。未登録の変更file、変更予定外の生成先、進行中task間の重複は拒否する。ただしrepository rootの`issues/`配下の全fileはtask間の重複を許可し、競合停止の対象から除外する。`issue.md`、`issues.md`、`diff.md`などfile名や階層を限定しない。各taskのModified filesへの記載、Allowed paths、task boundary、issue gateの検査は維持する。
 - repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalと照合する。別taskの契約を上書きしない。
-- task type、target、Goalのいずれかが異なる変更は新しいtaskとする。変更予定fileを`## Modified files`へrepository-relativeの具体的pathで列挙し、既存のrunning taskとの重複を登録前に検査する。未作成fileと契約自身も列挙し、glob、directory、別taskの契約を指定しない。重複があれば新規taskを停止し、既存taskと対象fileを報告する。既存taskを停止・上書きしない。
+- task type、target、Goalのいずれかが異なる変更は新しいtaskとする。変更予定fileを`## Modified files`へrepository-relativeの具体的pathで列挙し、既存のrunning taskとの重複を登録前に検査する。未作成fileと契約自身も列挙し、glob、directory、別taskの契約を指定しない。`issues/`配下以外に重複があれば新規taskを停止し、既存taskと対象fileを報告する。既存taskを停止・上書きしない。
 - read-only調査とchat-only設計相談はrepository taskを開始しない。完了済みtaskの契約はchat-only作業のblockerにしない。
 - chat-only設計をrepositoryへ保存する依頼は新しい`design` taskとし、保存前にactive taskを切り替える。
 - `## Required changes`の各項目には一意なRequirement IDを付け、`## Acceptance checks`で同じIDへ一つ以上の機械検証を対応付ける。

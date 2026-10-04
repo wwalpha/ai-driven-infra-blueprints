@@ -6,7 +6,8 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 - repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalを照合する。契約のないclean repositoryはidleとする。新規taskは既存契約を上書きせず、最初の変更として個別契約を登録する。
 - Task contractへTask status（`running`／`suspend`／`completed`）を記載し、`## Modified files`へ具体的なfile pathを列挙する。glob、directory、別taskの契約は禁止する。自分の契約、未作成file、生成artifact、model part、削除対象も含め、Allowed paths内だけを予約する。
-- `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`で登録する。登録は同時実行を直列化し、全running taskのModified filesを比較する。fileが重複すれば新規taskを停止し、競合fileと既存taskを報告する。候補と対象fileをrepositoryへ保存せず、既存taskを継続する。
+- `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`で登録する。登録は同時実行を直列化し、全running taskのModified filesを比較する。repository rootの`issues/`配下以外のfileが重複すれば新規taskを停止し、競合fileと既存taskを報告する。候補と対象fileをrepositoryへ保存せず、既存taskを継続する。
+- `issues/`配下の全fileは、file名や階層にかかわらず登録・契約更新・再開・local loopの競合停止対象から除外する。`issues/issue.md`、`issues/<environment>/<target-directory>/issues.md`、`diff.md`も含む。各taskは変更するfileをModified filesへ列挙し、Allowed paths、未登録変更、task boundary、issue gateとAcceptance checksの検査を維持する。
 - 各processは`BLUEPRINT_TASK_FILE`、local loop／validatorは`--task-file`でも契約を選ぶ。複数running taskがある場合は明示選択必須。変更予定fileの追加・変更時も実変更前に契約を更新し、`task_contract.py --task-file tasks/<task-name>.md`で再検査する。競合する更新は元へ戻し、今回のtaskを停止する。
 - read-only調査とchat-only設計相談は契約の登録・切替を要求しない。
 - loopは全契約の競合と未登録変更を検査し、今回の予約fileの変更だけへtask type、issue gate、Acceptance checksを適用する。別taskの変更を成果や違反として数えない。生成とmodel分割も保存前に今回の予約fileを検査する。
@@ -63,7 +64,7 @@ Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`ch
 
 - 変更がある場合はactive task promptと有効なTask typeが存在する。変更のないidle状態では今回の`tasks/<task-name>.md`がなくてもよい
 - changed pathsがTask type boundaryとAllowed paths内にある
-- `tasks/`には`<task-name>.md`形式の契約だけがあり、running契約間のModified filesが重複しない。idle状態では`tasks/`ごと省略してよい
+- `tasks/`には`<task-name>.md`形式の契約だけがあり、running契約間のModified filesは`issues/`配下以外で重複しない。idle状態では`tasks/`ごと省略してよい
 - `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
 - 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
 - API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須と正本modelを検証し、CFn型解決で拒否する

@@ -110,7 +110,7 @@ def reservations(root, records):
     running = [(name, files) for name, (state, files) in result.items() if state == "running" and files is not None]
     for index, (name, files) in enumerate(running):
         for other, other_files in running[index + 1:]:
-            overlap = files & other_files
+            overlap = {path for path in files & other_files if not path.startswith("issues/")}
             if overlap:
                 raise ValueError(f"task file conflict: {name} with {other}: {', '.join(sorted(overlap))}; stop the new task")
     return result
