@@ -566,9 +566,21 @@ def check_delivery():
                          "desired.resource.001.anchor=s3-app-dev-assets\ndesired.row.001-001.property=S3.Bucket.BucketName\n"
                          "desired.row.001-001.value=`app-dev-assets`\n")
         design.write_text(markdown_for(design, values, root))
+        view = design.read_text()
+        assert "| Property | Value |" not in view and "| TemplateBucket |" not in view and "| TemplateKeyPrefix |" not in view
+        assert "### 配置ファイル" in view and f"<!-- templateBucket: {reference} -->" in view
         projected = stack_delivery(design) | {key: value for key, value in values.items() if key.startswith("desired.stack.")}
         settings, files = deployment_settings(projected)
         assert settings == deployment_settings(values)[0] and [a for _, a in files] == [a for _, a in deployment_settings(values)[1]]
+        design.write_text(view + f"<!-- templateBucket: {reference} -->\n")
+        rejects(lambda: stack_delivery(design), "duplicate S3 delivery setting")
+        design.write_text(view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: -->"))
+        rejects(lambda: stack_delivery(design), "invalid S3 delivery setting comment")
+        legacy = view.replace(f"<!-- templateBucket: {reference} -->\n", "").replace("<!-- templateKeyPrefix: templates/ -->\n", "")
+        legacy = legacy.replace("## S3配置\n", f"## S3配置\n\n| Property | Value |\n| --- | --- |\n| TemplateBucket | {reference} |\n| TemplateKeyPrefix | templates/ |\n")
+        design.write_text(legacy)
+        assert stack_delivery(design) == {key: value for key, value in projected.items() if not key.startswith("desired.stack.")}
+        design.write_text(view)
         source_model = model.with_name("cloudformation-stacks.properties")
         source_model.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
         _, loaded = M.load_units(root, "dev", "123456789012", ["A"])
@@ -597,6 +609,13 @@ def check_delivery():
             assert sync.sync(root, False, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
         assert model.read_bytes() == saved_model
         assert deployment_settings(properties(sync.model_for(design, root)))[0] == deployment_settings(values)[0]
+        only_templates = {key: value for key, value in values.items() if not key.startswith("desired.artifact.")}
+        template_view = markdown_for(design, only_templates, root)
+        assert "## S3配置" not in template_view and "| Property | Value |" not in template_view
+        design.write_text(template_view)
+        assert deployment_settings(properties(sync.model_for(design, root)))[0] == deployment_settings(values)[0]
+        design.write_text(template_view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: changed/ -->"))
+        rejects(lambda: sync.validate_views(root, root, [design], {design: only_templates}), "model/display projection mismatch")
         only_artifacts = {key: value for key, value in values.items() if not key.startswith("desired.deployment.template")}
         design.write_text(markdown_for(design, only_artifacts, root))
         assert "| Property | Value |" not in design.read_text()

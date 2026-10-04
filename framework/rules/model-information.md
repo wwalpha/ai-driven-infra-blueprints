@@ -253,4 +253,4 @@ desired.artifact.001.keyPrefix=lambda/functions/
 - artifact entryは全6 fieldを必須とし、同じstack/resource/propertyへの重複を拒否する。複数entryで同じsourceを使える。異なるbucketも各entryで明示する。
 - keyPrefixは末尾`/`付きの相対prefix。segmentは英数字、underscore、hyphenだけを許可する。sourceはrepository相対fileであり、ビルドcommand、directory、credential、statusを記載しない。
 - 対応表はS3 key/versionを内容hashへ置換するdeploy入力を表す。実行ごとのhashやversionはrepository外sessionだけに保存する。S3 bucketの設定・名前はS3 modelを正本とし、stack modelには参照だけを持つ。
-- 生成Markdownの`## S3配置`にTemplateBucket／TemplateKeyPrefixを表示し、`### 配置ファイル`へ対応表を生成する。再解析とmodel一致検証を行い、Markdownから逆反映しない。未設定の既存model／Markdown形式を維持する。
+- 生成MarkdownでTemplateBucket／TemplateKeyPrefixの表は表示せず、設定時だけ`<!-- templateBucket: <value> -->`／`<!-- templateKeyPrefix: <value> -->`へ出力する。artifact対応がある場合だけ`## S3配置`と`### 配置ファイル`へ対応表を生成する。再解析とmodel一致検証を行い、旧形式の設定表も解析できる。Markdownから逆反映しない。未設定の既存model／Markdown形式を維持する。

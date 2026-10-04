@@ -489,23 +489,19 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                 raise ValueError("; ".join(errors))
         settings, artifacts = deployment_settings(values)
         delivery = []
-        if settings or artifacts:
-            delivery = ["", "## S3配置", ""]
-            if settings:
-                delivery += ["| Property | Value |", "| --- | --- |"]
-                delivery += [f"| {field[0].upper() + field[1:]} | {value} |" for field, value in settings.items()]
-            if artifacts:
-                delivery += ["", "### 配置ファイル", "",
-                    "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
-                    "| ---: | --- | --- | --- | --- | --- | --- |"]
-                delivery += ["| " + " | ".join([str(number)] + [artifact[field] for field in ARTIFACT_FIELDS]) + " |"
-                             for number, (_, artifact) in enumerate(artifacts, 1)]
-            if settings:
-                deployment_bucket(settings["templateBucket"], path, root)
-            for _, artifact in artifacts:
-                deployment_bucket(artifact["bucket"], path, root)
+        if artifacts:
+            delivery = ["", "## S3配置", "", "### 配置ファイル", "",
+                "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
+                "| ---: | --- | --- | --- | --- | --- | --- |"]
+            delivery += ["| " + " | ".join([str(number)] + [artifact[field] for field in ARTIFACT_FIELDS]) + " |"
+                         for number, (_, artifact) in enumerate(artifacts, 1)]
+        if settings:
+            deployment_bucket(settings["templateBucket"], path, root)
+        for _, artifact in artifacts:
+            deployment_bucket(artifact["bucket"], path, root)
         return "\n".join(["# CloudFormation stack 詳細設計", "",
             f"<!-- max-concurrent-stacks: {limit} -->", "",
+            *[f"<!-- {field}: {value} -->" for field, value in settings.items()],
             "## Stack一覧", "", "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",
             "| ---: | ---: | --- | --- | --- | --- |", *[
                 "| " + " | ".join([str(number), stack["deployOrder"], stack["name"], stack["template"],

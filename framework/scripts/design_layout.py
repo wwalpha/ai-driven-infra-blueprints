@@ -261,7 +261,8 @@ def stack_deployment_policy(path: Path) -> int:
 
 def stack_design(path: Path) -> list[dict[str, str]]:
     """Read a target's stack detailed design."""
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines()
+             if line and not line.startswith(("<!-- templateBucket:", "<!-- templateKeyPrefix:"))]
     stack_deployment_policy(path)
     if lines[2:5] != [
         "## Stack一覧", STACK_HEADER,
@@ -287,11 +288,21 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 
 
 def stack_delivery(path: Path) -> dict[str, str]:
-    """Read only the generated delivery appendix; old stack views remain valid."""
+    """Read hidden template settings and artifact tables, including old stack views."""
     from model_design import ARTIFACT_FIELDS
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    result = {}
+    for line in lines:
+        if line.startswith(("<!-- templateBucket:", "<!-- templateKeyPrefix:")):
+            match = re.fullmatch(r"<!-- (templateBucket|templateKeyPrefix): (.+) -->", line)
+            if not match:
+                raise ValueError("invalid S3 delivery setting comment")
+            key = "desired.deployment." + match.group(1)
+            if key in result:
+                raise ValueError("duplicate S3 delivery setting")
+            result[key] = match.group(2)
     if "## S3配置" not in lines:
-        return {}
+        return result
     lines = lines[lines.index("## S3配置") + 1:]
     lines = lines[:next((index for index, line in enumerate(lines) if line.startswith("## ")), len(lines))]
     if lines[:2] == ["| Property | Value |", "| --- | --- |"]:
@@ -300,7 +311,6 @@ def stack_delivery(path: Path) -> dict[str, str]:
         index = 0
     else:
         raise ValueError("invalid S3 delivery settings header")
-    result = {}
     while index < len(lines) and lines[index] != "### 配置ファイル":
         cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
         if not lines[index].startswith("|") or not lines[index].endswith("|") or len(cells) != 2 or cells[0] not in {"TemplateBucket", "TemplateKeyPrefix"} or not cells[1]:

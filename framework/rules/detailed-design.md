@@ -357,4 +357,4 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 
 ## CloudFormationのS3配置表示
 
-stack modelがS3配置を明示する場合だけ、Stack一覧の後に`## S3配置`（`Property | Value`）を生成し、TemplateBucket／TemplateKeyPrefixを表示する。artifact対応がある場合は`### 配置ファイル`（`No. | StackName | Resource | Property | Source | Bucket | KeyPrefix`）を生成する。No.は表示順の連番、ResourceはCFn logical ID、Bucketは同targetのS3設計へのBucketName表示linkである。これはdeployment入力の表示でありAWS property表ではない。MaxConcurrentStacksを表示するDeployment設定表は引き続き生成しない。配置を指定しない既存stack表示は維持する。正本fieldと例は`model-information.md`のCloudFormation S3配置に従う。
+TemplateBucket／TemplateKeyPrefixの`Property | Value`表は生成しない。modelに設定がある場合は`<!-- templateBucket: <value> -->`／`<!-- templateKeyPrefix: <value> -->`の非表示コメントへ出力し、再解析とmodel一致検証を維持する。artifact対応がある場合だけ、Stack一覧の後に`## S3配置`と`### 配置ファイル`（`No. | StackName | Resource | Property | Source | Bucket | KeyPrefix`）を生成する。No.は表示順の連番、ResourceはCFn logical ID、Bucketは同targetのS3設計へのBucketName表示linkである。これはdeployment入力の表示でありAWS property表ではない。MaxConcurrentStacksを表示するDeployment設定表は引き続き生成しない。配置を指定しない既存stack表示は維持する。正本fieldと例は`model-information.md`のCloudFormation S3配置に従う。
