@@ -82,7 +82,7 @@
 | Amazon RDS | DB parameter group | `RDS.DBParameterGroup` | `DBParameterGroupName` | `rdbpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon RDS | DB cluster parameter group | `RDS.DBClusterParameterGroup` | `DBClusterParameterGroupName` | `rdbcpg-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
 | Amazon RDS | Option group | `RDS.OptionGroup` | `OptionGroupName` | `rdbog-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
-| Amazon EC2 | Instance | `EC2.Instance` | Name tag | `{{environment}}-{{application}}-{{purpose}}-{{number}}` |
+| Amazon EC2 | Instance | `EC2.Instance` | Name tag | `{{application}}-{{environment}}-{{purpose}}[-{{number}}]` |
 | Amazon EC2 | Security group | `EC2.SecurityGroup` | `GroupName` | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
 | Amazon EC2 | Security group | `EC2.SecurityGroup` | Name tag | `{{environment}}-{{application}}-{{service}}-{{purpose}}-{{number}}-sg` |
 | Amazon EC2 | Launch template | `EC2.LaunchTemplate` | `LaunchTemplateName` | `aslt-{{application}}-{{environment}}-{{purpose}}-{{number}}` |
@@ -139,6 +139,7 @@
 
 ## Service-specific constraints
 
+- Amazon EC2 InstanceのName tagはapplication・environment・purposeの順とする。`number`はoptionalとし、単体では省略する。同じapplication・environment・purposeの複数台を区別する場合だけ、`-01`からの2桁連番を使用できる。例：単体は`venusinf-stg-vulnerability-scan`、複数台で番号を使用する場合は`venusinf-stg-vulnerability-scan-01`、`venusinf-stg-vulnerability-scan-02`。
 - AWS WAFのWebACL／RuleGroup／IPSetのprefixはそれぞれ`wafacl`／`wafrg`／`wafip`とし、すべて`waf`を含める。
 - AWS Organizations Policyの`scp` patternは`Type=SERVICE_CONTROL_POLICY`のSCPに使用する。環境間で同じSCPを共有する場合は`environment`を省略し、環境別に分ける場合は含める。他のpolicy typeへ`scp` prefixを自動適用しない。
 - AWS Systems Manager Association自身の名称は`AssociationName`を対象とする。`Name`は参照するSSM document名（例：`AWS-RunPatchBaseline`）であり、この命名patternで変更しない。

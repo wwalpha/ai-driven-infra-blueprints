@@ -8,3 +8,5 @@ Repository rootの`framework/prompts/codex/04_deploy.md`を全文読み、その
 検証scopeは`framework/rules/loop-engineering.md`に従う。通常taskはValidation scopeのserviceだけを検証し、対象限定検証後に全体検証を追加しない。
 
 CloudFormationは対象StackNameをcontrollerへ渡し、通常成功では全DeployOrderとobserved同期を一回の起動で完了する。promptとcontrollerでSTS、全stack探索、validationを二重実行しない。approval／failure／interruptionの再開は同じsessionを使用する。
+
+順次実行は全Deployment scopeを一回の起動へ渡して`--sequential`を使用する。1stackずつscope／sessionを分割しない。対応付けエラーはlint前の全scope診断で集約する。failure／blocker後に外側のloopや別sessionで残りのdeployを続行せず、依存consumerを含む未着手stackは未実行として報告する。

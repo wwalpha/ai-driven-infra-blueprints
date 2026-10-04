@@ -696,6 +696,10 @@ def check_session_cli():
             backends.append(backend)
             return backend
         session_runner = M.run_session
+        execution_limits = []
+        def run_session(*args):
+            execution_limits.append(args[1])
+            return session_runner(*args, sleep=lambda _: None)
         def invoke(options=()):
             def subprocess_result(command, **kwargs):
                 return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "", stderr="")
@@ -703,7 +707,7 @@ def check_session_cli():
                     patch.object(M, "AwsBackend", side_effect=backend_factory), \
                     patch.object(shutil, "which", return_value="mock-command"), \
                     patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
-                    patch.object(M, "run_session", side_effect=lambda *a: session_runner(*a, sleep=lambda _: None)):
+                    patch.object(M, "run_session", side_effect=run_session):
                 result = M.main(argv + list(options), root=root)
                 if run.called:
                     context_calls = [c for c in run.call_args_list if "get-caller-identity" in c.args[0]]
@@ -712,8 +716,22 @@ def check_session_cli():
                 return result
         assert invoke(["--profile", "other"]) == 2
         assert not backends and not state_file.exists()
-        assert invoke() == 2
+        # Diagnose every mapping error before lint or AWS preparation, not 25 deployments.
+        errors = {"A": ["A/MissingVpc: model resource matches=0", "A/MissingRole: model resource matches=0"],
+                  "B": ["B/Repository: identifier row missing/ambiguous: RepositoryId"]}
+        with patch.object(M, "mappings", side_effect=M.MappingError(errors)):
+            assert invoke() == 2
+        stopped = json.loads(state_file.read_text())
+        assert stopped["result"] == "STOPPED" and stopped["validationErrors"] == errors
+        assert all(s["status"] == "NOT_STARTED" for s in stopped["states"].values())
+        assert all(stopped["states"][name]["preflightErrors"] == details for name, details in errors.items())
+        assert stopped["metrics"]["validationCount"] == stopped["metrics"]["lintSeconds"] == 0
+        assert stopped["metrics"]["inputLoadSeconds"] >= 0 and stopped["metrics"]["mappingCheckSeconds"] >= 0
+        assert not validation_calls and not backends[-1].calls and not execution_limits
+        assert invoke(["--resume"]) == 2
         session = json.loads(state_file.read_text())
+        assert "validationErrors" not in session and "validationError" not in session
+        assert not any("preflightErrors" in state for state in session["states"].values())
         assert session["states"]["A"]["status"] == "BLOCKED", session
         assert session["states"]["B"]["status"] == "NOT_STARTED"
         assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
@@ -776,6 +794,16 @@ def check_session_cli():
             prior = json.loads(state_file.read_text())["metrics"]["validationCount"]
             assert invoke(["--resume"]) == 0 and not backends[-1].calls
             assert json.loads(state_file.read_text())["metrics"]["validationCount"] == prior + 1
+            if limit == 4:
+                # Sequential is a session cap, not a design edit or per-stack invocation.
+                state_file = base / f"sequential-{len(orders)}.json"
+                argv[argv.index("--state") + 1] = str(state_file)
+                before = source.read_bytes()
+                assert invoke(["--sequential"]) == 0 and execution_limits[-1] == 1
+                assert source.read_bytes() == before
+                assert json.loads(state_file.read_text())["result"] == "COMPLETE"
+                assert invoke(["--resume", "--sequential"]) == 0 and not backends[-1].calls
+                assert invoke(["--resume"]) == 2  # Resume cannot expand the saved cap.
         # Explicit update handoff retains the older producer/consumer editing contract.
         contract.write_text(contract.read_text().replace("Infrastructure phase: `deploy`", "Infrastructure phase: `update`"))
         state_file = base / "update-handoff.json"
@@ -796,6 +824,12 @@ def check_session_cli():
 
 def check_parallel_and_restart():
     scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
+    sequential = Fake({"B": ["CREATE_FAILED"]})
+    saved = {"states": states(scoped), "metrics": {"observedSyncSeconds": 0}}
+    with patch.object(M, "sync_successful"):
+        assert M.run_session(scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None) == "STOPPED"
+    assert sequential.peak == 1 and starts(sequential) == ["A", "B"]
+    assert all(saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[2:])
     state = states(scoped)
     backend = Fake()
     # Polls actually overlap. A barrier fails deterministically if they become serial.
@@ -925,6 +959,26 @@ def check_observed_collector():
             return {"StackResourceSummaries": [] if removed[0] else [{"LogicalResourceId": "VpcTestDev", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": physical[0]}]}
         backend.aws = aws
         before = source.read_bytes()
+        # One model scan collects missing identities and identifier rows across stacks.
+        import cloudformation_observed as observed
+        subnet_identifier = values["desired.row.002-002.value"]
+        values["desired.row.002-002.value"] = "`PENDING_DEPLOY`"
+        source.write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
+        broken_templates = {
+            "A": ({"Resources": {"MissingVpc": {"Type": "AWS::EC2::VPC"},
+                                 "SbntTestDevPrivateAppA01": {"Type": "AWS::EC2::Subnet"}}}, {}),
+            "B": ({"Resources": {"MissingRole": {"Type": "AWS::IAM::Role"}}}, {})}
+        with patch.object(observed, "models", wraps=observed.models) as scan:
+            try:
+                mappings(root, "dev", "123456789012", broken_templates, units(10, 20))
+            except observed.MappingError as error:
+                assert set(error.errors) == {"A", "B"} and len(error.errors["A"]) == 2
+                assert "MissingVpc" in str(error) and "MissingRole" in str(error) and "EC2.Subnet.SubnetId" in str(error)
+            else:
+                raise AssertionError("mapping diagnostics did not stop the full scope")
+            assert scan.call_count == 1
+        source.write_bytes(before)
+        values["desired.row.002-002.value"] = subnet_identifier
         output[0] = "vpc-different"
         rejects(lambda: sync_successful(backend, [unit], states([unit])), "disagree")
         assert source.read_bytes() == before

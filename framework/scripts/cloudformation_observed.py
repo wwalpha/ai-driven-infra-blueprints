@@ -16,6 +16,13 @@ def ambiguous(detail):
     raise ValueError("AMBIGUOUS_OBSERVED_MAPPING: " + detail)
 
 
+class MappingError(ValueError):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__("AMBIGUOUS_OBSERVED_MAPPING: " + "\n".join(
+            detail for details in errors.values() for detail in details))
+
+
 def cfn_identity(logical):
     # The documented PascalCase conversion is mechanical; collisions never pick a winner.
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", logical) if part)
@@ -30,7 +37,7 @@ def mappings(root, environment, directory, templates, units, removed=None):
     """Map type + existing logical identity, never names, file order or old physical IDs."""
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
-    resources = []
+    resources = {}
     for path, values in loaded.items():
         if path.parent != root / "model" / environment / directory:
             continue
@@ -41,33 +48,42 @@ def mappings(root, environment, directory, templates, units, removed=None):
                 cfn_type = catalog.cloudformation_type(resource["resourceType"])
             except (KeyError, ValueError):
                 continue  # API-only resources never become stack resources.
-            resources.append((path, identity, resource, cfn_type))
-    result, owners = {}, {}
+            for logical in {resource["logicalId"], cfn_identity(resource["logicalId"])}:
+                resources.setdefault((cfn_type, logical), []).append((path, identity, resource, cfn_type))
+    result, owners, errors = {}, {}, {}
     scope = active_scope(root)
     for unit in units:
         document, _ = templates[unit["name"]]
         result[unit["name"]] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(unit["name"], {})
         for logical, definition in definitions.items():
-            candidates = [item for item in resources if item[3] == definition["Type"]
-                          and logical in {item[2]["logicalId"], cfn_identity(item[2]["logicalId"])}]
+            candidates = resources.get((definition["Type"], logical), [])
             if len(candidates) != 1:
-                ambiguous(f"{unit['name']}/{logical}: model resource matches={len(candidates)}")
+                errors.setdefault(unit["name"], []).append(
+                    f"{unit['name']}/{logical}: model resource matches={len(candidates)}")
+                continue
             path, identity, resource, _ = candidates[0]
             service = tuple(path.relative_to(root / "model").with_suffix("").parts)
             if scope is not None and service not in scope:
                 raise ValueError(f"task scope violation: stack resource outside Validation scope: {'/'.join(service)}")
             owner = (path, identity)
             if owner in owners:
-                ambiguous(f"{unit['name']}/{logical}: model resource also owned by {owners[owner]}")
+                errors.setdefault(unit["name"], []).append(
+                    f"{unit['name']}/{logical}: model resource also owned by {owners[owner]}")
+                errors.setdefault(owners[owner], []).append(
+                    f"{owners[owner]}: model resource also owned by {unit['name']}/{logical}")
+                continue
             owners[owner] = unit["name"]
             outputs = catalog_outputs(root, resource["resourceType"])
             rows = [(rid, row) for rid, row in entries(loaded[path], "desired.row.") if rid.startswith(identity + "-")]
             for prop in outputs:
                 selected = [(rid, row) for rid, row in rows if row["property"] == prop]
                 if len(selected) != 1 or not LINK.fullmatch(selected[0][1]["value"]):
-                    ambiguous(f"{unit['name']}/{logical}: identifier row missing/ambiguous: {prop}")
+                    errors.setdefault(unit["name"], []).append(
+                        f"{unit['name']}/{logical}: identifier row missing/ambiguous: {prop}")
             result[unit["name"]][logical] = (path, identity, resource, rows, outputs)
+    if errors:
+        raise MappingError(errors)
     return loaded, result
 
 

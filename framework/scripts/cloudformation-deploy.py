@@ -25,7 +25,7 @@ from model_design import (properties, stack_model, markdown_for, deployment_sett
 from model_files import read_model
 from issue_gate import require_target_no_issues
 from task_contract import task_path, status
-from cloudformation_observed import mappings, sync_successful
+from cloudformation_observed import MappingError, mappings, sync_successful
 from validation_scope import active_scope as validation_scope
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
@@ -774,6 +774,7 @@ def main(argv=None, root=None):
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--sequential", action="store_true", help="limit this session to one stack at a time without changing the design")
     parser.add_argument("--pause-after-group", action="store_true", help="update phase only: explicit producer/consumer IaC handoff")
     args = parser.parse_args(argv)
     root = (root or Path(__file__).resolve().parents[2]).resolve()
@@ -804,6 +805,8 @@ def main(argv=None, root=None):
             raise Blocked(f"controller session already active or interrupted; verify no controller is running before removing {lock_path}") from error
         directory = args.alias or args.aws_account_id
         limit, units = load_units(root, args.environment, directory, args.stack)
+        if args.sequential:
+            limit = 1
         backend = AwsBackend(root, args.environment, directory, target, args.profile, args.approve_change_set)
         if phase == "deploy":
             paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
@@ -837,7 +840,8 @@ def main(argv=None, root=None):
         # v1 sessions resume conservatively: no cached validation or observed barrier is assumed.
         session.update(version=2, designDigest=current_design, profile=backend.profile)
         metrics = session.setdefault("metrics", {})
-        for key in ("controllerInvocationCount", "validationCount", "deployOrderCount", "observedSyncSeconds", "totalControllerSeconds"):
+        for key in ("controllerInvocationCount", "validationCount", "deployOrderCount", "observedSyncSeconds",
+                    "inputLoadSeconds", "mappingCheckSeconds", "lintSeconds", "totalControllerSeconds"):
             metrics.setdefault(key, 0)
         metrics["controllerInvocationCount"] += 1
         for change_id in args.approve_change_set:
@@ -867,28 +871,48 @@ def main(argv=None, root=None):
                 raise Blocked("validation dependencies changed before mutation")
         backend.guard = guard
         save()
-        # Validate every scoped stack before creating any change set. No template deduplication.
+        # Cheap whole-scope diagnostics precede lint and every change set.
         try:
-            digest = validation_digest(backend, unit_digests)
-            if session.get("validationStatus") == "PASS" and session.get("validationDigest") == digest:
+            session.pop("validationErrors", None)
+            session.pop("validationError", None)
+            for state in session["states"].values():
+                state.pop("preflightErrors", None)
+            started = time.perf_counter()
+            try:
                 for unit in units:
                     backend.load_inputs(unit)
+            finally:
+                metrics["inputLoadSeconds"] += time.perf_counter() - started
+            started = time.perf_counter()
+            try:
+                mappings(root, args.environment, directory, backend.templates, units)
+            finally:
+                metrics["mappingCheckSeconds"] += time.perf_counter() - started
+            digest = validation_digest(backend, unit_digests)
+            if session.get("validationStatus") == "PASS" and session.get("validationDigest") == digest:
                 backend.validated_digests = dict(unit_digests)
             else:
                 session["validationStatus"] = "RUNNING"
                 metrics["validationCount"] += 1
                 save()
-                for unit in units:
-                    backend.validate(unit)
+                started = time.perf_counter()
+                try:
+                    for unit in units:
+                        backend.validate(unit)
+                finally:
+                    metrics["lintSeconds"] += time.perf_counter() - started
                 if any(backend.input_digest(unit, fresh=True) != unit_digests[unit["name"]] for unit in units):
                     raise Blocked("deployment inputs changed during scope validation")
                 session["validationDigest"], session["validationStatus"] = digest, "PASS"
                 metrics["validatedInputDigest"] = fingerprint(unit_digests)
                 save()
-            # Resolve ownership before mutation; never discover a guessed mapping after execution.
-            mappings(root, args.environment, directory, backend.templates, units)
         except Exception as error:
+            session["result"] = "STOPPED"
             session["validationStatus"], session["validationError"] = "FAILED", str(error)
+            if isinstance(error, MappingError):
+                session["validationErrors"] = error.errors
+                for name, errors in error.errors.items():
+                    session["states"][name]["preflightErrors"] = errors
             save()
             # A resumed invocation may already own executions; validation cannot abandon them.
             run_group(units, limit, session["states"], backend, save, drain_only=True)

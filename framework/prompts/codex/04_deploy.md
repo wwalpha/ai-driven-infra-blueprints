@@ -114,14 +114,15 @@ CloudFormationの場合:
 
 aliasがある場合はTarget alias行も追加し、その値をbacktickで囲む。
 
-2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeのcfn-lintとsource／入力hashを先に確認し、各unitの順番でImportValue実Export確認、宣言済み成果物のS3配置、実行用template検証、validate-template、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。templateは51,200 bytes以下なら直接送信、超過〜1 MiBなら指定bucketへ配置して同じS3 URLをvalidate-templateとchange setへ渡す。上限超過または必要設定不足・upload失敗ではchange setを作成しない。これらのCLIをpromptから別方式で実行して二重管理しない。
+2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeの入力読込とresource／identifier対応を先に確認する。対応付け不一致は全stack・resource分を一括報告し、cfn-lintとchange set作成前に停止する。対応が一意な場合だけ全scopeのcfn-lintとsource／入力hashを確認し、各unitの順番でImportValue実Export確認、宣言済み成果物のS3配置、実行用template検証、validate-template、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。templateは51,200 bytes以下なら直接送信、超過〜1 MiBなら指定bucketへ配置して同じS3 URLをvalidate-templateとchange setへ渡す。上限超過または必要設定不足・upload失敗ではchange setを作成しない。これらのCLIをpromptから別方式で実行して二重管理しない。
 
 ```console
 python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]
 # aliasなしでは --alias の代わりに --aws-account-id <aws-account-id>
+# 順次実行の依頼には、全scopeを同じ起動へ渡して --sequential を追加する
 ```
 
-3. controllerは通常一回の起動で全DeployOrderを実行する。同group内だけMaxConcurrentStacksまで実行し、空いたslotへ次stackを開始する。producer成功前にconsumerのchange setを作成しない。list-exportsに必要なExportがない場合やscope内producerが未成功ならBLOCKEDとし、設計された順序とImport/Export関係の矛盾を報告する。scope外のproducerを自動追加しない。
+3. controllerは通常一回の起動で全DeployOrderを実行する。順次実行は`--sequential`で実行上限を1にし、設計のMaxConcurrentStacksを変更しない。全対象を繰り返し`--stack`で渡し、順次指定や失敗一覧の収集を理由に1stackずつ別controller／sessionへ分割しない。通常は同group内だけMaxConcurrentStacksまで実行し、空いたslotへ次stackを開始する。producer成功前にconsumerのchange setを作成しない。停止条件後は外側のloopで別stackを起動せず、依存consumerを含む未着手stackをNOT_STARTEDとして報告する。全件の対応付け診断は実行前チェックで収集する。list-exportsに必要なExportがない場合やscope内producerが未成功ならBLOCKEDとし、設計された順序とImport/Export関係の矛盾を報告する。scope外のproducerを自動追加しない。
 4. 未承認delete/replacementがあればcontrollerはBLOCKEDとして同じchange set IDと変更のfingerprintをrepository外sessionへ保持し、他のRUNNING stackをterminalまで確認する。次の`Confirm unapproved delete/replacement`の影響説明・human確認を行う。`--approve-change-set`は人間がそのchange set全体を承認した場合だけ渡す。事前承認も実change setの全破壊変更との一致を確認してから同じ方法で再開する。
 5. 承認後は同じtaskと同じsessionへ`--resume --approve-change-set <保存されたchange-set-id>`を追加する。controllerが同一ID、CREATE_COMPLETE/AVAILABLE、変更fingerprintを再取得・照合して実行する。変更/失効なら以前の承認で実行しない。成功済みstackを再実行しない。
 6. 各groupの成功後、controller内の`cloudformation_observed.py`が実行templateのLogicalId、正式CFn型、catalog IDENTIFIER_OUTPUT、OutputsとPhysicalResourceIdを照合し、必要なnon-ARN identifierと全参照元のobserved rowを更新する。既存sync-modelのservice指定生成・検証が成功してから同process内で次DeployOrderへ進む。最終groupも同期してCOMPLETEとなり、通常成功で追加resumeを要求しない。曖昧な対応は`AMBIGUOUS_OBSERVED_MAPPING`で停止し、LLMが補完しない。failure/blocker時は後続groupへ進まず、成功分のobservedだけ同期する。
