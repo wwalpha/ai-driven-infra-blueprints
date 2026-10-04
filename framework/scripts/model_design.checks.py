@@ -1387,11 +1387,20 @@ def main():
         detector.update({"desired.row.001-003.property": "GuardDuty.Detector.Enable", "desired.row.001-003.value": "`true`", "desired.row.001-003.comment": "検出の有効化"})
         output = roundtrip(base / "guardduty.md", detector, ROOT)
         assert "Features.S3_DATA_EVENTS" in output
-        trail = model("cloudtrail", "CloudTrail.Trail", "audit", [("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"), ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket")], "Trail", "audit")
-        trail.update({"desired.row.001-003.property": "CloudTrail.Trail.IsLogging", "desired.row.001-003.value": "`true`", "desired.row.001-003.comment": "記録の有効化",
-                      "desired.row.001-004.property": "CloudTrail.Trail.S3BucketName", "desired.row.001-004.value": "`audit-logs`", "desired.row.001-004.comment": "記録先のバケット"})
+        trail = model("cloudtrail", "CloudTrail.Trail", "audit", [
+            ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"),
+            ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket"),
+            ("EventSelectors[].IncludeManagementEvents", "`true`", "管理イベントを記録する"),
+            ("EventSelectors[].ReadWriteType", "`All`", "読み取りと書き込みを記録する"),
+            ("IsLogging", "`true`", "記録の有効化"),
+            ("S3BucketName", "`audit-logs`", "記録先のバケット"),
+        ], "Trail", "audit")
         output = roundtrip(base / "cloudtrail.md", trail, ROOT)
         assert "EventSelectors.DataResources[1].S3" in output and "All current and future" in output
+        assert "| EventSelectors.IncludeManagementEvents | `true` | 管理イベントを記録する |" in output
+        assert "| EventSelectors.ReadWriteType | `All` | 読み取りと書き込みを記録する |" in output
+        assert "EventSelectors[].IncludeManagementEvents" not in output
+        assert "EventSelectors[].ReadWriteType" not in output
         pipeline = model("codepipeline", "CodePipeline.Pipeline", "cpln-app-dev-build", [("Name", "`cpln-app-dev-build`", "pipelineの名前"), ("Stages[].Name", "`Source`", "入力を取得するstage"), ("Stages[].Actions[].Name", "`Source`", "入力を取得するaction"), ("Stages[].Actions[].Configuration", '`{"BranchName":"main","PollForSourceChanges":"false"}`', "BranchName: 対象branch / PollForSourceChanges: polling設定"), ("Stages[].Name", "`Build`", "buildを実行するstage"), ("Stages[].Actions[].Name", "`BuildOne`", "最初のbuild"), ("Stages[].Actions[].Configuration", '`{"ProjectName":"one"}`', "ProjectName: 実行するproject"), ("Stages[].Actions[].Name", "`BuildTwo`", "次のbuild")])
         pipeline.update({"desired.row.001-009.property": "CodePipeline.Pipeline.RoleArn", "desired.row.001-009.value": "[PipelineRole](iam.md#iam-pipeline-role)", "desired.row.001-009.comment": "実行に使用するロール"})
         output = roundtrip(base / "codepipeline.md", pipeline, ROOT)

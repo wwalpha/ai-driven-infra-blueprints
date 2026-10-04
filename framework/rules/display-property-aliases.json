@@ -12,6 +12,8 @@
   "Athena.WorkGroup.ResultConfiguration.Encryption.KmsKey": "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
   "Athena.WorkGroup.ResultConfiguration.ExpectedBucketOwner": "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner",
   "Athena.WorkGroup.ResultConfiguration.OutputLocation": "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.OutputLocation",
+  "CloudTrail.Trail.EventSelectors.IncludeManagementEvents": "CloudTrail.Trail.EventSelectors[].IncludeManagementEvents",
+  "CloudTrail.Trail.EventSelectors.ReadWriteType": "CloudTrail.Trail.EventSelectors[].ReadWriteType",
   "Config.ConfigurationRecorder.RoleName": "Config.ConfigurationRecorder.RoleARN",
   "EC2.RouteTableId": "EC2.SubnetRouteTableAssociation.RouteTableId",
   "S3.Bucket.BucketEncryption.BucketKeyEnabled": "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled",
