@@ -18,6 +18,8 @@ description: AWS Blueprintの指定environment・target・serviceの調査結果
 - `desired.*`が期待値の正本である。SDK取得で実体を特定し、`observed.*`は確認済みidentifierの参照にだけ使う。MarkdownやCFnを期待する設定値へ代用しない。
 - 実運用のAWS取得は、今回のissue調査taskのactive contractへ対象environment/target/service/resourceと必要なread-only APIを明記してから実行する。`--all`は全対象の取得許可が明示された場合だけ使う。設定profileの変更や認証失敗時のfallbackをしない。
 - 単一対象の比較例: `python3 framework/scripts/check-model-aws.py --environment dev --target cde --service s3`。全対象は明示`--all`、接続なしの対応範囲確認は`--all --coverage`。比較用依存は`framework/scripts/requirements-aws-compare.txt`に従う。
+- 同一environment/targetでactive taskの調査scopeに複数serviceが含まれる場合は、可能な限り`--service`を繰り返して1回の実行へまとめる。例: `python3 framework/scripts/check-model-aws.py --environment dev --target cde --service s3 --service iam --service kms`。service別のcommand実行をデフォルトにしない。
+- batch化を理由に調査scopeを拡大しない。S3だけが許可されたtaskへIAM/KMSを追加せず、既存のAWS read-only API scope、Task Contract、Validation Scopeを維持する。Performance optimization must not expand task scope.
 - JSONの`difference`／`resource_missing`にあるresource・keyだけを起点に、AIが関連する正本properties、CFn、AWS実体を調査する。共通原因の取得失敗は`affectedKeys`と`scope`を一つの未確認issueへまとめ、propertyごとに複製しない。`design_unresolved`、`sdk_unavailable`、`unimplemented`、`acquisition_failed`は一致扱いにしない。
 - 終了codeは0が全件一致、1が差分あり、2が検証未完了である。2には判明した差分も含まれ得る。`identifier`はresource特定用、`local_metadata`はSDK設定比較の対象外である。取得不能が残る結果を全体一致と報告しない。
 - 同じresource・keyの差分を調査済みなら既存issueを利用する。関連properties・CFnの内容または取得AWS値が変化したときだけ再調査する。各根拠の内容hashとAWS比較値（秘密値を除く）を確認できる形で記載し、未確認の既存issueを解消しない。

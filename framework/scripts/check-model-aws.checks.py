@@ -8,7 +8,9 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 import copy
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -304,6 +306,135 @@ def model_text(kind, rows, number='001', logical='fixture', anchor='fixture', me
     return text
 
 
+def batch_checks(root):
+    directory = root / 'model/dev' / ACCOUNT
+    directory.mkdir(parents=True)
+    (root / 'project.json').write_text(json.dumps({'targets': [TARGET]}), encoding='utf-8')
+    s3 = directory / 's3.properties'
+    s3_rows = [('S3.Bucket.BucketName', '`fixture`'), ('S3.Bucket.VersioningConfiguration.Status', '`Enabled`')]
+    s3.write_text(model_text('S3.Bucket', s3_rows), encoding='utf-8')
+    (directory / 'iam.properties').write_text(model_text('IAM.Role', [('IAM.Role.RoleName', '`fixture`')]), encoding='utf-8')
+    # An unrelated entrance must never be compared or included in scoped coverage.
+    (directory / 'athena.properties').write_text(model_text('Athena.WorkGroup', [('Athena.WorkGroup.Name', '`fixture`')]), encoding='utf-8')
+    selected = m.targets(root, 'dev', ACCOUNT)
+    base_args = ['--root', str(root), '--environment', 'dev', '--target', ACCOUNT]
+
+    def cli(arguments):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, 'argv', ['check-model-aws.py', *arguments]), redirect_stdout(stdout), redirect_stderr(stderr):
+            try:
+                code = m.main()
+            except SystemExit as error:
+                code = error.code
+        return code, json.loads(stdout.getvalue()) if stdout.getvalue() else None, stderr.getvalue()
+
+    session_class = boto3.Session
+    requests = {
+        'sts': [('get_caller_identity', {})],
+        's3': [('list_buckets', {}), ('get_bucket_location', {'Bucket': 'fixture', 'ExpectedBucketOwner': ACCOUNT}),
+               ('get_bucket_versioning', {'Bucket': 'fixture', 'ExpectedBucketOwner': ACCOUNT})],
+        'iam': [('get_role', {'RoleName': 'fixture'})],
+        'kms': [('describe_key', {'KeyId': 'fixture'})],
+    }
+
+    def compare(services, fault=None, direct=False, items=None):
+        with ExitStack() as stack:
+            api_calls, stubbers = [], []
+
+            def session_factory(**kwargs):
+                session = session_class(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=kwargs['region_name'])
+                real_client = session.client
+
+                def client(service, **client_kwargs):
+                    result = real_client(service, **client_kwargs)
+                    stub = stack.enter_context(Stubber(result))
+                    stubbers.append(stub)
+                    api_calls.append((service, stack.enter_context(patch.object(result, '_make_api_call', wraps=result._make_api_call))))
+                    for operation, inputs in requests[service]:
+                        if service == 'kms' and fault:
+                            stub.add_client_error(operation, 'NotFoundException' if fault == 'missing' else 'AccessDeniedException', expected_params=inputs)
+                            continue
+                        response = remove_tokens(shape_value(result.meta.service_model.operation_model(result.meta.method_to_api_mapping[operation]).output_shape))
+                        for path, value in PATCHES.get((service, operation), {}).items():
+                            set_path(response, path, copy.deepcopy(value))
+                        if service == 's3' and operation == 'get_bucket_location':
+                            response['LocationConstraint'] = TARGET['awsRegion']
+                        if service == 's3' and operation == 'get_bucket_versioning':
+                            response['Status'] = 'Enabled'
+                        stub.add_response(operation, response, expected_params=inputs)
+                    return result
+
+                stack.enter_context(patch.object(session, 'client', side_effect=client))
+                return session
+
+            factory = stack.enter_context(patch.object(boto3, 'Session', side_effect=session_factory))
+            contexts = stack.enter_context(patch.object(m, 'Context', wraps=m.Context))
+            if direct:
+                report = m.run(root, items if items is not None else m.inventory(root, selected, services), session_factory=factory)
+                code = report['exitCode']
+            else:
+                code, report, _ = cli([*base_args, *(arg for service in services for arg in ('--service', service))])
+            for stub in stubbers:
+                stub.assert_no_pending_responses()
+            target_count = len({(target['environment'], target['directory']) for target, _ in items}) if items is not None else 1
+            check(factory.call_count == contexts.call_count == target_count, 'Session factory and real Context initialized once per target')
+            check(sum(call.call_count for service, call in api_calls if service == 'sts') == target_count, 'STS get_caller_identity called once per target')
+            expected_apis = {service: len(requests[service]) * target_count for service in {'sts', *services}}
+            actual_apis = {service: sum(call.call_count for name, call in api_calls if name == service) for service, _ in api_calls}
+            check(actual_apis == expected_apis, 'only selected service API requests, no extra or repeated SDK calls')
+            return code, report
+
+    single = compare(['s3'])
+    check(single == compare(['s3'], direct=True), 'single-service CLI preserves existing run result exactly')
+    check(single[0] == 0 and single[1]['counts'] == {'match': 2}, 'single service remains matched')
+    check(single == compare(['s3', 's3']), 'duplicate CLI services do not duplicate results or API calls')
+    iam = compare(['iam'])
+    code, batch = compare(['s3', 'iam'])
+    expected = m.summarize(iam[1]['results'] + single[1]['results'])
+    check(code == 0 and batch == expected, 'batch results equal standalone results, preserving JSON and counts')
+    check({item['service'] for item in batch['results']} == {'s3', 'iam'}, 'batch compares both requested services only')
+    compare(['s3', 'iam'], direct=True)
+    batch_items = m.inventory(root, selected, ['s3', 'iam'])
+    compare(['s3', 'iam'], direct=True, items=batch_items + [(dict(target, environment='stg'), path) for target, path in batch_items])
+
+    with patch.object(boto3, 'Session', side_effect=AssertionError('offline coverage must not create a session')) as factory:
+        code, report, _ = cli([*base_args, '--service', 's3', '--service', 'iam', '--coverage'])
+        check(code == 0 and report['services'] == ['iam', 's3'] and report['modelCount'] == 2, 'batch coverage selects requested services only')
+        check({item['service'] for item in report['mappings']} == {'s3', 'iam'} and report['keyCount'] == 3, 'unselected service excluded from coverage mappings')
+        code, duplicate, _ = cli([*base_args, '--service', 's3', '--service', 'iam', '--service', 's3', '--coverage'])
+        check(code == 0 and duplicate == report, 'coverage deduplicates requested services')
+        check(not factory.called, 'coverage never creates an SDK session')
+
+    expect(ValueError, lambda: m.inventory(root, selected, ['s3', 'iam', 'kms']))
+    expect(ValueError, lambda: m.inventory(root, selected, ['kms']))
+    with patch.object(m, 'run') as run, patch.object(m, 'coverage') as coverage:
+        for flags in ([], ['--coverage']):
+            code, report, _ = cli([*base_args, '--service', 's3', '--service', 'iam', '--service', 'kms', *flags])
+            check(code == 2 and report == {'status': 'incomplete', 'reason': 'service entrance models are missing for target: kms'}, 'missing batch service fails closed in existing error schema')
+        check(not run.called and not coverage.called, 'missing service rejected before comparison or coverage')
+    with patch.object(m, 'targets') as targets:
+        for flags in ([], ['--all', '--service', 's3'], ['--all', '--environment', 'dev'],
+                      ['--all', '--target', ACCOUNT], ['--environment', 'dev', '--target', ACCOUNT],
+                      ['--service', 's3'], ['--environment', 'dev', '--service', 's3'],
+                      ['--target', ACCOUNT, '--service', 's3']):
+            code, report, error = cli(['--root', str(root), *flags])
+            check(code == 2 and report is None and 'use --all alone' in error, 'invalid selector rejected: ' + repr(flags))
+        check(not targets.called, 'invalid selectors rejected before inventory')
+    with patch.object(m, 'run', return_value=single[1]) as run:
+        code, _, _ = cli(['--root', str(root), '--all'])
+        check(code == 0 and {path.stem for _, path in run.call_args.args[1]} == {'s3', 'iam', 'athena'}, 'explicit --all remains available')
+
+    (directory / 'kms.properties').write_text(model_text('KMS.Key', [('KMS.Key.KeyId', '`fixture`'), ('KMS.Key.Description', '`fixture`')]), encoding='utf-8')
+    s3_rows[1] = ('S3.Bucket.VersioningConfiguration.Status', '`Suspended`')
+    s3.write_text(model_text('S3.Bucket', s3_rows), encoding='utf-8')
+    for fault, wanted_code, wanted_status in ((None, 1, 'identifier'), ('missing', 1, 'resource_missing'), ('failed', 2, 'acquisition_failed')):
+        code, report = compare(['s3', 'iam', 'kms'], fault=fault)
+        statuses = {(item['service'], item['status']) for item in report['results']}
+        check(code == wanted_code and ('s3', 'difference') in statuses and ('iam', 'match') in statuses and ('kms', wanted_status) in statuses,
+              'batch exit precedence retains successful comparisons and S3 differences: ' + str(fault))
+        check(set(report) == {'status', 'exitCode', 'counts', 'results'}, 'batch does not add a JSON wrapper')
+
+
 def common_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
@@ -510,6 +641,7 @@ def main():
             service_checks(root)
             common_checks(root)
             association_checks(root)
+            batch_checks(root / 'batch')
         # Optional consumer on other machines is not a fixture. In this task it
         # must exist; explicit override to a missing path is always rejected.
         if consumer.is_dir():

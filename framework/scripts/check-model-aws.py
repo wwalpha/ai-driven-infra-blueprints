@@ -673,17 +673,21 @@ def targets(root, environment=None, selector=None, all_targets=False):
     return found
 
 
-def inventory(root, selected_targets, service=None):
+def inventory(root, selected_targets, services=None):
+    requested = set(services or ())
     found = []
     for target in selected_targets:
         directory = root / "model" / target["environment"] / target["directory"]
         if not directory.is_dir():
             raise ValueError("target model directory is missing")
         paths = sorted(directory.glob("*.properties"))
-        if service:
-            paths = [path for path in paths if path.stem == service]
+        if requested:
+            paths = [path for path in paths if path.stem in requested]
         if not paths:
             raise ValueError("no service entrance models for target")
+        missing = requested - {path.stem for path in paths}
+        if missing:
+            raise ValueError("service entrance models are missing for target: " + ", ".join(sorted(missing)))
         for path in paths:
             found.append((target, path))
     return found
@@ -799,7 +803,7 @@ def main():
     parser.add_argument("--root", type=Path, default=ROOT, help="Repository holding project.json and authoritative model")
     parser.add_argument("--environment")
     parser.add_argument("--target", help="Confirmed alias, or account ID for a target without alias")
-    parser.add_argument("--service")
+    parser.add_argument("--service", action="append", default=[], help="Exact service ID (repeatable)")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--profile")
     parser.add_argument("--coverage", action="store_true", help="Offline key coverage; never creates an SDK session")
