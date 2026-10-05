@@ -6,4 +6,6 @@
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |
+| AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}[-{{suffix}}]` |
+
+`suffix`は共通ルールに従い、選択targetの設定値を使用する。未設定なら区切りごと省略する（例：`ctrail-venusinf-dev`、suffixが`aaaaaa`なら`ctrail-venusinf-dev-aaaaaa`）。

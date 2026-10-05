@@ -50,6 +50,7 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 
 ## 出力
 
+- 問題一覧のMarkdownには「調査しました」「保存しました」「検証PASS」などの作業報告・完了報告・実行履歴を記載せず、チャットだけで報告する。既存の作業報告も今回更新する範囲から除去する。更新日時、確認範囲・未検証範囲、問題の根拠に必要な診断は維持する。
 - H2を`環境／alias`、H3をservice名とし、その下に番号付きlistを置く。aliasがない場合のH2は`環境／AWS account ID`とする。
 - service名がmodelのservice IDと異なる場合は`<!-- issue-service: <service-id> -->`を置き、issue gateが所属を確定できるようにする。
 - 番号はservice blockごとに1から始め、1項目に1問題を記載する。空のblockは作らない。

@@ -987,12 +987,13 @@ def check_optional_naming_suffix():
         ("Glue.SecurityConfiguration", "Name", "glsc[-{{number}}][-{{suffix}}]"),
         ("CodeBuild.Project", "Name", "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("CodePipeline.Pipeline", "Name", "cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
+        ("CloudTrail.Trail", "TrailName", "ctrail-{{application}}-{{environment}}[-{{suffix}}]"),
     )
     for kind, field, pattern in patterns:
         naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT, kind.partition(".")[0]))
         assert f"| `{kind}` | `{field}` | `{pattern}` |" in naming, kind
         assert field in naming_targets(ROOT, kind.partition(".")[0])[kind], kind
-    print("Optional naming suffix: PASS (8 exact patterns, existing components and coverage preserved)")
+    print("Optional naming suffix: PASS (9 exact patterns and coverage preserved)")
 
 
 def check_stack_policy():
@@ -1458,7 +1459,6 @@ def main():
     check_iam_role_name()
     for kind in ("EC2.VPCEndpoint", "EC2.Instance"):
         check_required_name_tag(kind)
-    assert "| `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}-{{purpose}}-{{account_id}}` |" in "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     for kind, field in (("Logs.LogGroup", "LogGroupName"), ("Scheduler.Schedule", "Name"), ("EC2.VPC", "Name"), ("Athena.WorkGroup", "Name"), ("CloudTrail.Trail", "TrailName")):
         assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
     assert naming_errors(ROOT, "CloudFront.CachePolicy", [["1", "CachePolicyConfig.Name", "`example`", "名前"]])
