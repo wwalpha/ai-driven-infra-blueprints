@@ -10,6 +10,7 @@
 | --- | --- | --- | --- | --- |
 | AWS Lambda | Standard function log group | `Logs.LogGroup` | `LogGroupName` | `/aws/lambda/{{function_name}}` |
 | AWS Step Functions | Execution log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vendedlogs/states/{{state_machine_name}}` |
+| Amazon VPC | Flow Logs log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vpc/flow-logs[/{{suffix}}]` |
 | AWS Glue | Job log group | `Logs.LogGroup` | `LogGroupName` | 下記「Glue Jobのロググループ名」の4パターン |
 | Other AWS services | Standard service log group | `Logs.LogGroup` | `LogGroupName` | 対象サービスの公式な既定・推奨形式 |
 | Amazon CloudWatch Logs | Custom application or operational log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
@@ -31,6 +32,7 @@ Glue 5.0の組込みログでは、custom prefixとSecurityConfigurationのCloud
 
 ## Application rules
 
+- VPC Flow Logsの`[/{{suffix}}]`は任意とする。`suffix`は共通規則の`project.json`の選択target設定を使用し、設定があれば`/aws/vpc/flow-logs/<suffix>`、未設定なら直前の`/`ごと省略して`/aws/vpc/flow-logs`とする。
 - AWSサービスの既定・推奨形式には、`cwlogs-...`への適合や共通のlower-kebab-case形式を要求しない。サービス固有の区切り・大文字小文字を維持する。
 - `function_name`、`state_machine_name`などは送信元resourceの確定済み名称を使用する。placeholderの値や送信元サービスを推測しない。
 - その他のAWSサービスは、対象サービスの公式資料で既定・推奨形式を確認し、送信元resourceとの対応を確認する。未確認の形式は適合と判定しない。

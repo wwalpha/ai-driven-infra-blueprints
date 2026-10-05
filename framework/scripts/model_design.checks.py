@@ -1131,6 +1131,7 @@ def check_optional_naming_suffix():
         ("CodeBuild.Project", "Name", "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("CodePipeline.Pipeline", "Name", "cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("CloudTrail.Trail", "TrailName", "ctrail-{{application}}-{{environment}}[-{{suffix}}]"),
+        ("Macie.ClassificationJob", "name", "macie-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
     )
     for kind, field, pattern in patterns:
         naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT, kind.partition(".")[0]))
@@ -1148,7 +1149,7 @@ def check_optional_naming_suffix():
             ], "DataManagementRole")
             output = roundtrip(path, values, ROOT)
             assert f"### IAM.Role: {name}" in output
-    print("Optional naming suffix: PASS (9 exact patterns and coverage preserved)")
+    print("Optional naming suffix: PASS (10 exact patterns and coverage preserved)")
 
 
 def check_stack_policy():
