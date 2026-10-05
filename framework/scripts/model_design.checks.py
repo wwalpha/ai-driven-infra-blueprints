@@ -185,6 +185,7 @@ def check_vpc_endpoint_name_display():
             ("Tags[].Value", f"`{name}`", "エンドポイント名"),
             ("Tags[].Key", "`owner`", "所有者タグのキー"),
             ("Tags[].Value", "`team`", "所有者タグの値"),
+            ("VpcId", "[vpc-app-dev](#vpc-vpc-app-dev)", "所属するVPC"),
         ], "Endpoint")
         for mode in ("CREATE", "IMPORT"):
             values["desired.resource.001.resourceMode"] = mode
@@ -206,7 +207,10 @@ def check_vpc_endpoint_name_display():
                     pass
                 else:
                     raise AssertionError("invalid VPCEndpoint Name display accepted")
-        values = model("vpc", kind, kind, [("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先サービス")])
+        values = model("vpc", kind, kind, [
+            ("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先サービス"),
+            ("VpcId", "[vpc-app-dev](#vpc-vpc-app-dev)", "所属するVPC"),
+        ])
         values["desired.resource.001.resourceMode"] = "IMPORT"
         output = roundtrip(path, values, ROOT)
         assert "| Name |" not in output and "ec2-name-tag:" not in output
