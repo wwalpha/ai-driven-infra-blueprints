@@ -6,11 +6,12 @@
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]-{{account_id}}` |
+| AWS CloudFormation | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]` |
 | AWS CloudFormation | StackSet | `CloudFormation.StackSet` | `StackSetName` | `cfn-{{application}}-{{environment}}-{{purpose}}-{{deployment_scope}}` |
 | AWS CloudFormation | Change set | `CloudFormation.ChangeSet` | `ChangeSetName` | `cfn-cset-{{purpose}}-{{revision}}` |
 
 ## Service-specific constraints
 
-- AWS CloudFormation StackNameの`number`はoptionalとし、通常は省略する。同じapplication・environment・purposeの複数stackを区別する場合だけ、`account_id`の前に`-01`からの2桁連番を付ける。例：通常は`cfn-stack-app-dev-network-123456789012`、同用途の複数stackは`cfn-stack-app-dev-job-01-123456789012`、`cfn-stack-app-dev-job-02-123456789012`。
+- AWS CloudFormation StackNameの`number`はoptionalとし、通常は省略する。同じapplication・environment・purposeの複数stackを区別する場合だけ、`purpose`の後に`-01`からの2桁連番を付ける。例：通常は`cfn-stack-app-dev-network`、同用途の複数stackは`cfn-stack-app-dev-job-01`、`cfn-stack-app-dev-job-02`。
+- StackNameの`suffix`はoptionalとし、選択targetに設定がある場合だけ末尾へ付ける。例：`suffix=blue`なら`cfn-stack-app-dev-network-blue`。
 - AWS CloudFormation stack、StackSet、change setは英字で開始し、英数字とhyphenだけを使い、128文字以内とする。Change setはdeployment operationの名前であり、詳細設計resourceとして追加しない。

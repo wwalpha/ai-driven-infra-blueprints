@@ -977,9 +977,24 @@ def check_security_naming():
     print("Security naming: PASS (15 patterns, catalog/schema, formal/short properties, TGW and optional names)")
 
 
+def check_optional_naming_suffix():
+    patterns = (
+        ("CloudFormation.Stack", "StackName", "cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]"),
+        ("CodeCommit.Repository", "RepositoryName", "ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]"),
+        ("S3.Bucket", "BucketName", "{{application}}-{{environment}}-{{purpose}}-{{account_id}}[-{{suffix}}]"),
+        ("Glue.SecurityConfiguration", "Name", "glsc[-{{number}}][-{{suffix}}]"),
+        ("CodeBuild.Project", "Name", "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
+        ("CodePipeline.Pipeline", "Name", "cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
+    )
+    for kind, field, pattern in patterns:
+        naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT, kind.partition(".")[0]))
+        assert f"| `{kind}` | `{field}` | `{pattern}` |" in naming, kind
+        assert field in naming_targets(ROOT, kind.partition(".")[0])[kind], kind
+    print("Optional naming suffix: PASS (6 exact patterns, existing components and coverage preserved)")
+
+
 def check_stack_policy():
     naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
-    assert "| `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}]-{{account_id}}` |" in naming
     assert "| `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}-{{account_id}}` |" in naming
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -1429,6 +1444,7 @@ def main():
     check_kms_alias_display()
     check_nameless_type_display()
     check_nameless_logical_id_label()
+    check_optional_naming_suffix()
     check_stack_policy()
     check_stack_mapping_roundtrip()
     check_security_naming()

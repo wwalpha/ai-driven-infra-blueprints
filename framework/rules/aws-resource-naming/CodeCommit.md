@@ -6,7 +6,7 @@
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CodeCommit | Repository | `CodeCommit.Repository` | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}` |
+| AWS CodeCommit | Repository | `CodeCommit.Repository` | `RepositoryName` | `ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]` |
 
 ## Service-specific constraints
 

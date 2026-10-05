@@ -6,4 +6,4 @@
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CodePipeline | Pipeline | `CodePipeline.Pipeline` | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodePipeline | Pipeline | `CodePipeline.Pipeline` | `Name` | `cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]` |

@@ -6,4 +6,4 @@
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CodeBuild | Project | `CodeBuild.Project` | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}` |
+| AWS CodeBuild | Project | `CodeBuild.Project` | `Name` | `cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]` |
