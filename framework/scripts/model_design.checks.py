@@ -18,7 +18,8 @@ from unittest.mock import patch
 
 from model_design import naming_rule_files, naming_targets, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
 from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
-from model_design import row_table, design_naming_errors
+from model_design import row_table, design_naming_errors, catalog_display_rows, resource_rows
+from design_layout import catalog_order_errors
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
@@ -61,6 +62,81 @@ def roundtrip(path, values, root):
     expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
+
+
+def check_catalog_display_order():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "docs/designs/dev/123456789012/vpc.md"
+        values = model("vpc", "EC2.VPC", "vpc-app-dev", [
+            ("EnableDnsSupport", "`true`", "DNS解決"),
+            ("Name", "`vpc-app-dev`", "ネットワーク名"),
+            ("Tags[].Key", '"purpose"', "タグ名"),
+            ("Tags[].Value", '"first"', "最初の用途"),
+            ("Tags[].Key", '"owner"', "タグ名"),
+            ("Tags[].Value", '"second"', "次の用途"),
+            ("CidrBlock", "`10.0.0.0/16`", "アドレス範囲"),
+            ("VpcId", "[Vpc](#vpc-vpc-app-dev)", "ネットワークID"),
+            ("EnableDnsHostnames", "`true`", "DNS名"),
+        ], logical_id="Vpc")
+        values.update({"observed.row.001-008.property": "EC2.VPC.VpcId",
+                       "observed.row.001-008.value": "`vpc-123`",
+                       "observed.row.001-008.comment": "ネットワークID"})
+        original = dict(values)
+        output = roundtrip(path, values, ROOT)
+        assert values == original
+        shown = catalog_display_rows(resource_rows(values, "001", "EC2.VPC", ROOT), "EC2.VPC", ROOT)
+        assert [row[0] for row in shown] == ["001-002", "001-008", "001-007", "001-009", "001-001", "001-003", "001-004", "001-005", "001-006"]
+        assert not catalog_order_errors("EC2.VPC", shown, ROOT)
+        for old, new in (("10.0.0.0/16", "10.1.0.0/16"), ("アドレス範囲", "変更された説明"),
+                         ("vpc-123", "vpc-456"), ('"first"', '"changed"')):
+            path.write_text(output.replace(old, new), encoding="utf-8")
+            try:
+                projected = properties(SYNC.model_for(path, ROOT, source=values))
+            except ValueError:
+                continue  # Array source verification rejects altered elements directly.
+            assert projected != {key: value for key, value in values.items() if not key.startswith("display.")}
+        path.write_text(output, encoding="utf-8")
+        imported = properties(SYNC.model_for(path, ROOT, import_cfn_ids=True))
+        assert imported["desired.row.001-001.property"] == "EC2.VPC.Name"
+        missing = "\n".join(line for line in output.splitlines() if " | CidrBlock | " not in line)
+        path.write_text(missing, encoding="utf-8")
+        try:
+            projected = properties(SYNC.model_for(path, ROOT, source=values))
+        except ValueError:
+            pass  # Missing rows also leave invalid display numbering.
+        else:
+            assert "desired.row.001-007.property" not in projected
+        path.write_text(output.replace(" | CidrBlock | ", " | UnknownField | "), encoding="utf-8")
+        try:
+            SYNC.model_for(path, ROOT, source=values)
+        except ValueError as error:
+            assert "absent from authoritative model" in str(error)
+        else:
+            raise AssertionError("additional property accepted")
+        quicksight = model("quicksight", "QuickSight.DataSource", "datasource", [
+            ("DataSourceParameters.AthenaParameters.WorkGroup", "`primary`", "接続先"),
+            ("DataSourceId", "`datasource`", "接続ID"),
+            ("AwsAccountId", "`123456789012`", "アカウント"),
+            ("Type", "`ATHENA`", "接続の種類"),
+            ("Name", "`datasource`", "接続名"),
+        ])
+        quicksight["desired.resource.001.resourceMode"] = "IMPORT"
+        shown = roundtrip(path.with_name("quicksight.md"), quicksight, ROOT)
+        assert shown.index(" | Name | ") < shown.index(" | Type | ") < shown.index(" | AwsAccountId | ")
+        assert " | AthenaParameters.WorkGroup | " in shown
+        for kind, fields in (("QuickSight.DataSource", ["Type", "Name", "DataSourceParameters.AthenaParameters.WorkGroup", "AwsAccountId", "DataSourceId"]),
+                             ("S3.Bucket", ["Tags[].Key", "Tags[].Value", "Region", "BucketName"]),
+                             ("CodeBuild.Project", ["VpcConfig.VpcId", "VpcConfig.SecurityGroupIds", "VpcConfig.Subnets", "Name"])):
+            rows = [[str(number), kind + "." + field, "値", "説明"] for number, field in enumerate(fields)]
+            shown = catalog_display_rows(rows, kind, ROOT)
+            assert not catalog_order_errors(kind, shown, ROOT)
+            assert sorted(row[0] for row in shown) == sorted(row[0] for row in rows)
+            if kind == "S3.Bucket":
+                assert [row[1] for row in shown[:2]] == [kind + ".BucketName", kind + ".Region"]
+        sg = [["1", "EC2.SecurityGroup.GroupDescription", "値", "説明"]]
+        assert catalog_display_rows(sg, "EC2.SecurityGroup", ROOT) is sg
+    print("Catalog display order: PASS (original row IDs, arrays, special positions, tamper detection)")
 
 
 def check_glue_argument_display():
@@ -1517,6 +1593,7 @@ def check_kms_policy_execution_account():
 
 
 def main():
+    check_catalog_display_order()
     check_kms_policy_execution_account()
     check_glue_argument_display()
     check_ec2_compact_display()

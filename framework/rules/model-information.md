@@ -102,6 +102,8 @@ JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複J
 
 名称propertyがない型のhuman-confirmedな`display.resource.<番号>.label`は、内部logical IDと同じ文字列でも表示名として有効とする。validatorは同じ番号の`desired.resource.<番号>.resourceType`・`logicalId`・明示labelを対応する詳細headingと照合する。labelがない内部IDの流用、別resource typeや別logical IDのlabelによる代替は拒否する。新形式のmodel entry番号または旧形式の非表示logical ID markerを保持し、表示label由来anchor、desired／observedのnamespaceと値を維持する。表示labelからName tagやcatalog property、IaC設定を作らない。
 
+通常propertyは生成時にcatalogの行順へ整え、modelのrow番号・保存順は変更しない。連続する同じ配列のまとまりは内部の要素順とfield順を維持して移動する。通常の照合parserは表示を正式propertyへ展開し、resource番号と各propertyの出現順から元modelのrow番号へ対応付ける。値・comment・observedを対応付けの条件に使わず、対応付け後に一致を検証して欠落・追加・改変を拒否する。正本modelのない明示Markdown importでは従来どおり表示順にrow番号を付ける。
+
 サービス別の短縮property、CodePipeline index／Configuration展開、CodeBuild変数、GuardDuty Features、CloudTrail記録対象、Security Group横書きrule、KMS Aliasの親内表示、policy表は既存表示ruleに従ってmodelから生成する。検証parserは表示を正式propertyへ展開してlosslessな一致を確認するためだけに使用する。
 
 既存Markdownの採用は明示されたmigration taskだけで`sync-model.py --import-markdown --write`を実行する。既存modelを上書きしない。同型単一で名称propertyがない独立resourceの型名表示にはlabelを作らず、その他の不足する表示label／commentを推測しない。通常のdesign／infrastructure taskで自動移行しない。

@@ -17,6 +17,7 @@ from design_layout import (
     CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, SUBNET_LIST_SOURCE, subnet_list_items,
     ec2_display_rows, REQUIRED_NAME_TAG_TYPES,
     glue_argument_rows,
+    catalog_property_order,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
 from design_catalog import DesignSchemaCatalog, design_material_files, property_paths_with_parents, selected_properties
@@ -298,6 +299,36 @@ def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) 
                 raise ValueError(f"observed value requires a desired logical reference: {row_id}")
         rows.append([row_id, row["property"], value, row["comment"]])
     return rows
+
+
+def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
+    """Sort property blocks without separating contiguous array elements."""
+    if kind == "EC2.SecurityGroup" or GROUPED.get(kind, {}).get("display") == "rule-table":
+        return rows  # Horizontal rule tables have their own generation and restoration.
+    order = dict(catalog_property_order(root, kind) or {})
+    if kind == "CodeBuild.Project":
+        subnets, groups = kind + ".VpcConfig.Subnets", kind + ".VpcConfig.SecurityGroupIds"
+        order[subnets], order[groups] = order[groups], order[subnets]
+    if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
+        order[kind + ".Name"] = -1
+    if kind == "S3.Bucket":
+        order[kind + ".Region"] = order[kind + ".BucketName"] + 0.5
+    blocks = []
+    previous_array = ""
+    array_order = {}
+    for prop, rank in order.items():
+        if "[]" in prop:
+            array = prop.split("[]", 1)[0] + "[]"
+            array_order.setdefault(array, rank)
+    for row in rows:
+        array = row[1].split("[]", 1)[0] + "[]" if "[]" in row[1] else ""
+        if array and array == previous_array:
+            blocks[-1].append(row)
+        else:
+            blocks.append([row])
+        previous_array = array
+    return [row for block in sorted(blocks, key=lambda block: array_order.get(
+        block[0][1].split("[]", 1)[0] + "[]", order.get(block[0][1], len(order)))) for row in block]
 
 
 def validate_required_properties(values: dict[str, str], root: Path) -> None:
@@ -638,7 +669,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         mode = resource_mode(resource)
         if kind not in owned:
             raise ValueError(f"resource is outside service ownership: {kind}")
-        rows = resource_rows(values, identity, kind, root)
+        rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
         rule_table = GROUPED.get(kind, {}).get("display") == "rule-table"
         configured_name = None if rule_table else resource_display_name(
             kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label"), mode

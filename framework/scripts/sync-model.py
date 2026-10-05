@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict, deque
 
 import argparse
 import hashlib
@@ -118,6 +119,10 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
     from design_layout import resource_identity_metadata
     resource_numbers, cfn_ids = resource_identity_metadata(lines, values=source, import_cfn_ids=import_cfn_ids)
     model_numbers = {resource["anchor"]: identity for identity, resource in entries(source, "desired.resource.")} if source is not None else {}
+    row_numbers = defaultdict(deque)
+    if source is not None:
+        for identity, row in entries(source, "desired.row."):
+            row_numbers[(identity.split("-", 1)[0], row["property"])].append(identity)
     lines = [line for line in lines if not line.startswith(("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))]
     identities = resource_logical_ids(lines)
     lines, children = expanded_design(without_policy_tables(lines))
@@ -192,6 +197,11 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                     raise ValueError(f"resource table row must have four cells: {path}")
                 row_number += 1
                 key = f"{current_resource_number}-{row_number:03d}"
+                if source is not None:
+                    candidates = row_numbers[(current_resource_number, cells[1])]
+                    if not candidates:
+                        raise ValueError(f"resource row is absent from authoritative model: {current_anchor}: {cells[1]}")
+                    key = candidates.popleft()
                 linked = linked_resource(path, cells[2])
                 is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
                 is_identifier_reference = bool(
