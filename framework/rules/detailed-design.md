@@ -52,7 +52,7 @@ chatbotが既存AWS resourceの現在値取得を指定した場合だけ、Code
 - root-levelの`Tags`または`HostedZoneTags`があっても`Name` tagを自動的に必須化しない。mandatory対象は`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`、`EC2.VPCEndpoint`／`EC2.Instance`とする。前4種類は詳細設計でそれぞれ`.Name`の1 rowで表す。
 - 上記4種類の`.Name`は詳細設計専用propertyであり、provider schemaのresource propertyではない。IaC実装時にcase-sensitiveな`Name` keyを持つtagへ変換し、詳細設計へ`Tags[].Key=Name`と`Tags[].Value`の2 rowを作らない。
 - `EC2.VPCEndpoint`／`EC2.Instance`の必須Name tagは正式な`Tags[].Key=Name`と直後の対応する`Tags[].Value`で保持する。case違いのkey、Valueの欠落・空値・未確定値を拒否し、display labelで代替しない。設計専用`.Name`を作らず、一覧・heading・通常の参照linkへValueを表示し、その表示名からanchorを生成する。内部logical IDは非表示metadataへ保持し、identifier参照のdesired logical reference／observed IDは既存契約を維持する。
-- `EC2.Instance`の生成設定表ではName tagの2 rowを`Name | <Tags[].Value>`の1 rowにまとめる。Value側のcommentを表示し、Key側の値・commentは同じrowの非表示`ec2-name-tag` metadataへ保持する。これは表示だけの短縮であり、modelへ`.Name`を追加しない。他のtagは元のKey／Value rowを維持する。
+- `EC2.VPCEndpoint`／`EC2.Instance`の生成設定表ではName tagの2 rowを`Name | <Tags[].Value>`の1 rowにまとめる。Value側のcommentを表示し、Key側の値・commentは同じrowの非表示`ec2-name-tag` metadataへ保持する。これは表示だけの短縮であり、modelへ`.Name`を追加しない。他のtagは元のKey／Value rowを維持する。
 - `EC2.Instance`の`BlockDeviceMappings[].<field>`は設定表で`BlockDeviceMappings[1].<field>`からの連番にする。1件でも`[1]`を付け、複数件は`[2]`、`[3]`以降へ続ける。各要素は`DeviceName`から始まり、Ebsなど同じ要素の全選択項目に同じ番号を付ける。元の要素順と値を維持し、optional項目の有無で番号をずらさない。
 - その他のresourceではhumanが`Name` tagを明示した場合だけ設計する。array形式では`Tags[].Key`または`HostedZoneTags[].Key`へ`Name`、直後の対応する`Value` rowへnon-empty nameを記載する。object形式では`Tags`に`Name` keyとnon-empty valueを持つJSON objectを記載する。
 - naming componentがすべて確定済みならpatternから一意に導出し、未確定componentがあれば値を推測せずhumanへ確認する。

@@ -173,6 +173,46 @@ def check_ec2_compact_display():
     print("EC2 block device indexes and compact Name tag: PASS (lossless round trip and invalid displays)")
 
 
+def check_vpc_endpoint_name_display():
+    kind, name = "EC2.VPCEndpoint", "vpce-app-dev-s3"
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "docs/designs/dev/123456789012/vpc.md"
+        values = model("vpc", kind, name, [
+            ("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先サービス"),
+            ("Tags[].Key", "`purpose`", "用途タグのキー"),
+            ("Tags[].Value", "`data`", "用途タグの値"),
+            ("Tags[].Key", '"Name"', "名前タグのキー <識別>"),
+            ("Tags[].Value", f"`{name}`", "エンドポイント名"),
+            ("Tags[].Key", "`owner`", "所有者タグのキー"),
+            ("Tags[].Value", "`team`", "所有者タグの値"),
+        ], "Endpoint")
+        for mode in ("CREATE", "IMPORT"):
+            values["desired.resource.001.resourceMode"] = mode
+            output = roundtrip(path, values, ROOT)
+            assert output.count(f"| Name | `{name}` |") == 1
+            assert "--> エンドポイント名 |" in output
+            assert '| Tags[2].Key | "Name" |' not in output
+            assert "| Tags[1].Key | `purpose` |" in output
+            assert "| Tags[3].Key | `owner` |" in output
+            for bad in (
+                output.replace("ec2-name-tag:", "missing-name-tag:"),
+                output.replace('["\\\"Name\\\""', '["\\\"name\\\""'),
+                output.replace("| Name |", "| ServiceName |"),
+            ):
+                assert bad != output
+                try:
+                    expanded_display_rows(bad.splitlines())
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError("invalid VPCEndpoint Name display accepted")
+        values = model("vpc", kind, kind, [("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先サービス")])
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+        output = roundtrip(path, values, ROOT)
+        assert "| Name |" not in output and "ec2-name-tag:" not in output
+    print("VPCEndpoint Name tag: PASS (one row, mixed tags, exact round trip, IMPORT and invalid metadata)")
+
+
 def check_config_typed_anchors():
     recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
     recorder_anchor = "config-configuration-recorder-default"
@@ -1476,6 +1516,7 @@ def main():
     check_kms_policy_execution_account()
     check_glue_argument_display()
     check_ec2_compact_display()
+    check_vpc_endpoint_name_display()
     check_subnet_list_display()
     check_athena_configuration_display()
     check_config_typed_anchors()

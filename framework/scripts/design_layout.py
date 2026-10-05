@@ -652,7 +652,7 @@ def permission_rows(rows: list[list[str]]) -> list[list[str]]:
 
 
 def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
-    """Number block devices and compact only the Instance's Name tag."""
+    """Number block devices and compact Instance/VPCEndpoint Name tags."""
     result = []
     device = 0
     fields = set()
@@ -670,7 +670,7 @@ def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
             prop = f"BlockDeviceMappings[{device}].{field}"
         elif prop == "Tags[].Key" and value.strip("`\"") == "Name":
             if index + 1 >= len(rows) or rows[index + 1][1] != "Tags[].Value":
-                raise ValueError("EC2.Instance Name tag requires the corresponding Tags[].Value")
+                raise ValueError("EC2 Name tag requires the corresponding Tags[].Value")
             metadata = json.dumps([value, comment], ensure_ascii=True)
             for char in "|<>":
                 metadata = metadata.replace(char, f"\\u{ord(char):04x}")
@@ -683,13 +683,13 @@ def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
     return result
 
 
-def ec2_formal_rows(rows: list[list[str]]) -> list[list[str]]:
+def ec2_formal_rows(rows: list[list[str]], resource_type: str) -> list[list[str]]:
     """Restore compact EC2 rows without losing tag values or source comments."""
     result = []
     device = 0
     fields = set()
     for identity, prop, value, comment in rows:
-        display = prop.removeprefix("EC2.Instance.")
+        display = prop.removeprefix(resource_type + ".")
         marker = EC2_NAME_TAG.match(comment)
         if "<!-- ec2-name-tag:" in comment and (not marker or display != "Name"):
             raise ValueError("EC2 Name tag source marker requires a Name display row")
@@ -699,8 +699,8 @@ def ec2_formal_rows(rows: list[list[str]]) -> list[list[str]]:
             source = json.loads(marker[1])
             if not isinstance(source, list) or len(source) != 2 or any(not isinstance(item, str) for item in source) or source[0].strip("`\"") != "Name":
                 raise ValueError("invalid EC2 Name tag source marker")
-            result.append([identity, "EC2.Instance.Tags[].Key", *source])
-            result.append([identity, "EC2.Instance.Tags[].Value", value, comment[marker.end():]])
+            result.append([identity, resource_type + ".Tags[].Key", *source])
+            result.append([identity, resource_type + ".Tags[].Value", value, comment[marker.end():]])
             continue
         if display.startswith("BlockDeviceMappings[") and not display.startswith("BlockDeviceMappings[]."):
             match = re.fullmatch(r"BlockDeviceMappings\[([1-9]\d*)\]\.(.+)", display)
@@ -940,10 +940,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             rows = pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
-        if resource_type == "EC2.Instance":
-            rows = ec2_formal_rows(rows)
+        if resource_type in REQUIRED_NAME_TAG_TYPES:
+            rows = ec2_formal_rows(rows, resource_type)
             changed = True
-            kind = "EC2 Instance"
+            kind = resource_type
         if changed:
             if row_numbers != [str(number) for number in range(1, len(row_numbers) + 1)]:
                 raise ValueError(f"{kind} table numbering error")

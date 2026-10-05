@@ -15,7 +15,7 @@ from design_layout import (
     resource_name_fields, resource_anchor, resource_has_name_property, resource_mode,
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE, LAMBDA_PERMISSION,
     CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, SUBNET_LIST_SOURCE, subnet_list_items,
-    ec2_display_rows,
+    ec2_display_rows, REQUIRED_NAME_TAG_TYPES,
     glue_argument_rows,
 )
 from policy_tables import literal, table, unique_object, invalid_constant
@@ -437,7 +437,7 @@ def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
         index += 1
     if kind == "CodePipeline.Pipeline":
         return pipeline_rows(result)
-    if kind == "EC2.Instance":
+    if kind in REQUIRED_NAME_TAG_TYPES:
         return ec2_display_rows(result)
     if kind == "Glue.Job":
         return glue_argument_rows(result, kind)

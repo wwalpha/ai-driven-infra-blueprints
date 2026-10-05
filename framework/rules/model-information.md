@@ -115,7 +115,7 @@ JSON linkを持つrowは`desired.row.<番号>.document`を必須とし、重複J
 - 変更した表示rowのcomment先頭へ`<!-- array-source: [<元の表示property>,<元value>,<表示行数>] -->`を生成する。JSONの`|`・`<`・`>`はUnicode escapeする。parserは先に共通markerから元rowを復元し、同じ処理で再生成した全要素のproperty・番号・値・commentと照合する。欠番・重複・0始まり・先頭ゼロ付き番号、要素欠落や改変、不正marker、元rowと異なるcommentを拒否する。その後、従来のservice別短縮表示を正式propertyへ展開する。markerと番号をdesired／observedへ保存しない。
 
 - `EC2.Instance`の`BlockDeviceMappings[N].<field>`は1始まりの連続した要素番号を検証し、正式な`BlockDeviceMappings[].<field>`へ戻す。各要素の先頭は`DeviceName`とし、同じ要素の重複field、0・欠番・逆順・先頭ゼロ付き番号を拒否する。modelのrow番号・順序・値・commentは維持する。
-- `EC2.Instance`の生成表示の`Name` rowは、comment先頭の`<!-- ec2-name-tag: [<Keyの元の値>,<Keyの元のcomment>] -->`と表示Value／commentから正式な`Tags[].Key`／`Tags[].Value`の2 rowへ復元する。metadataはJSON文字列配列とし、`|`・`<`・`>`をUnicode escapeする。Keyはcase-sensitiveなNameを維持し、marker欠落・不正な所属・形式・Keyを拒否する。modelへ設計専用`.Name`やmetadataを保存しない。Name tag以外のタグとIMPORTでのName tag不存在は維持する。
+- `EC2.VPCEndpoint`／`EC2.Instance`の生成表示の`Name` rowは、comment先頭の`<!-- ec2-name-tag: [<Keyの元の値>,<Keyの元のcomment>] -->`と表示Value／commentから同じresource typeの正式な`Tags[].Key`／`Tags[].Value`の2 rowへ復元する。metadataはJSON文字列配列とし、`|`・`<`・`>`をUnicode escapeする。Keyはcase-sensitiveなNameを維持し、marker欠落・不正な所属・形式・Keyを拒否する。modelへ設計専用`.Name`やmetadataを保存しない。Name tag以外のタグとIMPORTでのName tag不存在は維持する。
 
 ## Properties format
 
