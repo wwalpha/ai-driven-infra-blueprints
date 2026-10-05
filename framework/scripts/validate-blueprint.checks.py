@@ -266,6 +266,20 @@ def check_optional_alias_targets() -> None:
         assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
         assert validator.accounts[("sandbox", "210987654321")]["account"] == "210987654321"
 
+        # Each environment/alias may have its own suffix; paths and account identity stay intact.
+        suffix_targets = [{**target, "suffix": suffix} for target, suffix in
+                          zip(topology["targets"], ("blue", "green-01", "sandbox-token"))]
+        for targets in (suffix_targets, [suffix_targets[0], *topology["targets"][1:]]):
+            (root / "project.json").write_text(json.dumps({**topology, "targets": targets}) + "\n", encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_project_topology()
+            assert not validator.errors, validator.errors
+            assert set(validator.accounts) == {("dev", "cde"), ("dev", "non-cde"), ("sandbox", "210987654321")}
+        (root / "project.json").write_text(json.dumps({**topology, "suffix": {"dev": "blue"}}) + "\n", encoding="utf-8")
+        validator = MODULE.Validator(root)
+        validator.check_project_topology()
+        assert any("must contain only projectName and targets" in error for error in validator.errors), validator.errors
+
         invalid_targets = [
             ([topology["targets"][0]], "single-target environment must omit alias"),
             (
@@ -299,6 +313,12 @@ def check_optional_alias_targets() -> None:
                 "AWS region is required",
             ),
         ]
+        for invalid in (None, 123, {}, [], "", "UNSET", "Blue", " padded ", "blue\n", "blue\0",
+                        "-blue", "blue-", "blue--green", "ｂｌｕｅ"):
+            invalid_targets.append((
+                [{**topology["targets"][0], "suffix": invalid}, *topology["targets"][1:]],
+                "values must be strings" if not isinstance(invalid, str) else "invalid naming suffix",
+            ))
         for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
             invalid_targets.append((
                 [{**topology["targets"][0], "awsProfile": invalid}, *topology["targets"][1:]],
@@ -317,7 +337,7 @@ def check_optional_alias_targets() -> None:
         ))
         invalid_targets.append((
             [{**topology["targets"][0], "profile": "unsupported"}, *topology["targets"][1:]],
-            "optional alias/awsProfile/awsExecutionAccountId only",
+            "optional alias/awsProfile/awsExecutionAccountId/suffix only",
         ))
         for targets, expected_error in invalid_targets:
             (root / "project.json").write_text(

@@ -44,6 +44,7 @@ Project nameを入力してください。
 6. 各targetについてIaC engineを一つずつ確認する
 7. 各targetについてAWS profileを任意項目として一つずつ確認する。不要なら省略でき、未設定でも初期化を進める
 8. 各targetについてAWS実行account ID（`awsExecutionAccountId`）を任意項目として一つずつ確認する。省略時は`awsAccountId`で認証照合する
+9. 各targetについて命名suffixを任意項目として一つずつ確認する。不要なtargetは省略し、指定する場合は確定済みnon-empty lower-kebab-case文字列を採用する
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。aliasはhumanが入力した値だけを使用し、`cde`、`non-cde`などの固定候補を持たない。
 
@@ -66,6 +67,7 @@ Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engine�
 file変更前に次を確認する。
 
 - Project nameが空でない
+- 任意のtarget suffixはnon-empty lower-kebab-case文字列。一部targetのみの設定を許可し、未確定値を保存しない
 - targetが1件以上ある
 - Environment IDがlower-kebab-case
 - AWS account IDが12桁
@@ -110,13 +112,15 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
       "awsExecutionAccountId": "<confirmed-optional-12-digit-execution-account-id>",
       "awsRegion": "<confirmed-region>",
       "iacEngine": "<cloudformation-or-terraform>",
-      "awsProfile": "<confirmed-optional-profile>"
+      "awsProfile": "<confirmed-optional-profile>",
+      "suffix": "<confirmed-optional-suffix>"
     }
   ]
 }
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
+suffixを指定しないtargetでは`suffix` key自体を省略する。suffixは`framework/rules/aws-resource-naming.md`に従って`{{suffix}}`を持つpatternだけに使用する。
 AWS実行account IDを指定しないtargetでは`awsExecutionAccountId` key自体を省略する。selectorとpathは`awsAccountId`を維持する。
 AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 

@@ -13,6 +13,7 @@
 - 人間向けの現行設計は`docs/designs/<environment>/<target-directory>/`、同じserviceのdesired/observedを保持する機械可読modelは`model/<environment>/<target-directory>/`に置く。
 - `docs/system-overview.md`は背景情報のreferenceとし、`UNSET`を一律blockerにしない。
 - initialization後のproject、environment、AWS account/region、IaC engineのmachine-readable source of truthは`project.json`とする。
+- `project.json`の各targetは任意の`suffix`を持てる。確定済みnon-empty lower-kebab-case文字列とし、environment/aliasごとに別値を設定してよい。命名patternに`{{suffix}}`がある場合だけ選択targetの値を使用し、ないpatternへ自動付加しない。初期化・target追加時に任意で確認し、既存targetへの追加・変更・解除はhumanが明示した`migration` taskで行う。既存名称は自動変更しない。
 - `project.json`の各targetは任意の`awsProfile`を持てる。設定時はそのprofileを対象targetのAWS CLI／SDK、Terraformのprovider／AWS backendに使用する。未設定時は明示profile、それもなければdefault credential chainを維持する。設定値と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
 - `framework/materials/aws/`は読み取り専用の不変カタログであり、通常taskでは変更しない。
 - 変更前にactive promptとtask typeに関係する`framework/rules/*.md`を読む。

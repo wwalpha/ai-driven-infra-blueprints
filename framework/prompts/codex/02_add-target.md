@@ -41,6 +41,7 @@ Step 1: Environment
 5. IaC engine
 6. AWS profile（任意。不要なら省略してtarget追加を進める）
 7. AWS実行account ID（`awsExecutionAccountId`、任意。省略時は`awsAccountId`で認証照合する）
+8. 命名suffix（任意。指定時は確定済みnon-empty lower-kebab-case文字列）
 
 Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。
 
@@ -61,6 +62,7 @@ file変更前に次を確認する。
 - Environment IDがlower-kebab-case
 - AWS account IDが12桁
 - 任意のAWS実行account IDはASCII数字12桁の文字列。同じenvironment/実行accountのtarget間でもIaC engineを統一する。認証の自動切替は行わず、AWS接続はこのtaskで行わない
+- 任意のsuffixはnon-empty lower-kebab-case文字列。別targetから転記しない
 - AWS regionが空でない
 - IaC engineが`cloudformation`または`terraform`
 - 任意のAWS profileを指定した場合は、前後の空白、改行、NUL、`UNSET`を含まない空でない文字列。profileの存在確認やAWS接続はこのtaskでは行わない
@@ -88,7 +90,7 @@ file変更前に次を確認する。
 
 ## Add project target
 
-確認済みtargetを`project.json`の`targets`へ追加し、environment、target directoryの順に並べる。target directoryはaliasがあればalias、なければAWS account IDとする。既存targetと`projectName`は変更しない。UTF-8、2-space indentation、final newlineを維持する。
+確認済みtargetを`project.json`の`targets`へ追加し、environment、target directoryの順に並べる。target directoryはaliasがあればalias、なければAWS account IDとする。既存target（suffixを含む）と`projectName`は変更しない。追加targetのsuffixは今回humanが確認した値だけを使い、別targetから転記しない。UTF-8、2-space indentation、final newlineを維持する。
 
 ```json
 {
@@ -98,11 +100,13 @@ file変更前に次を確認する。
   "awsExecutionAccountId": "<confirmed-optional-12-digit-execution-account-id>",
   "awsRegion": "<confirmed-region>",
   "iacEngine": "<cloudformation-or-terraform>",
-  "awsProfile": "<confirmed-optional-profile>"
+  "awsProfile": "<confirmed-optional-profile>",
+  "suffix": "<confirmed-optional-suffix>"
 }
 ```
 
 aliasなしのtargetでは`alias` key自体を省略する。
+suffixを指定しないtargetでは`suffix` key自体を省略する。命名patternの`{{suffix}}`がある箇所だけでこの値を使用する。
 AWS実行account IDを指定しないtargetでは`awsExecutionAccountId` key自体を省略する。selectorとpathは`awsAccountId`を維持する。
 AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
 

@@ -12,6 +12,8 @@ human、chatbot、Codexが役割を分け、特定のsystem architectureに依�
 
 `docs/system-overview.md`は初期化とは独立した任意の背景資料です。初期化前でも後でも、分かる範囲だけを記入できます。初期化後のproject topologyのmachine-readable source of truthは、Codexが生成する`project.json`です。humanがJSONを直接作成・編集する手順はありません。environment名、environment数、AWS account数はblueprintで固定しません。
 
+`project.json`の各targetには任意の命名suffixを設定できます。たとえばtargetに`"suffix": "aaaaaa"`を指定すると、選択したenvironment/aliasの値を命名patternの`{{suffix}}`へ使用します。値は空でないlower-kebab-caseとし、一部targetだけを指定できます。`[-{{suffix}}]`は未設定なら区切りごと省略し、必須の`{{suffix}}`が未設定なら停止します。suffixのないpatternや既存名称は変更しません。初期化／target追加時に確認し、既存targetへの追加・変更・解除はCodexへ明示したmigration taskで行います。
+
 `project.json`の各targetには任意の`awsProfile`と`awsExecutionAccountId`を設定できます。initialization／target追加時に確認済みの値を指定し、不要なら項目を省略します。既存targetへの実行account IDの登録・変更・解除は、対象targetと値を明示したmigration taskをCodexへ依頼します。
 
 ```json

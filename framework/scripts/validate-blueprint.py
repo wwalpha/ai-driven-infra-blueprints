@@ -807,14 +807,14 @@ class Validator:
         account_engines: dict[tuple[str, str], str] = {}
         execution_account_engines: dict[tuple[str, str], str] = {}
         required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
-        allowed = required | {"alias", "awsProfile", "awsExecutionAccountId"}
+        allowed = required | {"alias", "awsProfile", "awsExecutionAccountId", "suffix"}
         for index, target_values in enumerate(targets, 1):
             self.check(isinstance(target_values, dict), f"target {index} must be an object")
             if not isinstance(target_values, dict):
                 continue
             self.check(
                 required <= set(target_values) <= allowed,
-                f"target {index} must contain {sorted(required)} and optional alias/awsProfile/awsExecutionAccountId only",
+                f"target {index} must contain {sorted(required)} and optional alias/awsProfile/awsExecutionAccountId/suffix only",
             )
             if not required <= set(target_values):
                 continue
@@ -840,6 +840,11 @@ class Validator:
                     bool(profile) and profile == profile.strip() and profile != "UNSET"
                     and not any(char in profile for char in "\r\n\0"),
                     f"invalid AWS profile: {target}",
+                )
+            if "suffix" in target_values:
+                self.check(
+                    LOWER_KEBAB_PATTERN.fullmatch(target_values["suffix"]) is not None,
+                    f"invalid naming suffix: {target}: expected a non-empty lower-kebab-case string",
                 )
             self.check("UNSET" not in values and all(values), f"target contains unset value: {target}")
             self.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")

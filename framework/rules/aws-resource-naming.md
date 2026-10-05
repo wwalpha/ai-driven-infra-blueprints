@@ -39,6 +39,8 @@
 - `application`、`purpose`、`service`、`subnet_type`、`route_type`などの意味を持つcomponentはhumanが確認した値だけを使う。値を推測せず、未確定なら停止して一項目ずつ確認する。
 - `environment`、`target_alias`、`account_id`、`region`は`project.json`の選択targetと一致する値だけを使う。aliasがないtargetにaliasを発明しない。
 - `account_id`は選択targetの`awsAccountId`を使用する。
+- `suffix`は`project.json`の選択targetに設定した値だけを使用する（例：targetの`"suffix": "aaaaaa"`）。値はhuman-confirmedなnon-empty lower-kebab-case文字列とする。environment/aliasごとに別値を設定してよく、一部targetだけの指定も許可する。別targetの値、alias、account IDへfallbackしない。
+- patternに`{{suffix}}`がある箇所だけで設定値を使う。`[-{{suffix}}]`は選択targetに設定があれば`-<suffix>`、未設定なら区切りを含むcomponent全体を省略する。必須の`{{suffix}}`が未設定なら不足値を示して停止する。suffixを持たないpatternへ自動付加せず、`account_id`、`target_alias`、`number`や固定末尾（例：`-sg`）を置換しない。既存resourceと確定済み名称は自動変更しない。
 - `number`は2桁の`01`から始める。同じ役割のresourceが複数存在する場合にだけ連番を使う。
 - `zone`、`requester_vpc`、`accepter_vpc`、`resource_token`、`target_token`はhuman-confirmedなstable tokenを使い、generated IDやARNを埋め込まない。
 - `source`、`destination`、`condition`など変更され得るcomponentは、その値を名称へ固定することをhumanが明示した場合だけ使う。

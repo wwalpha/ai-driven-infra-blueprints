@@ -82,6 +82,8 @@ chatの質問、説明、完了報告、保存対象Markdownのtitle／heading�
 
 命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
 
+命名patternの`{{suffix}}`には`project.json`の選択environment/aliasに対応するtargetの`suffix`文字列だけを使う。`[-{{suffix}}]`は設定があれば`-<suffix>`へ置換し、未設定なら区切りを含むcomponent全体を省略する。必須の`{{suffix}}`が未設定なら不足設定を示して停止する。別targetの値、alias、account IDで代替せず、suffixのないpatternへの付加や固定末尾の置換、既存名称の自動変更を行わない。
+
 `README.md`をrepository全体の指示、`project.json`をtarget設定、`docs/system-overview.md`をsystem背景のreferenceとして扱ってください。System Overviewの`UNSET`だけを理由に質問または設計を停止してはいけません。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。複数targetまたは複数AWS accountが対象の場合は、各resourceの所有targetとcross-account dependencyを先に確認してください。
