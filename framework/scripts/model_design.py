@@ -14,7 +14,7 @@ from design_layout import (
     CLOUDTRAIL_RESOURCE_TYPES, resource_display_name,
     resource_name_fields, resource_anchor, resource_has_name_property, resource_mode,
     positive_integer, GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES, ROTATION_SCHEDULE, LAMBDA_PERMISSION,
-    CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, subnet_list_items,
+    CODEBUILD_VPC_PROPERTIES, LINKED_LIST_PROPERTIES, SUBNET_LIST_SOURCE, subnet_list_items,
     ec2_display_rows,
     glue_argument_rows,
 )
@@ -278,7 +278,8 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
 def catalog_outputs(root: Path, kind: str) -> set[str]:
     return {line.partition("=")[0] for path in design_material_files(root)
             if path.stem.replace("_", ".", 1) == kind
-            for line in path.read_text(encoding="utf-8").splitlines() if line.endswith("=IDENTIFIER_OUTPUT")}
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.endswith("=IDENTIFIER_OUTPUT") and line.partition("=")[0] not in HIDDEN_PROPERTIES}
 
 
 def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:
@@ -680,7 +681,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                            if row_id.startswith(identity + "-") and row.get("property") == resource["parentProperty"]]
             if len(parent_rows) != 1 or parent_rows[0].get("value") != resource["parentReference"]:
                 raise ValueError(f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference")
-            if not rows or rows[0][1] != kind + ".Id":
+            if kind + ".Id" not in HIDDEN_PROPERTIES and (not rows or rows[0][1] != kind + ".Id"):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required first property: {kind}.Id")
         grouped.setdefault(parent[0], []).append(item)
         maximum = rule["maxCount"]
@@ -705,6 +706,9 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         else:
             display = display_rows(kind, rows)
             for _, child, child_name, child_rows in children:
+                if child["resourceType"] == ROTATION_SCHEDULE:
+                    child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
+                                  for rid, prop, value, comment in child_rows]
                 child_display = display_rows(child["resourceType"], child_rows)
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
@@ -717,9 +721,12 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                     for row in child_display:
                         row[1] = row[1].removeprefix("Lambda.")
                     child_display[0][3] = f"<!-- lambda-permission: {metadata} --> " + child_display[0][3]
+                prefix = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> '
                 if child["resourceType"] == ROTATION_SCHEDULE:
-                    child_display[0][3] = child_name + "：" + child_display[0][3]
-                child_display[0][3] = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> ' + child_display[0][3]
+                    prefix += child_name + "："
+                comment = child_display[0][3]
+                source = SUBNET_LIST_SOURCE.match(comment)
+                child_display[0][3] = (source.group(0) if source else "") + prefix + (comment[source.end():] if source else comment)
                 display += child_display
             display = indexed_rows(display, kind, root)
             output += row_table(display)

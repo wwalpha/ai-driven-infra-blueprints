@@ -4,20 +4,33 @@
 
 ## Naming patterns
 
-`Logs.LogGroup.LogGroupName`は、Glue Job用にhumanが明示した下表の独自形式を優先し、それ以外のAWSサービス標準ログには送信元サービスの既定・推奨形式を適用する。その他の独自アプリケーション・運用ログには`cwlogs-{{application}}-{{environment}}-{{purpose}}`を適用する。
+`Logs.LogGroup.LogGroupName`は、AWSサービス標準ログには送信元サービスの既定・推奨形式を適用する。Glue Jobの組込みログには下記の4パターンを適用する。その他の独自アプリケーション・運用ログには`cwlogs-{{application}}-{{environment}}-{{purpose}}`を適用する。
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
 | AWS Lambda | Standard function log group | `Logs.LogGroup` | `LogGroupName` | `/aws/lambda/{{function_name}}` |
 | AWS Step Functions | Execution log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vendedlogs/states/{{state_machine_name}}` |
-| AWS Glue | Custom job log group | `Logs.LogGroup` | `LogGroupName` | `/aws/glue-jobs/{{application}}/{{environment}}/{{account_id}}` |
+| AWS Glue | Job log group | `Logs.LogGroup` | `LogGroupName` | 下記「Glue Jobのロググループ名」の4パターン |
 | Other AWS services | Standard service log group | `Logs.LogGroup` | `LogGroupName` | 対象サービスの公式な既定・推奨形式 |
 | Amazon CloudWatch Logs | Custom application or operational log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
 
+## Glue Jobのロググループ名
+
+Glue 5.0の組込みログでは、custom prefixとSecurityConfigurationのCloudWatch Logs暗号化設定に応じて、完全な`LogGroupName`を次の形式とする。
+
+| 条件 | error log group | output log group |
+| --- | --- | --- |
+| custom prefixなし + SecurityConfigurationなし | `/aws-glue/jobs/error` | `/aws-glue/jobs/output` |
+| custom prefixあり + SecurityConfigurationなし | `<prefix>/error` | `<prefix>/output` |
+| custom prefixなし + SecurityConfiguration SSE-KMS | `/aws-glue/jobs/<SecurityConfig>-role/<Role>/error` | `/aws-glue/jobs/<SecurityConfig>-role/<Role>/output` |
+| custom prefixあり + SecurityConfiguration SSE-KMS | `<prefix>/<SecurityConfig>-role/<Role>/error` | `<prefix>/<SecurityConfig>-role/<Role>/output` |
+
+- `<prefix>`はJob引数`--custom-logGroup-prefix`の確定済み値とする。prefix自体を完全な`LogGroupName`として扱わない。
+- SSE-KMSの分岐は`SecurityConfiguration.EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode=SSE-KMS`の場合に適用する。SecurityConfigurationを指定していてもCloudWatch Logs暗号化が`DISABLED`の場合は、表の「SecurityConfigurationなし」と同じ形式を適用する。
+- `<SecurityConfig>`はJobが参照するSecurityConfigurationの確定済み名称、`<Role>`はJob実行IAM Roleの確定済みRoleNameとする。Role ARNを名称componentに使用しない。
+
 ## Application rules
 
-- Glue Job用独自ロググループには上記のhuman指定形式を適用する。これはAWS公式の既定名ではない。`application`はhuman-confirmedな値、`environment`は選択targetのenvironment、`account_id`は選択targetの`awsAccountId`を使用する。
-- Glue 5.0の組込みログで`--custom-logGroup-prefix`にこの形式を指定する場合、実際のLogGroupNameには`/error`または`/output`が付き、security configuration有効時は追加のcomponentも付く。prefixと完全なLogGroupNameを同一視せず、サービスが付加するcomponentを維持する。
 - AWSサービスの既定・推奨形式には、`cwlogs-...`への適合や共通のlower-kebab-case形式を要求しない。サービス固有の区切り・大文字小文字を維持する。
 - `function_name`、`state_machine_name`などは送信元resourceの確定済み名称を使用する。placeholderの値や送信元サービスを推測しない。
 - その他のAWSサービスは、対象サービスの公式資料で既定・推奨形式を確認し、送信元resourceとの対応を確認する。未確認の形式は適合と判定しない。

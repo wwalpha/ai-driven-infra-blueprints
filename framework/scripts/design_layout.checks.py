@@ -160,11 +160,9 @@ def check_secret_rotation_display() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
-| 2 | Id | `PENDING_DEPLOY` | secretのID |
-| 3 | SecretsManager.RotationSchedule.Id | `PENDING_DEPLOY` | <a id="secretsmanager-app-dev-key_rotate"></a><!-- logical-id: AppKeyRotation --> app-dev-key_rotate：rotationのID |
-| 4 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | 更新直後のrotation実行設定 |
-| 5 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
-| 6 | SecretsManager.RotationSchedule.SecretId | [PENDING_DEPLOY](#secretsmanager-app-dev-key) | 対象secretのID |
+| 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="secretsmanager-app-dev-key_rotate"></a><!-- logical-id: AppKeyRotation --> app-dev-key_rotate：更新直後のrotation実行設定 |
+| 3 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
+| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
 
 <!-- resource-logical-id: AppToken -->
 <a id="secretsmanager-app-dev-token"></a>
@@ -174,7 +172,6 @@ def check_secret_rotation_display() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-token` | secretの名前 |
-| 2 | Id | `PENDING_DEPLOY` | secretのID |
 """
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
@@ -193,10 +190,10 @@ def check_secret_rotation_display() -> None:
         assert not errors(text), errors(text)
         model = MODEL.model_for(path, REPOSITORY)
         assert "desired.resource.004" not in model
-        assert "desired.row.002-002.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
-        assert "desired.row.002-003.value=`30`" in model
-        assert "desired.row.002-004.value=[AppKey](#secretsmanager-app-dev-key)" in model
-        assert "observed.row.002-004.value=PENDING_DEPLOY" in model
+        assert "desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
+        assert "desired.row.002-002.value=`30`" in model
+        assert "desired.row.002-003.value=[AppKey](#secretsmanager-app-dev-key)" in model
+        assert "observed.row.002-003" not in model
         values = MODEL.properties(MODEL.imported_model(path, REPOSITORY))
         rendered = MODEL.markdown_for(path, values, REPOSITORY)
         assert rendered == text
@@ -205,13 +202,13 @@ def check_secret_rotation_display() -> None:
         csv_values = {}
         for key, value in values.items():
             row = re.fullmatch(r"((?:desired|observed)\.row\.002-)([0-9]{3})(\..+)", key)
-            if row and int(row.group(2)) >= 2:
+            if row and int(row.group(2)) >= 1:
                 key = row.group(1) + f"{int(row.group(2)) + 1:03d}" + row.group(3)
             csv_values[key] = value
         csv_values.update({
-            "desired.row.002-002.property": "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
-            "desired.row.002-002.value": "`subnet-00000000000000001,  subnet-00000000000000002`",
-            "desired.row.002-002.comment": "rotation Lambdaの配置先Subnet",
+            "desired.row.002-001.property": "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
+            "desired.row.002-001.value": "`subnet-00000000000000001,  subnet-00000000000000002`",
+            "desired.row.002-001.comment": "rotation Lambdaの配置先Subnet",
         })
         csv_view = MODEL.markdown_for(path, csv_values, REPOSITORY)
         assert not errors(csv_view), errors(csv_view)
@@ -222,7 +219,7 @@ def check_secret_rotation_display() -> None:
         for invalid, message in (
             (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
             (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
-            (text.replace("[PENDING_DEPLOY](#secretsmanager-app-dev-key)", "[PENDING_DEPLOY](#secretsmanager-app-dev-token)"), "must reference enclosing"),
+            (text.replace("[app-dev-key](#secretsmanager-app-dev-key)", "[app-dev-token](#secretsmanager-app-dev-token)"), "must reference enclosing"),
             (text.replace("RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"), "duplicate property"),
             (text.replace("`30`", "`invalid`"), "provider schema violation"),
             (text.replace("### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"), "resource overview types"),
@@ -245,7 +242,6 @@ def check_codebuild_variable_display() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | Name | `venus-dev-snowflake-cicd-keypair-cde` | secretの名前 |
-| 2 | Id | `PENDING_DEPLOY` | secretのID |
 """, encoding="utf-8")
 
         def errors(content: str) -> list[str]:
@@ -428,10 +424,8 @@ def check_subnet_list_links() -> None:
                         '<a id="secretsmanager-key"></a>', "### SecretsManager.Secret: key",
                         *row_table([
                             ["1", "Name", "`key`", "secretの名称"],
-                            ["2", "Id", "`PENDING_DEPLOY`", "secretのID"],
-                            ["2", "SecretsManager.RotationSchedule.Id", "`PENDING_DEPLOY`",
-                             '<a id="secretsmanager-key-rotation"></a><!-- logical-id: KeyRotation --> key-rotation：rotationのID'],
-                            ["3", "SecretsManager.RotationSchedule.SecretId", "[PENDING_DEPLOY](#secretsmanager-key)", "対象secret"],
+                            ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)",
+                             '<a id="secretsmanager-key-rotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
                             ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
                         ]),
                     ]) + "\n"

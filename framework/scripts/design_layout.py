@@ -78,7 +78,12 @@ RESOURCE_REFERENCE_PROPERTIES = {
     "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN": ("S3.Bucket", "BucketName"),
     "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN": ("IAM.Role", "RoleName"),
 }
-HIDDEN_PROPERTIES = {"CodeCommit.Repository.RepositoryId"}
+HIDDEN_PROPERTIES = {
+    "CodeCommit.Repository.RepositoryId",
+    # These Id attributes return ARNs, not persistable observed identifiers.
+    "SecretsManager.Secret.Id",
+    "SecretsManager.RotationSchedule.Id",
+}
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
@@ -878,13 +883,17 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                     raise ValueError("CodeBuild VpcConfig value must be a resource link")
                 items = subnet_list_items(list_prop, source) if source is not None else [cells[2]]
                 comment = cells[3][marker.end():] if marker else cells[3]
+                child = CHILD.match(comment)
+                label = CHILD_NAME.match(comment[child.end():]) if child else None
+                # Rotation identity metadata occurs only on the first displayed Subnet.
+                continuation_comment = comment[child.end() + label.end():] if label and list_prop.startswith(ROTATION_SCHEDULE + ".") else comment
                 if source is None and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ValueError("Subnet/Security Group value must be a resource link")
                 for offset, value in enumerate(items):
                     row = cells
                     if offset:
                         row = [cell.strip() for cell in lines[index + offset].strip("|").split("|")] if index + offset < len(lines) else []
-                    if len(row) != 4 or linked_list_property(row[1], resource_type) != (list_prop, str(expected + offset)) or row[2] != value or (offset and row[3] != comment):
+                    if len(row) != 4 or linked_list_property(row[1], resource_type) != (list_prop, str(expected + offset)) or row[2] != value or (offset and row[3] != continuation_comment):
                         raise ValueError("Subnet list display differs from its saved source value or comment")
                     if offset:
                         row_numbers.append(row[0])
@@ -1021,7 +1030,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                     raise ValueError(f"{prop} must be omitted from its enclosing {parent_type} table")
                 identity = rule["identityProperty"]
                 if identity:
-                    if prop == f"{resource_type}.{identity}":
+                    hidden_identity = f"{resource_type}.{identity}" in HIDDEN_PROPERTIES
+                    if prop == f"{resource_type}.{identity}" or hidden_identity and marker:
                         if not marker:
                             raise ValueError(f"grouped identity row requires anchor and logical ID: {prop}")
                         anchor, logical_id = marker.groups()
@@ -1053,7 +1063,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list
                         table_children.append(active_child)
                         counts[resource_type] = counts.get(resource_type, 0) + 1
                     elif marker or not active_child or active_child["resourceType"] != resource_type:
-                        raise ValueError(f"grouped child rows must start with {resource_type}.{identity}")
+                        raise ValueError(f"grouped child rows require anchor and logical ID" if hidden_identity else
+                                         f"grouped child rows must start with {resource_type}.{identity}")
                     if marker:
                         cells[3] = cells[3][marker.end():]
                         if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:

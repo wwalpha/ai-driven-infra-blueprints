@@ -41,11 +41,10 @@ def fixture(count=1):
                        f"desired.resource.{child}.parentProperty": ROTATION + ".SecretId",
                        f"desired.resource.{child}.parentReference": f"[{logical}](#{anchor})"})
         for identity, kind, rows in (
-            (parent, SECRET, [("Name", f"`{name}`", None), ("Id", f"[{logical}](#{anchor})", "`PENDING_DEPLOY`")]),
-            (child, ROTATION, [("Id", f"[{child_id}](#{child_anchor})", "`PENDING_DEPLOY`"),
-                               ("RotateImmediatelyOnUpdate", "`false`", None),
+            (parent, SECRET, [("Name", f"`{name}`", None)]),
+            (child, ROTATION, [("RotateImmediatelyOnUpdate", "`false`", None),
                                ("RotationRules.AutomaticallyAfterDays", "`30`", None),
-                               ("SecretId", f"[{logical}](#{anchor})", "PENDING_DEPLOY")]),
+                               ("SecretId", f"[{logical}](#{anchor})", None)]),
         ):
             for index, (field, value, observed) in enumerate(rows, 1):
                 key = f"{identity}-{index:03d}"
@@ -87,7 +86,7 @@ def main():
             assert SYNC.linked_resource(path, "[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1_rotate)") == (ROTATION, "Secret1Rotation")
 
         comments = dict(values)
-        comments["desired.row.002-001.comment"] = comments["observed.row.002-001.comment"] = "属性：設定値"
+        comments["desired.row.002-001.comment"] = "属性：設定値"
         HELPERS.roundtrip(path, comments, root)
         path.write_text(output)
 
@@ -102,28 +101,28 @@ def main():
             bad = {**values, "desired.resource.002.parentReference": reference}
             rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "parentReference", ROTATION + ".SecretId")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
-                           ("desired.row.002-004.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
-                           ("desired.row.002-004.value", "[Wrong](#secretsmanager-app-dev-secret-1)")):
+                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
+                           ("desired.row.002-003.value", "[Wrong](#secretsmanager-app-dev-secret-1)")):
             bad = {**values, key: value}
             rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "SecretId")
-        for row in ("002-001", "002-004"):
+        for row in ("002-003",):
             bad = {key: value for key, value in values.items() if not key.startswith((f"desired.row.{row}.", f"observed.row.{row}."))}
-            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", ".Id" if row.endswith("001") else ".SecretId")
+            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", ".SecretId")
         bad = dict(values)
         for key, value in list(values.items()):
-            if key.startswith("desired.row.002-004."):
-                bad[key.replace("002-004", "002-005")] = value
+            if key.startswith("desired.row.002-003."):
+                bad[key.replace("002-003", "002-004")] = value
         rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "exactly one formal row")
         bad = {**values, "desired.resource.004.parentReference": values["desired.resource.002.parentReference"],
-               "desired.row.004-004.value": values["desired.row.002-004.value"]}
+               "desired.row.004-003.value": values["desired.row.002-003.value"]}
         rejects(lambda: markdown_for(path, bad, root), "Secret2Rotation", "too many grouped children", "Secret1")
 
         # Parsing must reject edits independently of model generation.
         invalid_views = [
-            (output.replace("[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1)", "[PENDING_DEPLOY](#secretsmanager-app-dev-secret-2)"), "must reference enclosing"),
-            (output.replace("[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1)", "[PENDING_DEPLOY](other.md#secretsmanager-app-dev-secret-1)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-2](#secretsmanager-app-dev-secret-2)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-1](other.md#secretsmanager-app-dev-secret-1)"), "must reference enclosing"),
             ("\n".join(line for line in output.splitlines() if ROTATION + ".SecretId" not in line), "required property missing"),
-            (output.replace("<!-- logical-id: Secret1Rotation -->", ""), "requires anchor and logical ID"),
+            (output.replace("<!-- logical-id: Secret1Rotation -->", ""), "require anchor and logical ID"),
             (output.replace("app-dev-secret-1_rotate：", ""), "confirmed display name required"),
             (output.replace("SecretsManager.Secret:", "S3.Bucket:"), "wrong parent"),
             (output.replace("<!-- logical-id: Secret2Rotation -->", "<!-- logical-id: Secret1Rotation -->"), "duplicate grouped logical ID"),
@@ -131,14 +130,15 @@ def main():
         for invalid, message in invalid_views:
             rejects(lambda: expanded_design(invalid.splitlines()), message)
         lines = output.splitlines()
-        child_rows = [line for line in lines if ROTATION + "." in line][:4]
+        child_rows = [line for line in lines if ROTATION + "." in line][:3]
         second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("Secret1Rotation", "Secret3Rotation") for line in child_rows]
         insertion = lines.index(child_rows[-1]) + 1
         rejects(lambda: expanded_design(lines[:insertion] + second_child + lines[insertion:]), "too many grouped children")
-        # A valid physical value still must match its parent; PENDING values are not identities.
-        stale = {**values, "observed.row.002-004.value": "wrong-secret-id"}
-        path.write_text(markdown_for(path, stale, root))
-        rejects(lambda: SYNC.validate_views(root, root, [path], {path: stale}), "identifier reference does not match observed target")
+        for kind, identity in ((SECRET, "001"), (ROTATION, "002")):
+            legacy = {**values, f"desired.row.{identity}-099.property": kind + ".Id",
+                      f"desired.row.{identity}-099.value": "`PENDING_DEPLOY`",
+                      f"desired.row.{identity}-099.comment": "旧識別子"}
+            rejects(lambda: markdown_for(path, legacy, root), "hidden property", kind + ".Id")
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
         rejects(lambda: SYNC.validate_views(root, root, [path], {path: mismatch}), "model/display projection mismatch", "parentReference")
@@ -152,9 +152,9 @@ def main():
                     "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "鍵のID"})
         for identity in ("001", "003"):
             for namespace, value in (("desired", "[Key](kms.md#kms-app-dev-key)"), ("observed", "PENDING_DEPLOY")):
-                values.update({f"{namespace}.row.{identity}-003.property": SECRET + ".KmsKeyId",
-                               f"{namespace}.row.{identity}-003.value": value,
-                               f"{namespace}.row.{identity}-003.comment": "暗号化する鍵"})
+                values.update({f"{namespace}.row.{identity}-002.property": SECRET + ".KmsKeyId",
+                               f"{namespace}.row.{identity}-002.value": value,
+                               f"{namespace}.row.{identity}-002.comment": "暗号化する鍵"})
 
         def save():
             (models / "kms.properties").write_text(HELPERS.text(key))
@@ -165,7 +165,7 @@ def main():
         SYNC.sync(root, False, "dev", "123456789012")
         key["observed.row.001-001.value"] = "`key-current`"
         for identity in ("001", "003"):
-            values[f"observed.row.{identity}-003.value"] = "key-current"
+            values[f"observed.row.{identity}-002.value"] = "key-current"
         save()
         SYNC.sync(root, True, "dev", "123456789012")
         assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2

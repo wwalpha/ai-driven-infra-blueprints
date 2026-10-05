@@ -1359,6 +1359,105 @@ def check_integrated_child_mapping():
     print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
 
 
+
+def check_secretsmanager_arn_identifiers():
+    from cloudformation_observed import mappings, sync_successful
+    from model_design import catalog_outputs
+    spec = importlib.util.spec_from_file_location("rotation_fixture", Path(__file__).with_name("rotation_schedule.checks.py"))
+    rotation = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rotation)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        shutil.copytree(ROOT / "framework", root / "framework")
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
+        model = root / "model/dev/123456789012"
+        model.mkdir(parents=True)
+        task = root / "tasks/active.md"
+        task.parent.mkdir()
+        task_text = "## Validation scope\n- `dev/123456789012/secretsmanager`\n- `dev/123456789012/kms`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+        task.write_text(task_text)
+        selected = units(1, 2)
+        secrets = rotation.fixture()
+        for identity, logical in (("001", "Secret1"), ("002", "Secret1Rotation")):
+            secrets[f"desired.resource.{identity}.cfn-logicalId"] = "A-" + logical
+        for field, value in {"property": "SecretsManager.Secret.KmsKeyId", "value": "[Key](kms.md#kms-app-dev-key)", "comment": "secretの暗号化鍵"}.items():
+            secrets[f"desired.row.001-002.{field}"] = value
+        key = rotation.HELPERS.model("kms", "KMS.Key", "app-dev-key", [
+            ("KeyId", "[Key](#kms-app-dev-key)", "暗号化鍵のID"),
+            ("KeyPolicy", "[KeyPolicy](kms/key-policy.json)", "鍵の権限")], "Key", "app-dev-key")
+        key["desired.resource.001.cfn-logicalId"] = "A-Key"
+        key["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [{
+            "Effect": "Allow", "Principal": {"Service": "secretsmanager.amazonaws.com"}, "Action": "kms:Decrypt", "Resource": "*"}]})
+        stacks = {f"desired.stack.{i:03d}.{field}": value for i, unit in enumerate(selected, 1)
+                  for field, value in unit.items()}
+        for path, values in ((model / "secretsmanager.properties", secrets), (model / "kms.properties", key),
+                             (model / "cloudformation-stacks.properties", stacks)):
+            path.write_text(rotation.HELPERS.text(values))
+        secret_ref = {"Ref": "Secret1"}
+        document = {"Conditions": {"Enabled": True, "Disabled": False}, "Resources": {
+            "Secret1": {"Type": "AWS::SecretsManager::Secret"},
+            "Secret1Rotation": {"Type": "AWS::SecretsManager::RotationSchedule", "Properties": {"SecretId": secret_ref}},
+            "Key": {"Type": "AWS::KMS::Key"}}, "Outputs": {"KeyId": {"Value": {"Ref": "Key"}}}}
+        backend = Fake()
+        backend.root, backend.environment, backend.directory, backend.target = root, "dev", "123456789012", TARGET
+        backend.templates = {"A": (document, {}), "B": ({}, {})}
+        def mapping():
+            return mappings(root, "dev", "123456789012", backend.templates, selected, target=TARGET)
+        backend.mapping_plan = mapping()
+        assert not catalog_outputs(root, rotation.SECRET) and not catalog_outputs(root, rotation.ROTATION)
+        assert catalog_outputs(root, "KMS.Key") == {"KMS.Key.KeyId"}
+        arn = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app-dev-secret-1-abcdef"
+        actual = [{"LogicalResourceId": logical, "ResourceType": resource["Type"],
+                   "PhysicalResourceId": "key-current" if logical == "Key" else arn}
+                  for logical, resource in document["Resources"].items()]
+        outputs = [{"OutputKey": "KeyId", "OutputValue": "key-current"}]
+        def aws(operation, *args):
+            return ({"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": outputs}]} if operation == "describe-stacks" else
+                    {"StackResourceSummaries": actual})
+        backend.aws = aws
+        for arn_outputs in (False, True):
+            if arn_outputs:
+                document["Outputs"]["SecretArn"] = {"Value": secret_ref}
+                document["Outputs"]["RotationArn"] = {"Value": {"Fn::GetAtt": ["Secret1Rotation", "Id"]}}
+                outputs.extend({"OutputKey": name, "OutputValue": arn} for name in ("SecretArn", "RotationArn"))
+            backend.mapping_plan = mapping()
+            saved = states(selected)
+            sync_successful(backend, selected, saved)
+            assert all(state["observedSynced"] for state in saved.values())
+        current = properties((model / "secretsmanager.properties").read_text())
+        assert current["observed.row.001-002.value"] == "key-current"
+        assert current["desired.row.002-003.value"] == secrets["desired.resource.002.parentReference"]
+        assert not any(value in {rotation.SECRET + ".Id", rotation.ROTATION + ".Id"} for value in current.values())
+        artifacts = list((root / "docs/designs").rglob("*.json"))
+        assert artifacts and json.loads(artifacts[0].read_text()) == json.loads(key["desired.row.001-002.document"])
+        assert all(arn not in path.read_text() for parent in (model, root / "docs/designs") for path in parent.rglob("*") if path.is_file())
+        # Actual type, required normal Outputs and physical IDs stay strict, before writes.
+        before = {path: path.read_bytes() for path in model.glob("*.properties")}
+        actual[1]["ResourceType"] = "AWS::SecretsManager::Secret"
+        rejects(lambda: sync_successful(backend, selected, states(selected)), "actual resource missing/type mismatch")
+        actual[1]["ResourceType"] = document["Resources"]["Secret1Rotation"]["Type"]
+        missing = outputs.pop(0)
+        rejects(lambda: sync_successful(backend, selected, states(selected)), "required Output absent")
+        outputs.insert(0, {**missing, "OutputValue": "wrong-key"})
+        rejects(lambda: sync_successful(backend, selected, states(selected)), "disagree")
+        outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = arn
+        rejects(lambda: sync_successful(backend, selected, states(selected)), "non-ARN identifier unavailable")
+        outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
+        assert before == {path: path.read_bytes() for path in before}
+        # The real collector completes the barrier before the next DeployOrder starts.
+        session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
+        assert M.run_session(selected, 1, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
+        assert session["metrics"]["deployOrderCount"] == 2 and starts(backend) == ["A", "B"]
+        failed = Fake()
+        for field in ("root", "environment", "directory", "target", "templates", "mapping_plan", "aws"):
+            setattr(failed, field, getattr(backend, field))
+        outputs[0]["OutputValue"] = "wrong-key"
+        session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
+        assert M.run_session(selected, 1, session, failed, lambda: None, sleep=lambda _: None) == "STOPPED"
+        assert starts(failed) == ["A"] and session["states"]["B"]["status"] == "NOT_STARTED"
+        assert "disagree" in session["observedError"]
+    print("Secrets Manager ARN identifiers: PASS (no required ARN Outputs/storage/propagation, logical parent, JSON, KMS guards, DeployOrder barrier)")
+
 def check_api_timing():
     from deploy_preparation import Timing
     with tempfile.TemporaryDirectory() as directory:
@@ -1392,4 +1491,5 @@ check_parallel_and_restart()
 check_observed_collector()
 check_shared_stack_mapping()
 check_integrated_child_mapping()
+check_secretsmanager_arn_identifiers()
 print("CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)")

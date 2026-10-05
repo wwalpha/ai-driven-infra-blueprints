@@ -20,7 +20,7 @@ from design_catalog import DesignSchemaCatalog, design_material_files
 from validation_scope import active_scope, reference_lines, scoped_files
 from task_contract import task_path, require_writable
 from issue_gate import require_no_issues
-from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
+from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, ROTATION_SCHEDULE, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties, validate_kms_policy_accounts, design_target
 from model_files import read_model, model_parts, model_file_contents
@@ -201,7 +201,7 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                 desired_value = cells[2]
                 if is_identifier_output:
                     desired_value = f"[{current_logical_id}](#{current_anchor})"
-                elif is_identifier_reference and linked:
+                elif linked and (is_identifier_reference or cells[1] == ROTATION_SCHEDULE + ".SecretId"):
                     desired_value = logical_link(cells[2], linked[1])
                 output.extend(
                     (
