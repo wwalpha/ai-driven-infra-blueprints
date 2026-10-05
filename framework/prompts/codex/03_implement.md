@@ -1,14 +1,14 @@
 # Infrastructure Implementation Prompt
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
 このpromptは、承認済みの詳細設計の正本であるauthoritative model propertiesを`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
 
-resource作成時の名称・明示ID設定にはtargetの`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source accountには`awsExecutionAccountId`（未設定時は`awsAccountId`）を使用する。VPC Flow Logsの信頼policyでは`aws:SourceAccount`と`aws:SourceArn`内のaccount部分の両方が該当する。明示したcross-account参照を維持し、承認済みmodelのpolicyに不整合があればmodelを暗黙に修正せず停止する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
+account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
 
 ## Unresolved issue gate
 
-対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
 
 ## User input
 
@@ -31,18 +31,19 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 ## Read before changing files
 
 1. `AGENTS.md`
-2. `README.md`
+2. [task-contract](../../rules/task-contract.md)
 3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. implementation scopeに対応する正本`model/<environment>/<target-directory>/<service>.properties`（読取範囲は下記に従う）
-6. `framework/rules/detailed-design.md`
+6. [Policy account selection](../../rules/detailed-design.md#policy-account-selection)。CloudFormationは[CloudFormation stack詳細設計](../../rules/detailed-design.md#cloudformation-stack詳細設計)、設計表示を変更・調査する場合だけ関連する表示sectionを追加する。
 7. `framework/rules/aws-resource-naming.md`
-8. `framework/rules/model-information.md`
-9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
-10. `framework/rules/observed-values.md`
-11. `framework/rules/loop-engineering.md`
+8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
+9. 選択済みengineに対応する[cloudformation](../../rules/cloudformation.md)または[terraform](../../rules/terraform.md)
+10. [observed-values](../../rules/observed-values.md)
+11. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)。[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
 12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
 13. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
+- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。命名を確認する場合は[aws-resource-naming](../../rules/aws-resource-naming.md)。
 
 命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
 
@@ -61,6 +62,12 @@ python framework/scripts/model_files.py model/<environment>/<target-directory>/<
 読取対象はimplementation scopeのresource/propertyと参照解決に必要なproducer側propertiesへ絞る。追加取得にもproducerの`model_files.py --resource`を使い、変更scopeを広げない。target全Markdownをfallbackとして読むことは禁止する。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
+指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+
+### Conditional rule readings
+
+framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
 
 ## Read-only implementation preflight
 

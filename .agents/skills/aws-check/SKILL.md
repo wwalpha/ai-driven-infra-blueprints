@@ -5,11 +5,11 @@ description: AWS Blueprintの指定environment・target・serviceのdesired prop
 
 # AWS APIチェック
 
-共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。AWS APIによる現在値取得・比較を担当し、ローカル検証と問題一覧の保存は[issues](../issues/SKILL.md)で扱う。
+共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。AWS APIによる現在値取得・比較を担当し、ローカル検証と問題一覧の保存は[issuesの保存と更新](../issues/SKILL.md#保存と更新)と[出力](../issues/SKILL.md#出力)で扱う。
 
 ## 対象と実行許可
 
-- `AGENTS.md`、`framework/rules/loop-engineering.md`、`framework/rules/model-information.md`を読み、依頼されたenvironment/target/service/resourceだけを対象とする。target directoryは`project.json`のalias、aliasなしは`awsAccountId`を使う。対象不明なら確認し、推測で拡大しない。
+- `AGENTS.md`、[issue-gate](../../../framework/rules/issue-gate.md)、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)を読み、依頼されたenvironment/target/service/resourceだけを対象とする。target directoryは`project.json`のalias、aliasなしは`awsAccountId`を使う。対象不明なら確認し、推測で拡大しない。
 - read-only調査とchatでの報告だけならrepository taskを開始せず、比較JSONは必要に応じてrepository外の一時fileへ保存する。AWSチェックの依頼で許可されたlist/get/describe相当のAPIとcaller identity検証だけを実行し、AWS mutationは行わない。
 - `project.json`の`awsProfile`・regionと実行account（`awsExecutionAccountId`、未指定時は`awsAccountId`）を既存comparatorで検証する。設定profileと異なる明示profile、caller account不一致、認証失敗では停止し、別profile/accountへのfallbackを行わない。
 - 問題一覧の保存・更新も明示された場合は、AWS取得前に[issuesの保存と更新](../issues/SKILL.md#保存と更新)に従う`migration`契約へ調査対象とread-only API許可を記載する。Allowed paths／Modified filesは今回の契約と対象issues.mdだけとし、同じ契約で調査・保存・local loopまで行う。未解決issueがあってもissue調査のread-only操作と保存限定taskの免除条件は維持する。
@@ -31,5 +31,9 @@ description: AWS Blueprintの指定environment・target・serviceのdesired prop
 ## 結果の扱い
 
 - chatへ比較範囲、差分、未確認事項と実行結果を報告する。問題一覧の保存を依頼されていなければ`issues.md`を変更しない。
-- 保存も依頼された場合だけ[issues](../issues/SKILL.md)の形式と更新規則を使い、取得済みの結果・調査根拠を同じtaskで保存する。issuesからAWS APIを再実行しない。
+- 保存も依頼された場合だけ[issuesの保存と更新](../issues/SKILL.md#保存と更新)と[出力](../issues/SKILL.md#出力)の形式と更新規則を使い、取得済みの結果・調査根拠を同じtaskで保存する。issuesからAWS APIを再実行しない。
 - modelのdesired/observed、設計、IaCを変更せず、deploy/apply、scenarioや別taskへ進まない。
+
+読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+
+framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。

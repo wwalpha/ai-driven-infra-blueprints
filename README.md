@@ -59,53 +59,15 @@ CFnの`AWS::AccountId`は実際のstack作成accountです（[AWS公式の擬似
 
 ## Task transition
 
-repositoryを変更する新しい依頼では、task type、target、Goalを今回の契約と照合し、新しいtaskは`tasks/<task-name>.md`へ保存します。既存taskの契約は上書きしません。契約がないclean repositoryはidle状態です。
-
-各契約の`Task contract`へTask statusを記載し、`## Modified files`へ変更予定fileの具体的なrepository-relative pathを列挙します。globやdirectoryは使わず、新規file、生成artifact、model part、契約自身も含めます。`Allowed paths`は従来どおり許可範囲を示し、変更予定fileはその範囲内である必要があります。
-
-repository rootの`issues/`配下以外に進行中taskと同じfileが一つでもあれば、新規taskを登録前に停止します。既存taskは継続します。`issues/`配下は`issue.md`、`issues.md`、`diff.md`などfile名や階層にかかわらず、登録・契約更新・再開・local loopで重複を許可します。各taskの`Modified files`への記載と`Allowed paths`、未登録変更、task boundary、issue gateの検査は維持します。契約の候補をrepository外へ用意し、次で登録します。同時登録は直列化されます。
-
-```text
-python framework/scripts/task_contract.py --task-file tasks/network-design.md --source <repository外の契約候補file>
-python framework/scripts/blueprint-loop.py --mode task --task-file tasks/network-design.md
-```
-
-生成・deployなど同じchat/process内のcommandには`BLUEPRINT_TASK_FILE=tasks/network-design.md`を指定します。running taskが一つなら自動選択し、複数なら未指定で停止します。変更予定fileを追加する場合も、変更前に契約を更新し、`task_contract.py --task-file tasks/network-design.md`で競合を再検査します。競合した更新では対象fileを変更せず、今回の契約を元へ戻します。
-
-local loopは全taskの競合と未登録変更を確認し、今回の変更だけへtask typeとAcceptance checksを適用します。成功後は今回の契約を`completed`へ変更します。完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除します。`tasks/active.md`だけを持つ旧repositoryは従来の単一taskとして読めます。並行taskを追加する前に既存契約を個別fileへ移し、statusとModified filesを記入します。
-
-Task statusは`running`、`suspend`、`completed`です。local loopのcheck失敗・事前検査error・中断では、原因が自taskか他taskかにかかわらず、今回選択したtaskだけを自動で`suspend`にします。契約の`## Suspension reason`に失敗checkと具体的error、repository外のlog pathを残し、全check終了または子process停止後にfile予約を解放します。未commit変更は保持され、他taskは同じfileも予約できます。staged検証ではsnapshot内の契約だけが対象です。
-
-単独checkなどのerrorで作業を停止するときは、具体的な問題を指定してsuspendにします。修正や再検証を再開するときは`--resume`で予約を取り直します。競合時はsuspendと理由を維持し、他taskを停止しません。
-
-```text
-python framework/scripts/task_contract.py --task-file tasks/network-design.md --suspend-reason 'validate-blueprint: model/dev/cde/ec2.propertiesの必須項目が不足'
-python framework/scripts/task_contract.py --task-file tasks/network-design.md --resume
-```
-
-read-only調査と`framework/prompts/chatbot/service-design.md`によるchat-only設計相談はrepository taskではありません。前taskの契約が残っていても質問や設計相談のblockerにしません。確定設計をrepositoryへ保存する時点で、chatbotが出力した自己完結型Codex promptを実行し、新しい`design` taskへ切り替えます。
-
-active taskの`Required changes`は一意なRequirement IDを持ち、同じIDの`Acceptance checks`へ対応させます。local loopはglobal invariant、task type固有check、active taskのAcceptance check、必要なframework regressionと差分checkを実行し、未対応または未実行のrequirementがある場合はFAILします。
+repository変更は[task契約](framework/rules/task-contract.md)に従って`tasks/<task-name>.md`を登録します。read-only調査・chat-only相談は契約不要です。各工程の手順は対応workflowを使用します。
 
 ## 未解決issueによるtask停止
 
-対象environment／target／serviceの`issues/<environment>/<target-directory>/issues.md`に未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenarioなど他taskは実施できません。issue調査とhumanが明示した修復だけを許可します。別環境・別target・別serviceは停止しません。task開始前に`framework/scripts/issue_gate.py`で関係する全serviceを確認します。修復契約、一覧形式と停止条件は[Unresolved issue gate](framework/rules/loop-engineering.md#unresolved-issue-gate)に従います。
+停止条件・修復・保存限定taskの例外は[issue gate](framework/rules/issue-gate.md)を正本とします。
 
 ## Context priority
 
-既存resourceの更新では、詳細設計Markdown全文の代わりに`model_files.py --resource`で対象の正本を読み、必要な参照先だけ追加で確認します。modelを編集してservice Markdown／JSONを生成した後は差分を確認し、対象service全体のlocal validationを維持します。Markdownはserviceごとに一つのままです。抽出範囲・使い方は[modelの部分読み取り](framework/rules/model-information.md#file-size-and-service-index)に従います。
-
-1. `README.md`
-2. `project.json`（存在する場合）
-3. `docs/system-overview.md`
-4. `docs/designs/**/*.md`
-5. taskに関係する`framework/rules/*.md`
-6. taskに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`
-7. CFn由来resourceは`framework/materials/cloudformation-schema/ap-northeast-1/*.json`、API resourceは`framework/materials/api/`の同名JSON設計schema
-8. `model/`
-9. userが明示的に許可した外部情報
-
-`docs/system-overview.md`はsystem背景のreference、`project.json`は初期化後のproject target設定、`model/**/*.properties`はenvironment/target directory別の設計値の正本、`docs/designs/**/*.md`はその生成表示とする。service resourceはAWS service別file、CloudFormation stackはtarget別`cloudformation-stacks.md`に記載する。必要な情報が不足または矛盾する場合は推測せず、humanへ確認する。
+実行時の入口と読取規則は[AGENTS.md](AGENTS.md)と使用skill／workflowのRead節です。READMEは人間向けguideで、毎taskの全文読込対象ではありません。target設定は[project configuration](framework/rules/project-configuration.md)、設計値と生成物の関係は[model information](framework/rules/model-information.md#model-authority)に従います。背景情報・外部情報は必要な範囲だけ参照します。
 
 ## Task contract and types
 
@@ -146,7 +108,7 @@ active promptの`## Task contract`には次を正確に1件記載します。
 - [R1] `check:registered-check-id`
 ```
 
-許可するAcceptance checkは`changed:`、`exists:`、`absent:`、validatorへ登録済みの`check:`だけです。全Requirement IDに一つ以上のcheckが必要です。
+Acceptance checksの定義は[Acceptance contract](framework/rules/task-contract.md#acceptance-contract)に従います。
 
 ## Roles
 
@@ -269,17 +231,7 @@ tests/
 
 ## Design information
 
-- `docs/designs/<environment>/<target-directory>/`はpropertiesから生成するhuman-readable current design。
-- CloudFormation targetでstackをdeployする場合は対応するmodelの`cloudformation-stacks.properties`をstack管理の正本とし、`cloudformation-stacks.md`を生成する。同じtemplateを複数StackNameへ適用でき、各stackに個別parameterのファイル名を記す。stack current statusはAWSで確認し、設計やmodelへ複製しない。
-- `model/<environment>/<target-directory>/<service-id>.properties`は同じserviceのdesired/observedを保持するmachine-readableな設計値の正本。確定済み設計はここへ先に反映する。
-- service用の一つのMarkdownとproperties pairは一つのAWS service ownership boundaryだけを所有し、同じservice ID、相対path、file stemを使う。stack詳細設計pairはtarget内のdeployment unitを所有する。
-- service間dependencyはfile統合やdesign valueの複製ではなく、正本modelのrelative Markdown linkとexplicit anchorで保持し、Markdownへ同じreferenceを生成する。
-- policy JSON本文と参照先は正本modelに保持し、`docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json`とMarkdownの参照を生成する。
-- topology/state metadataを詳細設計Markdownへ重複させない。Markdownの構造と禁止sectionは`framework/rules/detailed-design.md`を正本とする。
-- `desired.*`は確定済みのintended design、`observed.*`は対象AWS accountから取得した必要最小限のgenerated current valueを保持する。
-- 必要なnon-ARN generated current valueは該当resource tableの個別行に置き、deploy前とdestroy後は`PENDING_DEPLOY`とする。
-- Markdownとservice modelはservice ID、相対path、file stemを一致させ、一対一で生成する。
-- generated ARNはobserved valueとして保存しない。
+設計値・分割model・生成手順は[model information](framework/rules/model-information.md)、設計Markdownの表示は[detailed design](framework/rules/detailed-design.md)、取得値は[observed values](framework/rules/observed-values.md)を正本とします。
 
 ## Scenario evidence
 

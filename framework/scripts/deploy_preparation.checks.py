@@ -104,6 +104,17 @@ def check_preparation():
         assert not any(p.startswith("infra/") for p in reserved)
         for document in plan["documents"]:
             assert all(len(Path(chunk).read_text(encoding="utf-8")) <= 6000 for chunk in document["chunks"])
+        documents = {d["source"]: d for d in plan["documents"]}
+        model_rules = documents["framework/rules/model-information.md"]
+        selected = "".join(Path(chunk).read_text(encoding="utf-8") for chunk in model_rules["chunks"])
+        assert "## CloudFormation deployment policy" in selected
+        assert "### Resource単位のCloudFormation identity" in selected
+        assert "## Service display inputs" not in selected
+        assert model_rules["readCharacters"] < model_rules["sourceCharacters"]
+        assert "framework/rules/task-contract.md" in documents
+        assert "framework/rules/issue-gate.md" in documents
+        assert "framework/rules/project-configuration.md" in documents
+        assert "framework/rules/terraform.md" not in documents and "README.md" not in documents
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         assert contracts(root)["tasks/deploy-offline.md"] == text
         with patch.object(M.subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
@@ -130,7 +141,9 @@ def check_stale_and_conflicts():
             run = next((base / "logs").iterdir())
             path = run / "preparation.json"
             if reason == "input":
-                (root / "README.md").write_text("changed", encoding="utf-8")
+                # Unread sections still invalidate the full-file immutable input guard.
+                path_to_rule = root / "framework/rules/model-information.md"
+                path_to_rule.write_text(path_to_rule.read_text(encoding="utf-8") + "\n## Unread section\nchanged\n", encoding="utf-8")
             elif reason == "issue":
                 issue = root / "issues/dev/123456789012/issues.md"
                 issue.parent.mkdir(parents=True)
@@ -172,7 +185,31 @@ def check_dependencies_and_timing():
         assert event["result"] == "FAIL" and event["phase"] == "authenticationContext"
 
 
+def check_rule_section_boundaries():
+    text = "# Rules\r\n\r\n## Required\r\nkeep\r\n```md\r\n## Required\r\n```\r\n### Child\r\nchild\r\n## Unrelated\r\nomit\r\n"
+    text = text.replace("## Required\r\nkeep", '<a id="explicit"></a>\r\n\r\n## Required\r\nkeep')
+    sections = M.markdown_sections(text)
+    assert sections["explicit"] == sections["required"]
+    assert "child" in sections["required"] and "omit" not in sections["required"]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "workflow.md"
+        rule = root / "framework/rules/example.md"
+        rule.parent.mkdir(parents=True)
+        rule.write_bytes(text.encode("utf-8"))
+        reading = M.rule_readings(root, source, "[Required](framework/rules/example.md#required)\n```md\n[Example](framework/rules/absent.md#missing)\n```\n`[Inline](framework/rules/absent.md#missing)`\n")
+        assert reading[rule.resolve()]["sourceText"] == text
+        assert reading[rule.resolve()]["text"] == sections["required"]
+        try:
+            M.rule_readings(root, source, "[Required](framework/rules/example.md#missing)")
+        except ValueError as error:
+            assert "missing rule section" in str(error)
+        else:
+            raise AssertionError("missing required section accepted")
+
+
 if __name__ == "__main__":
+    check_rule_section_boundaries()
     check_dependencies_and_timing()
     check_preparation()
     check_stale_and_conflicts()

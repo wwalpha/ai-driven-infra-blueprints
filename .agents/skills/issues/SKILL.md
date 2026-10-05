@@ -3,7 +3,7 @@ name: issues
 description: AWS Blueprintの指定environment・target・serviceをローカルで調査・検証し、問題一覧をissues配下へ保存・更新するとき、または提示済みの調査結果を保存するときに使用する。AWS APIチェックはaws-check skillで扱う。
 ---
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+保存・修復の契約登録は[task-contract](../../../framework/rules/task-contract.md)に従う。
 
 
 # 問題の整理
@@ -16,7 +16,7 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 
 ## 保存と更新
 
-- 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と`framework/rules/loop-engineering.md`を読み、最初のrepository変更として`tasks/<task-name>.md`を今回の対象・Goalで新規登録する。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/<task-name>.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
+- 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と[loopのLocal loop](../../../framework/rules/loop-engineering.md#local-loop)を読み、最初のrepository変更として`tasks/<task-name>.md`を今回の対象・Goalで新規登録する。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/<task-name>.md`と今回対象の問題一覧ファイルだけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
 - この保存限定taskは既存issueによる停止判定の対象外となる。未解決issueがあっても調査と一覧の更新を続け、Issue remediationによる修復例外は追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateが適用される。
 - `docs/designs/<environment>/<target-directory>/`と同じ環境・target directory構成で保存する。複数targetは別ファイルに分け、必要なdirectoryだけ作成する。
 - 既存ファイルがあれば読んでから今回の範囲を再確認し、その範囲の問題を最新の調査結果へ置き換える。解消を確認した問題は除去し、新規・継続する問題を記載する。具体的な不整合・不足を検出済みで解消が未確認の問題は、未確認と記載して保持する。未検証範囲だけを新しいissueとして登録しない。今回対象外のservice・問題は保持する。
@@ -40,7 +40,7 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 
 ## 命名規則の確認
 
-ローカル調査を行う場合は、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/detailed-design.md`を読む。local loopの命名診断だけではpatternへの適合確認を完了扱いにしない。調査済み結果の保存だけを依頼された場合は再調査を自動追加せず、命名確認の未実施範囲を明記する。
+ローカル調査を行う場合は、[aws-resource-naming](../../../framework/rules/aws-resource-naming.md)、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)、[Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure)と対象resourceの表示・参照sectionを読む。local loopの命名診断だけではpatternへの適合確認を完了扱いにしない。調査済み結果の保存だけを依頼された場合は再調査を自動追加せず、命名確認の未実施範囲を明記する。
 
 - 対象serviceの正本propertiesを入口indexとpartを合わせて読み、`desired.*`の選択済み名称property、必須`.Name`、必須またはhuman-selectedな`Name` tagを確認する。診断に出た名称だけへ限定せず、独立した子resourceも自身のresourceModeで判定する。observed値や生成Markdownの表示labelを名称の正本にしない。
 - CREATE（mode未指定を含む）はresource typeと正式propertyを命名ルールのNaming targetへ対応付け、coverage、pattern、service固有制約、必須Nameの有無を確認する。`environment`、`target_alias`、`account_id`、`region`は`project.json`の対象targetへ、application・purpose等はhuman-confirmedなcomponentへ照合する。名称の文字列から未知componentを推測して適合扱いにしない。
@@ -78,3 +78,7 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 ```
 
 `dev／non-cde`の問題は`issues/dev/non-cde/issues.md`へ同じ形式で保存する。
+
+読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+
+framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。

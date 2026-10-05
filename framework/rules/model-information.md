@@ -1,6 +1,10 @@
 # Machine-readable Service Model Rules
 
-- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
+## Model authority
+
+modelの更新が失敗した場合はMarkdown／JSONを更新しない。設計値・名称・説明はmodelを正本とする。
+
+- target directoryは[Topology](project-configuration.md#topology)に従う。
 - human-readable current designは`docs/designs/<environment>/<target-directory>/`に置く。
 - machine-readable service modelは`model/<environment>/<target-directory>/`に置く。
 - CloudFormation stack詳細設計は`cloudformation-stacks.properties`の`desired.stack.*`に各stackの名前、templateのファイル名、parameterのファイル名、正の整数`deployOrder`を保持し、target policyは`desired.deployment.maxConcurrentStacks`（整数1以上）へ保持する。同じstemのMarkdownを生成する。`DeployOrder`はstack instanceごとの正式設計値であり、template identityやdependency fieldではない。`project.json`へpolicyを追加しない。一覧の`No.`は生成し、`Comment`は`display.stack.*.comment`に保持する。stackの実行状態、StackId/ARN、AWSからの一時取得値はmodelへ保存しない。
@@ -9,9 +13,12 @@
 - Markdownと正本modelが一致しない場合はlocal loopを失敗させる。片方を黙って採用しない。
 - 検証に成功したserviceのanchor変更が他serviceの保存済み旧リンクを切断しても、その成功serviceは保存する。新たな切断は参照元とリンクを警告し、参照元の正本修復・再生成は別taskで行える。関連serviceを自動で生成対象へ追加せず、失敗serviceの保存済み表示を手編集しない。生成対象自身の参照・schema・model照合は引き続き必須とし、切れたリンクを持つserviceを検証対象に含めたlocal loopは失敗する。
 - design taskはmodel propertiesを保存した後、同じcoherent logical changeでMarkdownとJSON artifactを生成する。選択済み既存resourceをread-only取得した場合は必要な非ARN current identifierも`observed.*`へ生成する。
-- infrastructure taskは成功したAWS mutation後にmodelのobserved identifierを更新し、Markdownのidentifier rowと全参照元を生成する。
+- current identifierの更新条件・伝播は[observed-values](observed-values.md)に従う。
 - infrastructure `update` phaseはhuman-changed model propertiesをimmutable inputとし、deploy前にMarkdownを生成する。成功したAWS mutation後だけobserved identifierを更新し、Markdownを再生成する。
 - Markdownの構造、service grouping、generated identifier rowは`framework/rules/detailed-design.md`を正本とする。
+
+## Service display inputs
+
 - `IAM.Role`の表示名は正式な`IAM.Role.RoleName`の確定済みdesired rowだけから導出し、一覧・詳細heading・参照linkに使用する。RoleNameは正確に1 rowを必須とし、欠落・重複・空値・未確定値を拒否する。Name tagや`display.resource.*.label`で代替せず、内部logical IDとpolicy artifactの命名を維持する。
 - `## リソース一覧`と`## リソース詳細`は表示上のsection区切りとし、No.は生成する。一覧Commentは`display.resource.<番号>.comment`、Stack一覧Commentは`display.stack.<番号>.comment`を正本とする。AWS propertyとしては扱わない。詳細section配下のH3 resource headingは表示名を保持し、anchor直前の非表示`resource-logical-id` metadataから内部logical IDを識別する。markerがない既存形式はheading identifierを内部identityとして読める。非表示markerをnoteやpropertyへ出力せず、H4 policy表は派生表示として除外する。見出し階層だけの変更でresource番号、anchor、logical ID、desired/observed値を変えない。
 
@@ -177,7 +184,7 @@ desired.note.001.text=実装注記: 必要最小限の注記
 
 resourceとrowの番号はmodel propertiesで指定し、表示の再解析で同じ順序になることを検証する。`## リソース一覧`のtableは、全serviceで人間向けの案内としてmodel生成対象から除外する。Markdownのproperty rowはmaterialsのproperties行順に従い、未選択・非表示項目を省略する。Markdownはmodelのrow順を保持し、名前やidentifierを先頭へ並べ戻さない。design-only `.Name`と`S3.Bucket.Region`は既存の特殊表示位置を保持する。`S3.Bucket`のheading identifierはBucketNameと一致させ、内部logicalIdは非表示metadataから保持する。markerを省略した場合はBucketNameをlogicalIdとして使う。identityなしでgroup化した`S3.BucketPolicy.PolicyDocument`と、Markdownで`EC2.RouteTableId`と表示する正式property `EC2.SubnetRouteTableAssociation.RouteTableId`は独立した`desired.resource.*`を作らず、包含する親resourceの`desired.row.*`へ正式Property名で反映する。省略した`S3.BucketPolicy.Bucket`と`EC2.SubnetRouteTableAssociation.SubnetId`は包含する親から解決し、`EC2.SubnetRouteTableAssociation.Id`はmodelへ生成しない。catalogの`IDENTIFIER_OUTPUT` rowは、同じrow keyの`desired.*`へresource自身のanchor-based logical reference、`observed.*`へMarkdownのcurrent valueを生成する。identifier outputを参照するMarkdown link rowも、同じrow keyの`desired.*`へlogical IDを表示するanchor link、`observed.*`へMarkdown linkの表示textを生成する。KMS aliasを参照するrowはAliasNameを表示するMarkdown linkを`desired.*`へlosslessに保持する。policy JSON本文はdocumentを正本とし、parse後のJSONをobject key順、空白なし、UTF-8で決定的にserializeした内容のSHA-256を`desired.row.*`へ保持する。空白、indent、改行位置、LF／CRLF、file末尾改行、object key順だけの変更でhashを変えない。
 
-未作成resourceのdeploy前またはdestroy後のgenerated identifierはMarkdownとmodelの両方で`PENDING_DEPLOY`とする。read-only取得した既存resourceの必要な非ARN identifierはcurrent valueを保持する。generated ARNは`observed.*`へ保存しない。
+identifierの状態と保存条件は[observed-values](observed-values.md)に従う。
 
 Markdown／JSON artifact生成command:
 

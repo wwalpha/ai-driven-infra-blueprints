@@ -17,7 +17,7 @@ description: AWS Blueprintの必須指定された1 environmentについて、�
 
 ## 読み取り専用の調査
 
-1. `AGENTS.md`、[loop engineering](../../../framework/rules/loop-engineering.md)、[model information](../../../framework/rules/model-information.md)、[detailed design](../../../framework/rules/detailed-design.md)、[resource naming](../../../framework/rules/aws-resource-naming.md)と[env-diff skill](../env-diff/SKILL.md)を読む。env-diffは比較・分類規約の参照に使い、このskillから実行・保存taskを開始しない。
+1. `AGENTS.md`、[issue-gate](../../../framework/rules/issue-gate.md)、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)、[Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure)と対象resourceの表示・参照section、[resource naming](../../../framework/rules/aws-resource-naming.md)と[env-diffの比較](../env-diff/SKILL.md#比較)と[AIによる整理](../env-diff/SKILL.md#aiによる整理)を読む。env-diffは比較・分類規約の参照に使い、このskillから実行・保存taskを開始しない。
 2. 選択targetの`issues/<environment>/<target-directory>/diff.md`と`issues.md`を読む。diff.mdがない、比較元・比較先・targetが不明、指定environmentが修復先と一致しない場合は不足を質問する。比較組や対応targetを推測せず、diff.mdを自動作成・更新しない。
 3. 個別指定では該当serviceの項目だけを扱う。`all service`では選択targetのdiff.mdに掲載された全serviceを対象とし、実際のservice ID一覧を示す。掲載のないserviceの調査・修復へ広げず、掲載がないことを検証済み一致とも扱わない。該当項目がなければその事実を報告して終了する。
 4. 該当項目を現在の`model/<environment>/<target-directory>/<service-id>.properties`と照合する。既存readerで入口indexと必要なpartを一つの論理serviceとして読み、`desired.*`を正本とする。比較元はdiff.mdに明記された組・targetだけ参照し、古い報告、意図的な環境差、実際の設計差、未確認・比較不能を分ける。resource対応や不足値を推測しない。
@@ -39,3 +39,5 @@ description: AWS Blueprintの必須指定された1 environmentについて、�
 - model修復、IaC修正、AWS反映を別の実行範囲として示す。model修復案は正本propertiesを先に変更してservice単位で`sync-model.py --write`によりMarkdown／JSONを生成し、修復を確認してから該当diff.md項目だけ更新する手順とする。報告だけが古い場合は再比較・分類後のdiff.md更新案とし、未修復の差分を報告から消す案にしない。
 - 未確認・比較不能は確認方法と必要なhuman判断を示し、修復済みと扱わない。対象外serviceの報告と未解決issueを保持する手順を示す。将来のrepository変更では対象task typeの契約登録・具体的file予約・issue gate・scoped local loopが必要なことを計画へ含める。
 - このskillは読み取り専用の計画で終了する。契約登録、diff.md／issues.md／model／生成物／IaCの変更、生成command、local loop、AWS API、deploy/apply、scenario、別taskの作成・実行を行わない。計画の保存・修復実行はhumanの別の明示依頼で扱い、Plan modeを終了しても自動実行しない。
+
+読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。このskillでは契約・local loopの文書を読み込まず、計画だけで終了する。

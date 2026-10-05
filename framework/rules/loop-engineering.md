@@ -4,46 +4,11 @@ loop engineeringはmandatoryとする。「各change」はeditor saveごとで�
 
 ## Task boundary
 
-- repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalを照合する。契約のないclean repositoryはidleとする。新規taskは既存契約を上書きせず、最初の変更として個別契約を登録する。
-- Task contractへTask status（`running`／`suspend`／`completed`）を記載し、`## Modified files`へ具体的なfile pathを列挙する。glob、directory、別taskの契約は禁止する。自分の契約、未作成file、生成artifact、model part、削除対象も含め、Allowed paths内だけを予約する。
-- `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`で登録する。登録は同時実行を直列化し、全running taskのModified filesを比較する。repository rootの`issues/`配下以外のfileが重複すれば新規taskを停止し、競合fileと既存taskを報告する。候補と対象fileをrepositoryへ保存せず、既存taskを継続する。
-- `issues/`配下の全fileは、file名や階層にかかわらず登録・契約更新・再開・local loopの競合停止対象から除外する。`issues/issue.md`、`issues/<environment>/<target-directory>/issues.md`、`diff.md`も含む。各taskは変更するfileをModified filesへ列挙し、Allowed paths、未登録変更、task boundary、issue gateとAcceptance checksの検査を維持する。
-- 各processは`BLUEPRINT_TASK_FILE`、local loop／validatorは`--task-file`でも契約を選ぶ。複数running taskがある場合は明示選択必須。変更予定fileの追加・変更時も実変更前に契約を更新し、`task_contract.py --task-file tasks/<task-name>.md`で再検査する。競合する更新は元へ戻し、今回のtaskを停止する。
-- read-only調査とchat-only設計相談は契約の登録・切替を要求しない。
-- loopは全契約の競合と未登録変更を検査し、今回の予約fileの変更だけへtask type、issue gate、Acceptance checksを適用する。別taskの変更を成果や違反として数えない。生成とmodel分割も保存前に今回の予約fileを検査する。
-- local loop成功後だけ今回のTask statusをcompletedへ変更する。completed契約はfile予約を解放し、未commit変更の所属を保持する間だけ残す。差分がなくなれば削除し、task履歴やevidenceは残さない。
-- check errorによる停止では、原因が自task、他task、未登録変更、baselineのどれでも今回のTask statusだけを`suspend`にする。`## Suspension reason`は必須とし、失敗check、対象file、具体的error、必要なrepository外log pathを記載する。現在の停止理由だけを保持し、実行履歴やevidenceは追加しない。local loopは全check終了または子process停止後に自動suspendにし、事前検査失敗も含める。明示selectorがない複数running taskから停止対象を推測しない。staged検証の状態変更はsnapshot内だけに適用する。
-- local loop以外の単独checkや作業中errorで停止する場合も、`task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`で今回の契約をsuspendにする。他taskの契約と未commit変更は維持し、無関係な失敗を今回のtask内で修復しない。
-- suspend契約は予約を解放するため、同じfileを扱う他taskも登録できる。未commit変更の所属は保持し、他taskのAcceptance checksへ流用しない。suspend中は生成・deploy・loopなどのtask実行を拒否する。修正・再検証を再開する前に`task_contract.py --task-file tasks/<task-name>.md --resume`を実行し、全running taskとの予約競合を直列化して検査する。成功時だけrunningへ戻して現在の停止理由を除去し、競合時はsuspendと理由を維持する。自動再開はしない。
-- 旧`tasks/active.md`は単独の場合だけ従来契約として許可する。並行運用前に個別契約へ移し、Task statusとModified filesを記載する。契約がない状態の非契約変更は拒否する。
-- loop成功後に別taskを作成または実行しない。
-- retry中にtask typeまたは作業段階を変更しない。
-- infrastructure behaviorの変更を理由にscenario testへ進まない。
-- test failureをdesign変更、IaC変更、redeployで自動修正しない。
+契約・変更予約・停止と再開は[task-contract](task-contract.md)を正本とする。
 
 ## Unresolved issue gate
 
-- issue一覧は`issues/<environment>/<target-directory>/issues.md`とする。target directoryはproject.jsonのalias、aliasなしはAWS account IDとする。fileがない場合または空の場合は未解決issueなしとして扱う。
-- 一覧に残っている番号付きissue（`1. ...`）はすべて未解決とする。修復・再検証が成功したissueだけを明示された修復scope内で一覧から除去する。解決履歴はGitで保持し、一覧削除・書換えだけで修復済みと扱わない。issueが0件なら`未解決issueなし`と記載してよい。
-- serviceは`### <service-id>`、`<!-- issue-service: <service-id> -->`、または同じtargetのmodel properties／詳細設計Markdownへの根拠linkで特定する。AWS serviceの表示名だけでは推測しない。所属を特定できないissueや番号付きissue／0件宣言のない不正な一覧はtarget全体を停止する。
-- 対象environment/target/serviceに未解決issueがある間、設計相談・設計保存・implement・deploy/apply・scenario・target migrationなど他taskを開始・継続しない。別environment、別target、別serviceは停止しない。複数serviceを変更・実装・deployする場合は関係する全serviceをValidation scopeへ明記し、一件でもblockedならそのtaskを停止する。全体validationとtask対象を混同しない。
-- issue調査のread-only操作、humanが明示したissue修復、および以下の保存限定taskだけを許可する。新しいtask typeは作らず、design／infrastructureなど既存task boundaryとAWS execution許可を維持する。frameworkだけのgovernance／catalog-maintenanceはservice対象taskではないため、consumer issueでは停止しない。
-- issue調査・保存およびdesiredの環境比較・diff保存は`migration` taskとし、明示service Validation scopeのtargetの`issues/<environment>/<target-directory>/issues.md`／`diff.md`と今回の`tasks/<task-name>.md`だけをAllowed pathsと変更対象にする。この条件を満たす保存限定taskは既存issueによる停止判定を適用せず、調査・比較・AI分類・保存・local validationを続ける。diff.mdの項目は未解決issueとして数えず、既存issues.mdの修復やIssue remediationの追加を要求しない。通常migration、設計・model・IaC変更、model保存、AWS mutationのissue gateは維持する。調査で検知した実際のvalidation errorは引き続きFAILとして報告する。
-- 修復taskのGoalとRequired changesに対象issue、原因、修復scopeを記載する。同じactive contractに次のsectionを置く。entryは明示されたValidation scopeの部分集合だけとし、`all`／`framework`による修復例外は禁止する。例外はそのserviceのissue修復と再検証だけに適用し、機能追加・通常の設計・別issueの修復などを混ぜない。修復task完了後に停止中の他taskを自動再開しない。
-
-```md
-## Issue remediation
-
-- `dev/cde/ec2`
-```
-
-- 保存限定taskを除き、対象を確定した時点、task開始前、再開時、設計保存前、AWS mutation前に最新のissue一覧を確認する。開始前は次のcheckを実行する。このcheckは古いactive contractの修復例外を使わない。修復依頼なら停止理由を確認し、humanの依頼scopeに限った修復contractを作成して既存workflowで処理する。既存のactive contractが残っていても、chat-only設計相談のissue停止を解除しない。
-
-```text
-python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
-```
-
-`--service`は関係する全serviceについて繰り返す。task validator、`sync-model.py --write`、deploy contextは共通issue判定を実行する。AWS read-only contextはissue調査に使用できるが、通常taskの続行許可を意味しない。deploy/applyは既存preflightに加え、実行直前にも同じissue checkを再実行する。実行直前のcheckには`--task`を付け、同じactive contractのIssue remediationを用いる。通常taskは修復例外なしで再確認する。
+停止判定・調査／修復／保存限定taskの例外・再確認は[issue-gate](issue-gate.md)に従う。
 
 ## Local loop
 
@@ -51,14 +16,7 @@ OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする�
 
 通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、Validation scopeのserviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、今回の予約fileに変更がない場合はtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
 
-active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
-
-```md
-- [R1] 実施内容
-- [R1] `changed:path/to/file`
-```
-
-Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`check:`だけを許可する。任意command、未登録check、対応先Requirement IDがないcheck、checkがないRequirement IDは拒否する。
+契約のRequirement ID／Acceptance checksは[Acceptance contract](task-contract.md#acceptance-contract)に従って毎回検証する。
 
 各coherent logical change後に次を決定的に確認する。
 
@@ -106,7 +64,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
 - `migration`: active task以外のrequired outputが変更
 
-### 生成・検証scope
+## Validation scope
 
 active taskに`## Validation scope`を置き、各entryを``- `<environment>/<target-directory>/<service-id>` ``とする。aliasがあればtarget directoryはalias、なければAWS account IDを使う。サービスはmodelのfile stem（EC2なら`ec2`）で指定する。environmentだけ、accountだけ、serviceだけの指定、未知target、欠落model/Markdownは停止する。Allowed pathsや変更fileから検証対象を推測しない。scope外の設計変更も拒否する。
 
@@ -126,7 +84,7 @@ active taskに`## Validation scope`を置き、各entryを``- `<environment>/<ta
 frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。全serviceの実設計検証は明示した`--all`またはValidation scopeの単独``- `all` ``だけで行う。scopeが欠落している場合は`full`でも停止し、全体検証へfallbackしない。日次の全体検証は別途設定したscheduleで実行する。対象限定検証の後に「念のため」の全体検証を追加しない。
 
 
-### 成功した検証結果の再利用
+## Validation cache
 
 通常のtask/localではcatalogとserviceの成功結果だけをrepository外のOS一時directory `blueprint-validation-cache`へ保存し、内容hashが一致する場合に再利用する。`BLUEPRINT_VALIDATION_CACHE_DIR`でrepository外の保存先を指定できる。file名・file集合・SHA-256、Python/OS、framework全入力（validator/generator/rule/catalog/schemaを含む）、projectとAGENTS、対象modelの入口・part、Markdown・JSON・参照先のmodel/表示をkeyへ含める。参照先の内容は無効化判定に読み取るだけで、scope外serviceのschema検証を追加しない。mtimeだけで判定しない。
 
@@ -134,9 +92,9 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 
 `--fresh`は成功結果の再利用を無効化する。`--mode full`と`--all`もfresh検証する。実行中だけのカタログ一覧/model行/path再利用はfreshでも使用し、次の実行へ持ち越さない。再利用service数・実行service数を表示し、再利用した検証件数も成功件数へ含める。60秒を超えた検証を打ち切ってPASSにしない。
 
-### 通常taskとframework regression
+## Framework regression
 
-#### Windows全回帰の入力ガード
+### Windows全回帰の入力ガード
 
 - Windowsの全回帰は、明示した`full`／`--all`、framework変更による自動追加、`--affected`で選んだ結果が全件の場合のいずれでも、検証process起動前に人間のパスワード入力を要求する。対象限定検証と明示対応表で一部だけに絞った回帰は入力不要とする。staged検証ではsnapshot内のrunnerが同じガードを使用する。Windowsでは現行runner／guardをstageし、workspaceと内容が一致しない旧entrypointのdispatchを拒否する。
 - 人間がrepository rootで`python -I -B framework/scripts/regression_guard.py --install`を実行し、repo直下の`.lock`一つだけへsalt付きPBKDF2-HMAC-SHA256のhashを登録する。管理者権限、ProgramData、別helper設置、ACL設定は使用しない。既存の`.lock`は上書きしない。
@@ -151,7 +109,7 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 - validatorが失敗してもregressionと差分checkを継続する。Python最適化によるassert無効化を防ぐ。選択したcheckの失敗・未実行はFAILとする。
 - CloudFormationの`cfn-lint`、deploy context、`aws cloudformation validate-template`、change set／change summary、delete/replacement確認、AWS account/region確認、およびTerraformのfmt/init/validate/plan/applyの既存必須手順は各phaseのrules/promptどおり維持する。loopはこれらの実IaC/deployment手順を代替せず、implementとdeployを統合しない。
 
-### 競合解消と再現可能な検証
+## 競合解消と再現可能な検証
 
 - 起動は`python -X utf8 framework/scripts/blueprint-loop.py --mode task`を推奨する。通常起動でもrunnerはUTF-8 modeで再起動し、子processへ`PYTHONUTF8=1`と`PYTHONIOENCODING=utf-8`を継承する。検証前に日本語のfile読書きと子process出力を確認し、失敗時は回帰を開始しない。text入出力ではUTF-8を明記する。
 - 競合解消後、検証したいfileと今回の`tasks/<task-name>.md`をstageしたうえで、`--staged --base <比較元commit>`を指定する。比較元はhumanの変更範囲に合うcommitを明示し、incomingも比較元との差分に含める。未解決のindex conflictは停止する。通常modeは従来どおりunstaged/staged/untrackedを検証する。
@@ -161,7 +119,7 @@ frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` 
 - 回帰fixtureは必要なframework入力とテスト内生成のproject/task/modelだけで構成し、実consumerのissues、project、model、設計、active taskをコピーしない。filesystem pathは`Path`で比較し、Markdown linkなどPOSIX表記が契約の値だけ`as_posix()`で検証する。
 - 独立した回帰scriptだけ最大2並列とし、validatorとGit差分checkは直列にする。`--jobs 1`で直列比較できる。checkごとに一時fixtureを所有し、共有workspaceへ書き込まない。失敗後も残りを実行し、中断時は実行中の子processを停止する。
 
-### 時間計測と長時間実行
+## 時間計測と長時間実行
 
 - local loopは実行ごとにrepository外のOS一時directoryへ`blueprint-loop-*`directoryを作成し、絶対pathを開始時に表示する。`--log-dir <repository外のdirectory>`で保存先の親directoryを指定できる。同時・再実行時も既存ログを上書きしない。一時directoryはOSの清掃対象なので、継続保存が必要な場合はrepository外の保存先を指定する。
 - `--profile`指定時は`validate-blueprint.py`とその`sync-model.py`子process、`model_design.checks.py`と`design_catalog.checks.py`をstdlib cProfileで計測し、同じrun directoryへ`.prof`とcheck log内の累積時間上位25件を保存する。cold検証の計測には`--fresh`も指定する。fixture copy、catalog読込、生成・検証の関数別内訳を確認する。計測自体のoverheadがあるため、通常実行の時間と直接比較しない。thread worker内部の関数はcProfileの主thread計測に含まれないため、詳細比較には`--validation-jobs 1`を使う。
@@ -225,14 +183,6 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 
 ## Retry and stop
 
-- 同じactive task、同じtask type、同じlogical failure classのautomatic correctionは最大3 iterationとする。
-- material progressなしで同じerrorが2回続いた場合は停止する。
-- missing human inputを値の発明で直さない。
-- out-of-scope file changeで停止する。
-- 未承認のdelete/replacementはfailureまたはautomatic retryとして扱わず、説明付きhuman確認待ちにする。承認されない場合はdeploy/applyを実行せず停止する。
-- `framework/materials/aws/`がbaselineと異なる場合は停止する。
-- passのためにfailing checkを抑制しない。
-
-validate/plan後に全deploymentを一律停止するhuman reviewは要求しない。未承認のdelete/replacementに対するplan固有のhuman確認と、Codex sandbox/OS permission controlは別の仕組みであり、permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
+停止・retryと許可範囲は[task-contract](task-contract.md#retry-and-stop)に従う。
 
 local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、framework regression script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。

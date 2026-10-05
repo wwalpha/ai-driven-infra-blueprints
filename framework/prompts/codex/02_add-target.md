@@ -1,6 +1,6 @@
 # Add Project Target Prompt
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
 このpromptは、初期化済みrepositoryの`project.json`へ、必要値が確定したenvironment／logical targetを1件追加するmigrationに使用する。
 
@@ -8,7 +8,7 @@ humanへJSONの作成・編集を依頼してはいけない。値を推測せ�
 
 ## Unresolved issue gate
 
-対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
 
 ## First response
 
@@ -24,11 +24,19 @@ Step 1: Environment
 ## Read first
 
 1. `AGENTS.md`
-2. `README.md`
+2. [task-contract](../../rules/task-contract.md)
 3. `project.json`
-4. `framework/rules/loop-engineering.md`
+4. [project-configuration](../../rules/project-configuration.md)
+5. [issue-gate](../../rules/issue-gate.md)
+6. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)と[Other task completion](../../rules/loop-engineering.md#other-task-completion)
 
 `project.json`が存在しない場合はfileを変更せず、`framework/prompts/codex/01_initialize.md`によるinitializationが必要であることを報告して停止する。
+
+指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+
+### Conditional rule readings
+
+framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
 
 ## Collect required values
 

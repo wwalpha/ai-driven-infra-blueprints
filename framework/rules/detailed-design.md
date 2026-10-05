@@ -1,19 +1,16 @@
 # Detailed Design Rules
 
-- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresource作成時の明示的account ID設定・名称componentは`awsAccountId`を維持する。同じtargetに作成するresourceの所有account・source accountを照合するpolicyの値（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）とAPIの暗黙のaccount context／owner検証は実行accountを使用する。設計で明示されたaccount property／cross-account参照は承認済みの値を使用し、policy内のaccountを一括置換しない。詳細は`AGENTS.md`のProject configurationに従う。
+- account／profile／target選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。
 
-対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
+対象serviceの停止と例外は[issue-gate](issue-gate.md)に従う。
 
 ## 正本と更新順
 
-catalog propertiesを項目の正本、model propertiesを設計値の正本とする。Markdownに表示される全項目・値・名称・説明はmodelから生成し、service固有表現はこのruleに従う。JSON artifactもmodelの`document`から生成する。model propertiesの更新に失敗したらMarkdownを更新しない。service単位で生成・検証し、成功したserviceの生成物を保存する。失敗serviceの保存済み生成物を維持し、他serviceの処理を続ける。詳細は`framework/rules/model-information.md`に従う。
+[Model authority](model-information.md#model-authority)と[Properties先行更新と表示生成](model-information.md#properties先行更新と表示生成)を正本とする。
 
 ## Task boundary
 
-- `design` taskはmodel propertiesのintended designを先に更新し、対応するMarkdown／JSONを`framework/scripts/sync-model.py`で生成してlocal validation後に終了する。chatbotが指定した既存resource取得では必要な非ARN current identifierも反映できる。IaC、AWS mutation、scenarioへ自動的に進まない。
-- `infrastructure` taskはintended designを変更しない。deploy/apply成功後のgenerated current valueだけを詳細設計へ反映できる。
-- infrastructure `update` phaseは、humanがtask開始前にmodel propertiesへ手動修正した未commitのintended designをimmutable inputとして受け取れる。Codexはそのintended designを変更せず、deploy/apply成功後のgenerated current valueだけを追加更新できる。
-- designの不足または変更が必要な場合、infrastructure taskは停止して別のdesign taskを要求する。
+[task-contractのTask boundary](task-contract.md#task-boundary)に従う。
 
 ## Resource management mode
 
@@ -25,7 +22,7 @@ IMPORTは許可されたread-only取得で選択済みAWS actual/current configu
 
 ## Policy account selection
 
-- resource作成時の明示的なaccount ID設定・名称componentとtarget識別には`awsAccountId`を使用する。同じtargetに作成するresourceの所有account・source accountをpolicyで照合する場合は、`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。resourceの実際の所属accountはAWS実行先で決まる。
+- 共通account選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。以下はpolicy固有の適用例と検証。
 - VPC Flow Logsの信頼policyでは、`aws:SourceAccount`と`aws:SourceArn`内のaccount部分の両方を実行accountにする。例えば実行accountが`222222222222`、regionが`ap-northeast-1`なら、それぞれ`222222222222`と`arn:aws:ec2:ap-northeast-1:222222222222:vpc-flow-log/*`になる。これらはFlow Logの所有accountとARNを照合する（[AWS公式仕様](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-iam-role.html)）。
 - 信頼policy／権限policyのCondition、`Resource` ARN、`Principal`にあるaccountは参照先の実際の所有account・source accountに合わせる。humanが明示したcross-account参照はそのaccountを維持し、policy内の数字やARNを一括置換しない。参照先が未確定なら値を推測せず停止する。
 - 同じtargetにCREATEするKMS Keyの`KeyPolicy`では、IAM権限を有効にするaccount Principalの`arn:aws:iam::<account>:root`と、同じtargetのMacieサービスリンクロールの`arn:aws:iam::<account>:role/aws-service-role/macie.amazonaws.com/AWSServiceRoleForAmazonMacie`の両方へ実行accountを使用する。`awsAccountId=111111111111`、`awsExecutionAccountId=222222222222`なら両ARNのaccount部分は`222222222222`となる。`Resource: "*"`は当該KMS Keyを表し、account IDへ置換しない（[KMS公式仕様](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html)、[Macie公式仕様](https://docs.aws.amazon.com/macie/latest/user/discovery-supported-encryption-types.html)）。
@@ -361,10 +358,8 @@ local loopは同じ生成処理で期待する一覧と表を計算し、保存�
 
 - 必要なnon-ARN generated current identifierは独立sectionではなく、`framework/materials/aws/*.properties`で`IDENTIFIER_OUTPUT`と指定された正式なcatalog propertyを該当resource tableのcatalog順の位置へ記載する。`VPC ID`や`Subnet ID`などの合成labelを作らない。
 - 未作成resourceのdeploy前はidentifier output rowの値を`PENDING_DEPLOY`とする。例えば`EC2.VPC.VpcId`の`Source / Comment`はprefixや取得元ではなく属性の意味だけを表す`一意に識別するID`とする。
-- current identifierは、infrastructure taskのdeploy/apply成功後、またはdesign taskが選択済み既存resourceをread-only取得した場合だけ実値へ更新する。同じidentifierを参照する全propertyのMarkdown link表示textも同じphysical IDへ更新し、`Source / Comment`は属性の意味を維持する。
-- replacement後はidentifier output rowと全参照元を新しいphysical IDへ同じ変更で更新する。destroy後はidentifier output rowを`PENDING_DEPLOY`へ戻し、全参照元のlink表示textも`PENDING_DEPLOY`へ戻す。
+- 取得・更新・全参照元への伝播は[observed-values](observed-values.md)に従い、表示のCommentは属性の意味を維持する。
 - human-selected nameなど通常のcatalog propertyがcurrent identifierになるresourceは、そのpropertyを使用し、`IDENTIFIER_OUTPUT`でない重複rowを作らない。
-- generated ARNは詳細設計にも`model/**`にも永続化しない。
 - old physical valueはGit履歴とAWS/IaC deployment historyで追跡し、詳細設計やscenario evidenceへ保存しない。
 - `model/**`はidentifier output rowとidentifier参照rowの同じrow keyに、anchorから解決したlogical referenceを`desired.*`、Markdownの表示textまたはidentifier output valueを`observed.*`として保持する。
 

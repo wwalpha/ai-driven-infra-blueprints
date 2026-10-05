@@ -982,6 +982,8 @@ def check_optional_naming_suffix():
         ("CloudFormation.Stack", "StackName", "cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]"),
         ("CodeCommit.Repository", "RepositoryName", "ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]"),
         ("S3.Bucket", "BucketName", "{{application}}-{{environment}}-{{purpose}}-{{account_id}}[-{{suffix}}]"),
+        ("IAM.Role", "RoleName", "{{application}}-{{environment}}-{{purpose}}-role[-{{suffix}}]"),
+        ("Athena.WorkGroup", "Name", "athwg-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("Glue.SecurityConfiguration", "Name", "glsc[-{{number}}][-{{suffix}}]"),
         ("CodeBuild.Project", "Name", "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("CodePipeline.Pipeline", "Name", "cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
@@ -990,12 +992,12 @@ def check_optional_naming_suffix():
         naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT, kind.partition(".")[0]))
         assert f"| `{kind}` | `{field}` | `{pattern}` |" in naming, kind
         assert field in naming_targets(ROOT, kind.partition(".")[0])[kind], kind
-    print("Optional naming suffix: PASS (6 exact patterns, existing components and coverage preserved)")
+    print("Optional naming suffix: PASS (8 exact patterns, existing components and coverage preserved)")
 
 
 def check_stack_policy():
     naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
-    assert "| `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{service}}-{{purpose}}-{{account_id}}` |" in naming
+    assert "| `KMS.Alias` | `AliasName` | `alias/{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]` |" in naming
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")

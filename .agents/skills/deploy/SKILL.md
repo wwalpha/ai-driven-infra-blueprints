@@ -5,10 +5,4 @@ description: 検証済みAWS IaCを、既存の04_deploy workflowに従って対
 
 Repository rootの`framework/prompts/codex/04_deploy.md`を全文読み、その内容だけを正文として実行する。Skill呼び出しに続く入力はworkflowへのhuman inputとして扱う。prompt本文を複製、再解釈、拡張しない。prompt fileが存在しない場合はrepositoryを変更せず停止する。
 
-検証scopeは`framework/rules/loop-engineering.md`に従う。通常taskはValidation scopeのserviceだけを検証し、対象限定検証後に全体検証を追加しない。
-
-CloudFormationは対象StackNameをcontrollerへ渡し、通常成功では全DeployOrderとobserved同期を一回の起動で完了する。promptとcontrollerでSTS、全stack探索、validationを二重実行しない。approval／failure／interruptionの再開は同じsessionを使用する。
-
-順次実行は全Deployment scopeを一回の起動へ渡して`--sequential`を使用する。1stackずつscope／sessionを分割しない。対応付けエラーはlint前の全scope診断で集約する。failure／blocker後に外側のloopや別sessionで残りのdeployを続行せず、依存consumerを含む未着手stackは未実行として報告する。
-
-CloudFormationの初回deploy準備はpromptの`deploy_preparation.py`を使用する。文書をfile別の出力上限内で読み、同じhashの全文を再読しない。Python環境と依存確認、契約候補・変更予約、全StackNameを一回で渡すcontroller argvを定型化し、repository外へ工程別時間を保存する。offline準備／契約登録でAWS確認を行わず、登録後の`--run-controller`一回へ既存preflightを委譲する。既存sessionのresumeは新規契約・sessionを作らない。
+読取範囲・条件付き規則・検証scopeは対応promptのRead節を正本とする。

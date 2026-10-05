@@ -1,6 +1,6 @@
 # Service Design Ask Prompt
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
 この prompt は Microsoft Copilot で、初回の詳細設計をAWS service ownership boundaryごと、または密接に関連する複数serviceの質問batchとして作成するために使用する。
 
@@ -8,7 +8,7 @@ AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時
 
 ## Unresolved issue gate
 
-対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、[issue-gate](../../rules/issue-gate.md)を適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
 
 ## User input
 
@@ -306,7 +306,7 @@ chat-only設計中は`tasks/<task-name>.md`を変更せず、完了済みの前t
 
 `Codex反映依頼`には、別のprompt fileを参照しなくてもそのままCodexで実行できる自己完結した依頼文を出力してください。Design target、environment、aliasがある場合はalias、AWS account、target directory、出力した全model propertiesのpathと完成内容、生成先Markdown／JSON artifactのpathを含め、Codexへ次の手順を明示してください。
 
-1. `AGENTS.md`、`README.md`、存在する場合は`tasks/<task-name>.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、`framework/rules/loop-engineering.md`、対象serviceのmaterialsとprovider schemaを読む。design契約登録前に`check-design-naming.py`を対象resource全件について明示したtype／modeとhuman-selectedなoptional Name tagの指定で実行する。未登録・読込失敗・未実行・失敗なら契約登録やmodel更新へ進まず、不足type／propertyを示して停止する。この事前checkの対象と実行指示をCodex反映依頼から省略しない。
+1. `AGENTS.md`、[task-contract](../../rules/task-contract.md)、[issue-gate](../../rules/issue-gate.md)、[project-configuration](../../rules/project-configuration.md)、存在する場合は`tasks/<task-name>.md`、`project.json`、対象の既存設計、`framework/rules/detailed-design.md`、`framework/rules/aws-resource-naming.md`、`framework/rules/model-information.md`、`framework/rules/observed-values.md`、[Local loop](../../rules/loop-engineering.md#local-loop)、[Validation scope](../../rules/loop-engineering.md#validation-scope)と[Design task completion](../../rules/loop-engineering.md#design-task-completion)、対象serviceのmaterialsとprovider schemaを読む。design契約登録前に`check-design-naming.py`を対象resource全件について明示したtype／modeとhuman-selectedなoptional Name tagの指定で実行する。未登録・読込失敗・未実行・失敗なら契約登録やmodel更新へ進まず、不足type／propertyを示して停止する。この事前checkの対象と実行指示をCodex反映依頼から省略しない。
 2. placeholder、未確定値、推測値がなく、targetが`project.json`と一致することを確認する。不足があればrepositoryを変更せず停止する。
 3. 最初のrepository changeとして`tasks/<task-name>.md`を今回の契約へ新規登録する。Task typeは`design`、Goalは対象の詳細設計作成、AWS mutation・IaC・deploy/apply・scenarioは禁止とする。通常設計ではAWS APIも禁止し、既存AWS configuration branchだけAWS API executionをlist/get/describe相当のread-only operationに限定して許可する。`## Validation scope`へ保存対象ごとの``- `<environment>/<target-directory>/<service-id>` ``を列挙する（aliasがあるtarget directoryはalias）。生成scopeの指定不足は停止する。task loopのvalidationも同じscopeへ限定し、全serviceへ広げない。Required changes、対応するAcceptance checks、正本の`model/**`、生成対象の`docs/designs/**`、`tasks/<task-name>.md`だけをAllowed pathsへ記載する。
 4. 作成対象の選択済み名称property／必須.Name／必須またはhuman-selectedなName tagに対応する命名ルールがあることを確認する。名称を持たないSecurity Hub CSPM（SecurityHub.Hub）などは対象外とする。rule欠落はtype／propertyを明示して停止し、patternを推測しない。指定された全model propertiesを先に保存する。model更新が失敗したらMarkdown／JSONを変更せず停止する。

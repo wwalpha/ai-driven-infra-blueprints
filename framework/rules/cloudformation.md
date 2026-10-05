@@ -1,8 +1,8 @@
 # CloudFormation Rules
 
-- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresource作成時の明示的account ID設定・名称componentは`awsAccountId`を維持する。同じtargetに作成するresourceの所有account・source accountを照合するpolicyの値（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）とAPIの暗黙のaccount context／owner検証は実行accountを使用する。設計で明示されたaccount property／cross-account参照は承認済みの値を使用し、policy内のaccountを一括置換しない。詳細は`AGENTS.md`のProject configurationに従う。
+- account／profile／target選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。
 
-対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
+対象serviceの停止と例外は[issue-gate](issue-gate.md)に従う。
 
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
@@ -99,7 +99,7 @@ failure/rollbackまたはblocker/未承認delete/replacementを検出したら�
 
 active promptが対象を限定している場合は、implement phaseでは一部のtemplate、deploy phaseでは一部のstack/resourceだけを処理して終了できる。残りのresource、別stack、scenario testへ自動的に進まない。
 
-deploy/update後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをOutputs、必要な場合だけstack resourceから取得し、詳細設計のmodelのidentifier output／全参照元のobserved valueを先に更新し、Markdownを生成する。表示同期とlocal loop後にinfrastructure taskを終了する。scenario testまたはscenario evidenceは作成・更新しない。
+成功後のidentifier収集・同期は[observed-values](observed-values.md)、task終了は[task-contract](task-contract.md)と[loop-engineering](loop-engineering.md)に従う。
 
 ## S3 deployment artifacts
 

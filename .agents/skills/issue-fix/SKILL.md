@@ -15,8 +15,8 @@ description: AWS Blueprintの明示指定された1 environment内のtarget・se
 
 ## issuesによる先行調査
 
-1. 最初に[issues skill](../issues/SKILL.md)を読み、同じenvironment・target・serviceについて呼び出す。この段階は読み取り専用のローカル調査とし、結果をチャットまたはrepository外の一時fileへ出す。issuesの調査方法・命名確認・未確認の扱いに従い、保存限定taskやissues.mdへの書き込みはまだ行わない。read-only調査ではrepository taskを登録しない。
-2. `project.json`で対象を確認し、既存の`issues/<environment>/<target-directory>/issues.md`を読む。対象指定が不足している場合は確認し、別target・serviceへ広げない。`AGENTS.md`、`framework/rules/loop-engineering.md`、`framework/rules/detailed-design.md`、`framework/rules/model-information.md`を読む。
+1. 最初にissues skillの[対象の確認](../issues/SKILL.md#対象の確認)、[issue登録の判定](../issues/SKILL.md#issue登録の判定)、[命名規則の確認](../issues/SKILL.md#命名規則の確認)、[出力](../issues/SKILL.md#出力)を読み、同じenvironment・target・serviceについて呼び出す。この段階は読み取り専用のローカル調査とし、結果をチャットまたはrepository外の一時fileへ出す。issuesの調査方法・命名確認・未確認の扱いに従い、保存限定taskやissues.mdへの書き込みはまだ行わない。read-only調査ではrepository taskを登録しない。
+2. `project.json`で対象を確認し、既存の`issues/<environment>/<target-directory>/issues.md`を読む。対象指定が不足している場合は確認し、別target・serviceへ広げない。`AGENTS.md`、[issue-gate](../../../framework/rules/issue-gate.md)、[Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure)と対象resourceの表示・参照section、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)を読む。
 3. 調査結果を、表示だけで修復できる問題、設計判断・設定変更が必要な問題、未確認へ分ける。表示以外のissueが残っていても、明示された表示修復はIssue remediationとして扱える。表示修復対象がなければ調査結果を報告して終了する。
 
 ## 修復範囲
@@ -30,7 +30,7 @@ description: AWS Blueprintの明示指定された1 environment内のtarget・se
 
 - 調査で特定した表示問題だけを対象に、`migration` taskを登録する。GoalとRequired changesへ対象issue、原因、表示修復scopeを記載し、既存issueの番号と根拠、または今回の調査結果を示す。この契約は保存限定taskの免除を使わず、`## Validation scope`とその部分集合の`## Issue remediation`へ具体的な`<environment>/<target-directory>/<service-id>`を列挙する。`all`／`framework`を修復例外にしない。
 - 契約の`## Modified files`と`## Allowed paths`へ、自分の契約、変更するmodel入口・part、生成Markdown／JSON、対象issues.mdの具体的pathを列挙する。変更予定fileは実変更前に予約し、各Requirement IDへ`changed:`／`exists:`または登録済み`check:`を対応付ける。別taskの変更・未予約の生成先を取り込まない。
-- repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、以後は`BLUEPRINT_TASK_FILE`で同じ契約を選ぶ。重複時は新規taskを停止し、既存taskを変更しない。詳細は[loop engineering](../../../framework/rules/loop-engineering.md)に従う。
+- repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、以後は`BLUEPRINT_TASK_FILE`で同じ契約を選ぶ。重複時は新規taskを停止し、既存taskを変更しない。詳細は[task-contract](../../../framework/rules/task-contract.md)に従う。
 - modelは入口indexと必要なpartを一つの論理serviceとして扱う。変更前後で設定値・resource identity・参照先が維持されていることを確認し、`framework/scripts/sync-model.py --write`で契約scopeのserviceを生成する。成功serviceの生成物を保存し、失敗serviceの保存済み生成物を保持する。
 
 ## 再検証と一覧更新
@@ -39,3 +39,7 @@ description: AWS Blueprintの明示指定された1 environment内のtarget・se
 - issues.mdは同じ修復契約内で更新する。解消を確認できた対象issueだけを除去し、表示以外の問題、未確認、対象外serviceの既存issueを保持する。新たに確認した未解決問題はissues skillの形式で記載し、更新日時・確認範囲・未検証範囲を更新する。0件でもfileを残す。
 - 最後に`python3 -B framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task-name>.md`を実行する。成功後だけ今回の契約を`completed`にする。失敗時は今回の契約を`suspend`にし、失敗check・file・具体的errorと必要なrepository外logを記録する。再開時は`task_contract.py --task-file tasks/<task-name>.md --resume`で競合を確認する。
 - チャットには修復内容、保存file、検証結果、残る設計問題・未確認を簡潔に報告して終了する。対象外の修復、次工程、別taskの作成・再開へ進まない。
+
+読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+
+framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。

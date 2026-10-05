@@ -1,5 +1,7 @@
 # Observed Values Rules
 
+## Identifier lifecycle
+
 - observed valueはcurrent deploymentから取得した必要最小限のmachine-readable valueであり、scenario evidenceではない。
 - observed valueはservice modelの`observed.*`を正本とし、詳細設計のcatalog `IDENTIFIER_OUTPUT` rowと全参照元を生成する。
 - 成功した`infrastructure` taskのAWS mutation後、または`design` taskでhumanが選択した既存resourceをread-only取得した場合だけmodelのobserved valueを先に更新し、`framework/scripts/sync-model.py`でMarkdownを再生成する。

@@ -69,6 +69,9 @@ from task_contract import task_path, task_changes, contracts, reservations, TASK
 
 
 REQUIRED_RULES = {
+    "task-contract.md",
+    "issue-gate.md",
+    "project-configuration.md",
     "aws-resource-naming.md",
     "cloudformation.md",
     "detailed-design.md",
@@ -528,6 +531,7 @@ class Validator:
     def check_acceptance_checks(self) -> None:
         registered = {
             "framework.active-task-transition": self.check_framework_active_task_transition,
+            "framework.rule-readings": self.check_framework_rule_readings,
             "framework.design-handoff": self.check_framework_design_handoff,
             "framework.task-completion-contract": self.check_framework_task_completion_contract,
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
@@ -565,7 +569,7 @@ class Validator:
         required = {
             "AGENTS.md": "tasks/<task-name>.md",
             "README.md": "tasks/<task-name>.md",
-            "framework/rules/loop-engineering.md": "## Modified files",
+            "framework/rules/task-contract.md": "## Modified files",
             "framework/prompts/chatbot/service-design.md": "tasks/<task-name>.md",
             "framework/prompts/codex/03_implement.md": "tasks/<task-name>.md",
             "framework/prompts/codex/04_deploy.md": "tasks/<task-name>.md",
@@ -576,6 +580,26 @@ class Validator:
             self.check(path.is_file(), f"active task lifecycle file missing: {relative}")
             if path.is_file():
                 self.check(literal in path.read_text(encoding="utf-8"), f"active task lifecycle rule missing: {relative}")
+
+    def check_framework_rule_readings(self) -> None:
+        from deploy_preparation import markdown_sections, rule_readings
+        sources = [self.root / "AGENTS.md", self.root / "README.md",
+                   *sorted((self.root / "framework/rules").glob("*.md")),
+                   *sorted((self.root / "framework/prompts").rglob("*.md")),
+                   *sorted((self.root / ".agents/skills").glob("*/SKILL.md"))]
+        for source in sources:
+            try:
+                text = source.read_text(encoding="utf-8")
+                rule_readings(self.root, source, text)
+                if source.parent == self.root / "framework/prompts/codex":
+                    sections = markdown_sections(text)
+                    reading = sections.get("read-first", sections.get("read-before-changing-files", ""))
+                    required = {self.root / "framework/rules" / name for name in
+                                ("task-contract.md", "issue-gate.md", "project-configuration.md")}
+                    self.check(required <= rule_readings(self.root, source, reading).keys(),
+                               f"workflow lacks canonical rule readings: {source.relative_to(self.root)}")
+            except (OSError, ValueError) as error:
+                self.check(False, f"rule reading reference: {error}")
 
     def check_framework_design_handoff(self) -> None:
         path = self.root / "framework" / "prompts" / "chatbot" / "service-design.md"
@@ -612,10 +636,10 @@ class Validator:
             self.check(literal in prompt, error)
 
     def check_framework_task_completion_contract(self) -> None:
-        agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
+        contract = (self.root / "framework/rules/task-contract.md").read_text(encoding="utf-8")
         rules = (self.root / "framework" / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
-        self.check("Requirement ID" in agents and "Acceptance checks" in agents, "AGENTS.md lacks completion contract")
-        self.check("Requirement ID" in rules and "Acceptance checks" in rules, "loop rules lack completion contract")
+        self.check("Requirement ID" in contract and "Acceptance checks" in contract, "task rules lack completion contract")
+        self.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
 
     def check_framework_task_type_dispatch(self) -> None:
         self.check(self.task_type in TASK_TYPES, "task type completion check was not dispatched")

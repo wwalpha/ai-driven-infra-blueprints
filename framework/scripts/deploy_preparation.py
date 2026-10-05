@@ -82,6 +82,74 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def markdown_prose(text):
+    """Yield original offsets and lines outside fenced examples."""
+    offset, fence = 0, None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if marker:
+            token = marker[1]
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+        elif fence is None:
+            yield offset, line
+        offset += len(line)
+
+
+def markdown_sections(text):
+    """Index real headings and their explicit anchors, ignoring fenced examples."""
+    headings, aliases = [], []
+    for offset, line in markdown_prose(text):
+        if match := re.fullmatch(r'<a id="([^"<>]+)"></a>\s*', line):
+            aliases.append(match[1])
+        elif match := re.match(r"^(#{1,6}) (.+?)\s*#*\s*$", line):
+            anchor = re.sub(r"[^\w -]", "", match[2].lower()).replace(" ", "-")
+            headings.append((offset, len(match[1]), [anchor, *aliases]))
+            aliases = []
+    result = {}
+    for index, (start, level, anchors) in enumerate(headings):
+        end = next((pos for pos, depth, _ in headings[index + 1:] if depth <= level), len(text))
+        for anchor in anchors:
+            if anchor in result and result[anchor] != text[start:end]:
+                raise ValueError(f"ambiguous rule section: {anchor}")
+            result[anchor] = text[start:end]
+    return result
+
+
+def rule_readings(root, source, text, engine=None):
+    """Use the document's rule links as the single source of reading scope."""
+    from task_contract import safe_path
+    root, source = root.resolve(), source.resolve()
+    readings, contents = {}, {}
+    prose = "".join(re.sub(r"(`+).*?\1", "", line) for _, line in markdown_prose(text))
+    for raw in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", prose):
+        if ":" in raw or raw.startswith("#"):
+            continue
+        target, _, anchor = raw.partition("#")
+        if Path(target).suffix != ".md":
+            continue
+        path = (source.parent / target).resolve()
+        if not any(path.is_relative_to(root / directory) for directory in ("framework/rules", ".agents/skills")):
+            continue
+        relative = path.relative_to(root).as_posix()
+        safe_path(root, relative)
+        if path not in contents:
+            contents[path] = path.read_bytes().decode("utf-8")
+        content = contents[path]
+        sections = markdown_sections(content)
+        if anchor and anchor not in sections:
+            raise ValueError(f"missing rule section: {source.relative_to(root)} -> {relative}#{anchor}")
+        if engine and path.name in {"cloudformation.md", "terraform.md"} and path.stem != engine:
+            continue
+        readings.setdefault(path, set()).add(anchor)
+    return {path: {"sections": sorted(anchors), "sourceText": contents[path],
+                   "text": contents[path] if "" in anchors
+                   else "\n".join(markdown_sections(contents[path])[anchor] for anchor in sorted(anchors))}
+            for path, anchors in readings.items()}
+
+
 def candidate(root, task, env, directory, target, stacks, services):
     from model_files import model_parts, read_model, model_file_contents
     from model_design import properties, entries
@@ -169,10 +237,14 @@ def prepare(root, args, run, timing):
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
-        required = ["AGENTS.md", "README.md", "project.json", "framework/prompts/codex/04_deploy.md",
-                    "framework/rules/detailed-design.md", "framework/rules/model-information.md",
-                    "framework/rules/cloudformation.md", "framework/rules/observed-values.md",
-                    "framework/rules/loop-engineering.md"]
+        prompt = root / "framework/prompts/codex/04_deploy.md"
+        reading = markdown_sections(prompt.read_text(encoding="utf-8"))["read-before-changing-files"]
+        reading = reading.split("\n### Conditional rule readings", 1)[0]
+        rules = rule_readings(root, prompt, reading, engine="cloudformation")
+        if not rules:
+            raise ValueError("deployment prompt has no required rule readings")
+        required = ["AGENTS.md", "project.json", "framework/prompts/codex/04_deploy.md"]
+        sources.update(rules)
         sources.update(root / path for path in required)
         documents, hashes = [], {}
         docs = run / "documents"
@@ -182,16 +254,20 @@ def prepare(root, args, run, timing):
             safe_path(root, relative)
             data = path.read_bytes()
             hashes[relative] = hashlib.sha256(data).hexdigest()
+            if path in rules and data.decode("utf-8") != rules[path]["sourceText"]:
+                raise ValueError(f"rule changed during preparation: {relative}")
             # Binary build artifacts are fingerprinted, never rendered as documents.
             if path.suffix == ".zip":
                 continue
-            content = data.decode("utf-8")
+            content = rules[path]["text"] if path in rules else data.decode("utf-8")
             chunks = []
             for offset in range(0, len(content), 6000):
                 output = docs / f"{index:03d}-{len(chunks) + 1:03d}.txt"
                 output.write_text(content[offset:offset + 6000], encoding="utf-8")
                 chunks.append(str(output))
-            documents.append({"source": relative, "sha256": hashes[relative], "chunks": chunks})
+            documents.append({"source": relative, "sha256": hashes[relative], "chunks": chunks,
+                              "sections": rules[path]["sections"] if path in rules else [""],
+                              "sourceCharacters": len(data.decode("utf-8")), "readCharacters": len(content)})
         chunks = []
         content = contract.read_text(encoding="utf-8")
         for offset in range(0, len(content), 6000):

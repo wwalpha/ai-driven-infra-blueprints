@@ -1,14 +1,14 @@
 # Infrastructure Deployment Prompt
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
 このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformを変更せずにdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。IaC修正とapplication behavior検証は行わない。
 
-AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resource作成時の名称・明示ID設定には`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source account（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）には実行accountを使用し、明示したcross-account参照は維持する。承認済みmodelのpolicyがこの区別と不整合なら、infrastructure／scenario taskで暗黙に修正せず停止する。CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
+account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
 
 ## Unresolved issue gate
 
-対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。CloudFormationではcontrollerが選択taskの全serviceを確認し、mutation直前にも同じgateを実行する。Terraformでは関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。CloudFormationではcontrollerへ確認を委譲し、同じpreflightを外側で重ねない。
 
 ## User input
 
@@ -35,25 +35,33 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 ## Read before changing files
 
 1. `AGENTS.md`
-2. `README.md`
+2. [task-contract](../../rules/task-contract.md)
 3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
 5. deployment scopeが所有・参照するserviceの`docs/designs/<environment>/<target-directory>/<service-id>.md`
 6. 対応する`model/<environment>/<target-directory>/<service-id>.properties`と必要なpart。StackName対応はcontrollerが正本stack modelから解決する
-7. `framework/rules/detailed-design.md`
-8. `framework/rules/model-information.md`
-9. 選択済みengineに対応する`framework/rules/cloudformation.md`または`framework/rules/terraform.md`
-10. `framework/rules/observed-values.md`
-11. `framework/rules/loop-engineering.md`
+7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection)。CloudFormationは[CloudFormation stack詳細設計](../../rules/detailed-design.md#cloudformation-stack詳細設計)、設計表示を変更・調査する場合だけ関連する表示sectionを追加する。
+8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
+9. 選択済みengineに対応する[cloudformation](../../rules/cloudformation.md)または[terraform](../../rules/terraform.md)
+10. [observed-values](../../rules/observed-values.md)
+11. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)。[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
 12. 対象IaC file
 
-必須文書はfileごとに読む。tool出力の上限を超える場合は同じfileを行範囲または後述の6,000文字chunkで分割し、全文を省略なしで確認する。複数の大きなfileを一つの出力へ連結しない。同じ準備中に確認済みのfileは内容hashが同じなら再読しない。変更・追加・削除があれば該当fileだけ読み直す。
+- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。
+
+必須文書はfile／指定sectionごとに読む。tool出力の上限を超える場合は同じfileを行範囲または後述の6,000文字chunkで分割し、指定された読取範囲を省略なしで確認する。複数の大きなfileを一つの出力へ連結しない。同じ準備中に確認済みのfileは内容hashが同じなら再読しない。変更・追加・削除があれば該当fileだけ読み直す。
 
 Python launcherは準備開始時に既存の利用可能な一つの環境へ固定し、以後の準備・契約登録・controller・local loopへ同じ絶対pathとPATH/PYTHONPATHを使う。依存不足は一度に列挙して同じ環境で解消し、別Pythonを順番に試したり認証確認を重ねたりしない。credential値をログへ保存しない。
 
 詳細設計、service model、IaCが矛盾する場合は、値やIaCを修正せず停止する。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+
+指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+
+### Conditional rule readings
+
+framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
 
 ## CloudFormation offline preparation
 
@@ -66,7 +74,7 @@ Python launcherは準備開始時に既存の利用可能な一つの環境へ�
 
 この処理はAWS API、account認証、対応付け検証、lint、controllerを起動せず、repositoryも変更しない。依存をまとめて確認し、既存`load_target`／`load_units`／`read_model`／`model_parts`でtarget・正本StackNameと生成stack設計の一致を解決し、既存の予約検査で競合を確認する。`cloudformation-stacks`を含む明示serviceのmodel入口・part・observed追加時の分割候補・生成Markdown/JSONを具体的pathで予約する。scope外の参照元が必要ならcontrollerの安全確認で停止し、scopeを暗黙に広げない。
 
-出力のrepository外`preparation.json`に、確認するfileと内容hash、file別の6,000文字以内のchunk、契約候補、固定Pythonとtool path、全StackNameを含む一つのcontroller argv／sessionを保存する。`documents`のchunkをfileごとに省略なしで確認し、同じhashで既に全文を読んだfileは再読しない。これは文書確認用であり、modelから生成した設計の整合性検証を代替しない。binary artifactはhashだけを記録する。
+出力のrepository外`preparation.json`に、確認するfileと内容hash、必須ruleの指定sectionとfile別の6,000文字以内のchunk、契約候補、固定Pythonとtool path、全StackNameを含む一つのcontroller argv／sessionを保存する。`documents`のchunkをfileごとに省略なしで確認し、同じhashで指定範囲を確認済みのfileは再読しない。これは文書確認用であり、modelから生成した設計の整合性検証を代替しない。binary artifactはhashだけを記録する。
 
 全必須文書と候補が今回のhuman依頼に一致したら、次を実行する。追加のhuman review gateを設けない。
 

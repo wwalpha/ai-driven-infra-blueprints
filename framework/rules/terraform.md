@@ -1,8 +1,8 @@
 # Terraform Rules
 
-- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresource作成時の明示的account ID設定・名称componentは`awsAccountId`を維持する。同じtargetに作成するresourceの所有account・source accountを照合するpolicyの値（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）とAPIの暗黙のaccount context／owner検証は実行accountを使用する。設計で明示されたaccount property／cross-account参照は承認済みの値を使用し、policy内のaccountを一括置換しない。詳細は`AGENTS.md`のProject configurationに従う。
+- account／profile／target選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。
 
-対象environment/target/serviceに未解決issueがある間は通常taskを開始・継続しない。`framework/rules/loop-engineering.md`のUnresolved issue gateに従い、issue調査とhumanが明示したIssue remediationだけを許可する。
+対象serviceの停止と例外は[issue-gate](issue-gate.md)に従う。
 
 - Terraformは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
@@ -46,4 +46,4 @@
 - secretを出力せず、generated ARNをobserved valueとして保存しない。
 - existing environmentのCloudFormation/Terraform切替はdedicated migration/import taskとし、normal updateで行わない。
 
-apply後は`framework/rules/observed-values.md`の優先順位で必要なnon-ARN identifierをTerraform output、必要な場合だけstateから取得し、詳細設計のmodelのidentifier output／全参照元のobserved valueを先に更新してMarkdownを再生成する。local loop後にinfrastructure taskを終了し、次のmodule、environment、scenario-test taskへ自動的に進まず、scenario testまたはscenario evidenceを作成・更新しない。
+成功後のidentifier収集・同期は[observed-values](observed-values.md)、task終了は[task-contract](task-contract.md)と[loop-engineering](loop-engineering.md)に従う。

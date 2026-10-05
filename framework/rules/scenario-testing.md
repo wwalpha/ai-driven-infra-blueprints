@@ -1,6 +1,6 @@
 # Scenario Testing Rules
 
-- AWS実行accountはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`とする。AWS操作前のcaller account検証はこの実行accountと照合し、credential/profileを自動切替しない。target selectorとpath、およびresource作成時の明示的account ID設定・名称componentは`awsAccountId`を維持する。同じtargetに作成するresourceの所有account・source accountを照合するpolicyの値（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）とAPIの暗黙のaccount context／owner検証は実行accountを使用する。設計で明示されたaccount property／cross-account参照は承認済みの値を使用し、policy内のaccountを一括置換しない。詳細は`AGENTS.md`のProject configurationに従う。
+- account／profile／target選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。
 
 ## Task boundary
 

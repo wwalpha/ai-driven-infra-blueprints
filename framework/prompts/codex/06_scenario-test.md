@@ -1,14 +1,14 @@
 # Scenario Test
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
 このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
 
-AWS caller accountの検証にはtargetの`awsExecutionAccountId`、未設定時は`awsAccountId`を使用する。`--aws-account-id`やtask scope、target directoryのaccount IDはtargetを識別する`awsAccountId`を維持する。実行account設定だけではcredentialは変わらず、既存のprofile選択を維持し、不一致では停止する。resource作成時の名称・明示ID設定には`awsAccountId`を使用する。同じtargetに作成するresourceを認可するpolicyの所有account・source account（`aws:SourceAccount`、`aws:SourceArn`内のaccount部分など）には実行accountを使用し、明示したcross-account参照は維持する。承認済みmodelのpolicyがこの区別と不整合なら、infrastructure／scenario taskで暗黙に修正せず停止する。CFnのnative `AWS::AccountId`とAPIの暗黙account contextは実行先を使用する。詳細は`framework/rules/detailed-design.md`のPolicy account selectionに従う。
+account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
 
 ## Unresolved issue gate
 
-対象environment／target／serviceを確定した時点で、通常taskの開始前と再開時に`issues/<environment>/<target-directory>/issues.md`を確認し、`framework/rules/loop-engineering.md`のUnresolved issue gateを適用する。関係する全serviceについて`python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>`を実行する。未解決issueがあれば設計質問、設計保存、IaC変更、deploy/apply、scenarioなど他taskへ進まず、対象issueと停止理由を示す。issue調査とhumanが明示した修復だけを許可し、修復taskには対象serviceだけのValidation scopeとIssue remediationを記載する。AWS mutation直前にも再確認し、既存のtask boundaryとAWS execution許可は維持する。
+対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
 
 ## User input
 
@@ -29,20 +29,27 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 ## Read before changing files
 
 1. `AGENTS.md`
-2. `README.md`
+2. [task-contract](../../rules/task-contract.md)
 3. `project.json`
-4. `framework/rules/scenario-testing.md`
-5. `framework/rules/loop-engineering.md`
+4. [scenario-testing](../../rules/scenario-testing.md)
+5. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)と[Scenario-test task completion](../../rules/loop-engineering.md#scenario-test-task-completion)
 6. 対象の`tests/scenarios/<scenario-id>/`
 7. 対象の`tests/results/<scenario-id>/<environment>/<target-directory>/`
-8. `framework/rules/model-information.md`
+8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
 9. 必要な`model/<environment>/<target-directory>/<service-id>.properties`を正本のread-only design inputとして読む
+- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。
 
 設計値は`desired.*`、必要なcurrent identifierは`observed.*`から取得する。入口indexを確認し、既存の`model_files.py --find`で必要なproperty／identifierの位置を特定し、`model_files.py --resource`で対象resourceと必要な参照先resourceだけを部分読み取りする。分割modelは必要なpartの該当箇所だけをLLM contextへ読み込み、生成済み`docs/designs/**`のMarkdown本文を通常のdesign inputとして事前読込しない。
 
 Markdown／JSON artifactの生成と正本propertiesとの整合性検証は既存script／local loopで維持する。LLMの事前読込を省くことを理由に、Validation scopeや検証項目を縮小しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。result metadataのAWS accountにはdirectory名ではなく`project.json`の実際のAWS account IDを記録する。
+
+指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+
+### Conditional rule readings
+
+framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
 
 ## Create active task contract
 

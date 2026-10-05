@@ -3,7 +3,7 @@ name: env-diff
 description: desired propertiesのdev→stg／stg→prod、cde／non-cdeから選択した組を比較元を正として比較し、サービス別の差異を簡潔にまとめて比較先のdiff.mdへ保存するときに使用する。
 ---
 
-契約は`tasks/<task-name>.md`へtaskごとに登録する。Task statusを`running`とし、`## Modified files`へ今回変更する具体的なfile path（契約自身、新規file、生成artifact、model part、削除対象を含む）を列挙する。Allowed pathsのglobは予約fileの代わりにしない。repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、進行中taskとのfile重複があれば新規taskを停止する。既存taskの契約を上書きしない。以後のcommandは`BLUEPRINT_TASK_FILE`で同じ契約を選択し、local loopには`--task-file`を指定する。成功後に今回のstatusだけを`completed`へ変更する。詳細は`framework/rules/loop-engineering.md`に従う。
+保存・修復の契約登録は[task-contract](../../../framework/rules/task-contract.md)に従う。
 
 
 # 環境間のdesired比較
@@ -12,7 +12,7 @@ description: desired propertiesのdev→stg／stg→prod、cde／non-cdeから�
 
 ## 比較
 
-- `AGENTS.md`、`framework/rules/model-information.md`、`framework/rules/loop-engineering.md`、`framework/rules/aws-resource-naming.md`を読む。
+- `AGENTS.md`、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)、[loopのLocal loop](../../../framework/rules/loop-engineering.md#local-loop)、[aws-resource-naming](../../../framework/rules/aws-resource-naming.md)を読む。
 - 比較候補はdev↔stg／cde、stg↔prod／cde、dev↔stg／non-cde、stg↔prod／non-cdeの4組。依頼された組だけ選択し、比較組の指定がなければ確認する。全4組へ自動拡大しない。選択した組についてだけ`project.json`のenvironmentと確定済みaliasを確認する。別名・accountへの対応を推測せず、不足は未確認として報告する。
 - 前のenvironmentのdesiredを正（比較基準）とする。dev→stgはdevが基準、stg→prodはstgが基準。JSONの`left`を基準、`right`を比較先として扱う。比較先に基準のresource／propertyがなければ`不足`、比較先だけなら`追加`、両側の値が異なれば`値の相違`と記載する。
 - `--pair dev-stg`または`--pair stg-prod`でenvironmentの組、`--target cde`または`--target non-cde`でtargetを選ぶ。両方指定すると1組、pairだけならその2targetを比較する。選択外のmodelは読まない。dev↔stgだけなら未完成のprodは不要。
@@ -138,3 +138,7 @@ Snowflake接続・VPC接続
 ```
 - 実行ごとに同じdiff.mdの今回比較したserviceの結果を更新し、対象外serviceの結果は保持する。比較不能となった範囲の旧結果は最新と扱わず未確認と明記する。今回IMPORTとして除外したresourceの旧差分・名称確認・関連注記と冒頭のIMPORT除外説明は最新結果から除去し、IMPORT関連だけのservice見出し・本文も削除する。今回許容された環境差異と確認した旧差分は掲載・件数から除去する。再比較で差分・命名規則不一致・未確認・比較不能事項がなくなったserviceは、旧見出しと本文を削除する。全serviceに掲載事項がなければfileの冒頭情報だけを残し、空の`## サービス別の差異`や`差分なし`の説明は書かない。履歴用・timestamp別fileを増やさない。
 - 保存後は`python3 -B framework/scripts/blueprint-loop.py --mode local`を実行する。選択した組の差分要約、未確認事項、diff.mdの保存先、検証結果を報告して終了する。設計・model・IaC修正、AWS API、deploy/applyへ進まない。
+
+読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+
+framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。

@@ -1609,6 +1609,27 @@ def check_stack_mapping_targets():
     assert "生成・変更後も" in prompt and "identifier行の不足を自動補完せず" in prompt
 
 
+def check_rule_reading_contract() -> None:
+    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator.check_framework_rule_readings()
+    assert not validator.errors, validator.errors
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        (root / "README.md").write_text("reference fixture\n")
+        rule = root / "framework/rules/fixture.md"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("## Present\nrequired rule\n")
+        agents = root / "AGENTS.md"
+        agents.write_text("[rule](framework/rules/fixture.md#missing)\n")
+        validator = MODULE.Validator(root)
+        validator.check_framework_rule_readings()
+        assert len(validator.errors) == 1 and "missing rule section" in validator.errors[0], validator.errors
+        agents.write_text("[rule](framework/rules/fixture.md#present)\n")
+        validator = MODULE.Validator(root)
+        validator.check_framework_rule_readings()
+        assert not validator.errors, validator.errors
+
+
 def main() -> None:
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
@@ -1622,6 +1643,7 @@ def main() -> None:
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
     assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
+    check_rule_reading_contract()
     check_task_contract()
     check_idle_without_active_task()
     check_task_type_dispatch()
@@ -1646,7 +1668,7 @@ def main() -> None:
     check_cloudformation_stack_design()
     check_stack_mapping_targets()
     check_design_handoff_prompt()
-    print("validate-blueprint: PASS (62 focused checks)")
+    print("validate-blueprint: PASS (63 focused checks)")
 
 
 if __name__ == "__main__":
