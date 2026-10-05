@@ -381,7 +381,7 @@ class Comparison:
                         template = self.root / 'infra/cloudformation/templates' / self.target.get('alias', '') / unit['template']
                         self.inputs.add(template)
                         if not template.is_file():
-                            self.record('difference', service, identity, '*', 'CREATE template not implemented', desired={'resourceType': kind, 'logical': logical}, stack=name, template={'path': template.relative_to(self.root).as_posix()})
+                            self.record('difference', service, identity, '*', 'モデルに対応するtemplateが存在しない（CREATE未実装）', desired={'resourceType': kind, 'logical': logical}, stack=name, template={'path': template.relative_to(self.root).as_posix()})
                             continue
                         template, (document, parameters, pseudo) = self.stack(unit)
                         definition = document.get('Resources', {}).get(logical)

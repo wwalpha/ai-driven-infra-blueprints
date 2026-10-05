@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 from issues_iac import Comparison, same, selected_same, strict_json, module
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload
-from issues_reports import save, blocks, numbered, identifier
+from issues_reports import save, blocks, numbered, identifier, iac_merge
 from model_design import properties, entries, markdown_for
 from model_files import load_model, read_model, model_file_contents, resource_row_index
 from validation_cache import input_scope
@@ -153,6 +153,26 @@ def checks(root, values, template):
     assert comparator.metrics['template_decodes'] == 1
     assert comparator.metrics['stack_evaluations'] == 3
     assert comparator.metrics['model_parses'] == 4
+    # Missing explicit templates remain non-blocking differences with readable, unlinked paths.
+    template_path = root / 'infra/cloudformation/templates/shared.yaml'
+    template_path.unlink()
+    try:
+        _, missing = compare(root, services)
+        assert len(missing) == 9 and all(item['category'] == 'difference' for item in missing), missing
+        assert all(item['reason'] == 'モデルに対応するtemplateが存在しない（CREATE未実装）' for item in missing)
+        report = iac_merge(root, root / 'issues/dev/123456789012/iac-issues.md', 'dev', '123456789012', services, missing)
+        assert '差分 9件; 未比較 0件; 処理error 0件' in report
+        assert '`infra/cloudformation/templates/shared.yaml`（ファイルが存在しない）' in report
+        assert '[infra/cloudformation/templates/shared.yaml]' not in report
+        comparison = Comparison(root, 'dev', '123456789012', ['s3'])
+        comparison.resources['s3']['001']['resourceMode'] = 'IMPORT'
+        comparison.resources['s3']['002']['cfn-logicalId'] = 'undeclared-stack-Bucket'
+        categories = {item['resource']: item for item in comparison.run()}
+        assert categories['001']['category'] == 'excluded'
+        assert categories['002']['category'] == 'uncompared' and 'stack is not declared' in categories['002']['reason']
+        assert categories['003']['category'] == 'difference'
+    finally:
+        mutate_template(root, template)
     from issues_iac import safe_value
     assert safe_value([{'Name': 'SECRET_TOKEN', 'Value': 'confidential'}])[0]['Value'] == '<masked>'
     assert same(1, True) is False and same('1', 1) is False

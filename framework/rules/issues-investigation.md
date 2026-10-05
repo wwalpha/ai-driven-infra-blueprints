@@ -76,6 +76,8 @@ report保存は既存のrepository外共有registration lockで短く直列化�
 
 `iac-issues.md`冒頭は非阻害結果、scope、日時、今回差分/未比較/error件数とstatusを記載する。保持された旧差分は今回件数と区別する。通常MarkdownのH2環境/target、H3 service、issue-service marker、番号付きissue形式を維持する。作業/性能ログは一覧へ混ぜない。チャットは件数、未比較/残判断、保存先、保存後validationだけ短く返す。
 
+CREATEの明示対応templateが存在しない場合は「モデルに対応するtemplateが存在しない（CREATE未実装）」と対象resource・stack・欠落pathをIaC差分に明記する。存在しないfileにはlinkを作らない。stack/template対応が未確定の場合は不存在と断定せず未比較理由を記載し、IMPORTは欠落判定から除外する。
+
 ## Framework regression and fixture benchmark
 
 この入口の開発時はframework scopeのfull loopを実行する。通常issuesへframework全回帰を追加する意味ではない。`issues_scan.checks.py`は隔離fixtureと既存checks形式で検査し、`--benchmark --log-dir /tmp/issues-performance`でA（現checkoutの変更前相当通常経路）/B（同じ通常check＋service別reference比較）/C（一括scan）を同じruntime・fresh cache・profileなしで繰り返し測定する。benchmark fixtureとdiagnosticsはrepository外にだけ置く。

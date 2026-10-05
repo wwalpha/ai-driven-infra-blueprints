@@ -90,7 +90,7 @@ def evidence(root, report, source):
         return ''
     path = safe_path(root, source['path'])
     if not path.is_file():
-        return f"{source['path']} (missing; no link)"
+        return f"`{source['path']}`（ファイルが存在しない）"
     number = source.get('line')
     if number is not None and (type(number) is not int or not 1 <= number <= line_count(path)):
         raise ValueError('invalid evidence line')
