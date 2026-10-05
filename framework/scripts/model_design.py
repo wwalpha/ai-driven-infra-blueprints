@@ -36,7 +36,6 @@ NAMING_EXEMPT_PROPERTIES = {
     "IAM.InstanceProfile.InstanceProfileName",
     "Route53.HostedZone.Name",
     "Route53.RecordSet.Name",
-    "SecretsManager.Secret.Name",
 }
 
 
@@ -709,9 +708,10 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
                 if child["resourceType"] == ROTATION_SCHEDULE:
                     child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                                   for rid, prop, value, comment in child_rows]
-                child_display = display_rows(child["resourceType"], child_rows)
-                for row in child_display:
-                    row[1] = child["resourceType"] + "." + row[1]
+                child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows)
+                if child["resourceType"] != ROTATION_SCHEDULE:
+                    for row in child_display:
+                        row[1] = child["resourceType"] + "." + row[1]
                 if child["resourceType"] == LAMBDA_PERMISSION:
                     hidden = [row[1:] for row in child_rows if row[1] in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]
                     child_display = [row for row in child_display if row[1] not in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]

@@ -90,6 +90,23 @@ def main():
         HELPERS.roundtrip(path, comments, root)
         path.write_text(output)
 
+        metadata = fixture()
+        for key in list(metadata):
+            if key.startswith("desired.row.002-"):
+                row, field = key.removeprefix("desired.row.002-").split(".", 1)
+                metadata[f"desired.row.002-{int(row) + 4:03d}.{field}"] = metadata.pop(key)
+        for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two")), 1):
+            prefix = f"desired.row.002-{index:03d}."
+            metadata.update({prefix + "property": ROTATION + ".ExternalSecretRotationMetadata[]." + field,
+                             prefix + "value": f"`{value}`", prefix + "comment": "外部ローテーションの設定値"})
+        metadata_output = HELPERS.roundtrip(path, metadata, root)
+        for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two"))):
+            assert f"| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} | `{value}` |" in metadata_output
+        assert "| SecretsManager.RotationSchedule.ExternalSecretRotationMetadata" not in metadata_output
+        assert properties(SYNC.imported_model(path, root)) == metadata
+        SYNC.validate_views(root, root, [path], {path: metadata})
+        path.write_text(output)
+
         # Both desired metadata and the formal property are authoritative.
         for field in ("parentReference", "parentProperty"):
             bad = dict(values)

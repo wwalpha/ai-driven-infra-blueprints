@@ -9,7 +9,7 @@
 - AWS生成のphysical ID、ARN、DNS name、IP addressには適用しない。
 - `IAM.ManagedPolicy.ManagedPolicyName`、`IAM.User.UserName`、`IAM.InstanceProfile.InstanceProfileName`は命名conventionと命名ルールcoverage checkの対象外とする。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は対象外にしない。
 - `Config.ConfigurationRecorder.Name`、`Config.DeliveryChannel.Name`、`Glue.Connection.ConnectionInput.Name`、`GuardDuty.Detector.Name`、`Route53.HostedZone.Name`、`Route53.RecordSet.Name`は命名ルールcoverage checkの対象外とする。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は維持する。`GuardDuty.Detector.Name`の除外はcatalogにないpropertyの追加・使用を許可するものではない。Name tagや他のName propertyへ除外を拡張しない。
-- `SecretsManager.Secret.Name`、`Glue.Database.DatabaseInput.Name`、`Glue.Table.TableInput.Name`は命名conventionと命名ルールcoverage checkの対象外とする。Secrets Managerの`{{application}}-{{environment}}-{{purpose}}`、Glue Databaseの`{{application}}*{{environment}}*{{purpose}}`、Glue Tableの`{{purpose}}`は名称形式の参考として保持し、Glue Tableは業務上のtable名を維持する。これらの形式への適合はチェックしない。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は維持し、Name tagや他のName propertyへ除外を拡張しない。
+- `Glue.Database.DatabaseInput.Name`、`Glue.Table.TableInput.Name`は命名conventionと命名ルールcoverage checkの対象外とする。Glue Databaseの`{{application}}*{{environment}}*{{purpose}}`、Glue Tableの`{{purpose}}`は名称形式の参考として保持し、Glue Tableは業務上のtable名を維持する。これらの形式への適合はチェックしない。名称値の欠落・未確定値やprovider schemaの型・pattern・lengthなどの検証は維持し、Name tagや他のName propertyへ除外を拡張しない。
 - `CodeBuild.Project.Name`は詳細設計で必須とし、確定済みnon-empty literalをresourceごとに1 row保持する。Name tagや表示labelで代替せず、未確定なら停止する。
 - root-levelの`Tags`または`HostedZoneTags`はtag設定能力を示すだけで、`Name` tagの必須性を意味しない。`Name` tagはdefaultでoptionalとする。
 - `Name` tagを必須とするcatalog resource typeは`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`と`EC2.VPCEndpoint`とする。前4種類は詳細設計でそれぞれ`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`の1 rowで表す。
@@ -83,6 +83,7 @@
 | `Events` | [Events](aws-resource-naming/Events.md) |
 | `FMS` | [FMS](aws-resource-naming/FMS.md) |
 | `Glue` | [Glue](aws-resource-naming/Glue.md) |
+| `GuardDuty` | [GuardDuty](aws-resource-naming/GuardDuty.md) |
 | `IAM` | [IAM](aws-resource-naming/IAM.md) |
 | `KMS` | [KMS](aws-resource-naming/KMS.md) |
 | `Kinesis` | [Kinesis](aws-resource-naming/Kinesis.md) |
@@ -103,6 +104,7 @@
 | `SQS` | [SQS](aws-resource-naming/SQS.md) |
 | `SSM` | [SSM](aws-resource-naming/SSM.md) |
 | `Scheduler` | [Scheduler](aws-resource-naming/Scheduler.md) |
+| `SecretsManager` | [SecretsManager](aws-resource-naming/SecretsManager.md) |
 | `WAFv2` | [WAFv2](aws-resource-naming/WAFv2.md) |
 
 provider schemaまたはAWS serviceの現在の制約が対象service fileの制約より厳しい場合は、厳しい方を適用する。制約を満たせない場合は名称を推測して補正せず、humanへ確認して停止する。

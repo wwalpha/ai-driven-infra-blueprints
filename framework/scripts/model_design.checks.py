@@ -781,7 +781,6 @@ def check_naming_exclusions():
                             ("Config.ConfigurationRecorder", "Name"), ("Config.DeliveryChannel", "Name"),
                             ("Glue.Connection", "ConnectionInput.Name"), ("GuardDuty.Detector", "Name"),
                             ("Glue.Database", "DatabaseInput.Name"), ("Glue.Table", "TableInput.Name"),
-                            ("SecretsManager.Secret", "Name"),
                             ("Route53.HostedZone", "Name"), ("Route53.RecordSet", "Name")):
             service = kind.split(".")[0].lower()
             path = root / f"docs/designs/dev/123456789012/{service}.md"
@@ -834,7 +833,7 @@ def check_naming_exclusions():
         pass
     else:
         raise AssertionError("naming exemption added an unsupported GuardDuty property")
-    print("Naming exclusions: PASS (12 properties; design, generation, value/schema checks and coverage boundaries)")
+    print("Naming exclusions: PASS (11 properties; design, generation, value/schema checks and coverage boundaries)")
 
 
 def check_service_scoped_naming():
@@ -870,6 +869,26 @@ def check_service_scoped_naming():
 
 
 def check_design_naming_preflight():
+    from design_catalog import DesignSchemaCatalog
+    secret_rules = naming_rule_files(ROOT, "SecretsManager")
+    assert [path.name for path in secret_rules] == ["aws-resource-naming.md", "SecretsManager.md"]
+    assert "| `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose}}` |" in secret_rules[1].read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "docs/designs/dev/cde/secrets-manager.md"
+        name = "sample/dev/db-credentials"
+        for field in ("Name", "SecretsManager.Secret.Name"):
+            assert not naming_errors(ROOT, "SecretsManager.Secret", [["1", field, f"`{name}`", "認証情報の名前"]])
+        assert not DesignSchemaCatalog(ROOT).literal_errors("SecretsManager.Secret", "Name", name)
+        values = model("secrets-manager", "SecretsManager.Secret", name, [("Name", f"`{name}`", "認証情報の名前")], "DatabaseCredentials")
+        assert f"### SecretsManager.Secret: {name}" in roundtrip(path, values, ROOT)
+        for invalid in ("", "UNSET", "PENDING_DEPLOY"):
+            values["desired.row.001-001.value"] = f"`{invalid}`"
+            try:
+                markdown_for(path, values, ROOT)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Secret name accepted an unconfirmed value: {invalid}")
     for kind in ("S3.Bucket", "EC2.Instance", "EC2.VPCEndpoint", "EC2.VPC", "IAM.Role",
                  "SecurityHub.Hub", "SecretsManager.Secret", "Macie.ClassificationJob", "SSM.Association"):
         assert not design_naming_errors(ROOT, kind), kind
@@ -908,8 +927,11 @@ def check_design_naming_preflight():
         run("S3.Bucket", "")  # No model, target or design value exists yet.
         run("EC2.Instance", "naming rule missing: EC2.Instance: Name tag")
         run("CloudFront.CachePolicy", "naming rule missing: CloudFront.CachePolicy: CachePolicyConfig.Name")
-        run("SecretsManager.Secret", "")
+        run("SecretsManager.Secret", "naming rule missing: SecretsManager.Secret: Name")
         run("SecretsManager.Secret", "naming rule missing: SecretsManager.Secret: Name tag", "--name-tag")
+        run("SecretsManager.Secret", "", "--mode", "IMPORT")
+        entrance.write_text(entrance.read_text(encoding="utf-8") + "| Fixture | Secret | `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose}}` |\n", encoding="utf-8")
+        run("SecretsManager.Secret", "")
         run("SecurityHub.Hub", "")
         run("EC2.Instance", "", "--mode", "IMPORT")
         run("Unknown.Type", "catalog resource type missing: Unknown.Type")
@@ -978,11 +1000,12 @@ def check_security_naming():
 
 
 def check_optional_naming_suffix():
+    from design_catalog import DesignSchemaCatalog
     patterns = (
         ("CloudFormation.Stack", "StackName", "cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]"),
         ("CodeCommit.Repository", "RepositoryName", "ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]"),
         ("S3.Bucket", "BucketName", "{{application}}-{{environment}}-{{purpose}}-{{account_id}}[-{{suffix}}]"),
-        ("IAM.Role", "RoleName", "{{application}}-{{environment}}-{{purpose}}-role[-{{suffix}}]"),
+        ("IAM.Role", "RoleName", "{{application}}-{{environment}}-{{purpose}}Role[-{{suffix}}]"),
         ("Athena.WorkGroup", "Name", "athwg-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
         ("Glue.SecurityConfiguration", "Name", "glsc[-{{number}}][-{{suffix}}]"),
         ("CodeBuild.Project", "Name", "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]"),
@@ -993,6 +1016,18 @@ def check_optional_naming_suffix():
         naming = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT, kind.partition(".")[0]))
         assert f"| `{kind}` | `{field}` | `{pattern}` |" in naming, kind
         assert field in naming_targets(ROOT, kind.partition(".")[0])[kind], kind
+    schema = DesignSchemaCatalog(ROOT)
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "docs/designs/dev/cde/iam.md"
+        for suffix in ("", "-aaaaaa"):
+            name = "venusinf-dev-DataManagementRole" + suffix
+            assert not schema.literal_errors("IAM.Role", "RoleName", name)
+            values = model("iam", "IAM.Role", name, [
+                ("RoleName", f"`{name}`", "データ管理のロール名"),
+                ("AssumeRolePolicyDocument", '`{"Version":"2012-10-17","Statement":[]}`', "信頼ポリシー"),
+            ], "DataManagementRole")
+            output = roundtrip(path, values, ROOT)
+            assert f"### IAM.Role: {name}" in output
     print("Optional naming suffix: PASS (9 exact patterns and coverage preserved)")
 
 
