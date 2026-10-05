@@ -23,6 +23,7 @@ from urllib.parse import quote, urlencode
 from model_design import (properties, stack_model, markdown_for, deployment_settings,
                           deployment_bucket, ARTIFACT_PROPERTIES, LINK)
 from model_files import read_model
+from deploy_preparation import Timing
 from issue_gate import require_target_no_issues
 from task_contract import task_path, status
 from cloudformation_inputs import Blocked, resolve_value, load_template_inputs
@@ -230,6 +231,7 @@ class AwsBackend:
             raise Blocked("explicit AWS profile does not match target awsProfile")
         self.root, self.environment, self.directory = root, environment, directory
         self.target, self.profile, self.approvals = target, configured_profile or profile, set(approvals)
+        self.timing = Timing(root)
         self.templates = {}
         self.validated_digests = {}
         self.expected_digests = {}
@@ -251,11 +253,12 @@ class AwsBackend:
         command = ["aws", "--region", self.target["awsRegion"]]
         if self.profile:
             command += ["--profile", self.profile]
-        result = subprocess.run(command + [service, operation, *arguments, "--output", "json", "--no-cli-pager"],
-                                capture_output=True, text=True, timeout=60)
-        if result.returncode:
-            raise Blocked(result.stderr.strip())
-        return json.loads(result.stdout or "{}")
+        with self.timing.phase("awsApi", service=service, operation=operation):
+            result = subprocess.run(command + [service, operation, *arguments, "--output", "json", "--no-cli-pager"],
+                                    capture_output=True, text=True, timeout=60)
+            if result.returncode:
+                raise Blocked(result.stderr.strip())
+            return json.loads(result.stdout or "{}")
 
     def paths(self, unit):
         template = self.root / "infra/cloudformation/templates" / self.target.get("alias", "") / unit["template"]
@@ -698,7 +701,7 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
         return result
 
 
-def main(argv=None, root=None):
+def controller_main(argv=None, root=None, timing=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
@@ -706,6 +709,7 @@ def main(argv=None, root=None):
     selector.add_argument("--aws-account-id")
     parser.add_argument("--stack", action="append", required=True, help="exact StackName; repeat for scope")
     parser.add_argument("--state", type=Path, required=True, help="persistent session path outside repository")
+    parser.add_argument("--timing-log", type=Path, help="external JSONL phase durations, including authentication and AWS calls")
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
     parser.add_argument("--resume", action="store_true")
@@ -729,7 +733,10 @@ def main(argv=None, root=None):
         phase = active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
         if args.pause_after_group and phase != "update":
             raise Blocked("--pause-after-group requires the explicit update phase")
-        target = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias, args.profile)
+        context_started = time.perf_counter()
+        with timing.phase("authenticationContext"):
+            target = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias, args.profile)
+        context_seconds = time.perf_counter() - context_started
         if target["iacEngine"] != "cloudformation":
             raise Blocked("controller requires CloudFormation target")
         lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
@@ -743,6 +750,7 @@ def main(argv=None, root=None):
         if args.sequential:
             limit = 1
         backend = AwsBackend(root, args.environment, directory, target, args.profile, args.approve_change_set)
+        backend.timing = timing
         if phase == "deploy":
             paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
             revision = subprocess.run(["git", "status", "--porcelain", "--", *paths], cwd=root,
@@ -776,9 +784,10 @@ def main(argv=None, root=None):
         session.update(version=2, designDigest=current_design, profile=backend.profile)
         metrics = session.setdefault("metrics", {})
         for key in ("controllerInvocationCount", "validationCount", "deployOrderCount", "observedSyncSeconds",
-                    "inputLoadSeconds", "mappingCheckSeconds", "lintSeconds", "totalControllerSeconds"):
+                    "inputLoadSeconds", "mappingCheckSeconds", "lintSeconds", "totalControllerSeconds", "contextCheckSeconds"):
             metrics.setdefault(key, 0)
         metrics["controllerInvocationCount"] += 1
+        metrics["contextCheckSeconds"] += context_seconds
         for change_id in args.approve_change_set:
             matches = [state for state in session["states"].values() if state.get("changeSetId") == change_id]
             if len(matches) != 1 or matches[0]["status"] != "BLOCKED" or not matches[0].get("changeDigest"):
@@ -867,6 +876,24 @@ def main(argv=None, root=None):
         if lock is not None:
             lock.close()
             lock_path.unlink(missing_ok=True)
+
+
+def main(argv=None, root=None):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--timing-log", type=Path)
+    args, _ = parser.parse_known_args(argv)
+    root = (root or Path(__file__).resolve().parents[2]).resolve()
+    try:
+        timing = Timing(root, args.timing_log)
+        with timing.phase("controller"):
+            result = controller_main(argv, root, timing)
+            # A nonzero result is a failed invocation even when handled internally.
+            if result:
+                raise Blocked("controller stopped; see session/diagnostics")
+            return result
+    except (OSError, ValueError, Blocked) as error:
+        print(f"CloudFormation controller: BLOCKED ({error})", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

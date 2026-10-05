@@ -47,13 +47,40 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 11. `framework/rules/loop-engineering.md`
 12. 対象IaC file
 
+必須文書はfileごとに読む。tool出力の上限を超える場合は同じfileを行範囲または後述の6,000文字chunkで分割し、全文を省略なしで確認する。複数の大きなfileを一つの出力へ連結しない。同じ準備中に確認済みのfileは内容hashが同じなら再読しない。変更・追加・削除があれば該当fileだけ読み直す。
+
+Python launcherは準備開始時に既存の利用可能な一つの環境へ固定し、以後の準備・契約登録・controller・local loopへ同じ絶対pathとPATH/PYTHONPATHを使う。依存不足は一度に列挙して同じ環境で解消し、別Pythonを順番に試したり認証確認を重ねたりしない。credential値をログへ保存しない。
+
 詳細設計、service model、IaCが矛盾する場合は、値やIaCを修正せず停止する。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
 
+## CloudFormation offline preparation
+
+対象の全StackNameと、所有・参照する全service IDを既存properties readerで確認して明示する。service、resource、parameter、参照先の選択を推測しない。CloudFormationでは即席scriptによる契約・予約生成を行わず、次の準備処理を一回実行する。Terraformは既存の契約作成手順を使用する。
+
+```console
+<fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--log-dir <external-directory>]
+# aliasなしでは --aws-account-id <aws-account-id>
+```
+
+この処理はAWS API、account認証、対応付け検証、lint、controllerを起動せず、repositoryも変更しない。依存をまとめて確認し、既存`load_target`／`load_units`／`read_model`／`model_parts`でtarget・正本StackNameと生成stack設計の一致を解決し、既存の予約検査で競合を確認する。`cloudformation-stacks`を含む明示serviceのmodel入口・part・observed追加時の分割候補・生成Markdown/JSONを具体的pathで予約する。scope外の参照元が必要ならcontrollerの安全確認で停止し、scopeを暗黙に広げない。
+
+出力のrepository外`preparation.json`に、確認するfileと内容hash、file別の6,000文字以内のchunk、契約候補、固定Pythonとtool path、全StackNameを含む一つのcontroller argv／sessionを保存する。`documents`のchunkをfileごとに省略なしで確認し、同じhashで既に全文を読んだfileは再読しない。これは文書確認用であり、modelから生成した設計の整合性検証を代替しない。binary artifactはhashだけを記録する。
+
+全必須文書と候補が今回のhuman依頼に一致したら、次を実行する。追加のhuman review gateを設けない。
+
+```console
+<fixed-python> framework/scripts/deploy_preparation.py --register <external-preparation.json>
+```
+
+登録時は入力hash・runtime・最新issue・競合を再確認し、同じPythonで既存`task_contract.py --task-file ... --source ...`を一回使用する。候補の変更・入力変更・競合では登録せず停止する。変更した文書を読み直して準備を作り直し、既存task／sessionの再開では新規準備・契約を作らず既存resume手順を使用する。生成された契約と出力だけでdeploy完了とは扱わない。
+
+`timing.jsonl`は環境確認、契約準備、文書のI/O、文書snapshot作成後から登録までの経過、登録を分けて記録する。snapshot以後の経過にはエージェントの確認・tool待ち時間も含まれる。通常準備は60秒以内を目標にし、`within60Seconds=false`なら遅い工程を実測で報告する。60秒超過だけで打切り、PASS、確認省略を行わない。認証・通信はcontroller側の別工程として測定する。fixtureによるAWS変更なしの計測は実deploy時の所要時間と区別する。
+
 ## Create active task contract
 
-最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
+最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。CloudFormationは上記`--register`でこの契約を作成するため、手動で二重登録しない。
 
 - Task typeは`infrastructure`とする。
 - Infrastructure phaseは`deploy`とする。
@@ -119,10 +146,11 @@ aliasがある場合はTarget alias行も追加し、その値をbacktickで囲�
 2. cfn-lintと同じPython環境からcontrollerを起動する。全scopeの入力読込とresource／identifier対応を先に確認する。対応付け不一致は全stack・resource分を一括報告し、cfn-lintとchange set作成前に停止する。対応が一意な場合だけ全scopeのcfn-lintとsource／入力hashを確認し、各unitの順番でImportValue実Export確認、宣言済み成果物のS3配置、実行用template検証、validate-template、個別change set作成、add/change/delete/replacement分類、同一change set再確認、実行、terminal確認を行う。templateは51,200 bytes以下なら直接送信、超過〜1 MiBなら指定bucketへ配置して同じS3 URLをvalidate-templateとchange setへ渡す。上限超過または必要設定不足・upload失敗ではchange setを作成しない。これらのCLIをpromptから別方式で実行して二重管理しない。
 
 ```console
-python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]
-# aliasなしでは --alias の代わりに --aws-account-id <aws-account-id>
-# 順次実行の依頼には、全scopeを同じ起動へ渡して --sequential を追加する
+<fixed-python> framework/scripts/deploy_preparation.py --run-controller <external-preparation.json>
+# 全StackName、固定Python、同task専用sessionとtiming-logを一回のcontroller起動へ渡す
 ```
+
+準備済みargvを一回だけ起動し、別途のSTS/context、対応付け、lintを重ねない。再開時は`preparation.json`の同じcontroller argv／sessionへ既存の`--resume`と承認済みの場合だけ`--approve-change-set`を追加し、同じtask selectorとruntimeを維持する。
 
 3. controllerは通常一回の起動で全DeployOrderを実行する。順次実行は`--sequential`で実行上限を1にし、設計のMaxConcurrentStacksを変更しない。全対象を繰り返し`--stack`で渡し、順次指定や失敗一覧の収集を理由に1stackずつ別controller／sessionへ分割しない。通常は同group内だけMaxConcurrentStacksまで実行し、空いたslotへ次stackを開始する。producer成功前にconsumerのchange setを作成しない。停止条件後は外側のloopで別stackを起動せず、依存consumerを含む未着手stackをNOT_STARTEDとして報告する。全件の対応付け診断は実行前チェックで収集する。list-exportsに必要なExportがない場合やscope内producerが未成功ならBLOCKEDとし、設計された順序とImport/Export関係の矛盾を報告する。scope外のproducerを自動追加しない。
 4. 未承認delete/replacementがあればcontrollerはBLOCKEDとして同じchange set IDと変更のfingerprintをrepository外sessionへ保持し、他のRUNNING stackをterminalまで確認する。次の`Confirm unapproved delete/replacement`の影響説明・human確認を行う。`--approve-change-set`は人間がそのchange set全体を承認した場合だけ渡す。事前承認も実change setの全破壊変更との一致を確認してから同じ方法で再開する。

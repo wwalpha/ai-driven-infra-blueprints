@@ -718,7 +718,7 @@ def check_session_cli():
         for name in ("a", "b"):
             (params / (name + ".json")).write_text("[]\n")
         state_file = base / "session.json"
-        argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file)]
+        argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file), "--timing-log", str(base / "timing.jsonl")]
         backends, validation_calls = [], []
         destructive = [True]
         def backend_factory(root, environment, directory, target, profile, approvals):
@@ -757,6 +757,9 @@ def check_session_cli():
                 return result
         assert invoke(["--profile", "other"]) == 2
         assert not backends and not state_file.exists()
+        timing = [json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()]
+        assert any(event["phase"] == "authenticationContext" and event["result"] == "FAIL" for event in timing)
+        assert timing[-1]["phase"] == "controller" and timing[-1]["result"] == "FAIL"
         # Diagnose every mapping error before lint or AWS preparation, not 25 deployments.
         errors = {"A": ["A/MissingVpc: model resource matches=0", "A/MissingRole: model resource matches=0"],
                   "B": ["B/Repository: identifier row missing/ambiguous: RepositoryId"]}
@@ -768,6 +771,7 @@ def check_session_cli():
         assert all(stopped["states"][name]["preflightErrors"] == details for name, details in errors.items())
         assert stopped["metrics"]["validationCount"] == stopped["metrics"]["lintSeconds"] == 0
         assert stopped["metrics"]["inputLoadSeconds"] >= 0 and stopped["metrics"]["mappingCheckSeconds"] >= 0
+        assert stopped["metrics"]["contextCheckSeconds"] >= 0
         assert not validation_calls and not backends[-1].calls and not execution_limits
         assert invoke(["--resume"]) == 2
         session = json.loads(state_file.read_text())
@@ -1354,6 +1358,29 @@ def check_integrated_child_mapping():
         assert before == {path: path.read_bytes() for path in before}
     print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
 
+
+def check_api_timing():
+    from deploy_preparation import Timing
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "timing.jsonl"
+        backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
+        backend.timing = Timing(ROOT, path)
+        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Stacks":[]}', stderr="")):
+            assert backend.aws("describe-stacks", "--stack-name", "private-stack") == {"Stacks": []}
+        with patch.object(M.subprocess, "run", side_effect=M.subprocess.TimeoutExpired("aws", 60)):
+            try:
+                backend.aws("describe-stacks", "--stack-name", "private-stack")
+            except M.subprocess.TimeoutExpired:
+                pass
+            else:
+                raise AssertionError("API timeout accepted")
+        events = [json.loads(line) for line in path.read_text().splitlines()]
+        assert [event["result"] for event in events] == ["PASS", "FAIL"]
+        assert all(event["phase"] == "awsApi" and event["seconds"] >= 0 for event in events)
+        assert "private-stack" not in path.read_text() and "Stacks" not in path.read_text()
+
+
+check_api_timing()
 
 check_scheduler()
 check_aws_adapter()
