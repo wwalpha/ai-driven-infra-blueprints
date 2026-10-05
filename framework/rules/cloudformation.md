@@ -9,7 +9,7 @@
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - 対象targetの`awsProfile`があればpreflightとcontrollerが自動使用する。直接のAWS CLI（validate-template、list/get/describe、observed値取得を含む）にも同じ`--profile`と対象regionを渡す。設定と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
-- CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。`ImportValue`の値に`!Sub`を使用しない。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
+- CloudFormation templateをYAMLで記載する際、AWSが短縮記法を提供する組み込み関数は全種類で`!`形式を使い、対応する`Ref:`や`Fn::...:`の長形式を禁止する。例外はsuffix付きExportを参照する`!ImportValue {Fn::Join: ['', ['ExportBase', !Ref Suffix]]}`だけとする。YAMLでは短縮tagを直接重ねられないため、この式の`Fn::Join`だけ長形式を許可する。`ImportValue`の値に`!Sub`を使用しない。配列引数も`JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`のように短縮記法のフロー形式で記載する。
 - `!If`の配列引数は、条件名に続くtrue側とfalse側の値をそれぞれ別行・同じインデントで並べ、比較しやすくする。フロー形式を維持し、例えば次の形式とする。
 
   ```yaml

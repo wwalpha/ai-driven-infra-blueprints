@@ -974,13 +974,13 @@ def check_observed_collector():
         resource("001", "EC2.VPC", "vpc-test-dev", "ec2-vpc-test-dev", [
             ("Name", "`vpc-test-dev`"), ("VpcId", "[vpc-test-dev](#ec2-vpc-test-dev)"), ("CidrBlock", "`10.1.0.0/16`")])
         resource("002", "EC2.Subnet", "sbnt-test-dev-private-app-a-01", "ec2-sbnt-test-dev-private-app-a-01", [
-            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("SubnetId", "[sbnt-test-dev-private-app-a-01](#ec2-sbnt-test-dev-private-app-a-01)"),
-            ("CidrBlock", "`10.1.1.0/24`"), ("VpcId", "[vpc-test-dev](#ec2-vpc-test-dev)")])
+            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "[vpc-test-dev](#ec2-vpc-test-dev)"),
+            ("SubnetId", "[sbnt-test-dev-private-app-a-01](#ec2-sbnt-test-dev-private-app-a-01)"), ("CidrBlock", "`10.1.1.0/24`")])
         # Initialize the existing standard observed row format, including comments.
-        for rid in ("001-002", "002-002", "002-004"):
+        for rid in ("001-002", "002-003", "002-002"):
             for field in ("property", "comment"):
                 values[f"observed.row.{rid}.{field}"] = values[f"desired.row.{rid}.{field}"]
-            values[f"observed.row.{rid}.value"] = "PENDING_DEPLOY" if rid == "002-004" else "`PENDING_DEPLOY`"
+            values[f"observed.row.{rid}.value"] = "PENDING_DEPLOY" if rid == "002-002" else "`PENDING_DEPLOY`"
         def save_model():
             source.write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
             design.write_text(markdown_for(design, values, root))
@@ -1009,8 +1009,8 @@ def check_observed_collector():
         before = source.read_bytes()
         # One model scan collects missing identities and identifier rows across stacks.
         import cloudformation_observed as observed
-        subnet_identifier = values["desired.row.002-002.value"]
-        values["desired.row.002-002.value"] = "`PENDING_DEPLOY`"
+        subnet_identifier = values["desired.row.002-003.value"]
+        values["desired.row.002-003.value"] = "`PENDING_DEPLOY`"
         source.write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
         broken_templates = {
             "A": ({"Resources": {"MissingVpc": {"Type": "AWS::EC2::VPC"},
@@ -1026,7 +1026,7 @@ def check_observed_collector():
                 raise AssertionError("mapping diagnostics did not stop the full scope")
             assert scan.call_count == 1
         source.write_bytes(before)
-        values["desired.row.002-002.value"] = subnet_identifier
+        values["desired.row.002-003.value"] = subnet_identifier
         output[0] = "vpc-different"
         rejects(lambda: sync_successful(backend, [unit], states([unit])), "disagree")
         assert source.read_bytes() == before
@@ -1051,8 +1051,8 @@ def check_observed_collector():
             sync_successful(backend, [unit], saved)
         observed = properties(source.read_text())
         assert observed["observed.row.001-002.value"] == "`" + physical[0] + "`"
-        assert observed["observed.row.002-004.value"] == physical[0]
-        assert observed["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
+        assert observed["observed.row.002-002.value"] == physical[0]
+        assert observed["observed.row.002-003.value"] == "`PENDING_DEPLOY`"
         assert {k: v for k, v in observed.items() if not k.startswith("observed.")} == {k: v for k, v in values.items() if not k.startswith("observed.")}
         assert saved["A"]["observedSynced"] and physical[0] in design.read_text()
         # Replacement/current ID and output-absent PhysicalResourceId fallback.
@@ -1060,7 +1060,7 @@ def check_observed_collector():
         physical[0] = "vpc-1234567890abcdef0"
         with redirect_stdout(io.StringIO()):
             sync_successful(backend, [unit], saved)
-        assert properties(source.read_text())["observed.row.002-004.value"] == physical[0]
+        assert properties(source.read_text())["observed.row.002-002.value"] == physical[0]
         assert "arn:aws" not in source.read_text()
         physical[0] = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/secret"
         before = source.read_bytes()
@@ -1079,7 +1079,7 @@ def check_observed_collector():
         with redirect_stdout(io.StringIO()):
             sync_successful(backend, [unit], saved)
         assert source.read_bytes() == index and model_parts(source) == parts
-        assert properties(read_model(source))["observed.row.002-004.value"] == physical[0]
+        assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
 
         # Approved physical deletion resets the formal row and every reference; retention blocks.
         document["Resources"] = {}
@@ -1092,7 +1092,7 @@ def check_observed_collector():
         with redirect_stdout(io.StringIO()):
             sync_successful(backend, [unit], saved)
         assert properties(read_model(source))["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
-        assert properties(read_model(source))["observed.row.002-004.value"] == "PENDING_DEPLOY"
+        assert properties(read_model(source))["observed.row.002-002.value"] == "PENDING_DEPLOY"
 
 
 def check_shared_stack_mapping():

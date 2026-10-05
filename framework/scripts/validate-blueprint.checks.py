@@ -699,8 +699,8 @@ def check_identifier_propagation() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
-| 2 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-| 3 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 3 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
 """,
             encoding="utf-8",
         )
@@ -1368,6 +1368,9 @@ def check_cloudformation_yaml_rules() -> None:
             "    Type: AWS::EC2::Instance\n"
         )
         assert not errors(valid), errors(valid)
+        suffix_import = valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue {Fn::Join: ['', ['KmsAppKeyArn', !Ref Suffix]]}")
+        assert not errors(suffix_import), errors(suffix_import)
+        assert any("must use YAML short form" in error for error in errors(suffix_import.replace("!Ref Suffix", "{Ref: Suffix}")))
         assert any(
             "resources must be separated by a blank line" in error
             for error in errors(valid.replace("\n  RoleB:", "  RoleB:", 1))
