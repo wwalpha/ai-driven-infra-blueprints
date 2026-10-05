@@ -211,6 +211,23 @@ def check_task_type_dispatch() -> None:
     assert not validator.errors, validator.errors
 
 
+    # Generated equality is checked separately; views need not have a Git diff.
+    for changed in (
+        {"model/dev/123456789012/logs.properties"},
+        {"model/dev/123456789012/logs/part-001.properties"},
+        {"model/dev/123456789012/logs.properties", "model/dev/123456789012/vpc.properties",
+         "docs/designs/dev/123456789012/vpc.md"},
+        {"docs/designs/dev/123456789012/vpc.md"},
+        {"docs/designs/dev/123456789012/iam/role01-policy.json"},
+        set(),
+    ):
+        validator = MODULE.Validator(SCRIPT.parents[2])
+        validator.task_type = "design"
+        validator.changed_paths = changed | {"tasks/active.md"}
+        validator.check_task_type_requirements()
+        assert bool(validator.errors) == (not any(path.startswith("model/") for path in changed)), validator.errors
+
+
 def check_optional_alias_targets() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

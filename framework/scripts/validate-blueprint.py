@@ -484,18 +484,10 @@ class Validator:
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             models = {service_model_path(self.root / path, self.root / "model").relative_to(self.root).as_posix()
                       for path in model_files}
-            self.check(bool(markdown or artifacts), "design task must change detailed-design Markdown or JSON artifacts")
             self.check(bool(models), "design task must change authoritative service properties")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
                 self.check(expected in models, f"changed design Markdown lacks changed service model: {path}")
-            for path in models:
-                expected = "docs/designs/" + path.removeprefix("model/").removesuffix(".properties") + ".md"
-                service = expected.removesuffix(".md") + "/"
-                self.check(
-                    expected in changed or any(artifact.startswith(service) for artifact in artifacts),
-                    f"changed authoritative model lacks changed generated design: {path}",
-                )
             for path in artifacts:
                 parts = Path(path).parts
                 if len(parts) >= 6:

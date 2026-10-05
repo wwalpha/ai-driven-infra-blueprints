@@ -221,6 +221,23 @@ display.resource.001.comment=通信ログを保存するLog Group
         result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "ec2" in result.stdout, result.stdout
         assert "Validation: all" in result.stdout and "framework regression: skipped" in result.stdout
+        # Baseline view is already correct; repair only the authoritative model.
+        active.write_text(contract.replace('- [R1] `changed:docs/designs/dev/123456789012/logs.md`\n', ''), encoding="utf-8")
+        model.write_text(good_model.replace("value=14", "value=7"), encoding="utf-8")
+        subprocess.run(["git", "add", str(model.relative_to(root)), str(design.relative_to(root))], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "model/view mismatch baseline"], cwd=root, check=True)
+        model.write_text(good_model, encoding="utf-8")
+        result = run()
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not subprocess.check_output(["git", "diff", "--", str(design.relative_to(root))], cwd=root)
+        assert design.read_text(encoding="utf-8") == good_design
+        design.write_text(good_design.replace("14", "7"), encoding="utf-8")
+        result = run()
+        assert result.returncode != 0 and "generated Markdown is stale" in result.stdout, result.stdout
+        design.unlink()
+        result = run()
+        assert result.returncode != 0 and "validation input missing" in result.stdout, result.stdout
     print("task-service-validation: PASS (scoped design, excluded error, mismatch, name, schema, reference, contract scope, explicit all)")
 
 
