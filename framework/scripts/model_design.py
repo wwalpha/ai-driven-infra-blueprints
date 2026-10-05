@@ -41,6 +41,18 @@ NAMING_EXEMPT_PROPERTIES = {
 
 
 def properties(text: str) -> dict[str, str]:
+    # Keep caller mutation isolated while reusing an already validated invocation parse.
+    memo = memo_table()
+    key = (properties, text)
+    if memo is not None and key in memo:
+        return dict(memo[key])
+    result = _parse_properties(text)
+    if memo is not None:
+        memo[key] = result
+    return dict(result)
+
+
+def _parse_properties(text: str) -> dict[str, str]:
     result = {}
     for number, line in enumerate(text.splitlines(), 1):
         if not line.strip() or line.startswith("#"):

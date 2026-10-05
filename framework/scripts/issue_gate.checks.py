@@ -54,7 +54,12 @@ def main():
         assert not issue_errors(root, scope)
         (path.parent / "diff.md").write_text("### ec2\n\n1. 環境間の差分\n")
         assert not issue_errors(root, scope)  # Differences never enter the unresolved issue inventory.
+        for contents in ("### ec2\n1. 差分\n", "invalid inventory; 999 differences", ""):
+            (path.parent / "iac-issues.md").write_text(contents)
+            assert not issue_errors(root, scope)
         path.write_text(original)
+        assert issue_errors(root, scope)
+        assert not issue_errors(root, {("dev", "cde", "s3")})
 
         active = root / "tasks/active.md"
         active.parent.mkdir()
@@ -74,7 +79,7 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
-        for name in ("issues.md", "diff.md"):
+        for name in ("issues.md", "iac-issues.md", "diff.md"):
             report = f"issues/dev/cde/{name}"
             investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
                 f"\n## Allowed paths\n\n- `tasks/active.md`\n- `{report}`\n")

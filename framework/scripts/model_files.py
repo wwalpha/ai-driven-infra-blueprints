@@ -8,6 +8,8 @@ import importlib.util
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
+from validation_cache import memoized
 from task_contract import task_path, require_writable
 
 MAX_LINES = 600
@@ -16,10 +18,10 @@ INDEX_HEADER = "# model-index: 1"
 PART_PREFIX = "# part: "
 
 
-def model_parts(path: Path) -> list[Path]:
+def model_parts(path: Path, *, text: str | None = None) -> list[Path]:
     if path.is_symlink() or path.with_suffix("").is_symlink():
         raise ValueError(f"model files must not use symlinks: {path}")
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = (path.read_text(encoding="utf-8") if text is None else text).splitlines()
     indexed = bool(lines and lines[0] == INDEX_HEADER)
     if any(line.startswith(("# model-index:", PART_PREFIX)) for line in lines) and not indexed:
         raise ValueError(f"invalid model index: {path}")
@@ -45,20 +47,66 @@ def model_parts(path: Path) -> list[Path]:
     return parts if indexed else [path]
 
 
-def read_model(path: Path) -> str:
+class LoadedModel(NamedTuple):
+    text: str
+    values: dict[str, str]
+    locations: dict[str, tuple[Path, int]]
+    files: dict[Path, str]
+
+
+@memoized
+def load_model(path: Path) -> LoadedModel:
+    """One validated parse with real part locations; immutable within input_scope."""
     from model_design import properties
-    parts = model_parts(path)
-    contents = []
+    entrance = path.read_text(encoding="utf-8")
+    parts = model_parts(path, text=entrance)
+    contents, files, locations = [], {path: entrance}, {}
     for part in parts:
-        content = part.read_text(encoding="utf-8")
-        if part != path and (len(content.splitlines()) > MAX_LINES or INDEX_HEADER in content.splitlines()):
+        content = entrance if part == path else part.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        if part != path and (len(lines) > MAX_LINES or INDEX_HEADER in lines):
             raise ValueError(f"invalid or oversized model part: {part}")
         if part != parts[-1] and not content.endswith("\n"):
             raise ValueError(f"model part must end with a newline: {part}")
+        files[part] = content
         contents.append(content)
+        for number, line in enumerate(lines, 1):
+            if line.strip() and not line.startswith("#"):
+                key = line.partition("=")[0]
+                if key in locations:
+                    previous, previous_line = locations[key]
+                    raise ValueError(f"invalid or duplicate model property: {part}:{number}: {key}; first at {previous}:{previous_line}")
+                locations[key] = (part, number)
     text = "".join(contents)
-    properties(text)  # Reject duplicate keys across parts as well as malformed values.
-    return text
+    return LoadedModel(text, properties(text), locations, files)
+
+
+def read_model(path: Path) -> str:
+    return load_model(path).text
+
+
+def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict[str, str]]]]:
+    """Index legacy IDs as well as numbered resources using the existing prefix rule.
+
+    Ambiguous overlapping legacy identities are rejected, never split at first '-'.
+    """
+    from model_design import entries
+    resources = dict(entries(values, "desired.resource."))
+    index = {identity: [] for identity in resources}
+    # A row's final segment is its row number; legacy resource IDs may contain '-'.
+    for rid, row in entries(values, "desired.row."):
+        owner = rid.rpartition("-")[0]
+        if owner not in resources:
+            raise ValueError(f"orphan desired row: {rid}")
+        prefix, overlapping = owner, []
+        while "-" in prefix:
+            prefix = prefix.rpartition("-")[0]
+            if prefix in resources:
+                overlapping.append(prefix)
+        if overlapping:
+            raise ValueError(f"ambiguous legacy row ownership: {rid}: {overlapping + [owner]}")
+        index[owner].append((rid, row))
+    return index
 
 
 def model_file_contents(path: Path, text: str) -> dict[Path, str]:

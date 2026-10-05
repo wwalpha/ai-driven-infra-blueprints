@@ -65,6 +65,18 @@ repository変更は[task契約](framework/rules/task-contract.md)に従って`ta
 
 停止条件・修復・保存限定taskの例外は[issue gate](framework/rules/issue-gate.md)を正本とします。
 
+## Local issues scan
+
+issuesは[対象限定scan・Python保存](framework/rules/issues-investigation.md)を使う。既存validator診断と全resourceの最小命名材料を確認し、通常issueは`issues.md`、非阻害model→IaC差分は`iac-issues.md`へ別保存する。`diff.md`は環境間比較用のまま。issue gateは`issues.md`だけを読む。
+
+```console
+python3 framework/scripts/issues_scan.py scan --environment <environment> --target-directory <alias-or-account-id> --service <service-id> --artifact /tmp/issues-scan.json
+python3 framework/scripts/issues_scan.py --task-file tasks/<task-name>.md save --artifact /tmp/issues-scan.json --review /tmp/issues-review.json
+python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task-name>.md
+```
+
+複数serviceは`--service`を繰り返す。保存済み結果だけは`save-results`を使い再調査しない。全名称・残判断のreview、保存限定契約、partial/error、CloudFormationの対応/未対応範囲はリンク先に従う。
+
 ## Context priority
 
 実行時の入口と読取規則は[AGENTS.md](AGENTS.md)と使用skill／workflowのRead節です。READMEは人間向けguideで、毎taskの全文読込対象ではありません。target設定は[project configuration](framework/rules/project-configuration.md)、設計値と生成物の関係は[model information](framework/rules/model-information.md#model-authority)に従います。背景情報・外部情報は必要な範囲だけ参照します。

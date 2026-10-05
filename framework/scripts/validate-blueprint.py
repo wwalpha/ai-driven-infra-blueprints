@@ -165,8 +165,9 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None) -> None:
         self.workers = workers
+        self.model_check = model_check
         self.cache = PassCache(root, fresh) if cache else None
         self.relative_paths = {}
         self.canonical_root = root.resolve()
@@ -459,7 +460,7 @@ class Validator:
             scope = active_scope(self.root)
             if self.task_type == "migration" and scope:
                 reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
-                           for name in ("issues.md", "diff.md")}
+                           for name in ("issues.md", "iac-issues.md", "diff.md")}
                 prompt = task_path(self.root)
                 permitted = reports | {self.relative(prompt)}
                 lines = prompt.read_text(encoding="utf-8").splitlines()
@@ -690,8 +691,9 @@ class Validator:
             checks = self.cache.load(keys[entry]) if self.cache else None
             if checks is not None:
                 reused[entry] = checks
+        self.service_keys = keys
         missing = self.scope - reused.keys()
-        generator = Validator(self.root, missing, workers=self.workers)
+        generator = Validator(self.root, missing, workers=self.workers, model_check=self.model_check)
         generator.accounts = self.accounts
         if missing:
             generator.check_generated_service_models()
@@ -703,7 +705,7 @@ class Validator:
         def validate(scope):
             validator = Validator(self.root, scope)
             validator.accounts = self.accounts
-            validator.schema_catalog = DesignSchemaCatalog(self.root)
+            validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.root)
             validator.generated_models_checked = True
             validator.check_designs()
             validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
@@ -743,6 +745,10 @@ class Validator:
             return
         self.generated_models_checked = True
         if self.scope == set():
+            return
+        if self.model_check is not None:
+            errors = self.model_check(self.scope)
+            self.check(not errors, "\n".join(errors) or "generated service models match")
             return
         command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
                    "--jobs", str(self.workers)]
