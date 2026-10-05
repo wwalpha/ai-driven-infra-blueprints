@@ -69,14 +69,14 @@ service resource詳細設計のfile grouping unitは、security boundaryやIAM P
 
 - target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
 - fileは`docs/designs/<environment>/<target-directory>/<service-id>.md`に置く。
-- Service IDは原則lower-kebab-case（Security Group専用の`security_group`だけ例外）とし、file stemおよび対応する`model/<environment>/<target-directory>/<service-id>.properties`と一致させる。
+- Service IDはlower-kebab-caseとし、file stemおよび対応する`model/<environment>/<target-directory>/<service-id>.properties`と一致させる。
 - 同じAWS serviceに属する複数resource typeとinstanceは同じfileに置いてよい。
 - 運用上関連するだけの別AWS serviceを同じfileへ入れない。CloudFormation resource namespaceだけでgroupingを決めない。
 - child componentは親resourceと同じAWS serviceに属する場合だけ同じfileに置いてよい。別AWS serviceのresourceはchild componentとして扱わない。
 - IAM RoleとPolicyは利用先service専用でもIAM service fileへ置く。
 - CloudWatch Logs resourceは利用元serviceではなくCloudWatch Logs service fileへ置く。
 - VPC Flow LogはAmazon VPCのservice fileへ置き、IAM RoleとLog Groupをcross-file referenceで参照する。
-- `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security_group.md`だけに置く。Design service IDは`security_group`、対応modelは`security_group.properties`、anchorは共通のresource表示名規則に従う。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
+- `EC2.SecurityGroup`と所属する`EC2.SecurityGroupIngress`／`EC2.SecurityGroupEgress`は`ec2.md`から分離し、`security-group.md`だけに置く。Design service IDは`security-group`、対応modelは`security-group.properties`、anchorは共通のresource表示名規則に従う。このfileに他resource typeを混在させず、参照元linkも専用fileのanchorへ向ける。
 - service間dependencyはfile統合ではなく正本modelのrelative Markdown linkとexplicit anchorで保持し、Markdownへ同じreferenceを生成する。
 - 未使用serviceの空design fileを作らない。
 - design file boundaryとCloudFormation stack/template boundaryは別概念とする。

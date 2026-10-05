@@ -424,7 +424,7 @@ def check_description_design_constraints() -> None:
         target = root / "docs/designs/dev/123456789012"
         target.mkdir(parents=True)
         iam = target / "iam.md"
-        sg = target / "security_group.md"
+        sg = target / "security-group.md"
         iam_text = """# IAM 詳細設計
 
 - Design service ID: `iam`
@@ -452,7 +452,7 @@ def check_description_design_constraints() -> None:
 """
         sg_text = """# Security Group 詳細設計
 
-- Design service ID: `security_group`
+- Design service ID: `security-group`
 - Owned catalog resource types: `EC2.SecurityGroup`
 
 ## リソース一覧
@@ -461,12 +461,12 @@ def check_description_design_constraints() -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [app-sg](#security_group-app-sg) | アプリケーションの通信制御 |
+| 1 | [app-sg](#security-group-app-sg) | アプリケーションの通信制御 |
 
 ## リソース詳細
 
 <!-- resource-logical-id: GroupOne -->
-<a id="security_group-app-sg"></a>
+<a id="security-group-app-sg"></a>
 ### EC2.SecurityGroup: app-sg
 
 | No. | Property | Value | Source / Comment |
@@ -476,7 +476,7 @@ def check_description_design_constraints() -> None:
 | 3 | GroupName | `app-sg` | 名前 |
 | 4 | VpcId | [PENDING_DEPLOY](vpc.md#vpc-app-vpc) | 所属するVPCのID |
 """
-        metadata = {iam: ("iam", ("IAM.Role",)), sg: ("security_group", ("EC2.SecurityGroup",))}
+        metadata = {iam: ("iam", ("IAM.Role",)), sg: ("security-group", ("EC2.SecurityGroup",))}
 
         def validate(role_text=iam_text, group_text=sg_text):
             iam.write_text(role_text, encoding="utf-8")
@@ -491,8 +491,8 @@ def check_description_design_constraints() -> None:
         assert not validate().errors, validate().errors
         for resource, prop, filename, role_text, group_text in (
             ("RoleOne", "IAM.Role.Description", "iam.md", iam_text.replace("Application role", "日本語の説明"), sg_text),
-            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security_group.md", iam_text, sg_text.replace("Application access", "日本語の説明")),
-            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security_group.md", iam_text, sg_text.replace("Application access", "Why?")),
+            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security-group.md", iam_text, sg_text.replace("Application access", "日本語の説明")),
+            ("GroupOne", "EC2.SecurityGroup.GroupDescription", "security-group.md", iam_text, sg_text.replace("Application access", "Why?")),
         ):
             errors = validate(role_text, group_text).errors
             assert len(errors) == 1, errors

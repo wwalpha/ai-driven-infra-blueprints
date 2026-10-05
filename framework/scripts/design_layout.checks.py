@@ -312,7 +312,7 @@ def check_codebuild_variable_display() -> None:
 def check_codebuild_vpc_display() -> None:
     vpc_rows = """| 11 | VpcConfig.Subnets[1] | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |
 | 12 | VpcConfig.Subnets[2] | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |
-| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security_group.md#security_group-codebuild-sg) | buildに適用するSecurity Group |
+| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |
 """
     design_text = CODEBUILD + vpc_rows
     with tempfile.TemporaryDirectory() as directory:
@@ -342,7 +342,7 @@ def check_codebuild_vpc_display() -> None:
 | 1 | Name | `sbnt-two` | subnetのName |
 | 2 | SubnetId | `subnet-00000000000000002` | subnetのID |
 """, encoding="utf-8")
-        (design / "security_group.md").write_text("""# Security Group 詳細設計
+        (design / "security-group.md").write_text("""# Security Group 詳細設計
 
 ## リソース一覧
 
@@ -350,11 +350,11 @@ def check_codebuild_vpc_display() -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [CodeBuildSG](#security_group-codebuild-sg) | buildの通信を制御するSecurity Group |
+| 1 | [CodeBuildSG](#security-group-codebuild-sg) | buildの通信を制御するSecurity Group |
 
 ## リソース詳細
 
-<a id="security_group-codebuild-sg"></a>
+<a id="security-group-codebuild-sg"></a>
 ### EC2.SecurityGroup: CodeBuildSG
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
@@ -381,7 +381,7 @@ def check_codebuild_vpc_display() -> None:
         assert "desired.row.001-015.value=[sbnt-one](vpc.md#vpc-sbnt-one)" in model
         assert "observed.row.001-015.value=subnet-00000000000000001" in model
         assert "desired.row.001-017.property=CodeBuild.Project.VpcConfig.SecurityGroupIds" in model
-        assert "desired.row.001-017.value=[CodeBuildSG](security_group.md#security_group-codebuild-sg)" in model
+        assert "desired.row.001-017.value=[CodeBuildSG](security-group.md#security-group-codebuild-sg)" in model
         assert "observed.row.001-017.value=PENDING_DEPLOY" in model
         assert "VpcConfig.Subnets[1]" not in model
         for bad in (
@@ -392,7 +392,7 @@ def check_codebuild_vpc_display() -> None:
             design_text.replace("VpcConfig.Subnets[1]", "VpcConfig.Subnets"),
             design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "`[subnet-00000000000000001](vpc.md#vpc-sbnt-one)`"),
             design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", '`["[subnet-00000000000000001](vpc.md#vpc-sbnt-one)"]`'),
-            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](security_group.md#security_group-codebuild-sg)"),
+            design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](security-group.md#security-group-codebuild-sg)"),
         ):
             assert errors(bad), bad
 
@@ -911,14 +911,14 @@ def check_resource_name_headings() -> None:
         assert MODEL.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-one)") == ("KMS.Key", "KeyOne")
 
         group_name = "transfer service access"
-        sg_anchor = resource_anchor("security_group", group_name)
-        sg_text = text.replace("scheduler", "security_group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
-        sg_text = sg_text.replace("security_group-" + group_name, sg_anchor)
+        sg_anchor = resource_anchor("security-group", group_name)
+        sg_text = text.replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
+        sg_text = sg_text.replace("security-group-" + group_name, sg_anchor)
         sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", "| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | VpcId | `vpc-123` | 所属VPCのID |")
-        sg = path.with_name("security_group.md")
+        sg = path.with_name("security-group.md")
         sg.write_text(sg_text, encoding="utf-8")
         validator = VALIDATOR.Validator(root)
-        validator.check_resource_names({sg: ("security_group", ("EC2.SecurityGroup",)), kms: ("kms", ("KMS.Key", "KMS.Alias")), **metadata})
+        validator.check_resource_names({sg: ("security-group", ("EC2.SecurityGroup",)), kms: ("kms", ("KMS.Key", "KMS.Alias")), **metadata})
         assert not validator.errors, validator.errors
         assert "desired.resource.001.logicalId=TransferSecurityGroup" in MODEL.model_for(sg, REPOSITORY)
 

@@ -1091,12 +1091,12 @@ class Validator:
         return resource_types, property_owners, identifier_outputs
 
     def check_service_file(self, path: Path, service_id: str, owned_types: tuple[str, ...]) -> None:
-        self.check(service_id == "security_group" or LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid service ID: {self.relative(path)}: {service_id}")
+        self.check(LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None, f"invalid service ID: {self.relative(path)}: {service_id}")
         self.check(service_id == path.stem, f"service ID does not match file stem: {self.relative(path)}")
         for resource_type in owned_types:
             self.check(
-                (resource_type in SECURITY_GROUP_TYPES) == (service_id == "security_group"),
-                f"Security Group resources must belong only to security_group: {self.relative(path)}: {resource_type}",
+                (resource_type in SECURITY_GROUP_TYPES) == (service_id == "security-group"),
+                f"Security Group resources must belong only to security-group: {self.relative(path)}: {resource_type}",
             )
 
     def markdown_service_metadata(
@@ -1444,8 +1444,8 @@ class Validator:
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     resource_type = heading.group(1)
                     self.check(
-                        (resource_type in SECURITY_GROUP_TYPES) == (path.stem == "security_group"),
-                        f"Security Group resources must belong only to security_group: {self.relative(path)}: {resource_type}",
+                        (resource_type in SECURITY_GROUP_TYPES) == (path.stem == "security-group"),
+                        f"Security Group resources must belong only to security-group: {self.relative(path)}: {resource_type}",
                     )
                 elif line.startswith("#"):
                     resource_type = ""

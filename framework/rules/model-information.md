@@ -17,7 +17,7 @@
 
 - `EC2.VPCEndpoint`／`EC2.Instance`のName tagは各resource typeの正式な`Tags[].Key=Name`と対応する`Tags[].Value`をdesired rowへ保持する。設計専用`.Name`を追加しない。CREATEではName tagは必須であり、case違い・Value欠落・空値・未確定値を拒否し、display labelで代替しない。一覧・heading・通常の参照linkとanchorはそのValueを使用し、内部logical IDは非表示metadata、identifier参照は既存のdesired logical reference／observed IDの分離を維持する。VPC／Subnet／RouteTable／Flow Logの.Name表示は維持する。
 
-- Security Groupと所属Ingress／Egressは`security_group.properties`に保持し、`security_group.md`を生成する。service metadataとanchor prefixは`security_group`とする。EC2の他resourceをこのmodelへ混在させない。
+- Security Groupと所属Ingress／Egressは`security-group.properties`に保持し、`security-group.md`を生成する。service metadataとanchor prefixは`security-group`とする。EC2の他resourceをこのmodelへ混在させない。
 - ConfigurationRecorderのRoleName表示とKDFのBucketARN／RoleARNは、参照先の確定済み名称を表示したresource linkをdesiredへ保持する。参照するIAMロール名が`AWSService`から始まる場合（例: `AWSServiceRoleForConfig`）は、IAM Role設計やlinkを要求せず、ロール名literalを正式ARN propertyのdesired valueへ保持する。正式ARN propertyを名称propertyへ変更せず、ARNを生成・保存しない。KDFのKeyARNは実KMS Keyへのlogical referenceをdesiredへ、表示されたKeyId／PENDING_DEPLOYを既存identifier reference規則どおりobservedへ分離する。
 
 ## Resource management mode

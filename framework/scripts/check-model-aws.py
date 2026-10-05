@@ -27,7 +27,7 @@ from policy_tables import invalid_constant, literal, unique_object
 MISSING = {"absent": True}
 SERVICES = tuple("athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
                  "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
-                 "macie mwaa quicksight route53 s3 secrets-manager security-hub security_group sqs "
+                 "macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
                  "transit-gateway vpc vpc-endpoint".split())
 ROOT = Path(__file__).resolve().parents[2]
 MODULES = {}

@@ -252,7 +252,7 @@ REPRESENTATIVES = {
     's3': ('S3.Bucket', 'BucketName', 'fixture'),
     'secrets-manager': ('SecretsManager.Secret', 'Name', 'fixture'),
     'security-hub': ('SecurityHub.Hub', 'AutoEnableControls', True),
-    'security_group': ('EC2.SecurityGroup', 'GroupDescription', 'fixture'),
+    'security-group': ('EC2.SecurityGroup', 'GroupDescription', 'fixture'),
     'sqs': ('SQS.Queue', 'MessageRetentionPeriod', 604800),
     'transit-gateway': ('EC2.TransitGatewayVpcAttachment', 'TransitGatewayId', 'fixture'),
     'vpc': ('EC2.VPC', 'CidrBlock', 'fixture'),

@@ -1,4 +1,4 @@
-"""security_group: selected properties -> read-only SDK responses; inputs in fetch()."""
+"""security-group: selected properties -> read-only SDK responses; inputs in fetch()."""
 
 from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
 
