@@ -58,11 +58,11 @@ class LoadedModel(NamedTuple):
 def load_model(path: Path) -> LoadedModel:
     """One validated parse with real part locations; immutable within input_scope."""
     from model_design import properties
-    entrance = path.read_text(encoding="utf-8")
+    entrance = path.read_bytes().decode("utf-8")
     parts = model_parts(path, text=entrance)
     contents, files, locations = [], {path: entrance}, {}
     for part in parts:
-        content = entrance if part == path else part.read_text(encoding="utf-8")
+        content = entrance if part == path else part.read_bytes().decode("utf-8")
         lines = content.splitlines()
         if part != path and (len(lines) > MAX_LINES or INDEX_HEADER in lines):
             raise ValueError(f"invalid or oversized model part: {part}")

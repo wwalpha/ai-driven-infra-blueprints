@@ -210,6 +210,14 @@ def checks(root, values, template):
     assert sum(item['category'] == 'difference' for item in unequal) == 3
     assert {item['stack'] for item in unequal if item['category'] == 'difference'} == {'cfn-stack-app-dev-data2'}
     write(root / 'infra/cloudformation/parameters/dev/123456789012/stack-2.json', json.dumps([{'ParameterKey': 'Name', 'ParameterValue': 'app-dev-data2'}]))
+    # CRLF entrance and parts must hash the same bytes that were decoded.
+    source = root / 'model/dev/123456789012/s3.properties'
+    originals = load_model(source).files.copy()
+    for path, text in originals.items():
+        path.write_bytes(text.replace('\n', '\r\n').encode('utf-8'))
+    crlf = load_model(source)
+    assert crlf.values == loaded.values
+    assert all(text.encode('utf-8') == path.read_bytes() for path, text in crlf.files.items())
     # Existing diagnostics and all successful names stay available. No network/provider calls.
     with patch('socket.socket', side_effect=AssertionError('network forbidden')):
         artifact = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
