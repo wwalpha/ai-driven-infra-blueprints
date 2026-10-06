@@ -1,14 +1,14 @@
 # Scenario Test
 
-契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
+Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
-このpromptは、deployとは独立した`scenario-test` taskとしてapplication behaviorを検証し、current resultを更新するために使用する。infrastructureの作成、修正、deploy、redeployは行わない。
+Use this prompt to validate application behavior and update current results as a `scenario-test` task independent of deploy. Do not create, repair, deploy, or redeploy infrastructure.
 
-account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
+Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
 ## Unresolved issue gate
 
-対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
+Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
 
 ## User input
 
@@ -22,9 +22,9 @@ account／profileの共通選択は[Credentials and account](../../rules/project
 
 ## Resolve missing input
 
-placeholder、空、不明な必須inputは、Scenario ID、Target environment、Target alias（選択済みenvironmentに複数targetがある場合だけ）、Target AWS account、Expected behaviorの順で一回の応答につき一つだけ質問する。environment、alias、accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。
+For placeholder, empty, or unknown required inputs, ask only one question per response in this order: Scenario ID, Target environment, Target alias (only when the selected environment has multiple targets), Target AWS account, Expected behavior. Present only environment/alias/account candidates belonging to the same target in `project.json`; do not automatically select. Do not ask aliases when an environment has only 1 target.
 
-AWS mutationまたはdestructive operationが必要なscenarioは、対象operation、resource、cleanup、許可範囲がUser inputに明記されるまで実行しない。
+Do not execute scenarios requiring AWS mutation or destructive operations until target operations, resources, cleanup, and authorization scope are explicit in User input.
 
 ## Read before changing files
 
@@ -32,52 +32,52 @@ AWS mutationまたはdestructive operationが必要なscenarioは、対象operat
 2. [task-contract](../../rules/task-contract.md)
 3. `project.json`
 4. [scenario-testing](../../rules/scenario-testing.md)
-5. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)と[Scenario-test task completion](../../rules/loop-engineering.md#scenario-test-task-completion)
-6. 対象の`tests/scenarios/<scenario-id>/`
-7. 対象の`tests/results/<scenario-id>/<environment>/<target-directory>/`
-8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
-9. 必要な`model/<environment>/<target-directory>/<service-id>.properties`を正本のread-only design inputとして読む
-- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。
+5. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope), and [Scenario-test task completion](../../rules/loop-engineering.md#scenario-test-task-completion)
+6. Target `tests/scenarios/<scenario-id>/`
+7. Target `tests/results/<scenario-id>/<environment>/<target-directory>/`
+8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
+9. Read necessary `model/<environment>/<target-directory>/<service-id>.properties` as authoritative read-only design input
+- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md).
 
-設計値は`desired.*`、必要なcurrent identifierは`observed.*`から取得する。入口indexを確認し、既存の`model_files.py --find`で必要なproperty／identifierの位置を特定し、`model_files.py --resource`で対象resourceと必要な参照先resourceだけを部分読み取りする。分割modelは必要なpartの該当箇所だけをLLM contextへ読み込み、生成済み`docs/designs/**`のMarkdown本文を通常のdesign inputとして事前読込しない。
+Obtain design values from `desired.*` and necessary current identifiers from `observed.*`. Check entry indexes, locate needed properties/identifiers with existing `model_files.py --find`, and partially read only target resources and necessary referenced resources with `model_files.py --resource`. For split models, load only relevant portions of required parts into LLM context; do not preread generated `docs/designs/**` Markdown bodies as ordinary design input.
 
-Markdown／JSON artifactの生成と正本propertiesとの整合性検証は既存script／local loopで維持する。LLMの事前読込を省くことを理由に、Validation scopeや検証項目を縮小しない。
+Retain Markdown/JSON artifact generation and authoritative properties consistency validation through existing scripts/local loops. Do not reduce Validation scope or checks because LLM prereading is omitted.
 
-`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。result metadataのAWS accountにはdirectory名ではなく`project.json`の実際のAWS account IDを記録する。
+`<target-directory>` is the selected target's alias if present, otherwise AWS account ID. Record the actual AWS account ID from `project.json` in result metadata AWS account, not the directory name.
 
-指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 
-framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
+Add [Framework regression](../../rules/loop-engineering.md#framework-regression) for framework changes, [Validation cache](../../rules/loop-engineering.md#validation-cache) for validation reuse, and applicable loop diagnostic sections for stops/long execution. Do not additionally read full README or inapplicable sections; retain schema/reference/account/issue/task-specific checks.
 
 ## Create active task contract
 
-最初のrepository changeとして`tasks/<task-name>.md`を次の条件で新規登録する。
+As the first repository change, newly register `tasks/<task-name>.md` under the following conditions.
 
-- Task typeは`scenario-test`とする。
-- goalにscenario ID、environment、aliasがある場合はalias、AWS account、expected behaviorを記載する。
-- `Required changes`は一意なRequirement ID付きで、scenario定義／implementationと同じtargetのcurrent result更新を分けて記載する。
-- `Acceptance checks`は各Requirement IDへ対象scenario fileとresult fileの`changed:`を対応付ける。
-- AWS mutationとdestructive operationは確認済みUser inputの値をそのまま記載する。
-- Allowed pathsは対象の`tests/scenarios/<scenario-id>/**`、`tests/results/<scenario-id>/<environment>/<target-directory>/**`、`tasks/<task-name>.md`だけに限定する。
-- `docs/**`、`model/**`、`infra/**`は変更禁止とする。
+- Task type is `scenario-test`.
+- State scenario ID, environment, alias when present, AWS account, and expected behavior in the goal.
+- In `Required changes`, separately state scenario definitions/implementations and current result updates for the same target with unique Requirement IDs.
+- Map `Acceptance checks` to each Requirement ID using `changed:` for target scenario files and result files.
+- Record AWS mutation and destructive operation values exactly as confirmed in User input.
+- Limit Allowed paths to target `tests/scenarios/<scenario-id>/**`, `tests/results/<scenario-id>/<environment>/<target-directory>/**`, and `tasks/<task-name>.md` only.
+- Changes to `docs/**`, `model/**`, and `infra/**` are prohibited.
 
 ## Define and execute
 
-AWS実行前に`check-deploy-context.py --environment <environment>`へ`--alias <alias>`または`--aws-account-id <account-id>`と`--read-only`を渡し、target、caller account、regionを確認する。targetの`awsProfile`があればpreflightが自動使用する。scenarioのすべてのAWS CLI／SDKと子processでも同じprofileを使用し、`scenario-testing.md`の実行ルールに従う。未設定時は従来の認証方法を維持する。
+Before AWS execution, pass `--alias <alias>` or `--aws-account-id <account-id>` and `--read-only` to `check-deploy-context.py --environment <environment>` and confirm target, caller account, and region. Preflight automatically uses target `awsProfile` if present. Use the same profile for all scenario AWS CLI/SDK and child processes and follow `scenario-testing.md` execution rules. Retain existing authentication methods when unset.
 
-1. `framework/rules/scenario-testing.md`に従い、scenario definitionと必要最小限のtest implementationを作成または更新する。
-2. expected behaviorを実際に観測できる手順を使用し、deploy完了statusや静的設定だけをPASS根拠にしない。
-3. prerequisites不足またはcredential/permission不足は`BLOCKED`、実行して合格条件を満たさない場合は`FAIL`とする。
-4. 許可されたcleanupだけを実行し、結果を記録する。
-5. stableなcurrent resultとevidenceだけを同じresult directoryへ更新する。
+1. Follow `framework/rules/scenario-testing.md` to create/update scenario definitions and minimum necessary test implementations.
+2. Use procedures that actually observe expected behavior; deploy completion status or static settings alone are not PASS evidence.
+3. Missing prerequisites or credentials/permissions are `BLOCKED`; executed tests failing pass criteria are `FAIL`.
+4. Execute only authorized cleanup and record results.
+5. Update only stable current results and evidence in the same result directory.
 
-failure時もdesign変更、IaC修正、redeploy、別task作成を行わない。根本原因と観測事実を簡潔に報告してscenario-test taskを終了する。
+Even on failure, do not change designs, repair IaC, redeploy, or create other tasks. Briefly report root causes and observed facts and finish the scenario-test task.
 
 ## Verify and finish
 
 1. `python framework/scripts/blueprint-loop.py --mode task`
 2. `git diff --check`
 
-scenario ID、target、実行手順、status、expected/actual behavior、evidence、cleanup、blockerを完了報告に記載する。
+State scenario ID, targets, execution procedures, status, expected/actual behavior, evidence, cleanup, and blockers in the completion report.

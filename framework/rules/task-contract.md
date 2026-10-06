@@ -2,64 +2,64 @@
 
 ## Task transition
 
-- 許可するtask typeは`initialization`、`design`、`infrastructure`、`scenario-test`、`governance`、`catalog-maintenance`、`migration`だけとする。active promptは今回の変更契約であり、長期的な設計の正本ではない。
+- Only `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, and `migration` are permitted task types. The active prompt is the contract for this change, not the long-term design authority.
 
-- repository変更前に今回の`tasks/<task-name>.md`を選び、最新依頼のtask type、target、Goalを照合する。契約のないclean repositoryはidleとする。新規taskは既存契約を上書きせず、最初の変更として個別契約を登録する。
-- Task contractへTask status（`running`／`suspend`／`completed`）を記載し、`## Modified files`へ具体的なfile pathを列挙する。glob、directory、別taskの契約は禁止する。自分の契約、未作成file、生成artifact、model part、削除対象も含め、Allowed paths内だけを予約する。
-- `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`で登録する。登録は同時実行を直列化し、全running taskのModified filesを比較する。repository rootの`issues/`配下以外のfileが重複すれば新規taskを停止し、競合fileと既存taskを報告する。候補と対象fileをrepositoryへ保存せず、既存taskを継続する。
-- `issues/`配下の全fileは、file名や階層にかかわらず登録・契約更新・再開・local loopの競合停止対象から除外する。`issues/issue.md`、`issues/<environment>/<target-directory>/issues.md`、`diff.md`も含む。各taskは変更するfileをModified filesへ列挙し、Allowed paths、未登録変更、task boundary、issue gateとAcceptance checksの検査を維持する。
-- 各processは`BLUEPRINT_TASK_FILE`、local loop／validatorは`--task-file`でも契約を選ぶ。複数running taskがある場合は明示選択必須。変更予定fileの追加・変更時も実変更前に契約を更新し、`task_contract.py --task-file tasks/<task-name>.md`で再検査する。競合する更新は元へ戻し、今回のtaskを停止する。
-- read-only調査とchat-only設計相談は契約の登録・切替を要求しない。
-- loopは全契約の競合と未登録変更を検査し、今回の予約fileの変更だけへtask type、issue gate、Acceptance checksを適用する。別taskの変更を成果や違反として数えない。生成とmodel分割も保存前に今回の予約fileを検査する。
-- local loop成功後だけ今回のTask statusをcompletedへ変更する。completed契約はfile予約を解放し、未commit変更の所属を保持する間だけ残す。差分がなくなれば削除し、task履歴やevidenceは残さない。
-- check errorによる停止では、原因が自task、他task、未登録変更、baselineのどれでも今回のTask statusだけを`suspend`にする。`## Suspension reason`は必須とし、失敗check、対象file、具体的error、必要なrepository外log pathを記載する。現在の停止理由だけを保持し、実行履歴やevidenceは追加しない。local loopは全check終了または子process停止後に自動suspendにし、事前検査失敗も含める。明示selectorがない複数running taskから停止対象を推測しない。staged検証の状態変更はsnapshot内だけに適用する。
-- local loop以外の単独checkや作業中errorで停止する場合も、`task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`で今回の契約をsuspendにする。他taskの契約と未commit変更は維持し、無関係な失敗を今回のtask内で修復しない。
-- suspend契約は予約を解放するため、同じfileを扱う他taskも登録できる。未commit変更の所属は保持し、他taskのAcceptance checksへ流用しない。suspend中は生成・deploy・loopなどのtask実行を拒否する。修正・再検証を再開する前に`task_contract.py --task-file tasks/<task-name>.md --resume`を実行し、全running taskとの予約競合を直列化して検査する。成功時だけrunningへ戻して現在の停止理由を除去し、競合時はsuspendと理由を維持する。自動再開はしない。
-- 旧`tasks/active.md`は単独の場合だけ従来契約として許可する。並行運用前に個別契約へ移し、Task statusとModified filesを記載する。契約がない状態の非契約変更は拒否する。
-- loop成功後に別taskを作成または実行しない。
-- retry中にtask typeまたは作業段階を変更しない。
-- infrastructure behaviorの変更を理由にscenario testへ進まない。
-- test failureをdesign変更、IaC変更、redeployで自動修正しない。
+- Before repository changes, select this task's `tasks/<task-name>.md` and match its task type, target, and Goal to the latest request. A clean repository without a contract is idle. Register a separate contract as the first change of a new task; do not overwrite existing contracts.
+- Record Task status (`running` / `suspend` / `completed`) in the Task contract and enumerate exact file paths under `## Modified files`. Globs, directories, and other tasks' contracts are prohibited. Reserve only paths within Allowed paths, including your own contract, not-yet-created files, generated artifacts, model parts, and deletion targets.
+- Register with `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`. Registration serializes concurrent executions and compares Modified files of all running tasks. If any file outside the repository root's `issues/` overlaps, stop the new task and report the conflicting file and existing task. Do not save the candidate or target files in the repository; continue the existing task.
+- All files under `issues/`, regardless of filename or hierarchy, are excluded from conflict stops at registration, contract update, resume, and local loop. This includes `issues/issue.md`, `issues/<environment>/<target-directory>/issues.md`, and `diff.md`. Each task must enumerate files it changes in Modified files and retain checks for Allowed paths, unregistered changes, task boundary, issue gate, and Acceptance checks.
+- Each process selects the contract with `BLUEPRINT_TASK_FILE`; the local loop/validator can also use `--task-file`. Explicit selection is mandatory when multiple tasks are running. Before actually adding or changing planned files, update the contract and recheck with `task_contract.py --task-file tasks/<task-name>.md`. Revert a conflicting contract update and stop this task.
+- Read-only investigation and chat-only design consultation do not require contract registration or switching.
+- The loop checks conflicts among all contracts and unregistered changes, and applies task type, issue gate, and Acceptance checks only to changes in this task's reserved files. Do not count other tasks' changes as achievements or violations. Generation and model splitting also check this task's reserved files before saving.
+- Change this task's Task status to completed only after the local loop succeeds. Completed contracts release file reservations and remain only while retaining ownership of uncommitted changes. Delete them when the diff disappears; do not retain task history or evidence.
+- When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.
+- When stopping for a standalone check outside the local loop or an error during work, also suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task.
+- Suspended contracts release reservations, allowing other tasks using the same files to register. Retain ownership of uncommitted changes; do not reuse them for other tasks' Acceptance checks. Reject task execution such as generation, deploy, and loop while suspended. Before resuming repair/revalidation, run `task_contract.py --task-file tasks/<task-name>.md --resume` to serialize and check reservation conflicts with all running tasks. Return to running and remove the current stop reason only on success; retain suspend and its reason on conflict. Do not automatically resume.
+- Permit the legacy `tasks/active.md` contract only when it is the sole contract. Before concurrent operation, migrate it to a separate contract and record Task status and Modified files. Reject non-contract changes when no contract exists.
+- Do not create or execute another task after the loop succeeds.
+- Do not change task type or work phase during retry.
+- Do not proceed to scenario tests because infrastructure behavior changed.
+- Do not automatically fix test failures by changing design, changing IaC, or redeploying.
 
-- task type、target、Goalのいずれかが異なる変更は新しいtaskとする。
-- chat-only設計をrepositoryへ保存する依頼は新しい`design` taskとし、保存前にactive taskを切り替える。
-- Requirement IDに対応するAcceptance checkまたはtask type固有checkが未実装、未実行、失敗の場合はtaskを完了扱いにしない。
+- A change with a different task type, target, or Goal is a new task.
+- A request to save a chat-only design in the repository is a new `design` task; switch the active task before saving.
+- Do not treat a task as complete if an Acceptance check for a Requirement ID or a task-type-specific check is unimplemented, unexecuted, or failing.
 
 ## Task boundary
 
-- `design`: `docs/designs/**`と対応する`model/**`を更新し、local validation後に終了する。既存resource取得ではchatbotが選択したpropertyと必要な非ARN current identifierだけを反映できる。IaC、AWS mutation、scenarioへ進まない。
-- `infrastructure`: 承認済みdesignを読み、active promptで指定されたIaC、安全確認、許可されたdeploy/apply、成功後の`model/**`のobserved namespace更新とMarkdown生成までを行って終了する。`update` phaseではhumanがtask開始前にmodel propertiesへ手動修正した未commitのintended designをimmutable inputとして許可するが、Codexはintended designやscenarioを変更しない。
-- `scenario-test`: `tests/scenarios/**`と`tests/results/<scenario-id>/<environment>/<target-directory>/`だけを作成・更新する。test失敗後に設計変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
-- `initialization`、`governance`、`catalog-maintenance`、`migration`: active promptのAllowed pathsと明示scopeだけを実行し、別taskへ進まない。
-- infrastructure behaviorが変わってもscenario-test taskを自動作成または自動実行しない。
-- scenario-test taskだけが`tests/scenarios/**`と`tests/results/**`を変更できる。
-- non-scenario taskのvalidation/deployment結果を`tests/results/**`へ保存しない。verification outputは原則として完了報告だけに記載する。
-- `tasks/`には独立した契約だけを置き、task履歴やevidenceを保存しない。Task statusは`running`、`suspend`、`completed`。現在の停止理由はsuspend契約に記載してよい。local loop成功後に今回の契約だけをcompletedへ変更する。suspend契約は再開と未commit差分の所属のため保持し、完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除する。
-- scenario evidenceの過去版はGit履歴で追跡し、実行別・timestamp別directoryを追加しない。
+- `design`: Update `docs/designs/**` and the corresponding `model/**`, then finish after local validation. Existing-resource retrieval may reflect only properties selected by the chatbot and necessary non-ARN current identifiers. Do not proceed to IaC, AWS mutation, or scenarios.
+- `infrastructure`: Read the approved design; perform only the IaC specified by the active prompt, safety checks, authorized deploy/apply, and, after success, updates to the observed namespace in `model/**` and Markdown generation, then finish. The `update` phase permits the uncommitted intended design manually edited by the human in model properties before task start as immutable input; Codex must not change intended design or scenarios.
+- `scenario-test`: Create/update only `tests/scenarios/**` and `tests/results/<scenario-id>/<environment>/<target-directory>/`. After test failure, do not proceed to design changes, IaC repair, redeploy, or remediation task creation/execution.
+- `initialization`, `governance`, `catalog-maintenance`, `migration`: Execute only the active prompt's Allowed paths and explicit scope; do not proceed to another task.
+- Do not automatically create or execute a scenario-test task even when infrastructure behavior changes.
+- Only scenario-test tasks may change `tests/scenarios/**` and `tests/results/**`.
+- Do not save non-scenario task validation/deployment results under `tests/results/**`. As a rule, verification output belongs only in the completion report.
+- Place only independent contracts in `tasks/`; do not save task history or evidence. Task status is `running`, `suspend`, or `completed`. The current stop reason may be recorded in a suspended contract. Change only this contract to completed after the local loop succeeds. Retain suspended contracts for resume and ownership of uncommitted diffs; retain completed contracts only while retaining ownership of uncommitted diffs, and delete them when the diff disappears.
+- Track earlier scenario evidence versions in Git history; do not add directories per execution or timestamp.
 
 ## Controlled deploy repair contract
 
-CloudFormation deploy phaseは[Controlled deploy repair](cloudformation.md#controlled-deploy-repair)だけIaC修正を許可する。`- Controlled repair: `と`- Deploy repair session: `の値をそれぞれbacktick付き`allowed`、repository外の絶対session pathで明記し、対象template／parameter／宣言済みartifactだけを具体的Modified files／Allowed pathsへ予約する。intended design、scope、task typeはimmutableとし、file追加は既存scope expansion／予約検査に従う。修復許可は任意編集の許可ではなく、validatorが同sessionのAUTO_REPAIRABLE履歴・file digestへ一致を要求する。Humanによる既存change setの承認更新は従来どおり許可する。
+The CloudFormation deploy phase permits IaC repair only under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). Specify the values of `- Controlled repair: ` and `- Deploy repair session: ` in backticks as `allowed` and an absolute session path outside the repository, respectively; reserve only target templates/parameters/declared artifacts as exact Modified files/Allowed paths. Intended design, scope, and task type are immutable; file additions follow existing scope expansion/reservation checks. Repair authorization does not permit arbitrary editing: the validator requires matching AUTO_REPAIRABLE history and file digests in the same session. Human approval updates for existing change sets remain permitted as before.
 
 ## Acceptance contract
 
-active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。
+The active task's `## Required changes` must have unique Requirement IDs, with one or more checks mapped to each same ID in `## Acceptance checks`.
 
 ```md
 - [R1] 実施内容
 - [R1] `changed:path/to/file`
 ```
 
-Acceptance checkは`changed:`、`exists:`、`absent:`、validator登録済み`check:`だけを許可する。任意command、未登録check、対応先Requirement IDがないcheck、checkがないRequirement IDは拒否する。
+Only `changed:`, `exists:`, `absent:`, and validator-registered `check:` are permitted Acceptance checks. Reject arbitrary commands, unregistered checks, checks without a corresponding Requirement ID, and Requirement IDs without checks.
 
 ## Retry and stop
 
-- 同じactive task、同じtask type、同じlogical failure classのautomatic correctionは最大3 iterationとする。
-- material progressなしで同じerrorが2回続いた場合は停止する。
-- missing human inputを値の発明で直さない。
-- out-of-scope file changeで停止する。
-- 未承認のdelete/replacementはfailureまたはautomatic retryとして扱わず、説明付きhuman確認待ちにする。承認されない場合はdeploy/applyを実行せず停止する。
-- `framework/materials/aws/`がbaselineと異なる場合は停止する。
-- passのためにfailing checkを抑制しない。
+- Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations.
+- Stop if the same error occurs twice consecutively without material progress.
+- Do not fix missing human input by inventing values.
+- Stop on out-of-scope file changes.
+- Treat unapproved delete/replacement as waiting for human confirmation with an explanation, not as failure or automatic retry. If not approved, stop without executing deploy/apply.
+- Stop if `framework/materials/aws/` differs from the baseline.
+- Do not suppress failing checks to obtain a pass.
 
-validate/plan後に全deploymentを一律停止するhuman reviewは要求しない。未承認のdelete/replacementに対するplan固有のhuman確認と、Codex sandbox/OS permission controlは別の仕組みであり、permissionが必要な操作はrepository ruleにかかわらずplatform controlに従う。
+Human review that uniformly stops every deployment after validate/plan is not required. Plan-specific human confirmation for unapproved delete/replacement and Codex sandbox/OS permission control are separate mechanisms; operations requiring permission follow platform control regardless of repository rules.

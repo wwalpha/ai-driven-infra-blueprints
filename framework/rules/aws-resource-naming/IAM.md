@@ -1,6 +1,6 @@
 # IAM Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,6 +10,6 @@
 
 ## Service-specific constraints
 
-- RoleNameの`purpose`はhuman-confirmedなPascalCaseの用途名（例：`DataManagement`）とし、直後に固定の`Role`を付ける。このcomponentは共通のlower-kebab-case規則の例外とし、`application`、`environment`、`suffix`は共通ルールを維持する。`target_alias`（例：`cde`）を自動挿入しない。
-- `suffix`は任意とし、選択targetの`project.json`に設定されている場合だけ末尾へ`-<suffix>`を付ける。未設定ならハイフンごと省略する。例：`venusinf-dev-DataManagementRole`／`venusinf-dev-DataManagementRole-aaaaaa`。
-- AWS IAM Roleは64文字以内、customer managed policyは128文字以内とし、caseだけが異なる名前を作らない。
+- RoleName's `purpose` must be a human-confirmed PascalCase purpose name (example: `DataManagement`), followed immediately by the fixed `Role`. This component is an exception to the common lower-kebab-case rule; `application`, `environment`, and `suffix` retain the common rules. Do not automatically insert `target_alias` (example: `cde`).
+- `suffix` is optional; append `-<suffix>` only when configured in the selected target's `project.json`. If unset, omit the hyphen as well. Examples: `venusinf-dev-DataManagementRole` / `venusinf-dev-DataManagementRole-aaaaaa`.
+- AWS IAM Roles must be at most 64 characters and customer managed policies at most 128 characters; do not create names differing only in case.

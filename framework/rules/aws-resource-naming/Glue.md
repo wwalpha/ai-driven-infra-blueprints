@@ -1,6 +1,6 @@
 # Glue Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -12,6 +12,6 @@
 
 ## Service-specific constraints
 
-- AWS Glue JobとSecurityConfigurationの`Name`はlower-kebab-case・1〜255文字とする。Jobの`purpose`は用途を識別するhuman-confirmedなtokenを使用する。
-- SecurityConfigurationのprefixは`glsc`（Glue Security Configuration）とする。`number`はoptionalとし、同じAWS accountにconfigurationが単体の場合は省略する。同じAWS accountに複数configurationがある場合だけ、`-01`からの2桁連番を必須とする。例：単体は`glsc`、複数は`glsc-01`、`glsc-02`。
-- SecurityConfigurationの`suffix`はoptionalとし、選択targetに設定がある場合だけ末尾へ付ける。例：`suffix=blue`なら単体は`glsc-blue`、複数は`glsc-01-blue`、`glsc-02-blue`。
+- AWS Glue Job and SecurityConfiguration `Name` must use lower-kebab-case and be 1–255 characters. Job `purpose` must be a human-confirmed token identifying its use.
+- The SecurityConfiguration prefix is `glsc` (Glue Security Configuration). `number` is optional and omitted when there is a single configuration in the same AWS account. Only when there are multiple configurations in the same AWS account, a two-digit sequence starting at `-01` is mandatory. Examples: single: `glsc`; multiple: `glsc-01`, `glsc-02`.
+- SecurityConfiguration `suffix` is optional and appended only when configured for the selected target. Example: with `suffix=blue`, single: `glsc-blue`; multiple: `glsc-01-blue`, `glsc-02-blue`.

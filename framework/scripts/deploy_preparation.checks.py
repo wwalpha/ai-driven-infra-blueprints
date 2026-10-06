@@ -143,7 +143,7 @@ def check_preparation():
         model_rules = documents["framework/rules/model-information.md"]
         selected = "".join(Path(chunk).read_text(encoding="utf-8") for chunk in model_rules["chunks"])
         assert "## CloudFormation deployment policy" in selected
-        assert "### Resource単位のCloudFormation identity" in selected
+        assert "### Resource-level CloudFormation identity" in selected
         assert "## Service display inputs" not in selected
         assert model_rules["readCharacters"] < model_rules["sourceCharacters"]
         assert "framework/rules/task-contract.md" in documents
@@ -315,9 +315,9 @@ def check_workflow_contract():
     reading = M.markdown_sections(prompt)["read-before-changing-files"]
     assert "docs/designs/<environment>/<target-directory>/<service-id>.md" not in reading
     for text in (prompt, *((ROOT / "framework/rules" / (engine + ".md")).read_text(encoding="utf-8") for engine in ("cloudformation", "terraform"))):
-        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "存在確認", "hash", "予約", "local loop", "fallback", "停止"))
-        assert "承認済みの詳細設計とservice modelをinputとして読み取る" not in text
-    assert all(value in prompt for value in ("generatedViews", "inputs", "未読section", "load_units()", "登録済みtaskを新規登録し直さない"))
+        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "existence verification", "hash", "reservations", "local loop", "fallback", "stop"))
+        assert "Read approved detailed designs and service models as input" not in text
+    assert all(value in prompt for value in ("generatedViews", "inputs", "unread sections", "load_units()", "Do not newly reregister already registered tasks"))
 
 
 def check_dependencies_and_timing():

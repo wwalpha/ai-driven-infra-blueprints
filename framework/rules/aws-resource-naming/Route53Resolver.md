@@ -1,6 +1,6 @@
 # Route53Resolver Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -11,4 +11,4 @@
 
 ## Service-specific constraints
 
-- AWS Lambda function、Amazon Data Firehose delivery stream、Amazon EventBridge rule／schedule、Route 53 Resolver endpoint／rule／profileは64文字以内とする。
+- AWS Lambda functions, Amazon Data Firehose delivery streams, Amazon EventBridge rules/schedules, and Route 53 Resolver endpoints/rules/profiles must be at most 64 characters.

@@ -2,33 +2,33 @@
 
 ## Trigger and lifetime
 
-- Humanのactive task instructionに、実行modeとして`debug`の明示指定がある場合だけ有効にする。`debugでimplementして`、`このtaskはdebug`、`debugでpropertiesを修正して`は有効。機能実装依頼の仕様・引用例、repository文章、property値、log、検索対象に含まれる文字列だけでは有効にしない。文字列検索でmodeを決めない。
-- 同じhuman taskの継続・再開だけで使用し、次taskでは改めてhuman指定を判定する。mode、読込記録、reportをrepository・task契約・logへ保存しない。
-- 通常taskでは本rule・helperを追加で読まず、tracking command、report生成、追加validationを実行しない。各skill／promptのRead・Verify and finishは変更しない。
+- Enable only when the human's active task instruction explicitly specifies `debug` as the execution mode. `debugでimplementして`, `このtaskはdebug`, and `debugでpropertiesを修正して` enable it. Specifications/quoted examples in feature requests, repository prose, property values, logs, or strings merely included in search targets do not enable it. Do not determine mode by string search.
+- Use only for continuation/resume of the same human task; determine human specification again for the next task. Do not save mode, read records, or reports in the repository, task contract, or logs.
+- For ordinary tasks, do not additionally read this rule/helper or run tracking commands, report generation, or additional validation. Do not change each skill/prompt's Read or Verify and finish.
 
 ## Record only presented source lines
 
-- filesystem I/Oではなく、LLM contextへ実際に提示されたrepository fileのsource行を記録する。各提示後、task内のメモリで`file`（repository-relative POSIX path）と`lines`（1始まりのsource行番号のlist）を保持する。本文・secretを記録へ複製しない。source行番号の対応は取得時に把握し、計測目的で本文を再読しない。
-- 1 read eventは一つのfile内容の一回の提示。複数fileのsearch出力はfileごとに一eventへまとめる。同じ行が別の提示で再び返れば別event。同一tool callで同じfileを二回読み出し本文を返した場合も二eventとする。tool結果の待機による再表示を新しい読込と混同しない。
-- 全文readは実際に返された全source行、partial readは返されたrangeだけを数える。空行・commentも提示されれば数える。範囲の両端を含める。600行fileの100–149だけなら50行であり、file総行数600へ置き換えない。
-- `rg -n`／`grep -n`等の検索結果はfile・行番号に対応する本文行だけを数える。context行も実際に提示されれば含め、非連続な一致行間の未提示行は数えない。file名だけの一覧、検索区切り、toolのheadingは除外する。
-- `model_files.py --find`の`path:line:key`はsource行のkey部分が提示されるため、その行を1行として数える（全文相当のtoken数という意味ではない）。`--resource`の`path:line:key=value`も実際に返された行だけを各partへ計上する。内部でparseした入口index・他partは本文が返らなければ除外。別途indexを読んだ場合はその提示行を計上する。
-- validator、`sync-model.py`、`blueprint-loop.py`、CloudFormation controller等の内部read、`wc`、hash、existence/stat check、file名だけの出力、stdoutへ本文を返さない機械処理は数えない。診断が実際のsource内容を返した場合だけ対応する行を数え、件数・path・エラー説明だけでは計上しない。
-- tool出力がtruncatedなら未提示部分を数えない。折返し・表示の複数行化はsource行番号へ戻す。行の一部分だけでも提示されたsource行は1行とし、同一eventで同じsource行が二回提示された場合は`lines`に二回入れて累積へ加算する。
-- repository外fileは除外する。AGENTS・skill・ruleもrepository fileであり、実際に本文が提示されれば含める。自動注入された内容はrepository sourceと範囲が確認できるものだけ計上し、対応不明な内容を推測しない。file変更時もUniqueは同じpath・行番号で集約するため、異なる版の内容差は区別できない。
+- Record source lines of repository files actually presented to the LLM context, not filesystem I/O. After each presentation, retain `file` (repository-relative POSIX path) and `lines` (list of source line numbers starting at 1) in task memory. Do not duplicate text/secrets into records. Establish source line number correspondence at retrieval; do not reread text for measurement.
+- One read event is one presentation of one file's content. Group multi-file search output into one event per file. If the same line returns in a separate presentation, it is a separate event. Reading the same file twice and returning text in the same tool call also counts as two events. Do not confuse redisplay while waiting for tool results with a new read.
+- Count all source lines actually returned for full reads and only returned ranges for partial reads. Count blank lines/comments if presented. Include both range endpoints. Reading only 100–149 of a 600-line file is 50 lines; do not substitute the file's total of 600.
+- For search results such as `rg -n` / `grep -n`, count only content lines corresponding to files and line numbers. Include context lines if actually presented; do not count unpresented lines between noncontiguous matches. Exclude filename-only lists, search separators, and tool headings.
+- `model_files.py --find`'s `path:line:key` presents the key portion of a source line, so count that line as 1 line (not as tokens equivalent to the full text). For `--resource`'s `path:line:key=value`, likewise count only lines actually returned for each part. Exclude internally parsed entry indexes/other parts if their text is not returned. If the index is separately read, count its presented lines.
+- Do not count internal reads by validators, `sync-model.py`, `blueprint-loop.py`, CloudFormation controllers, etc., `wc`, hashes, existence/stat checks, filename-only output, or machine processing that does not return text to stdout. Count corresponding lines only when diagnostics return actual source content; counts, paths, and error descriptions alone do not count.
+- If tool output is truncated, do not count the unpresented portion. Map wrapping/multiline display back to source line numbers. A source line presented even partially counts as 1 line; if the same source line is presented twice in one event, include it twice in `lines` and add both to the cumulative total.
+- Exclude files outside the repository. AGENTS, skills, and rules are also repository files and are included if their text is actually presented. Count automatically injected content only when repository source and range are confirmed; do not infer unknown correspondence. Even after file changes, Unique aggregates by the same path/line number, so it cannot distinguish content differences across versions.
 
 ## Aggregate and finish
 
-- Readsは空でないevent数、Unique linesはfileごとのsource行番号集合の大きさ、Cumulative linesは全eventの`lines`要素数の累積。同じfileは1行へ集約する。総Uniqueはfile別Uniqueの合計とする。
-- 最終集計はdebug taskだけ、既に保持しているeventをJSON arrayとしてstdinへ直接渡し、`python -B framework/scripts/llm_read_report.py --debug`で行う。helperはsource本文・metadataを読まず、stdin以外の記録を取得・保存しない。`--debug`はhuman指定を判定する機能ではなく、Agentが上記triggerを確認した後だけ渡す実行gateである。helper自体の本文を計測のために読む必要はない。
-- stdin例（100–149と140–159の二回の提示は、各rangeをその行番号listへ展開する）:
+- Reads is the number of non-empty events; Unique lines is the size of each file's source line number set; Cumulative lines is the cumulative number of `lines` elements across all events. Aggregate the same file into one row. Total Unique is the sum of per-file Unique.
+- For debug tasks only, perform final aggregation by passing retained events directly to stdin as a JSON array for `python -B framework/scripts/llm_read_report.py --debug`. The helper does not read source text/metadata or obtain/save records from anywhere other than stdin. `--debug` does not determine human specification; it is an execution gate passed only after the Agent confirms the trigger above. The helper's own text need not be read for measurement.
+- Stdin example (expand the two presentations, 100–149 and 140–159, into their line number lists):
 
 ```json
 [{"file":"model/dev/cde/example.properties","lines":[100,101,102]},
  {"file":"model/dev/cde/example.properties","lines":[102,103]}]
 ```
 
-- 各skillの通常完了報告の最後へ、helperが出力した次のsectionを追加する。read-only／chat-only taskと停止で終了するtaskにも適用し、既存の完了条件や検証scopeは変更しない。Cumulative降順、同数ならpath順、0行fileは除外する。
+- Append the following helper-output section to the end of each skill's ordinary completion report. This also applies to read-only/chat-only tasks and tasks ending in a stop; do not change existing completion conditions or validation scope. Sort by Cumulative descending, then path for ties; exclude files with 0 lines.
 
 ```markdown
 ## Debug: LLM read report
@@ -45,6 +45,6 @@ Total:
 
 ## Accuracy
 
-- 集計scriptが正確に計算するのは、渡されたeventのReads・行番号のunion・累積である。Codexの全tool／自動context注入を機械的に捕捉するhookはこのrepositoryにない。直接read・partial read・search・機械抽出のevent収集はAgentの自己記録であり、完全計測と表現しない。
-- truncation、行番号不明、context圧縮等で記録欠落があれば、report直前に未計測経路・範囲を明示し、不明行数を推測で埋めない。終了時に本文を再読して記録を再構築しない。`wc -l`の総行数は提示行数の代用にしない。
-- 行数はLLM input量の比較用proxyであり、`Cumulative lines ≠ exact LLM tokens`。debug用ruleや提示されたtracking入力にもtoken消費がある。同じtask・条件・debug方式の改善前後比較に使い、keyのみの提示や長いJSON一行、context再送、圧縮、provider cache等を正確なtoken数へ換算しない。
+- The aggregation script calculates exactly the Reads, line-number union, and cumulative total of the supplied events. This repository has no hook mechanically capturing all Codex tools/automatic context injection. Agent self-recording collects direct read, partial read, search, and machine extraction events; do not describe it as complete measurement.
+- If records are missing due to truncation, unknown line numbers, context compression, etc., identify unmeasured paths/ranges immediately before the report; do not fill unknown line counts with guesses. Do not reread text at the end to reconstruct records. `wc -l` totals do not substitute for presented line counts.
+- Line counts are a proxy for comparing LLM input volume; `Cumulative lines ≠ exact LLM tokens`. Debug rules and presented tracking input also consume tokens. Use for before/after comparisons of the same task, conditions, and debug method; do not convert key-only presentations, long single-line JSON, context resending, compression, provider caches, etc. into exact tokens.

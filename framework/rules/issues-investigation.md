@@ -2,29 +2,29 @@
 
 ## Scope and responsibilities
 
-issuesだけのローカル入口は`framework/scripts/issues_scan.py`。同一environment/targetの複数serviceを一processで処理する。実案件のmodel・生成設計・IaCはread-only。AWS API/SDK、change set、Terraform init/plan/provider取得、deploy、scenarioへのfallbackはない。implement/deploy/updateや保存後loopへ新比較を追加しない。
+The local issues-only entrypoint is `framework/scripts/issues_scan.py`. Process multiple services in the same environment/target in one process. Actual project models, generated designs, and IaC are read-only. There is no fallback to AWS API/SDK, change sets, Terraform init/plan/provider retrieval, deploy, or scenarios. Do not add new comparisons to implement/deploy/update or the post-save loop.
 
-通常issueは`issues/<environment>/<target-directory>/issues.md`、model desired → IaC差分は`iac-issues.md`、環境間比較は従来の`diff.md`。通常gate実装・service所属形式・停止判定は不変。IaC差分だけでは失敗終了、通常issue登録、suspend、Issue remediation要求をしない。既存validatorのschema・model/Markdown一致・参照・policy・account/region等の診断と保存後local loopは維持する。
+Ordinary issues use `issues/<environment>/<target-directory>/issues.md`, model desired → IaC differences use `iac-issues.md`, and environment comparisons retain `diff.md`. Ordinary gate implementation, service ownership format, and stop decisions remain unchanged. IaC differences alone must not cause failure exit, ordinary issue registration, suspension, or Issue remediation requirements. Retain existing validator diagnostics for schema, model/Markdown equality, references, policies, account/region, etc., and the post-save local loop.
 
 ## Read and review
 
-AGENTS.mdのsection読取規則を適用する。issues skillの命名確認で指定する共通rule、対象namespace rule、Model authority/Properties format、Markdown structure、対象resourceの表示/参照ruleを適用する。必須ruleを省略するためのscanではない。
+Apply AGENTS.md section-reading rules. Apply common rules, target namespace rules, Model authority/Properties format, Markdown structure, and target resource display/reference rules specified by the issues skill's naming check. This scan does not permit omitting mandatory rules.
 
-| 機械checkで行うもの | LLMに残すものと入力 |
+| Machine checks | Decisions and inputs remaining for the LLM |
 | --- | --- |
-| project topology、scope、model/index/part構文・行数 | scopeは明示値。曖昧な診断のservice所属だけ確認する |
-| 既存service validator、生成Markdown/JSON一致、catalog/schema、参照、policy、observed保存禁止 | 具体的診断の意味・対応が不明な既存issue。必要時だけdiagnostic詳細/resourceを追加取得 |
-| 命名coverage・必須Name・既存の名称値check | 全resourceの名称pattern、human-confirmed component、human例外と適用scope。エラー名だけ/代表例だけを確認しない |
-| IaCの正式type/ID/stack対応、確定値と対応可能式の比較 | 機械差分の文章再生成は行わない。未比較を全文比較やAWSへ送らない |
-| scope限定report整形・排他・保存・入力fingerprint | 根拠付き追加通常issue、明示再検証した既存issueの解消指定 |
+| Project topology, scope, model/index/part syntax and line counts | Scope is explicit. Confirm only service ownership of ambiguous diagnostics |
+| Existing service validators, generated Markdown/JSON equality, catalog/schema, references, policies, observed persistence prohibitions | Existing issues whose concrete diagnostic meaning/mapping is unclear. Retrieve diagnostic details/resources only when needed |
+| Naming coverage, mandatory Name, existing name value checks | Name patterns for all resources, human-confirmed components, human exceptions and their scope. Do not check only error names/representative examples |
+| Formal IaC type/ID/stack mappings and comparison of confirmed values and supported expressions | Do not regenerate machine differences as prose. Do not send uncompared items to full-text comparison or AWS |
+| Scoped report formatting, exclusion, saving, input fingerprints | Evidence-backed additional ordinary issues and resolution specifications for explicitly revalidated existing issues |
 
-`scan`のstdoutはsummary、共通target context/rule、全名称、残る判断材料、未比較/errorの理由。大きい差分・全一致・詳細診断はrepository外の同一実行artifactへ置く。`detail`で必要sectionだけ読む。通常issue候補が多い場合も機械結果はPythonが保存し、LLMへ全件の文章化を要求しない。名称は独立子resourceのmodeを使い、inline設定は親mode。IMPORT、Name tag必須条件、human例外、対象外参照先の調査scopeを拡大しない。unknown componentを名称から推定しない。
+`scan` stdout contains summaries, common target context/rules, all names, remaining decision material, and uncompared/error reasons. Place large differences, all matches, and detailed diagnostics in the same run's artifact outside the repository. Read only needed sections with `detail`. Even with many ordinary issue candidates, Python saves machine results without requiring the LLM to verbalize every item. Names use independent child resource modes; inline settings use parent modes. Do not expand IMPORT, mandatory Name tag conditions, human exceptions, or out-of-scope reference target investigation scope. Do not infer unknown components from names.
 
-全`naming.names[].id`をreviewし、欠落/未知component/pattern不適合/明示例外を区別する。service共通の`desired.note.*`、row comment、既存human確認、機械化されない設計proseは判断材料として残る。情報不足は該当modelの`model_files.py --resource`または該当rule/sectionだけ追加取得する。材料不足で適合・問題なし・既存issue解消としない。
+Review every `naming.names[].id`, distinguishing missing/unknown components, pattern mismatches, and explicit exceptions. Service-common `desired.note.*`, row comments, existing human confirmations, and design prose not mechanized remain decision material. For insufficient information, additionally retrieve only the corresponding model's `model_files.py --resource` or relevant rule/section. Do not classify as conforming/problem-free or resolve existing issues with insufficient material.
 
 ## Commands
 
-以下の`python3`はcfn-lintをimportできる既存local validation runtimeを使用する（decoder不足は処理error）。scan前にfull loopを追加しない。
+The following `python3` uses an existing local validation runtime that can import cfn-lint (missing decoders are processing errors). Do not add a full loop before scan.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment dev --target-directory cde --service s3 --service iam --artifact /tmp/issues-scan.json
@@ -33,9 +33,9 @@ python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md 
 python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/save-local-issues.md
 ```
 
-scope/targetは例示値を実際の明示scopeへ置き換える。task契約は保存前に最初のrepository変更として登録し、`migration`、明示service Validation scope、今回の契約と保存するreportの正確なAllowed paths/Modified files、`exists:` Acceptance checkを宣言する。
+Replace example scope/target values with the actual explicit scope. Register the task contract before saving as the first repository change; declare `migration`, explicit service Validation scope, exact Allowed paths/Modified files for this contract and reports to save, and `exists:` Acceptance checks.
 
-review JSONは最小の判断結果だけ（大きいscan JSON/reportをコピーしない）:
+Review JSON contains only minimal decision results (do not copy large scan JSON/reports):
 
 ```json
 {
@@ -47,39 +47,39 @@ review JSONは最小の判断結果だけ（大きいscan JSON/reportをコピ�
 }
 ```
 
-空の追加/解消/assignmentは省略できる。全名称・残判断idのreviewをsaveが要求する。通常のcomponent根拠不足等は`issues`へ具体的な未確認事項を記録し、human確認を未実行AWS checkの成功に置換しない。新scanに無かっただけの旧issue解消指定は禁止。
+Empty additions/resolutions/assignments may be omitted. Save requires review of all names/remaining decision IDs. Record concrete unconfirmed matters such as missing ordinary component evidence in `issues`; do not substitute human confirmation for success of unexecuted AWS checks. Resolving old issues merely because they were absent from a new scan is prohibited.
 
-取得済み結果の保存だけは下記。input JSONは`issues`/`resolved`のみ受け付け、scan・命名再調査・IaC比較・AWS checkを自動開始しない。保存時の既存validationは省略しない。
+Use the following only to save already obtained results. Input JSON accepts only `issues`/`resolved`; do not automatically start scan, naming reinvestigation, IaC comparison, or AWS checks. Do not omit existing validation at save time.
 
 ```console
 python3 framework/scripts/issues_scan.py --task-file tasks/save-results.md save-results --environment dev --target-directory cde --service s3 --results /tmp/acquired-results.json
 python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/save-results.md
 ```
 
-exit 0はコマンド完了（IaC差分は非阻害）、1は既存validatorの通常validation診断、2は入力/処理/保存error。partialはsummary/reportに明示し、完全一致/PASSとしない。scanが通常validation errorを検出してもartifactを保存して結果保存へ進める。保存後loopがFAILならその結果を報告し、taskはcompletedにしない。
+Exit 0 means command completion (IaC differences are non-blocking), 1 means ordinary validation diagnostics from existing validators, and 2 means input/processing/save errors. State partial in summaries/reports; do not call it complete equality/PASS. Even if scan detects ordinary validation errors, save artifacts and proceed to saving results. If the post-save loop is FAIL, report that result and do not mark the task completed.
 
 ## Comparison coverage
 
-正本はdesired properties。observed/生成Markdown本文をIaC比較に使わない。CloudFormationの正式catalog typeと`cfn-logicalId`、stack model、stack別parameter、target contextを使う。legacy対応は既存の一意ID互換のみ。外部serviceは参照先model情報だけ読み、調査scopeを広げない。
+Desired properties are authoritative. Do not use observed/generated Markdown bodies for IaC comparison. Use CloudFormation formal catalog types, `cfn-logicalId`, stack models, per-stack parameters, and target context. Legacy mappings use only existing unique-ID compatibility. Read only reference-target model information for external services; do not expand investigation scope.
 
-対応範囲: literal、schema型の確定した値、nested object/ordered array、JSON document/policy、Ref/GetAttのresource identityとattribute、parameter/default、Condition/If/Equals/And/Or/Not、parameter/pseudo限定Sub/Join、Select/Split/FindInMap、正式な独立childと一意な親Refのinline child。model `.Name`のName tagへの正式変換、S3.Region/identifier output等の除外を維持する。IaC側だけの未選択設定は違反にしない。Tag配列のみ正式keyの対応を使い、その他の配列は順序・重複を保持する。object全体/documentを指定した場合は全体比較する。
+Supported scope: literals, values with confirmed schema types, nested objects/ordered arrays, JSON documents/policies, Ref/GetAtt resource identities and attributes, parameters/defaults, Condition/If/Equals/And/Or/Not, parameter/pseudo-only Sub/Join, Select/Split/FindInMap, formal independent children, and inline children with unique parent Refs. Retain formal conversion of model `.Name` to Name tags and exclusions such as S3.Region/identifier outputs. Unselected settings present only in IaC are not violations. Only Tag arrays use formal key matching; other arrays retain order and duplicates. Compare the whole object/document when specified as a whole.
 
-未比較: Terraform（既存の確実なローカル対応/evaluatorがない）、Transform、ImportValueの承認受渡しをローカルで証明できないもの、IMPORT参照の外部input、不明attribute/非一意mapping、未対応式、未確定値/型。resourceを全件unsupportedにする構成ではない。IMPORTそのものは生成対象外で、IaC不存在を欠落としない。CREATEの明示template/resource/property欠落は非阻害差分。入力syntax/読込/保存失敗はerrorとして成功にしない。
+Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, external input for IMPORT references, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
 
 ## Input reuse and publication
 
-`load_model`は検証済みparse・実file/part/key/行位置・本文を共有し、`read_model`公開APIは維持する。row indexはlegacy IDのhyphenと曖昧prefixを確認する。新しいscan内で通常材料と比較が同じmodel入口/partを再parseしない。scanの生成一致確認は既存read-only sync APIをtarget単位で呼び、余分なgenerator processとscope再読込を省く。通常validator/loopの既定process経路、成功cache・最大4並列は維持する。新しいservice subagent/入れ子並列/永続cacheは追加しない。根拠行の確認も保存内でfile単位に共有する。template decodeはfile単位、評価はstack/parameters/context単位、catalog/index/参照symbolは実行内で共有する。
+`load_model` shares validated parsing, actual files/parts/keys/line positions, and text; retain the public `read_model` API. Row indexes check hyphens in legacy IDs and ambiguous prefixes. Ordinary material and comparison within a new scan do not reparse the same model entries/parts. Scan generation equality uses the existing read-only sync API per target, omitting extra generator processes and scope rereads. Retain ordinary validator/loop default process paths, successful caches, and at most 4 parallel workers. Do not add service subagents, nested parallelism, or persistent caches. Also share evidence-line verification per file within saving. Template decoding is per file, evaluation per stack/parameters/context, and catalog/index/reference symbols are shared within the run.
 
-scan artifactはrepository外の一時受渡しであり次回cacheではない。既存digest/service dependency/common入力helperで保存前にmodel、parts集合、IaC、parameter、参照先、rule/frameworkを確認する。変更時は保存拒否し、該当scopeを再scanする。保存だけのための比較再実行をしない。
+Scan artifacts are temporary handoffs outside the repository, not next-run caches. Before saving, confirm models, part sets, IaC, parameters, references, and rules/framework using existing digest/service dependency/common input helpers. Reject saving on changes and rescan the relevant scope. Do not rerun comparisons merely for saving.
 
-report保存は既存のrepository外共有registration lockで短く直列化し、保存直前に現reportを再読込・scope限定mergeし、同directory一時file＋atomic replaceで公開する。busy時は保存をretryし、比較を再実行しない。別service、human確認、適用例外、未解消issueを保持する。機械診断と既存issueの対応が不明なら削除せず限定確認。IaC既存差分も今回未比較/新scan不検出だけで除去せず未確認として保持する。不正report、不存在への架空link、架空行番号、未予約/対象外writeを拒否する。secret/current ARNは新診断・artifact/reportへ出力せずマスクする。
+Briefly serialize report saving with the existing shared registration lock outside the repository; reread current reports immediately before saving, merge only scope, and publish with same-directory temporary files plus atomic replace. Retry saving when busy, not comparison. Preserve other services, human confirmations, applicable exceptions, and unresolved issues. If machine diagnostic/existing issue mappings are unclear, do not delete; confirm narrowly. Also retain old IaC differences as unconfirmed rather than removing them merely because currently uncompared/undetected by a new scan. Reject invalid reports, fictitious links to absent files, fictitious line numbers, and unreserved/out-of-scope writes. Mask secrets/current ARNs rather than outputting them in new diagnostics/artifacts/reports.
 
-`iac-issues.md`冒頭は非阻害結果、scope、日時、今回差分/未比較/error件数とstatusを記載する。保持された旧差分は今回件数と区別する。通常MarkdownのH2環境/target、H3 service、issue-service marker、番号付きissue形式を維持する。作業/性能ログは一覧へ混ぜない。チャットは件数、未比較/残判断、保存先、保存後validationだけ短く返す。
+The start of `iac-issues.md` states non-blocking results, scope, date/time, current difference/uncompared/error counts, and status. Distinguish retained old differences from current counts. Retain ordinary Markdown H2 environment/target, H3 service, issue-service markers, and numbered issue format. Do not mix work/performance logs into lists. Chat returns only brief counts, uncompared/remaining decisions, save paths, and post-save validation.
 
-CREATEの明示対応templateが存在しない場合は「モデルに対応するtemplateが存在しない（CREATE未実装）」と対象resource・stack・欠落pathをIaC差分に明記する。存在しないfileにはlinkを作らない。stack/template対応が未確定の場合は不存在と断定せず未比較理由を記載し、IMPORTは欠落判定から除外する。
+If an explicitly mapped CREATE template is absent, state “モデルに対応するtemplateが存在しない（CREATE未実装）” in IaC differences with target resources, stacks, and missing paths. Do not link to absent files. If stack/template mappings are unconfirmed, state uncompared reasons rather than asserting absence; exclude IMPORT from missing-item decisions.
 
 ## Framework regression and fixture benchmark
 
-この入口の開発時はframework scopeのfull loopを実行する。通常issuesへframework全回帰を追加する意味ではない。`issues_scan.checks.py`は隔離fixtureと既存checks形式で検査し、`--benchmark --log-dir /tmp/issues-performance`でA（現checkoutの変更前相当通常経路）/B（同じ通常check＋service別reference比較）/C（一括scan）を同じruntime・fresh cache・profileなしで繰り返し測定する。benchmark fixtureとdiagnosticsはrepository外にだけ置く。
+During development of this entrypoint, run the full loop with framework scope. This does not mean adding all framework regression to ordinary issues. `issues_scan.checks.py` checks isolated fixtures using existing checks format; `--benchmark --log-dir /tmp/issues-performance` repeatedly measures A (ordinary path equivalent to before changes in current checkout)/B (the same ordinary checks plus per-service reference comparison)/C (batch scan) with the same runtime, fresh cache, and no profile. Place benchmark fixtures and diagnostics only outside the repository.
 
-A/BのLLM量は旧skillが要求するmodel/Markdown全読込と一覧再編集、Cは実際のscan stdout＋最小review JSONのUTF-8 bytes/文字数として測る。必要ruleの入力はA/B/Cへ同じ条件で加算し、Cのstdoutは本文を重複出力せずpattern/scope/pathを共有する。実LLM token・LLM wall time・実案件の総時間は未測定。fixtureのPython scan/材料抽出/整形/保存全経路wall/process/read/parse/decode/判定coverageだけの測定をskill全体の実測速度と呼ばない。保存後local loopと実LLM時間はこのbenchmarkには含めず未測定とする。read_textと入力整合確認のread_bytesを分け、stageのmodelも含めて集計する。
+Measure A/B LLM volume as old-skill-required full model/Markdown reads and list reediting; C as actual scan stdout plus minimal review JSON UTF-8 bytes/characters. Add required rule input to A/B/C under the same conditions; C stdout shares patterns/scope/paths without duplicate body output. Actual LLM tokens, LLM wall time, and total actual project time are unmeasured. Do not call fixture Python scan/material extraction/formatting/saving whole-path wall/process/read/parse/decode/decision coverage measurements actual speed of the entire skill. Post-save local loops and actual LLM time are excluded from this benchmark and unmeasured. Separate read_text from input-integrity read_bytes; also include staged models in aggregation.

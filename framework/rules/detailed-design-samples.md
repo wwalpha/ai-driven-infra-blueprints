@@ -1,10 +1,10 @@
-# 詳細設計Markdownサンプル
+# Detailed Design Markdown Samples
 
-各例の適用条件と検証ルールは[詳細設計の共通ルール](detailed-design.md)を参照する。
+See [common detailed design rules](detailed-design.md) for each example's applicable conditions and validation rules.
 
 <a id="cloudformation-stack"></a>
 
-## CloudFormation stack詳細設計
+## CloudFormation stack detailed design
 
 ```md
 # CloudFormation stack 詳細設計
@@ -30,7 +30,7 @@
 
 <a id="resource-overview"></a>
 
-## リソース一覧
+## Resource overview
 
 ```md
 ## リソース一覧
@@ -44,9 +44,9 @@
 
 <a id="resource-name-heading"></a>
 
-## Resource名のheadingと内部ID
+## Resource name headings and internal IDs
 
-IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical IDは非表示metadataに保持する。
+IAM Role ResourceName and detail headings display RoleName; retain internal logical IDs in hidden metadata.
 
 ```md
 ### IAM.Role
@@ -79,13 +79,13 @@ IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical I
 | 1 | Name | `ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455` | 夜間処理の完了を5分間隔で検知するschedule名 |
 ```
 
-一覧・参照linkは`[ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455](#scheduler-ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455)`とする。内部IDのmarkerは表示されない。
+Overview/reference links use `[ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455](#scheduler-ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455)`. Internal ID markers are not displayed.
 
 <a id="nameless-resource-heading"></a>
 
-## 名称propertyのない同型単一resource
+## Single resources of a type without name properties
 
-名称property、選択済みName tag、既存の確定済み表示labelがなく、同じservice内に同型の独立resourceが1件だけある場合の例。logical IDは例示値であり、実設計では確定済み値を保持する。
+Example with no name property, selected Name tag, or existing confirmed display label, and exactly 1 standalone resource of the same type in the same service. The logical ID is an example value; actual designs retain confirmed values.
 
 ```md
 # AWS Security Hub 詳細設計
@@ -113,13 +113,13 @@ IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical I
 | 1 | EnableDefaultStandards | `true` | デフォルトの標準を有効にする設定 |
 ```
 
-通常の参照linkは`[SecurityHub.Hub](securityhub.md#securityhub-securityhub.hub)`とする。型名を`display.resource.*.label`へ保存しない。同型が複数ある場合は個別の確定済みlabelを使い、既存の確定済みlabelも維持する。
+Ordinary reference links use `[SecurityHub.Hub](securityhub.md#securityhub-securityhub.hub)`. Do not save type names in `display.resource.*.label`. For multiple resources of the same type, use individually confirmed labels and retain existing confirmed labels.
 
 <a id="vpc-endpoint-name-tag"></a>
 
-## VPC Endpointの必須Name tag
+## Mandatory VPC Endpoint Name tags
 
-以下の名称componentは例示値であり、実設計ではhuman-confirmedな値と既存patternを使う。
+The name components below are example values; actual designs use human-confirmed values and existing patterns.
 
 ```md
 ## リソース一覧
@@ -147,13 +147,13 @@ IAM RoleのResourceNameと詳細headingはRoleNameを表示し、内部logical I
 | 6 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Endpointが所属するVPC |
 ```
 
-通常の参照は`[vpce-app-dev-s3](vpc.md#vpc-vpce-app-dev-s3)`を表示する。IdやId参照は既存規則どおりcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesiredには非表示内部IDのlogical reference、observedにはcurrent IDを分離する。Endpointの設計専用.Nameは作らず、必須tag不足を表示labelで代替しない。
+Ordinary references display `[vpce-app-dev-s3](vpc.md#vpc-vpce-app-dev-s3)`. Id and Id references display current IDs / `PENDING_DEPLOY` according to existing rules; separate hidden internal ID logical references in model desired from current IDs in observed. Do not create Endpoint design-only .Name or substitute display labels for missing mandatory tags.
 
 <a id="ec2-instance-name-tag"></a>
 
-## EC2 Instanceの必須Name tag
+## Mandatory EC2 Instance Name tags
 
-Name tagの値は例示値であり、実設計では確定済みの値を使う。内部logical IDは非表示metadataへ保持する。
+Name tag values are examples; actual designs use confirmed values. Retain internal logical IDs in hidden metadata.
 
 ```md
 ## リソース一覧
@@ -182,9 +182,9 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 | 7 | Name | `dev-app-vulnerability-scan-01` | <!-- ec2-name-tag: ["`Name`","名前を識別するタグのキー"] --> Instanceを識別する名前 |
 ```
 
-通常の参照linkもName tagの値を表示する。InstanceIdの参照はcurrent ID／`PENDING_DEPLOY`を表示し、modelのdesired logical reference／observed IDの分離を維持する。設計専用.Nameや表示labelでName tagを代替しない。
+Ordinary reference links also display Name tag values. InstanceId references display current IDs / `PENDING_DEPLOY`, retaining separation of model desired logical references/observed IDs. Do not substitute design-only .Name or display labels for Name tags.
 
-設定表の`Name`は正式なTags Key／Valueをまとめた表示であり、modelでは2 rowを維持する。BlockDeviceMappingsが複数なら、2件目のDeviceNameとEbs各項目を`BlockDeviceMappings[2].DeviceName`、`BlockDeviceMappings[2].Ebs.VolumeSize`などと表示する。
+Setting table `Name` combines formal Tags Key/Value for display; retain 2 model rows. For multiple BlockDeviceMappings, display the second DeviceName and each Ebs item as `BlockDeviceMappings[2].DeviceName`, `BlockDeviceMappings[2].Ebs.VolumeSize`, etc.
 
 <a id="resource-detail-table"></a>
 
@@ -197,7 +197,7 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 <a id="macie-bucket-mapping"></a>
 
-## Macie bucket対応表
+## Macie bucket mapping tables
 
 ```md
 #### 対象S3 bucket
@@ -226,7 +226,7 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 <a id="iam-trust-policy"></a>
 
-## IAM信頼ポリシー表
+## IAM trust policy tables
 
 ```md
 <!-- iam-policy-tables:start -->
@@ -248,7 +248,7 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 <a id="pending-reference"></a>
 
-## Deploy前の参照
+## References before Deploy
 
 ```md
 | 4 | EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
@@ -256,7 +256,7 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 <a id="deployed-reference"></a>
 
-## Deploy後の参照
+## References after Deploy
 
 ```md
 | 4 | EC2.Subnet.VpcId | [vpc-0123456789abcdef0](#vpc-vpc-app-dev) | Subnetが所属するVPC |
@@ -264,7 +264,7 @@ Name tagの値は例示値であり、実設計では確定済みの値を使う
 
 <a id="identifier-output"></a>
 
-## Resource自身のidentifier output
+## Resource's own identifier output
 
 ```md
 | 1 | EC2.VPC.VpcId | vpc-0123456789abcdef0 | 一意に識別するID |

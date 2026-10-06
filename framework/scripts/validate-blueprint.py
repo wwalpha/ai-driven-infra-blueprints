@@ -607,30 +607,30 @@ class Validator:
         if not path.is_file():
             return
         prompt = path.read_text(encoding="utf-8")
-        self.check("Task typeは`design`" in prompt, "service design prompt lacks design task contract")
+        self.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
         self.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
         self.check("blueprint-loop.py --mode task" in prompt, "service design prompt lacks local validation")
         self.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
-        gate = "## Naming rule preflight（設計開始gate）"
+        gate = "## Naming rule preflight (design start gate)"
         self.check(gate in prompt and "## Determine what to ask" in prompt
                    and prompt.index(gate) < prompt.index("## Determine what to ask"),
                    "service design prompt lacks naming preflight before design questions")
         self.check("check-design-naming.py --resource-type" in prompt,
                    "service design prompt lacks executable naming preflight")
-        self.check("design契約登録前に`check-design-naming.py`" in prompt,
+        self.check("Before design contract registration, execute `check-design-naming.py`" in prompt,
                    "service design handoff lacks naming preflight before task registration")
         required_existing_resource_contract = {
             "--read-only": "service design prompt lacks read-only AWS context preflight",
             "aws cloudcontrol list-resources": "service design prompt lacks generic existing-resource discovery",
             "aws cloudcontrol get-resource": "service design prompt lacks generic existing-resource read",
-            "対象service固有のread-only APIへfallback": "service design prompt lacks service API fallback",
-            "一件だけでもhumanが選択": "service design prompt may auto-select an existing resource",
-            "logical IDを一回の応答につき一つ質問": "service design prompt may invent a logical ID for an existing resource",
-            "直接差分反映": "service design prompt lacks direct existing-value synchronization",
-            "存在しないoptional property rowは削除": "service design prompt lacks absent optional-property removal",
-            "password、secret、token、credentialは表示または保存せず": "service design prompt lacks sensitive-value exclusion",
-            "generated ARNはMarkdown、JSON artifact、modelへ保存しない": "service design prompt may persist generated ARNs",
-            "resourceの作成者、管理者、外部作成済みという出自": "service design prompt persists or omits the no-provenance contract",
+            "Fall back to target-service-specific read-only APIs only when Cloud Control API does not support List/Read": "service design prompt lacks service API fallback",
+            "stop until humans select, even for a single candidate": "service design prompt may auto-select an existing resource",
+            "ask one logical ID per response": "service design prompt may invent a logical ID for an existing resource",
+            "Directly apply differences to model properties": "service design prompt lacks direct existing-value synchronization",
+            "delete optional property rows absent from AWS current values": "service design prompt lacks absent optional-property removal",
+            "Do not display or save passwords, secrets, tokens, or credentials": "service design prompt lacks sensitive-value exclusion",
+            "do not save generated ARNs in Markdown, JSON artifacts, or models": "service design prompt may persist generated ARNs",
+            "Do not add resource creator, administrator, or externally created provenance to artifacts": "service design prompt persists or omits the no-provenance contract",
         }
         for literal, error in required_existing_resource_contract.items():
             self.check(literal in prompt, error)

@@ -551,39 +551,39 @@ def check_implementation_preflight_prompt() -> None:
     preflight = text.split("## Read-only implementation preflight\n", 1)[1].split("\n## ", 1)[0]
     assert text.index("## Read-only implementation preflight") < text.index("## Create active task contract") < text.index("## Implement and validate")
     for required in (
-        "active contract作成・IaC生成より前", "AWS API、IaC生成、deployは実行しない",
+        "before active contract creation or IaC generation", "Do not execute AWS APIs, IaC generation, or deploy",
         "model_design.validate_required_properties", "DesignSchemaCatalog.literal_errors",
-        "必要な依存先のproperties", "正本stack登録", "template・parameterの対応", "dependency cycle",
+        "necessary dependency properties", "authoritative stack registration", "template/parameter mappings", "dependency cycle",
         "対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由",
-        "一回でまとめて提示", "最初の不足だけで報告を終えない", "不足があれば実装せず",
-        "追加承認を要求せず", "変更scopeや全service検証へ自動拡張しない",
-        "日本語の表示用Comment", "不正値を自動翻訳・置換しない", "別taskを自動作成・実行しない",
+        "together in one response", "do not end the report at the first deficiency", "If deficiencies exist, do not implement",
+        "without requiring additional approval", "Do not automatically expand change scope or all-service validation",
+        "Japanese display Comments", "do not automatically translate/replace invalid values", "Do not repair designs/models/IaC here or automatically create/execute another task",
     ):
         assert required in preflight, required
     reading = text.split("## Read before changing files\n", 1)[1].split("\n## ", 1)[0]
     for required in (
-        "設計inputはauthoritative model propertiesだけ", "propertiesとgenerated Markdownの事前二重比較をAgentへ要求しない",
-        "本文はImplement開始時・IaC生成時・参照解決時に読まず", "Markdown／JSONの生成・保存とlocal loopの整合性検証は既存どおり維持",
-        "scope selectorとして扱う", "本文を読まず", "path／file stem", "対応するmodelを一意に特定できない場合は推測せず停止",
+        "Implement design inputs are only authoritative model properties", "Do not require the Agent to compare properties and generated Markdown twice in advance",
+        "Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution", "Retain Markdown/JSON generation/saving and local loop consistency validation as before",
+        "treat them as scope selectors", "Without reading bodies", "path/file stem", "If corresponding models cannot be uniquely identified, stop without guessing",
         "python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>",
-        "resource number", "logical ID、anchorの完全一致", "単一fileと分割入口index", "同じgroupの親・子・兄弟、service metadata／notes",
-        "service全体のscopeならservice properties全体", "対象accountの承認済み設計すべて", "target全Markdownをfallbackとして読むことは禁止",
-        "desired value、resource、reference、stack assignment、human decision", "design taskが必要として停止",
+        "resource number", "Selectors require exact matches for resource number (such as `001`), cfn-logicalId, legacy logical ID, or anchor", "single files and split entry indexes", "parents, children, and siblings in the same group required by existing specifications, and service metadata/notes",
+        "Service-wide scope may use entire service properties", "対象accountの承認済み設計すべて", "Reading all target Markdown as fallback is prohibited",
+        "desired values, resources, references, stack assignments, or human decisions", "stop because a design task is required",
     ):
         assert required in reading, required
-    assert not any(line.startswith("5. 対象の`docs/designs/") for line in reading.splitlines())
-    assert "生成設計" not in preflight and "model生成一致検証" not in preflight
+    assert not any(line.startswith("5. Target `docs/designs/") for line in reading.splitlines())
+    assert "generated designs" not in preflight and "model generation equality validation" not in preflight
     units = text.split("## Resolve implementation units\n", 1)[1].split("\n## ", 1)[0]
-    for required in ("cloudformation-stacks.properties`だけを読む", "desired.stack.*.name", "`.template`", "`.parameters`", "`.deployOrder`",
-                     "desired.deployment.maxConcurrentStacks", "実効値は既存契約どおり1", "Implement inputとして読まない"):
+    for required in ("read only the target's authoritative `model/<environment>/<target-directory>/cloudformation-stacks.properties`", "desired.stack.*.name", "`.template`", "`.parameters`", "`.deployOrder`",
+                     "desired.deployment.maxConcurrentStacks", "effective MaxConcurrentStacks remains 1 under the existing contract", "do not read it as Implement input"):
         assert required in units, required
     implementation = text.split("## Implement and validate\n", 1)[1].split("\n## ", 1)[0]
-    for required in ("authoritative model propertiesだけ", "`desired.row.*`", "`.document`", "desired.resource.*.anchor", "desired.resource.*.logicalId",
-                     "producer model properties", "parentReference", "generated Markdown本文を読まない", "physical IDをIaCへ直書きしない"):
+    for required in ("Use only authoritative model properties", "`desired.row.*`", "`.document`", "desired.resource.*.anchor", "desired.resource.*.logicalId",
+                     "producer model properties", "parentReference", "do not read generated Markdown bodies", "Do not hardcode link display text `PENDING_DEPLOY` or physical IDs into IaC"):
         assert required in implementation, required
     finish = text.split("## Verify and finish\n", 1)[1]
-    for required in ("blueprint-loop.py --mode task", "read-onlyの`sync-model.py`", "不一致ならFAIL", "check_design_tables",
-                     "check_design_links", "check_stack_designs", "validationを省略・弱体化せず"):
+    for required in ("blueprint-loop.py --mode task", "read-only `sync-model.py`", "mismatches are FAIL", "check_design_tables",
+                     "check_design_links", "check_stack_designs", "do not omit/weaken these validations"):
         assert required in finish and required not in preflight, required
 
 
@@ -602,15 +602,15 @@ def check_update_flow_prompt() -> None:
                 r"(?:^|`)(python\s+framework/scripts/[^`\n]+)", body, re.M)]
 
         reading = sections["Read before changing files"]
-        for token in ("authoritative model properties", "desired.row.*.document", "inputとして読まない",
-                      "--resource <resource-selector>", "parentReference", "path／file stem", "必要なpart"):
+        for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
+                      "--resource <resource-selector>", "parentReference", "path/file stem", "required parts"):
             assert token in reading, token
         instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
         assert instructions and not any(re.search(
             r"docs/designs/|cloudformation-stacks\.md|0[34]_(?:implement|deploy)\.md", line
         ) for line in instructions), "generated artifacts/full prompts returned to the input list"
         scope = sections["Resolve target and scope from repository state"]
-        assert "cloudformation-stacks.properties`だけ" in scope
+        assert "only from authoritative `cloudformation-stacks.properties`" in scope
         assert "cloudformation-stacks.md" not in scope, "duplicate stack scope input"
         for token in ("desired.stack.*.name", ".template", ".parameters", ".deployOrder",
                       "desired.deployment.maxConcurrentStacks", "workspace", "backend", "variable input"):
@@ -623,14 +623,14 @@ def check_update_flow_prompt() -> None:
         deploy = sections["Preflight and deploy"]
         dependency = engine(deploy, "CloudFormation read-only dependency check")
         for token in ("--read-only", "describe-stacks", "list-exports", "ExportingStackId",
-                      "NOT_STARTED", "--pause-after-group", "通常のCloudFormation updateでは実行しない"):
+                      "NOT_STARTED", "--pause-after-group", "do not run it in ordinary CloudFormation update"):
             assert token in dependency, token
         cfn = engine(deploy, "CloudFormation controller")
         cfn_commands = commands(cfn)
         assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith("/cloudformation-deploy.py")
         for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
             assert option in cfn_commands[0], option
-        for token in ("最終preflight責任者", "account", "region", "issue gate", "immutable input",
+        for token in ("responsible for final preflight", "account", "region", "issue gate", "immutable input",
                       "cfn-lint", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
             assert token in cfn, token
         terraform = engine(deploy, "Terraform preflight and apply")
@@ -639,41 +639,41 @@ def check_update_flow_prompt() -> None:
         assert "--alias" in tf_commands[0] and "--aws-account-id" in tf_commands[1]
         assert commands(deploy) == cfn_commands + tf_commands, "standalone normal CFn preflight was added"
         for token in ("terraform fmt -check", "terraform validate", "terraform plan -out=",
-                      "terraform apply", "保存済みplan binary", "partial apply", "AWS_PROFILE"):
+                      "terraform apply", "saved plan binary", "partial apply", "AWS_PROFILE"):
             assert token in terraform, token
 
         post = sections["Post-deployment model sync"]
         cfn_post = engine(post, "CloudFormation")
         assert not commands(cfn_post), "Agent must not run a second CFn observed/sync process"
-        for token in ("controller所有", "cloudformation_observed.py", "IDENTIFIER_OUTPUT",
-                      "PhysicalResourceId", "全参照元", "再実行しない", "AMBIGUOUS_OBSERVED_MAPPING"):
+        for token in ("owned by the controller", "cloudformation_observed.py", "IDENTIFIER_OUTPUT",
+                      "PhysicalResourceId", "all references", "must not rerun", "AMBIGUOUS_OBSERVED_MAPPING"):
             assert token in cfn_post, token
-        assert all("再実行しない" in line for line in cfn_post.splitlines() if "--write" in line)
+        assert all("must not rerun" in line for line in cfn_post.splitlines() if "--write" in line)
         tf_post = engine(post, "Terraform")
-        for token in ("Terraform output", "state", "non-sensitive", "IDENTIFIER_OUTPUT", "全参照元",
+        for token in ("Terraform output", "state", "non-sensitive", "IDENTIFIER_OUTPUT", "all references",
                       "PENDING_DEPLOY", "sync-model.py --write"):
             assert token in tf_post, token
         approval = sections["Confirm unapproved delete/replacement"]
-        for token in ("未実行", "human確認待ち", "--approve-change-set", "CREATE_COMPLETE/AVAILABLE",
-                      "fingerprint", "一部だけの承認では実行しない", "以前の承認を流用しない"):
+        for token in ("unexecuted", "wait for human confirmation", "--approve-change-set", "CREATE_COMPLETE/AVAILABLE",
+                      "fingerprint", "Do not execute with only partial approval", "Do not reuse prior approval"):
             assert token in approval, token
         finish = sections["Verify and finish"]
         loop = commands(finish)
         assert len(loop) == 1 and loop[0][1].endswith("/blueprint-loop.py")
         assert loop[0][loop[0].index("--mode") + 1] == "task"
         assert "--task-file" in loop[0] and "--all" not in loop[0]
-        for token in ("Validation scope", "Acceptance checks", "read-only", "不一致ならFAIL",
-                      "validation cache", "service parallelism", "framework全回帰を追加しない"):
+        for token in ("Validation scope", "Acceptance checks", "read-only", "mismatches are FAIL",
+                      "validation cache", "service parallelism", "do not add all framework regression"):
             assert token in finish, token
 
     validate(text)
     # Prohibitions alone must not hide contradictory executable/read instructions.
     regressions = [
-        text.replace("6. Design scopeの正本", "6. 対象の`docs/designs/<environment>/<target-directory>/*.md`と関連JSON artifact\n7. Design scopeの正本", 1),
-        text.replace("cloudformation-stacks.properties`だけ", "cloudformation-stacks.properties`と`cloudformation-stacks.md`", 1),
+        text.replace("6. Authoritative Design scope", "6. Target `docs/designs/<environment>/<target-directory>/*.md` and related JSON artifacts\n7. Authoritative Design scope", 1),
+        text.replace("only from authoritative `cloudformation-stacks.properties`", "from authoritative `cloudformation-stacks.properties` and generated `cloudformation-stacks.md`", 1),
         text.replace("### CloudFormation controller\n", "### CloudFormation controller\n\npython framework/scripts/check-deploy-context.py --environment <environment> --alias <alias>\n", 1),
         text.replace("### CloudFormation\n", "### CloudFormation\n\npython framework/scripts/sync-model.py --write --service <service-id>\n", 1),
-        text.replace("python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md", "最終validationを省略する", 1),
+        text.replace("python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md", "Omit final validation", 1),
     ]
     for index, regression in enumerate(regressions, 1):
         assert regression != text
@@ -1220,18 +1220,21 @@ def check_design_handoff_prompt() -> None:
         SCRIPT.parents[2] / "framework" / "prompts" / "chatbot" / "service-design.md"
     ).read_text(encoding="utf-8")
     assert "AWS::<Service>::<Resource>" in prompt
-    assert "VPC固有" not in prompt
+    assert "VPC-specific" not in prompt
     assert "Management owner" not in prompt
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         path = root / "framework/prompts/chatbot/service-design.md"
         path.parent.mkdir(parents=True)
         for original, replacement, expected in (
-            ("## Naming rule preflight（設計開始gate）", "## Removed gate", "before design questions"),
+            ("## Naming rule preflight (design start gate)", "## Removed gate", "before design questions"),
             ("check-design-naming.py --resource-type", "removed-preflight", "executable naming preflight"),
-            ("design契約登録前に`check-design-naming.py`", "removed-handoff", "before task registration"),
+            ("Before design contract registration, execute `check-design-naming.py`", "removed-handoff", "before task registration"),
         ):
-            path.write_text(prompt.replace(original, replacement), encoding="utf-8")
+            assert original in prompt
+            mutated = prompt.replace(original, replacement)
+            assert mutated != prompt
+            path.write_text(mutated, encoding="utf-8")
             validator = MODULE.Validator(root)
             validator.check_framework_design_handoff()
             assert any(expected in error for error in validator.errors), validator.errors
@@ -1626,7 +1629,7 @@ def check_stack_mapping_targets():
         assert not validator.errors, validator.errors
     prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text()
     assert "python framework/scripts/cloudformation_observed.py --environment" in prompt
-    assert "生成・変更後も" in prompt and "identifier行の不足を自動補完せず" in prompt
+    assert "After generation/changes as well" in prompt and "Do not automatically fill missing identifier rows" in prompt
 
 
 def check_rule_reading_contract() -> None:

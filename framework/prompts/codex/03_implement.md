@@ -1,14 +1,14 @@
 # Infrastructure Implementation Prompt
 
-契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
+Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
-このpromptは、承認済みの詳細設計の正本であるauthoritative model propertiesを`project.json`で選択済みのCloudFormationまたはTerraformへ変換し、local static validationまでを行う`infrastructure` taskに使用する。AWS API、change set、plan、deploy/applyは実行しない。deploy/applyは別taskで`framework/prompts/codex/04_deploy.md`を使用する。
+Use this prompt for an `infrastructure` task converting authoritative model properties, the authority for approved detailed designs, into CloudFormation or Terraform selected in `project.json`, through local static validation. Do not execute AWS APIs, change sets, plans, or deploy/apply. For deploy/apply, use `framework/prompts/codex/04_deploy.md` in a separate task.
 
-account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
+Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
 ## Unresolved issue gate
 
-対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
+Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
 
 ## User input
 
@@ -19,135 +19,135 @@ account／profileの共通選択は[Credentials and account](../../rules/project
 
 ## Resolve missing input
 
-fileを変更する前にUser inputを確認する。placeholder、空、不明な値はmissingとして扱い、次の順序で一回の応答につき一つだけ質問する。
+Confirm User input before file changes. Treat placeholder, empty, and unknown values as missing; ask only one question per response in the following order.
 
 1. Target environment
-2. Target alias（選択済みenvironmentに複数targetがある場合だけ）
+2. Target alias (only when the selected environment has multiple targets)
 3. Target AWS account
 4. Implementation scope
 
-environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。`project.json`または対象の承認済み詳細設計の正本model propertiesが存在しない場合は、値を推測せず停止する。
+Present only environment, alias, and AWS account candidates belonging to the same target in `project.json`; do not automatically select. Do not ask aliases when an environment has only 1 target. If `project.json` or target approved detailed design authoritative model properties are absent, stop without guessing values.
 
 ## Read before changing files
 
 1. `AGENTS.md`
 2. [task-contract](../../rules/task-contract.md)
-3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
+3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
-5. implementation scopeに対応する正本`model/<environment>/<target-directory>/<service>.properties`（読取範囲は下記に従う）
-6. [Policy account selection](../../rules/detailed-design.md#policy-account-selection)。CloudFormationは[CloudFormation stack詳細設計](../../rules/detailed-design.md#cloudformation-stack詳細設計)、設計表示を変更・調査する場合だけ関連する表示sectionを追加する。
+5. Authoritative `model/<environment>/<target-directory>/<service>.properties` corresponding to implementation scope (read ranges follow below)
+6. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 7. `framework/rules/aws-resource-naming.md`
-8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
-9. 選択済みengineに対応する[cloudformation](../../rules/cloudformation.md)または[terraform](../../rules/terraform.md)
+8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
+9. [cloudformation](../../rules/cloudformation.md) or [terraform](../../rules/terraform.md) for the selected engine
 10. [observed-values](../../rules/observed-values.md)
-11. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)。[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
-12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
-13. CloudFormationの場合は`framework/materials/cloudformation-schema/ap-northeast-1/index.json`と対象resourceのprovider schema
-- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。命名を確認する場合は[aws-resource-naming](../../rules/aws-resource-naming.md)。
+11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
+12. `framework/materials/aws/*.properties`, `framework/materials/api/*.properties`, and same-named API design schemas relevant to target resources
+13. For CloudFormation, `framework/materials/cloudformation-schema/ap-northeast-1/index.json` and target resource provider schemas
+- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
 
-命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
+For naming rules, additionally read only service files corresponding to target resource type catalog namespaces from the common entry's Service rule lookup. Even for multiple services, read only target namespaces, not the whole naming rule directory at once. Match Catalog resource types/Naming target and patterns in selected service files.
 
-Implementの設計inputはauthoritative model propertiesだけとする。generated `docs/designs/<environment>/<target-directory>/*.md`（`cloudformation-stacks.md`を含む）の本文はImplement開始時・IaC生成時・参照解決時に読まず、値を再取得しない。propertiesとgenerated Markdownの事前二重比較をAgentへ要求しない。必要なdesired value、resource、reference、stack assignment、human decisionがpropertiesに不足する場合は、下記の実装前確認の不足一覧へ含め、design taskが必要として停止する。Markdown／JSONの生成・保存とlocal loopの整合性検証は既存どおり維持する。
+Implement design inputs are only authoritative model properties. Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution, or retrieve values again. Do not require the Agent to compare properties and generated Markdown twice in advance. If properties lack necessary desired values, resources, references, stack assignments, or human decisions, include them in the pre-implementation deficiency list below and stop because a design task is required. Retain Markdown/JSON generation/saving and local loop consistency validation as before.
 
-Implementation scopeに詳細設計の`.md` fileが指定された場合はscope selectorとして扱う。本文を読まず、`docs/designs/<environment>/<target-directory>/<service>.md`のpath／file stemから同じenvironment／target／serviceの`model/<environment>/<target-directory>/<service>.properties`へ対応付け、選択済みproject targetとの一致を確認する。対応するmodelを一意に特定できない場合は推測せず停止する。
+If Implementation scope specifies detailed design `.md` files, treat them as scope selectors. Without reading bodies, map `docs/designs/<environment>/<target-directory>/<service>.md` path/file stem to `model/<environment>/<target-directory>/<service>.properties` in the same environment/target/service and confirm equality with the selected project target. If corresponding models cannot be uniquely identified, stop without guessing.
 
-resource限定scopeでは次の既存commandで正本を部分読み取りする。selectorはresource number（`001`など）、cfn-logicalId、旧logical ID、anchorの完全一致とし、未一致・曖昧な選択は停止する。
+For resource-limited scope, partially read authority with the following existing command. Selectors require exact matches for resource number (such as `001`), cfn-logicalId, legacy logical ID, or anchor; stop on unmatched/ambiguous selections.
 
 ```console
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>
 ```
 
-対象resourceと既存仕様上必要な同じgroupの親・子・兄弟、service metadata／notesだけを取得し、独自の抽出処理を追加しない。単一fileと分割入口indexの両方に同じcommandを使い、無関係なresourceや全partをcontextへ取り込まない。service全体のscopeならservice properties全体、「対象accountの承認済み設計すべて」なら対象service model群を使用できる。分割modelは既存`model_files.py`の入口indexとpart構成に従い、必要なpartだけを読む。
+Retrieve only target resources and parents, children, and siblings in the same group required by existing specifications, and service metadata/notes; do not add custom extraction. Use the same command for single files and split entry indexes; do not load unrelated resources or all parts into context. Service-wide scope may use entire service properties; “対象accountの承認済み設計すべて” may use target service model sets. Split models follow existing `model_files.py` entry indexes and part structure; read only required parts.
 
-読取対象はimplementation scopeのresource/propertyと参照解決に必要なproducer側propertiesへ絞る。追加取得にもproducerの`model_files.py --resource`を使い、変更scopeを広げない。target全Markdownをfallbackとして読むことは禁止する。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
+Limit reads to implementation scope resources/properties and producer properties needed for reference resolution. Use producer `model_files.py --resource` for additional retrieval too, without expanding change scope. Reading all target Markdown as fallback is prohibited. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 
-`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+`<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
-指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 
-framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
+Add [Framework regression](../../rules/loop-engineering.md#framework-regression) for framework changes, [Validation cache](../../rules/loop-engineering.md#validation-cache) for validation reuse, and applicable loop diagnostic sections for stops/long execution. Do not additionally read full README or inapplicable sections; retain schema/reference/account/issue/task-specific checks.
 
 ## Read-only implementation preflight
 
-User inputとissue gateの確認後、active contract作成・IaC生成より前に、下記のCheck implementation support、Resolve implementation units、既存IaCとの照合をすべてread-onlyで行う。AWS API、IaC生成、deployは実行しない。既存のschema検証と依存関係確認を再利用し、新しい検証エンジンや承認工程を追加しない。
+After User input and issue gate confirmation, before active contract creation or IaC generation, perform all Check implementation support, Resolve implementation units, and existing IaC matching below read-only. Do not execute AWS APIs, IaC generation, or deploy. Reuse existing schema validation and dependency checks; do not add new validation engines or approval steps.
 
-1. 対象resourceの正本propertiesからCREATE／IMPORT、正式CFn型、必須property、未確定値を確認する。既存`model_design.validate_required_properties`と`DesignSchemaCatalog.literal_errors`などpropertiesに適用できるschema検証を再利用し、型・enum・pattern・長さ・範囲と補完されたAWS文字制約を確認する。前taskのValidation scopeを流用せず、対象serviceと必要な参照先を明示して検証する。日本語の表示用Commentは正式property値と区別し、不正値を自動翻訳・置換しない。
-2. properties内のresource/propertyの参照をたどり、必要な依存先のproperties・anchor・logical/current identifier、受渡し値を確認し、利用するpropertyにも同じschema検証を適用する。下記のpropertiesによるreference解決とResolve implementation unitsの依存確認を使い、参照先は必要なresource/propertyだけ読む。依存先調査で変更scopeや全service検証へ自動拡張しない。
-3. CloudFormationでは正本stack登録のpropertiesから対象resourceの所有stack、template・parameterの対応、DeployOrder、共有templateの各stack instanceを確認する。既存templateのResources・Parameters・Outputs／Export／ImportValueとpropertiesのdesired rowの対応、parameter値／defaultの不足、参照先不明、dependency cycleを確認する。新規IaC fileの未作成自体は不足とせず、配置先と入力の設計が未確定なら不足にする。Terraformでは既存module・environment入力・outputの対応を確認する。
-既存CloudFormation templateがあるstackは、共通local read-only検証を実装前に実行する。各resourceの`desired.resource.*.cfn-logicalId=<StackName>-<Resources key>`を直接照合する。別対応表を使用せず、同じstackに直接IDがある場合の対応漏れ・不正対応を従来照合で補わない。直接IDのない旧modelだけ型＋旧logicalIdの一意な照合を維持する。stack固有parameter/defaultでConditionを評価し、有効resourceのCREATE区分・正式型・対応先・二重所有・identifier行・必要Outputsの不足をまとめて報告する。falseのresourceは処理せず、未解決Conditionは停止する。新規templateの未作成はこの段階で不足とせず、modelのidentifier行と配置先の確定を確認する。
+1. From target resource authoritative properties, confirm CREATE/IMPORT, formal CFn types, required properties, and unconfirmed values. Reuse schema validation applicable to properties such as existing `model_design.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to check type, enum, pattern, length, range, and supplemented AWS character constraints. Do not reuse previous task Validation scope; validate explicit target services and necessary references. Distinguish Japanese display Comments from formal property values; do not automatically translate/replace invalid values.
+2. Follow resource/property references in properties, confirm necessary dependency properties, anchors, logical/current identifiers, and handoff values; apply the same schema validation to used properties. Use properties-based reference resolution below and dependency checks in Resolve implementation units; read only necessary resources/properties at reference targets. Do not automatically expand change scope or all-service validation during dependency investigation.
+3. For CloudFormation, confirm target resource owning stacks, template/parameter mappings, DeployOrder, and each shared-template stack instance from authoritative stack registration properties. Check correspondence between existing template Resources/Parameters/Outputs/Export/ImportValue and properties desired rows, missing parameter values/defaults, unknown reference targets, and dependency cycles. Absence of not-yet-created new IaC files alone is not a deficiency; unconfirmed placement/input design is. For Terraform, check existing module/environment input/output mappings.
+For stacks with existing CloudFormation templates, run common local read-only validation before implementation. Directly match each resource's `desired.resource.*.cfn-logicalId=<StackName>-<Resources key>`. Do not use separate mapping tables or fill missing/invalid mappings with legacy matching when direct IDs exist in the same stack. Retain unique type + legacy logicalId matching only for old models without direct IDs. Evaluate Conditions with stack-specific parameters/defaults and collectively report active resource CREATE classification, formal type, mapping, duplicate ownership, identifier rows, and missing required Outputs. Do not process false resources; stop for unresolved Conditions. At this stage, absent new templates are not deficiencies; confirm model identifier rows and placement destinations.
 
 ```console
 python framework/scripts/cloudformation_observed.py --environment <environment> --target-directory <target-directory> --stack <StackName> --stack <another-StackName>
 ```
 
-4. 確認可能な全対象と依存先の診断を集約し、`対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由`の不足一覧を一回でまとめて提示する。読取不能の対象はその理由を記載して他の確認を続け、最初の不足だけで報告を終えない。不足0件ならその結果と実装対象差分を報告し、追加承認を要求せず契約作成・実装へ進む。不足があれば実装せず、別のdesign taskが必要であることと未確認事項を示して停止する。設計・model・IaCをここで修正せず、別taskを自動作成・実行しない。
+4. Aggregate diagnostics for all verifiable targets/dependencies and present the deficiency list `対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由` together in one response. State reasons for unreadable targets and continue other checks; do not end the report at the first deficiency. For 0 deficiencies, report that result and implementation target diffs, then proceed to contract creation/implementation without requiring additional approval. If deficiencies exist, do not implement; identify that a separate design task is required and unconfirmed matters, then stop. Do not repair designs/models/IaC here or automatically create/execute another task.
 
 ## Compare existing IaC before creating the contract
 
-file変更前に、下記の実装対応確認とimplementation unit解決を行い、対象propertyの確定済み設計値を既存template/moduleとparameterへ照合する。一致する箇所は変更不要の確認対象とし、差分がある箇所だけを実装対象にする。既存IaCが正しい場合は同値の書換えや命名だけの変更を作らない。
+Before file changes, check implementation support and resolve implementation units below, then match confirmed target property design values against existing templates/modules and parameters. Matching portions are confirmation targets requiring no changes; only differences are implementation targets. If existing IaC is correct, do not create same-value rewrites or naming-only changes.
 
-全箇所が一致する場合は、対象IaCのstatic validationを一回行い、変更不要と結果を報告して終了する。repository変更のない確認では新しいactive contractを作成せず、IaC変更必須のimplement taskを完了したと扱わない。明示issue修復のためmodel変更が必要な場合は、既存task boundaryに従い修復範囲だけを扱い、ここでmodelを変更しない。
+If all portions match, perform target IaC static validation once, report no changes needed and results, then finish. Read-only confirmation without repository changes does not create a new active contract or count as completion of an implement task requiring IaC changes. If explicit issue repair requires model changes, handle only repair scope under existing task boundaries; do not change models here.
 
 ## Create active task contract
 
-最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
+As the first repository change, newly register `tasks/<task-name>.md` authorizing only this task's targets.
 
-- Task typeは`infrastructure`とする。
-- Infrastructure phaseは`implement`とする。
-- goalにtarget environment、aliasがある場合はalias、AWS account、implementation scope、選択済みIaC engineを記載する。
-- AWS mutation、AWS API execution、deploy/applyを`forbidden`とする。
-- `Required changes`は一意なRequirement ID付きで、事前照合で差分があったIaC implementationと対象のstatic validationだけを記載する。変更不要の既存IaCは確認対象として記載する。
-- `Acceptance checks`は各Requirement IDへ変更対象IaC fileの`changed:`、変更不要の確認対象には`exists:`を対応付ける。task type固有checkは省略しない。
-- Allowed pathsは対象のIaC fileと`tasks/<task-name>.md`だけに限定する。詳細設計、model、scenarioは変更禁止とする。
+- Task type is `infrastructure`.
+- Infrastructure phase is `implement`.
+- State target environment, alias when present, AWS account, implementation scope, and selected IaC engine in the goal.
+- Set AWS mutation, AWS API execution, and deploy/apply to `forbidden`.
+- In `Required changes`, state only IaC implementation differing in prematching and target static validation with unique Requirement IDs. State unchanged existing IaC as confirmation targets.
+- Map `Acceptance checks` to each Requirement ID using `changed:` for IaC files to change and `exists:` for unchanged confirmation targets. Do not omit task-type-specific checks.
+- Limit Allowed paths to target IaC files and `tasks/<task-name>.md` only. Changes to detailed designs, models, and scenarios are prohibited.
 
 ## Check implementation support
 
-正本propertiesに載るresourceと選択済みengineで実装可能なresourceを分けて確認する。CloudFormationでは実装scope内の各typeに`python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`を実行し、成功した正式型だけを使う。`Macie.ClassificationJob`はCFn非対応であり、Jobをtemplate、Outputs、`!Ref`へ変換しない。
+Separately check resources listed in authoritative properties and resources implementable by the selected engine. For CloudFormation, run `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>` for each type in implementation scope and use only successful formal types. `Macie.ClassificationJob` is unsupported by CFn; do not convert Jobs to templates, Outputs, or `!Ref`.
 
-Jobが要求scopeに含まれる場合は未実装対象として明示し、対応resourceだけの実装を要求全体の完了としない。既にCFn対応範囲へ限定されたtaskはその範囲で終了できる。非対応を理由にCustom Resource、別engine、API mutationを追加しない。
+If Jobs are in requested scope, explicitly state them as unimplemented; implementing only supported resources is not completion of the whole request. Tasks already limited to CFn-supported scope may finish within that scope. Do not add Custom Resources, other engines, or API mutation because of unsupported resources.
 
 ## Resolve implementation units
 
-対象scopeから必要なtemplate/module、parameter、dependencyを特定する。既存boundaryと共通部品があれば再利用し、未使用resource、将来用module、compatibility layerは作成しない。
+Identify necessary templates/modules, parameters, and dependencies from target scope. Reuse existing boundaries/common components; do not create unused resources, future modules, or compatibility layers.
 
-CloudFormationでは`framework/rules/cloudformation.md`の`1 template = 1 deploy responsibility`に従う。AWS service単位で機械的に分割しない。dependency cycle、parameter不足、参照先不明がある場合は、不足情報を報告して停止する。
-CloudFormationでは対象targetの正本`model/<environment>/<target-directory>/cloudformation-stacks.properties`だけを読む。既存`desired.stack.*.name`からStackName、`.template`からtemplateのファイル名、`.parameters`から個別parameterのファイル名、`.deployOrder`からDeployOrder、`desired.deployment.maxConcurrentStacks`からMaxConcurrentStacksを取得する。省略時のMaxConcurrentStacksの実効値は既存契約どおり1とし、DeployOrderを推測しない。`cloudformation-stacks.md`は表示用generated artifactでありImplement inputとして読まない。DeployOrderをIaC resource dependencyへ変換せず、この機能のためにtemplateへDependsOnを追加しない。scope内resourceをどのtemplateへ配置するかは承認済みservice propertiesと既存IaCから確認し、曖昧な場合は推測で作らずdesign taskが必要であることを報告する。同じtemplateを複数stackで共用する場合もstackごとのparameterと生成resource名・Export名の一意性を確認する。
-CloudWatch Logs resourceとSecurity Groupは利用するresourceのtemplateへ含め、これらだけの単独templateを作らない。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateへ含める。同targetの設計resourceからRoleへの直接参照がなく、用途とAssumeRole元がservice propertiesで確認できる場合は、Roleと付随するIAM Policy/ManagedPolicyだけの専用templateに置き、`Metadata`直下へ`RolePlacement: standalone`を宣言する。利用側resourceまたはRole専用stackの設計が不明なら推測せず停止する。
+For CloudFormation, follow `1 template = 1 deploy responsibility` in `framework/rules/cloudformation.md`. Do not mechanically split by AWS service. For dependency cycles, missing parameters, or unknown reference targets, report missing information and stop.
+For CloudFormation, read only the target's authoritative `model/<environment>/<target-directory>/cloudformation-stacks.properties`. Obtain StackName from existing `desired.stack.*.name`, template filenames from `.template`, individual parameter filenames from `.parameters`, DeployOrder from `.deployOrder`, and MaxConcurrentStacks from `desired.deployment.maxConcurrentStacks`. When omitted, effective MaxConcurrentStacks remains 1 under the existing contract; do not infer DeployOrder. `cloudformation-stacks.md` is a display generated artifact; do not read it as Implement input. Do not convert DeployOrder into IaC resource dependencies or add DependsOn to templates for this feature. Confirm scope resource template placement from approved service properties and existing IaC; if ambiguous, do not create by guessing and report that a design task is required. Even when multiple stacks share a template, confirm per-stack parameters and generated resource/Export name uniqueness.
+Include CloudWatch Logs resources and Security Groups in the templates of resources using them; do not create templates containing only them. Include IAM Roles in the template of directly using resources in the same target when present. When no design resource in the same target directly references a Role and purpose/AssumeRole source are confirmed in service properties, place only the Role and associated IAM Policy/ManagedPolicy in a dedicated template and declare `RolePlacement: standalone` directly under `Metadata`. If consumer resources or Role-only stack design are unknown, stop without guessing.
 
-対象resourceへの`!Ref`、`!GetAtt`、`!Sub`と、policy/設定値の文字列に含まれるresource参照を確認する。template外のresourceなら、properties内のlogical referenceと既存IaCから実際の所有stack、必要な値、producer Output/Exportを特定する。producer exportがまだdeployされていない場合は、scope内のproducer templateに必要なOutput/Exportだけを追加し、consumerの`!ImportValue`変更はproducer deploy後のtaskへ残す。implement phaseではAWS APIやdeployを実行せず、deploy済みexportの確認が必要な場合はその前提を報告する。producerがscope外または所有先が不明なら変更を広げず停止する。
+Check `!Ref`, `!GetAtt`, `!Sub`, and resource references in policy/setting strings to target resources. For resources outside the template, identify actual owning stacks, necessary values, and producer Output/Export from properties logical references and existing IaC. If producer exports are not yet deployed, add only necessary Output/Export to producer templates within scope and leave consumer `!ImportValue` changes to tasks after producer deploy. Do not execute AWS APIs/deploy in implement; report prerequisites if deployed export confirmation is needed. If producers are out of scope or ownership is unknown, stop without expanding changes.
 
 ## Implement and validate
 
-承認済みdesignの機械可読inputであるauthoritative model propertiesだけを使用し、選択済みengineの最小構成を実装する。resource設定、tag、Name、policy document、identifier referenceはpropertiesの`desired.row.*`（JSON本文は`.document`）から取得し、generated Markdown／JSON artifactから値を再取得しない。
+Use only authoritative model properties as machine-readable input of approved designs to implement the selected engine's minimum configuration. Obtain resource settings, tags, Names, policy documents, and identifier references from properties `desired.row.*` (JSON bodies from `.document`); do not retrieve values again from generated Markdown/JSON artifacts.
 
-propertiesのdesired rowに記載されたtagはCloudFormation／Terraformへそのまま反映する。`EC2.VPC.Name`、`EC2.Subnet.Name`、`EC2.RouteTable.Name`、`EC2.FlowLog.Name`はprovider propertyとして出力せず、case-sensitiveな`Name` keyと同じvalueを持つtagへ変換する。対象resourceに対応する`.Name`とnon-empty valueがない場合だけ、値を推測せず別の`design` taskが必要であることを報告して停止する。
+Reflect tags in properties desired rows into CloudFormation/Terraform unchanged. Do not output `EC2.VPC.Name`, `EC2.Subnet.Name`, `EC2.RouteTable.Name`, or `EC2.FlowLog.Name` as provider properties; convert them to tags with case-sensitive `Name` keys and the same values. Only when the corresponding target resource `.Name` and non-empty value are missing, report that a separate `design` task is required and stop without guessing values.
 
-propertiesのdesired row／reference valueに保存された`[表示値](#anchor)`形式のlogical referenceは、同じmodelの`desired.resource.*.anchor`と`desired.resource.*.logicalId`から参照先を一意に解決する。`[表示値](<service>.md#anchor)`形式の別service参照もpath／file stemを対応するproducer model propertiesへ対応付け、必要なresourceだけを追加取得して同じmetadataから解決する。grouped resourceの`parentReference`もproperties内のanchorで解決する。参照先が不明・曖昧なら推測せず停止し、generated Markdown本文を読まない。link表示textの`PENDING_DEPLOY`またはphysical IDをIaCへ直書きしない。後続resourceが必要とするcatalog `IDENTIFIER_OUTPUT`だけをCloudFormation OutputsまたはTerraform outputへ追加し、logical resource参照／resource attribute参照を維持する。generated ARNはobserved value用outputにしない。
+Resolve `[表示値](#anchor)` logical references saved in properties desired rows/reference values uniquely from the same model's `desired.resource.*.anchor` and `desired.resource.*.logicalId`. For `[表示値](<service>.md#anchor)` cross-service references, also map path/file stem to corresponding producer model properties, retrieve only necessary resources, and resolve from the same metadata. Resolve grouped resource `parentReference` from properties anchors too. Stop without guessing for unknown/ambiguous reference targets; do not read generated Markdown bodies. Do not hardcode link display text `PENDING_DEPLOY` or physical IDs into IaC. Add only catalog `IDENTIFIER_OUTPUT` needed by subsequent resources to CloudFormation Outputs or Terraform output, retaining logical resource/resource attribute references. Do not make generated ARNs observed-value outputs.
 
-CloudFormationの場合:
+For CloudFormation:
 
-1. aliasがあるtargetでは`infra/cloudformation/templates/<alias>/`、aliasがないtargetでは共通の`infra/cloudformation/templates/`を使用する。stack propertiesに記載されたparameterのファイル名を`infra/cloudformation/parameters/<environment>/<target-directory>/`に配置し、その個別fileだけを変更する。各resourceの`cfn-logicalId=<StackName>-<Resources key>`からtemplate `Resources`のlogical IDと対象service propertiesのresourceの対応を全stack instanceで照合する。Terraformにはこのfieldもgeneric logicalIdも要求しない。生成・変更後も上記`cloudformation_observed.py`でdeployと同じ共通検証を必ず実行する。identifier行の不足を自動補完せず、model不足とIaC Outputs不足を区別して報告する。
-2. 新規resourceの`Resources` logical IDと`Outputs.*.Export.Name`のtarget別最終値を`framework/rules/cloudformation.md`のPascalCaseにし、resourceのcfn-logicalIdとの対応、template内参照、export/importの一致と一意性を確認する。`Resources`配下のresource間には1行以上の空行を入れる。deploy済みproducer exportを確認したconsumerでは、参照値全体と文字列中の参照箇所を`!ImportValue`へ置き換える。既存IDを命名形式だけで変更しない。
-3. 対象となる全templateへ`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。
-4. `aws cloudformation validate-template`、change set作成、AWS APIは実行しない。
+1. Use `infra/cloudformation/templates/<alias>/` for aliased targets, or common `infra/cloudformation/templates/` for targets without aliases. Place parameter filenames listed in stack properties in `infra/cloudformation/parameters/<environment>/<target-directory>/` and change only individual files. Match template `Resources` logical IDs to service properties resources from each resource's `cfn-logicalId=<StackName>-<Resources key>` across all stack instances. Terraform requires neither this field nor generic logicalId. After generation/changes as well, always run the above `cloudformation_observed.py` common validation also used for deploy. Do not automatically fill missing identifier rows; distinguish model deficiencies from missing IaC Outputs in reports.
+2. Use PascalCase from `framework/rules/cloudformation.md` for new `Resources` logical IDs and target-specific final `Outputs.*.Export.Name` values; confirm resource cfn-logicalId mappings, template references, export/import equality, and uniqueness. Insert at least 1 blank line between resources under `Resources`. For consumers with confirmed deployed producer exports, replace entire reference values and reference portions within strings with `!ImportValue`. Do not change existing IDs merely for naming format.
+3. Run `cfn-lint --regions <project.jsonのawsRegion> <template...>` for all target templates.
+4. Do not run `aws cloudformation validate-template`, change set creation, or AWS APIs.
 
-Terraformの場合:
+For Terraform:
 
-1. aliasがあるtargetでは`infra/terraform/modules/<alias>/`、aliasがないtargetでは共通の`infra/terraform/modules/`を使用し、対象の`infra/terraform/environments/<environment>/<target-directory>/`だけを変更する。
-2. `terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行する。
-3. `terraform plan`、`terraform apply`、AWS APIは実行しない。state fileとplan binaryを作成または保存しない。
+1. Use `infra/terraform/modules/<alias>/` for aliased targets, or common `infra/terraform/modules/` for targets without aliases; change only target `infra/terraform/environments/<environment>/<target-directory>/`.
+2. Run `terraform fmt -check`, `terraform init -backend=false` with fresh `TF_DATA_DIR`, and `terraform validate`.
+3. Do not run `terraform plan`, `terraform apply`, or AWS APIs. Do not create/save state files or plan binaries.
 
-static validationが失敗した場合は根本原因を調査する。確定済みdesign内で修正可能なIaC implementation errorだけを最小修正し、最大3 iterationまで再実行する。material progressなしで同じerrorが2回続く、またはhuman decisionやdesign変更が必要な場合は停止する。
+If static validation fails, investigate root causes. Minimally repair only IaC implementation errors correctable within confirmed design and rerun for at most 3 iterations. Stop if the same error repeats twice without material progress or human decisions/design changes are needed.
 
 ## Verify and finish
 
-1. 選択済みIaCのlocal static validation結果を確認する。成功後に対象IaC・parameter・依存入力が変わっていなければ再実行しない。
-2. `python framework/scripts/blueprint-loop.py --mode task`を一回実行する。propertiesとgenerated Markdown／JSON artifactの一致は、この既存local loopが`validate-blueprint.py`とread-onlyの`sync-model.py`で確認し、不一致ならFAILとする。既存`check_design_tables`・`check_design_links`・`check_stack_designs`による表示・参照・stack検証も維持する。AgentがMarkdownを事前読込・比較しなくても、これらのvalidationを省略・弱体化せず、不一致を無視して完了しない。差分checkもこのloopに含まれる。
+1. Confirm selected IaC local static validation results. Do not rerun if target IaC, parameters, and dependency inputs have not changed after success.
+2. Run `python framework/scripts/blueprint-loop.py --mode task` once. This existing local loop confirms properties/generated Markdown/JSON artifact equality with `validate-blueprint.py` and read-only `sync-model.py`; mismatches are FAIL. Retain display/reference/stack validation through existing `check_design_tables`, `check_design_links`, and `check_stack_designs`. Even without Agent Markdown prereading/comparison, do not omit/weaken these validations or complete while ignoring mismatches. Diff checks are also included in this loop.
 
-成功した対象検証の後に追加の全体検証を行わない。再実行は修正、新しい失敗、未解決の懸念がある場合だけとし、tool待機timeoutでは同じ実行を追跡する。
+Do not add overall validation after successful scoped validation. Rerun only for repairs, new failures, or unresolved concerns; track the same execution on tool wait timeout.
 
-target、account、region、engine、変更file、implementation unitとdependency、validation結果、retry、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
+State targets, accounts, regions, engines, changed files, implementation units/dependencies, validation results, retries, and blockers in completion reports. Do not save verification output in the repository.
 
-AWS API、change set、plan、deploy/apply、observed value更新、scenario、別target、次taskを作成または実行しない。deploy/applyはhumanが別taskとして`framework/prompts/codex/04_deploy.md`を明示的に使用した場合だけ行う。
+Do not create or execute AWS APIs, change sets, plans, deploy/apply, observed value updates, scenarios, other targets, or next tasks. Perform deploy/apply only when the human explicitly uses `framework/prompts/codex/04_deploy.md` as a separate task.

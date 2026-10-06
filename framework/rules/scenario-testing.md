@@ -1,40 +1,40 @@
 # Scenario Testing Rules
 
-- account／profile／target選択は[Credentials and account](project-configuration.md#credentials-and-account)に従う。
+- Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
 ## Task boundary
 
-- scenario testは独立した`scenario-test` taskでのみ作成、変更、実装、実行する。
-- infrastructure task完了後やbehavior変更後にscenario-test taskを自動作成または自動実行しない。
-- scenario-test taskは`docs/**`、`model/**`、`infra/**`を変更しない。
-- test failure後にdesign変更、IaC修正、redeploy、remediation task作成・実行へ進まない。
-- scenario resultはcurrent observed valueの正本にしない。
+- Create, change, implement, and execute scenario tests only in independent `scenario-test` tasks.
+- Do not automatically create or execute scenario-test tasks after infrastructure task completion or behavior changes.
+- Scenario-test tasks must not change `docs/**`, `model/**`, or `infra/**`.
+- After test failure, do not proceed to design changes, IaC repair, redeploy, or remediation task creation/execution.
+- Scenario results must not be the authority for current observed values.
 
 ## Scenario definition
 
-- scenario IDはstableなlower-kebab-caseとする。
-- scenarioは`tests/scenarios/<scenario-id>/`に置く。
-- 各scenario directoryに`scenario.md`を置き、`- Scenario ID: <scenario-id>`を正確に1件記載する。
-- scenario definitionにはpurpose、prerequisites、required resources、expected behavior、execution procedure、pass/fail criteria、cleanup、AWS mutationの有無、destructive operationの有無を記載する。
-- test implementationはShell、Python、AWS CLI、manual procedureなど必要な形式をscenario directory内で使用できる。
-- AWS実行前に対象targetを`check-deploy-context.py --read-only`で検証する。`awsProfile`があればscenarioのすべてのAWS CLI／SDKと子processで同じprofileを使用する。CLIには`--profile`と対象region、SDKにはprofileとregionを明示し、`AWS_PROFILE`が必要なtoolにはprocess単位で渡す。設定と異なる明示profileは拒否し、未設定時は従来の認証方法を維持する。認証失敗時に別profileへfallbackしない。
-- scenario testは静的設定だけでなくexpected behaviorを検証する。
+- Scenario IDs must be stable lower-kebab-case.
+- Place scenarios in `tests/scenarios/<scenario-id>/`.
+- Place `scenario.md` in each scenario directory with exactly 1 `- Scenario ID: <scenario-id>` entry.
+- Scenario definitions must state purpose, prerequisites, required resources, expected behavior, execution procedure, pass/fail criteria, cleanup, whether AWS mutation is involved, and whether destructive operations are involved.
+- Test implementations may use necessary formats such as Shell, Python, AWS CLI, and manual procedures within the scenario directory.
+- Before AWS execution, validate the target with `check-deploy-context.py --read-only`. If `awsProfile` exists, use the same profile in all scenario AWS CLI/SDK and child processes. Explicitly specify `--profile` and the target region for CLI, and profile and region for SDK; pass `AWS_PROFILE` per process to tools requiring it. Reject explicit profiles differing from the setting; retain existing authentication methods when unset. Do not fall back to another profile after authentication failure.
+- Scenario tests verify expected behavior, not just static settings.
 
 ## Current result
 
-- result scopeはscenario ID、environment、AWS account IDの組み合わせとする。
-- target directoryは`project.json`のtargetにaliasがあればalias、なければAWS account IDとする。
-- current resultは`tests/results/<scenario-id>/<environment>/<target-directory>/result.md`に置く。result metadataのAWS account IDはdirectory名ではなく、対応する`project.json` targetの実値と一致させる。
-- AWS regionはdirectoryに追加せず、`project.json`と一致する値をresult metadataに記録する。
-- 同じscopeの再実行では同じ`result.md`とtarget directory直下のstable evidence fileを更新する。
-- execution date別、timestamp別のdirectoryまたはfileを追加しない。
-- target directory配下に追加directoryを作らない。
-- scenarioが存在しresultがまだない状態は許可する。対応scenarioがないorphan resultは禁止する。
-- 過去resultはGit履歴で追跡し、active treeにcopyやarchiveを残さない。
+- Result scope is the combination of scenario ID, environment, and AWS account ID.
+- The target directory is the target alias in `project.json` if present, otherwise the AWS account ID.
+- Place current results at `tests/results/<scenario-id>/<environment>/<target-directory>/result.md`. Match the result metadata AWS account ID to the corresponding `project.json` target's actual value, not the directory name.
+- Do not add AWS region to directories; record a value matching `project.json` in result metadata.
+- Reruns of the same scope update the same `result.md` and stable evidence files directly under the target directory.
+- Do not add directories or files per execution date or timestamp.
+- Do not create additional directories under the target directory.
+- A scenario without results yet is permitted. Orphan results without corresponding scenarios are prohibited.
+- Track past results in Git history; do not retain copies or archives in the active tree.
 
 ## Result metadata
 
-各`result.md`に次を正確に1件ずつ記載する。
+Record exactly 1 of each of the following in each `result.md`.
 
 ```md
 - Scenario ID: `<scenario-id>`
@@ -45,23 +45,23 @@
 - Executed at: `<RFC 3339 timestamp or NOT_EXECUTED>`
 ```
 
-本文にはexpected behavior、actual behavior、executed command/procedure、evidence file一覧、cleanup result、blocker/failure reasonを記載する。
+The body must state expected behavior, actual behavior, executed commands/procedures, evidence file list, cleanup result, and blocker/failure reasons.
 
-- `PASS`: testを実行し、合格条件を満たした。
-- `FAIL`: testを実行し、合格条件を満たさなかった。
-- `BLOCKED`: 実行を試みたが前提不足や権限不足で完了できなかった。
-- `STALE`: scenario変更により以前のresultを現行結果として利用できない。
-- `NOT_EXECUTED`: 対象は定義済みだがまだ実行されていない。
+- `PASS`: The test ran and met the pass criteria.
+- `FAIL`: The test ran and did not meet the pass criteria.
+- `BLOCKED`: Execution was attempted but could not complete due to missing prerequisites or permissions.
+- `STALE`: Scenario changes make the previous result unusable as the current result.
+- `NOT_EXECUTED`: The target is defined but has not yet been executed.
 
 ## Scenario changes
 
-- scenario definitionまたはimplementationを変更した場合、同じscenario IDの全resultを同じtaskで再実行結果へ更新するか、`STALE`または`NOT_EXECUTED`へ更新する。
-- 古い`PASS`を変更後scenarioのcurrent resultとして残さない。
-- scenario削除時にresultを残さない。
+- If scenario definitions or implementations change, update every result of the same scenario ID to rerun results in the same task, or to `STALE` or `NOT_EXECUTED`.
+- Do not retain old `PASS` as current results of changed scenarios.
+- Do not retain results when deleting scenarios.
 
 ## AWS mutation and cleanup
 
-- AWS mutationを伴うtestはactive promptに対象operation、対象resource、cleanup、許可範囲が明示されている場合だけ実行できる。
-- destructive operationはactive promptの明示許可が必要であり、対象を事前確認する。
-- cleanup resultをresult本文へ記録する。
-- failure時もactive prompt外のcleanup、repair、redeployを推測して実行しない。
+- Tests involving AWS mutation may run only when the active prompt explicitly states target operations, target resources, cleanup, and authorization scope.
+- Destructive operations require explicit authorization in the active prompt; confirm targets beforehand.
+- Record cleanup results in the result body.
+- Even on failure, do not infer or execute cleanup, repair, or redeploy outside the active prompt.

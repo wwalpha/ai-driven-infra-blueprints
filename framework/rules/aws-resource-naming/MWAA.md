@@ -1,6 +1,6 @@
 # MWAA Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,4 +10,4 @@
 
 ## Service-specific constraints
 
-- Amazon MWAA Environmentの`purpose`は用途別にenvironmentを分ける場合だけ含める。`Name`は英字で開始し、英数字、hyphen、underscoreだけを使い、1〜80文字とする。この命名patternではlower-kebab-caseを使用する。
+- Include Amazon MWAA Environment's `purpose` only when separating environments by use. `Name` must start with a letter, use only alphanumeric characters, hyphens, and underscores, and be 1–80 characters. This naming pattern uses lower-kebab-case.

@@ -1,6 +1,6 @@
 # EC2 Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -30,7 +30,7 @@
 
 ## Service-specific constraints
 
-- Amazon EC2 InstanceのName tagはapplication・environment・purposeの順とする。`number`はoptionalとし、単体では省略する。同じapplication・environment・purposeの複数台を区別する場合だけ、`-01`からの2桁連番を使用できる。例：単体は`venusinf-stg-vulnerability-scan`、複数台で番号を使用する場合は`venusinf-stg-vulnerability-scan-01`、`venusinf-stg-vulnerability-scan-02`。
-- VPC Block Public Access Optionsは名称propertyを持たないため命名patternを要求しない。Exclusionの`Name` tagはhumanが選択した場合だけ`vbpe` patternを適用し、必須化しない。
-- Amazon EC2 security groupの`GroupName`は`sg-`で開始できないため、このruleでは`-sg` suffixを使う。
-- Security groupの`GroupName`とhuman-selectedなName tagはapplication・environment・service・purposeの順とし、`number`は任意とする。例：番号なしは`app-dev-glue-data-sg`、番号ありは`app-dev-glue-data-01-sg`。
+- Amazon EC2 Instance Name tags use application, environment, and purpose in that order. `number` is optional and omitted for a single instance. A two-digit sequence starting at `-01` may be used only when distinguishing multiple instances with the same application, environment, and purpose. Examples: a single instance: `venusinf-stg-vulnerability-scan`; multiple instances with numbering: `venusinf-stg-vulnerability-scan-01`, `venusinf-stg-vulnerability-scan-02`.
+- VPC Block Public Access Options have no name property and do not require a naming pattern. Apply the `vbpe` pattern to an Exclusion's `Name` tag only when selected by the human; do not make it mandatory.
+- Amazon EC2 security group `GroupName` cannot start with `sg-`, so this rule uses the `-sg` suffix.
+- Security group `GroupName` and human-selected Name tags use application, environment, service, and purpose in that order; `number` is optional. Examples: without a number: `app-dev-glue-data-sg`; with a number: `app-dev-glue-data-01-sg`.

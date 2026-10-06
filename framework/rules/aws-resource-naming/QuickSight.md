@@ -1,6 +1,6 @@
 # QuickSight Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -11,4 +11,4 @@
 
 ## Service-specific constraints
 
-- Amazon QuickSight DataSourceの`source_type`は`athena`、`snowflake`などの接続種別をlowercaseで表し、`purpose`は部署・情報区分などデータソースの用途を識別するhuman-confirmedな値とする。DataSourceとVPCConnectionの`Name`は1〜128文字の表示名とし、`DataSourceId`／`VPCConnectionId`とは別に扱う。
+- Amazon QuickSight DataSource's `source_type` expresses the connection type, such as `athena` or `snowflake`, in lowercase; `purpose` must be a human-confirmed value identifying the data source's use, such as a department or information category. DataSource and VPCConnection `Name` are display names of 1–128 characters, handled separately from `DataSourceId` / `VPCConnectionId`.

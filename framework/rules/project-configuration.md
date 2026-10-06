@@ -2,25 +2,25 @@
 
 ## Topology
 
-- initialization後のmachine-readable source of truthは`project.json`。target directoryはaliasがあればalias、なければ`awsAccountId`とする。
+- After initialization, the machine-readable source of truth is `project.json`. The target directory is the alias if present, otherwise `awsAccountId`.
 
-- 未初期化の配布状態では`project.json`を置かない。
-- `docs/system-overview.md`の作成・記入状態に関係なく、`framework/prompts/codex/01_initialize.md`を使用できる。Codexが必要な確定値を質問し、`project.json`とtarget pathを作成する。
-- initializationでは現時点で必要値が確定しているtargetだけを登録する。未作成または必要値が未確定のtargetは推測やplaceholderで登録せず、確定後に`framework/prompts/codex/02_add-target.md`のmigrationで追加する。
-- environment数、environment名、AWS account数を固定しない。
-- 一つのenvironmentにtargetが一件だけならaliasを持たせない。複数targetがある場合は全targetにhuman-confirmed aliasを必須とし、同じAWS account IDを複数aliasへ設定してよい。aliasは同じenvironment内で一意なlower-kebab-caseとし、12桁の数字だけの値を禁止する。
-- 1 environment/AWS accountの`IaC engine`は`cloudformation`または`terraform`のどちらか一つとし、同じAWS account IDを持つalias間で統一する。
-- humanへ`project.json`の直接編集を要求しない。topology変更は明示されたinitializationまたはmigration taskでCodexが行う。
-- `project.json`の各targetは任意の`suffix`を持てる。確定済みnon-empty lower-kebab-case文字列とし、environment/aliasごとに別値を設定してよい。命名patternに`{{suffix}}`がある場合だけ選択targetの値を使用し、ないpatternへ自動付加しない。初期化・target追加時に任意で確認し、既存targetへの追加・変更・解除はhumanが明示した`migration` taskで行う。既存名称は自動変更しない。
+- Do not include `project.json` in the uninitialized distribution state.
+- `framework/prompts/codex/01_initialize.md` may be used regardless of whether `docs/system-overview.md` has been created or filled in. Codex asks for necessary confirmed values and creates `project.json` and target paths.
+- Initialization registers only targets whose required values are currently confirmed. Do not register not-yet-created targets or targets with unconfirmed required values using guesses or placeholders; add them after confirmation via migration using `framework/prompts/codex/02_add-target.md`.
+- Do not fix the number or names of environments or the number of AWS accounts.
+- Do not assign an alias when an environment has only one target. If there are multiple targets, human-confirmed aliases are mandatory for all targets; the same AWS account ID may be assigned to multiple aliases. Aliases must be unique lower-kebab-case within the same environment; values consisting only of 12 digits are prohibited.
+- The `IaC engine` for 1 environment/AWS account must be exactly one of `cloudformation` or `terraform`, consistent across aliases with the same AWS account ID.
+- Do not require the human to directly edit `project.json`. Codex performs topology changes in explicit initialization or migration tasks.
+- Each `project.json` target may have an optional `suffix`. It must be a confirmed non-empty lower-kebab-case string; different values may be configured per environment/alias. Use the selected target's value only when the naming pattern contains `{{suffix}}`; do not automatically append it to patterns without it. It may be confirmed during initialization/target addition; adding/changing/removing it on an existing target requires a human-explicit `migration` task. Do not automatically change existing names.
 
 ## Credentials and account
 
-- `project.json`の各targetは任意の`awsProfile`を持てる。設定時はそのprofileを対象targetのAWS CLI／SDK、Terraformのprovider／AWS backendに使用する。未設定時は明示profile、それもなければdefault credential chainを維持する。設定値と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
+- Each `project.json` target may have an optional `awsProfile`. When configured, use that profile for the target's AWS CLI/SDK and Terraform provider/AWS backend. When unset, retain the explicit profile, or the default credential chain if that is also absent. Reject explicit profiles differing from the configured value before execution; do not fall back to another profile after authentication failure.
 
-- `awsProfile`は確定済みの空でない文字列とし、前後の空白、改行、NUL、`UNSET`を禁止する。指定しない場合はkey自体を省略し、credential値を保存しない。profileはtargetごとに設定でき、alias／account／region／IaC engineの制約を変更しない。
-- `awsAccountId`はresource作成時の明示的なaccount ID設定・名称componentとtarget identityの正本とする。target directory、selector、task scopeは従来どおりalias、aliasなしは`awsAccountId`を使用する。
-- policy内で同じtargetに作成するresourceの実際の所有account・source accountを照合する値は、resource作成時の名称・ID設定と区別し、`awsExecutionAccountId`（未設定時は`awsAccountId`）を使用する。VPC Flow Logsの信頼policyでは`aws:SourceAccount`と`aws:SourceArn`内のaccount部分の両方が該当する。権限policyの`Resource` ARNや`Principal`のaccountも参照先の実際の所有accountに合わせる。humanが明示したcross-account参照はそのaccountを維持し、policy内のaccountを一括置換しない。
-- 各targetは任意の`awsExecutionAccountId`を持てる。指定時はASCII数字12桁の文字列とし、未指定時はkeyを省略して`awsAccountId`を実行accountとして使用する。AWS CLI／SDK、CloudFormation、Terraform、既存resource取得、observed値取得、model対AWS比較、scenarioのcaller account検証には実行accountを使用し、不一致・認証失敗ではAWS操作前に停止する。ID設定だけでcredentialは切り替わらず、既存の`awsProfile`／明示profile／default credential chainを使用し、AssumeRoleや別accountへのfallbackを自動追加しない。
-- AWS APIの暗黙のaccount context／owner検証とCloudFormationの`AWS::AccountId`は実行accountを使用する。設計に明示したaccount propertyやcross-account参照は書き換えない。名前等に`awsAccountId`が必要で両IDが異なる場合は、`AWS::AccountId`へ置換せず独立した明示parameter／設定値として渡す。通常のresourceの所属accountは実際のAWS実行先で決まり、`awsAccountId`設定だけでは変更できない。
-- 同じenvironment/実行accountを持つtargetでもIaC engineを統一する。初期化・target追加では任意の実行account IDを確認し、既存targetへの追加・変更・解除はhumanが明示した`migration` taskでCodexが行う。`awsAccountId`やalias、path、設計、IaCを暗黙に変更せず、AWS接続を行わずlocal validationする。
-- `project.json`と一致しないpath/IaC implementationはlocal loopを通さない。
+- `awsProfile` must be a confirmed non-empty string; leading/trailing whitespace, newlines, NUL, and `UNSET` are prohibited. If unspecified, omit the key itself; do not save credential values. Profiles may be configured per target and do not change alias/account/region/IaC engine constraints.
+- `awsAccountId` is the authority for explicit account ID settings/name components when creating resources and for target identity. Target directories, selectors, and task scope continue to use aliases, or `awsAccountId` when no alias exists.
+- Values in policies that match actual owner/source accounts of resources created in the same target must be distinguished from name/ID settings at resource creation and use `awsExecutionAccountId` (`awsAccountId` when unset). Both `aws:SourceAccount` and the account portion of `aws:SourceArn` in VPC Flow Logs trust policies apply. Match accounts in permission policy `Resource` ARNs and `Principal` to the reference target's actual owning account as well. Retain human-explicit cross-account references; do not bulk-replace accounts in policies.
+- Each target may have an optional `awsExecutionAccountId`. If specified, it must be a string of 12 ASCII digits; otherwise omit the key and use `awsAccountId` as the execution account. Use the execution account for caller account validation in AWS CLI/SDK, CloudFormation, Terraform, existing-resource retrieval, observed value retrieval, model-to-AWS comparison, and scenarios; stop before AWS operations on mismatch or authentication failure. Setting IDs alone does not switch credentials: use the existing `awsProfile` / explicit profile / default credential chain, and do not automatically add AssumeRole or fallback to another account.
+- AWS API implicit account context/owner validation and CloudFormation `AWS::AccountId` use the execution account. Do not rewrite explicit account properties or cross-account references in the design. If names, etc. require `awsAccountId` and the two IDs differ, pass it as an independent explicit parameter/setting rather than replacing it with `AWS::AccountId`. Ordinary resource membership is determined by the actual AWS execution destination and cannot be changed merely by setting `awsAccountId`.
+- Also keep IaC engines consistent for targets with the same environment/execution account. Confirm the optional execution account ID at initialization/target addition; Codex adds/changes/removes it on existing targets only in human-explicit `migration` tasks. Do not implicitly change `awsAccountId`, aliases, paths, designs, or IaC; perform local validation without AWS connections.
+- Local loops must reject paths/IaC implementations inconsistent with `project.json`.

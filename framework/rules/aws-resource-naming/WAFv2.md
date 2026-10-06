@@ -1,6 +1,6 @@
 # WAFv2 Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -12,4 +12,4 @@
 
 ## Service-specific constraints
 
-- AWS WAFのWebACL／RuleGroup／IPSetのprefixはそれぞれ`wafacl`／`wafrg`／`wafip`とし、すべて`waf`を含める。
+- AWS WAF WebACL / RuleGroup / IPSet prefixes are `wafacl` / `wafrg` / `wafip` respectively; all must contain `waf`.

@@ -1,6 +1,6 @@
 # SSM Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -14,4 +14,4 @@
 
 ## Service-specific constraints
 
-- AWS Systems Manager Association自身の名称は`AssociationName`を対象とする。`Name`は参照するSSM document名（例：`AWS-RunPatchBaseline`）であり、この命名patternで変更しない。
+- The name of AWS Systems Manager Association itself targets `AssociationName`. `Name` is the referenced SSM document name (example: `AWS-RunPatchBaseline`); do not change it with this naming pattern.

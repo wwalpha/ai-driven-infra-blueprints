@@ -1,6 +1,6 @@
 # Secrets Manager Resource Naming Rules
 
-共通の適用範囲・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,9 +10,9 @@
 
 ## Service-specific constraints
 
-- 階層間はASCIIの`/`、各component内はlower-kebab-caseとし、先頭・末尾に`/`を付けない。numberやsuffixを自動付加しない。
-- `application`と`purpose`はhuman-confirmedな値、`environment`は`project.json`の選択targetの値を使用する。
-- 名称は1〜512文字とする。部分ARN参照での混同を避けるため、末尾がハイフンと6文字になる名称は使用しない。AWSがARNへ追加するランダム文字列は名称へ含めない。generated ARNをmodelや生成viewへ永続化しない。
-- `Name` tagは任意とし、Secretの正式な`Name`を識別に使用する。既存resourceと確定済み名称を自動変更せず、IMPORTは共通ルールに従いactual/currentの名称を維持する。
+- Use ASCII `/` between hierarchy levels and lower-kebab-case within each component; do not add leading or trailing `/`. Do not automatically append number or suffix.
+- Use human-confirmed values for `application` and `purpose`, and the selected target's `project.json` value for `environment`.
+- Names must be 1–512 characters. To avoid confusion in partial ARN references, do not use names ending in a hyphen followed by 6 characters. Do not include the random string AWS appends to ARNs in the name. Do not persist generated ARNs in the model or generated views.
+- `Name` tags are optional; use the Secret's formal `Name` for identification. Do not automatically change existing resources or confirmed names; IMPORT retains actual/current names according to the common rules.
 
-名称制約は[AWS CreateSecret API](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_CreateSecret.html)、階層形式は[AWS命名ガイド](https://docs.aws.amazon.com/prescriptive-guidance/latest/secure-sensitive-data-secrets-manager-terraform/naming-convention.html)を参照する。
+For name constraints, see [AWS CreateSecret API](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_CreateSecret.html); for hierarchy format, see [AWS naming guide](https://docs.aws.amazon.com/prescriptive-guidance/latest/secure-sensitive-data-secrets-manager-terraform/naming-convention.html).

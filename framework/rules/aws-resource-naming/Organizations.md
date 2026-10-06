@@ -1,6 +1,6 @@
 # Organizations Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,4 +10,4 @@
 
 ## Service-specific constraints
 
-- AWS Organizations Policyの`scp` patternは`Type=SERVICE_CONTROL_POLICY`のSCPに使用する。環境間で同じSCPを共有する場合は`environment`を省略し、環境別に分ける場合は含める。他のpolicy typeへ`scp` prefixを自動適用しない。
+- AWS Organizations Policy's `scp` pattern is used for SCPs with `Type=SERVICE_CONTROL_POLICY`. Omit `environment` when the same SCP is shared across environments; include it when separating by environment. Do not automatically apply the `scp` prefix to other policy types.

@@ -2,43 +2,43 @@
 
 ## Identifier lifecycle
 
-- observed valueはcurrent deploymentから取得した必要最小限のmachine-readable valueであり、scenario evidenceではない。
-- observed valueはservice modelの`observed.*`を正本とし、詳細設計のcatalog `IDENTIFIER_OUTPUT` rowと全参照元を生成する。
-- 成功した`infrastructure` taskのAWS mutation後、または`design` taskでhumanが選択した既存resourceをread-only取得した場合だけmodelのobserved valueを先に更新し、`framework/scripts/sync-model.py`でMarkdownを再生成する。
-- `scenario-test` taskは`model/**`を読み取れるが変更しない。
-- follow-up configuration、link、connection、operation、future task inputに必要なvalueだけを収集する。
-- valid exampleは、実際に必要なVPC ID、Subnet ID、Route Table ID、Security Group ID、EC2 Instance ID、private/public IP、DNS name、endpoint address、hosted zone IDなど。
-- generated ARNは詳細設計と`observed.*`の両方へ保存しない。
-- AWS APIがARNを要求する場合はtransientに取得してよい。
-- `Macie.ClassificationJob.jobId`もAPI catalogの`IDENTIFIER_OUTPUT`として扱う。既存Jobを取得する許可済みdesign taskでは`DescribeClassificationJob`から必要なjobIdを取得する。CFn Outputsやstack resourceへ探索を広げず、responseのjobArn、統計、実行状態を永続化しない。
-- AWS managed-policy ARNなどのhuman-provided design ARNはobserved valueではなく、必要なdesign inputとして`desired.*`へ残してよい。
-- current valueがまだ存在しないgenerated fieldは`PENDING_DEPLOY`とし、そのidentifierを参照する全propertyのMarkdown link表示textも`PENDING_DEPLOY`とする。
-- `CidrBlock`、`DestinationCidrBlock`、`CidrIp`等のCIDR項目は、詳細表・リソース一覧とも`PENDING_DEPLOY`を禁止する。deploy前でも確定済みCIDRを表示し、未確定ならhumanへ確認する。参照linkの表示値や配列内も同じとし、catalogでidentifier outputとされるCIDRでも例外にしない。`VpcId`等の生成IDのPENDING_DEPLOY許容は維持する。
-- 既存resource取得ではchatbotが選択したpropertyだけを詳細設計のdesired valueへ直接差分反映し、必要な非ARN generated identifierをobserved valueへ反映する。未選択propertyと未選択resourceは変更しない。
-- current physical valueはresourceが現在存在する間だけ保持する。replacementでは新しい値だけをidentifier output rowと全参照元へ反映する。
-- destroy後はidentifier output rowと全参照元を`PENDING_DEPLOY`へ戻し、Markdownを再生成する。
-- obsoleteなphysical IDと過去valueはGit履歴、CloudFormation/Terraform、AWS側のdeployment historyで追跡する。
-- 過去valueをscenario evidenceへ転記しない。
-- old result fileだけを根拠にold IDがcurrentであると仮定しない。
+- Observed values are the minimum necessary machine-readable values obtained from the current deployment, not scenario evidence.
+- Service model `observed.*` is the authority for observed values; generate detailed design catalog `IDENTIFIER_OUTPUT` rows and all references from it.
+- Update model observed values first and regenerate Markdown with `framework/scripts/sync-model.py` only after AWS mutation in a successful `infrastructure` task or read-only retrieval of existing resources selected by the human in a `design` task.
+- `scenario-test` tasks may read `model/**` but must not change it.
+- Collect only values needed for follow-up configuration, links, connections, operations, and future task inputs.
+- Valid examples include actually needed VPC IDs, Subnet IDs, Route Table IDs, Security Group IDs, EC2 Instance IDs, private/public IPs, DNS names, endpoint addresses, and hosted zone IDs.
+- Do not save generated ARNs in either detailed design or `observed.*`.
+- ARNs may be obtained transiently when AWS APIs require them.
+- Also treat `Macie.ClassificationJob.jobId` as API catalog `IDENTIFIER_OUTPUT`. In authorized design tasks retrieving existing Jobs, obtain necessary jobId from `DescribeClassificationJob`. Do not expand discovery to CFn Outputs or stack resources; do not persist response jobArn, statistics, or execution status.
+- Human-provided design ARNs such as AWS managed-policy ARNs are not observed values and may remain in `desired.*` as necessary design inputs.
+- Generated fields whose current values do not yet exist must be `PENDING_DEPLOY`; Markdown link display text for all properties referencing that identifier must also be `PENDING_DEPLOY`.
+- `PENDING_DEPLOY` is prohibited for CIDR items such as `CidrBlock`, `DestinationCidrBlock`, and `CidrIp` in both detail tables and resource overviews. Display confirmed CIDRs even before deploy; ask the human if unconfirmed. The same applies to reference link display values and arrays, with no exception even for CIDRs marked as identifier outputs in the catalog. Retain PENDING_DEPLOY allowance for generated IDs such as `VpcId`.
+- Existing-resource retrieval directly reflects differences only for chatbot-selected properties into detailed design desired values and necessary non-ARN generated identifiers into observed values. Do not change unselected properties or resources.
+- Retain current physical values only while resources currently exist. For replacement, reflect only new values in identifier output rows and all references.
+- After destroy, return identifier output rows and all references to `PENDING_DEPLOY` and regenerate Markdown.
+- Track obsolete physical IDs and past values in Git history, CloudFormation/Terraform, and AWS deployment history.
+- Do not transcribe past values into scenario evidence.
+- Do not assume old IDs are current based only on old result files.
 
-IMPORTの設定取得・observed更新は明示許可されたdesign taskのread-only取得で行う。以下のCloudFormation／Terraformからの収集とoutput追加はCREATEだけを対象とし、IMPORTのためにStack／state管理へ移行したりAWS設定を変更したりしない。
+Retrieve IMPORT settings and update observed values via read-only retrieval in explicitly authorized design tasks. Collection and output addition from CloudFormation/Terraform below apply only to CREATE; do not migrate to Stack/state management or change AWS settings for IMPORT.
 
 ## Collection and propagation
 
-- identityなしで親modelのrowへ統合した子resourceは、`resource-layout.json`の親型・parentPropertyとtemplateの有効な親Refから対応を解決する。親のCREATE・正式型・直接IDまたは一意な旧ID・Validation scopeと子設定rowの存在を検証し、同じ親への同型子resourceの二重所有を拒否する。子へ独立したresource metadataやidentifier rowを要求せず、子のphysical IDを収集しない。親参照が未解決・不一致なら推測せず停止する。
-- `CodeCommit.Repository.RepositoryId`などmodelに保存しない`HIDDEN_PROPERTIES`は、identifier row・Outputsの必須検証とobserved収集から除外する。他の識別子の検証は維持する。
-- `SecretsManager.Secret.Id`と`SecretsManager.RotationSchedule.Id`はRef／IdがARNを返すため、既存の`HIDDEN_PROPERTIES`で非ARN identifierの収集・必須Output・伝播・表示から除外する。catalogの`IDENTIFIER_OUTPUT` markerだけでは保存可能な非ARN識別子と判断しない。RotationScheduleは既存anchor／logical-id metadataと正式なSecretIdの親logical referenceを保持し、Id行を必須にしない。SecretIdの表示は親の確定済みNameを使い、ARNや架空IDを保存しない。templateのRef／GetAtt／ImportValueとAPI時の一時ARN利用は維持する。
-- 旧modelに両Idのdesired／observed rowがある場合、生成は非表示propertyとして拒否する。consumerの別の明示修復taskで該当row一式と、Secretを非ARN identifierとして参照していた不要なobserved rowを削除し、desired logical reference・resource metadataを保持して対象serviceを再生成・検証する。framework修復taskではconsumerを変更しない。
+- For child resources integrated into parent model rows without identity, resolve mappings from the parent type/parentProperty in `resource-layout.json` and the template's valid parent Ref. Validate the parent's CREATE classification, formal type, direct ID or unique legacy ID, Validation scope, and child setting row existence; reject duplicate ownership of same-type children under the same parent. Do not require independent resource metadata or identifier rows for children or collect their physical IDs. Stop without guessing if parent references are unresolved or mismatched.
+- Exclude `HIDDEN_PROPERTIES` not saved in models, such as `CodeCommit.Repository.RepositoryId`, from mandatory identifier row/Outputs validation and observed collection. Retain validation of other identifiers.
+- Since Ref/Id return ARNs for `SecretsManager.Secret.Id` and `SecretsManager.RotationSchedule.Id`, existing `HIDDEN_PROPERTIES` exclude them from non-ARN identifier collection, mandatory Outputs, propagation, and display. The catalog `IDENTIFIER_OUTPUT` marker alone does not establish a persistable non-ARN identifier. RotationSchedule retains existing anchor/logical-id metadata and the formal SecretId parent logical reference; do not require Id rows. SecretId display uses the parent's confirmed Name; do not save ARNs or fictitious IDs. Retain template Ref/GetAtt/ImportValue and transient ARN use at API time.
+- If legacy models have desired/observed rows for either Id, generation rejects them as hidden properties. In a separate explicit consumer repair task, delete the entire corresponding row set and unnecessary observed rows that referenced the Secret as a non-ARN identifier; retain desired logical references/resource metadata and regenerate/validate target services. Do not change consumers in framework repair tasks.
 
-- CloudFormationはstack詳細設計のStackNameと実行したtemplateのLogicalIdで対象resourceを特定し、service詳細設計と照合する。対応が曖昧なら推測せず停止する。必要なnon-ARN identifierをそのstackの`Outputs`から取得する。対象outputがない場合だけstack resourceの`PhysicalResourceId`を使用し、同じlogical resourceについて両方が取得できる場合は一致を確認する。複数stackで同じtemplate/LogicalIdを使う場合も、別の設計resource rowへ反映する。
-- Terraformは必要なnon-sensitive identifierをroot module `output`から取得する。対象outputがない場合だけstateのresource attributeをread-onlyで参照し、同じresourceについて両方が取得できる場合は一致を確認する。
-- IaCに必要なoutputが不足する場合、`deploy` phaseではIaCを変更せず停止する。`implement`または`update` phaseは必要なoutputだけを追加し、CloudFormationはlogical resource参照、Terraformはresource attribute参照を維持する。
-- 取得したidentifierはcatalogの正式な`IDENTIFIER_OUTPUT` propertyへ対応付ける。対応が一意でなければ推測せず停止する。
-- modelのidentifier outputに対応するobserved rowを更新した後、同じidentifierを参照する全model rowのobserved valueを同じ値へ更新する。Markdown link表示textは生成処理で更新する。参照元の`Source / Comment`、link先path、anchorは変更しない。
-- 更新後にMarkdownを再生成し、validatorでidentifier outputと全参照元の一致を確認する。generated ARN、secret、old physical IDは保存しない。
+- CloudFormation identifies target resources by detailed stack design StackName and the executed template's LogicalId, matching service detailed designs. Stop without guessing if mappings are ambiguous. Obtain necessary non-ARN identifiers from that stack's `Outputs`. Use stack resource `PhysicalResourceId` only when the target output is absent; confirm equality if both are available for the same logical resource. Even if multiple stacks use the same template/LogicalId, reflect them in separate design resource rows.
+- Terraform obtains necessary non-sensitive identifiers from root module `output`. Read state resource attributes read-only only when target outputs are absent; confirm equality if both are available for the same resource.
+- If necessary IaC outputs are missing, stop without IaC changes in the `deploy` phase. The `implement` or `update` phase adds only necessary outputs, retaining logical resource references in CloudFormation and resource attribute references in Terraform.
+- Map retrieved identifiers to formal catalog `IDENTIFIER_OUTPUT` properties. Stop without guessing unless the mapping is unique.
+- After updating observed rows corresponding to model identifier outputs, update observed values of all model rows referencing the same identifier to the same value. Generation updates Markdown link display text. Do not change reference source `Source / Comment`, link target paths, or anchors.
+- After updates, regenerate Markdown and use the validator to confirm equality of identifier outputs and all references. Do not save generated ARNs, secrets, or old physical IDs.
 
-CloudFormation controllerは`cloudformation_observed.py`のimplement/deploy共通検証で、各model resourceの`cfn-logicalId=<StackName>-<Resources key>`を直接照合する。別対応表は使用しない。旧logicalIdだけのmodelは正式型と旧IDの一意な従来照合を維持する。直接IDを持つresourceは名前検索から除外し、不正・欠落をfallbackで補わない。stack固有parameter/defaultとaccount/region/StackNameでConditionを評価し、falseのresourceを照合・identifier検証・所有判定から除外する。未解決・循環・非booleanの条件は停止する。対応先のCREATE区分・正式型・一意性、catalog row／Output／actualの不一致は`AMBIGUOUS_OBSERVED_MAPPING`で停止する。名前、file順、過去のphysical IDから対応を推測しない。
+The CloudFormation controller directly matches each model resource's `cfn-logicalId=<StackName>-<Resources key>` using common implement/deploy validation in `cloudformation_observed.py`. Do not use a separate mapping table. Models with legacy logicalId only retain existing unique matching by formal type and legacy ID. Exclude resources with direct IDs from name searches; do not fill invalid/missing IDs by fallback. Evaluate Conditions using stack-specific parameters/defaults and account/region/StackName; exclude false resources from matching, identifier validation, and ownership decisions. Stop for unresolved, cyclic, or non-boolean conditions. Stop with `AMBIGUOUS_OBSERVED_MAPPING` for mapped CREATE classification, formal type, uniqueness, or catalog row/Output/actual mismatches. Do not infer mappings from names, file order, or past physical IDs.
 
-OutputのValueが対象logical resourceのRef（catalogの一意identifierがschema primaryIdentifierに対応する場合）または正式attributeのGetAttであることを確認する。PhysicalResourceId fallbackは一意なcatalog identifierがprimaryIdentifierに対応する場合だけ使用する。他のidentifierは正式GetAtt Outputを必要とし、generated ARNは拒否する。全更新と参照伝播を計画してtask scope／予約fileを検査してからobservedだけを書き、既存sync-modelでservice単位に生成・検証する。曖昧さがある場合はmodelへ書かない。生成失敗時はmodelを正本として保持し、同sessionで同期を再試行する。
+Confirm Output Value is the target logical resource's Ref (when the catalog's unique identifier corresponds to schema primaryIdentifier) or GetAtt of a formal attribute. Use PhysicalResourceId fallback only when the unique catalog identifier corresponds to primaryIdentifier. Other identifiers require formal GetAtt Outputs; reject generated ARNs. Plan all updates and reference propagation and check task scope/reserved files before writing observed only, then generate/validate per service with existing sync-model. Do not write models if ambiguity exists. On generation failure, retain models as the authority and retry synchronization in the same session.
 
-observed同期はdeploy前に検証した同じ対応を使用し、再開時はimmutable input guardと共通検証で再確定する。Removeは新templateのConditionがfalseまたはresourceが存在しなくても、change setの正式型と対応先をexecution前に検証する。削除後の同期で新しい所有先を推測せず、Delete／Snapshotによる物理破棄を確認した場合だけidentifierと参照元をPENDING_DEPLOYへ戻す。Retain／不明policyでは保持し停止する。
+Observed synchronization uses the same mappings validated before deploy and reconfirms them on resume with the immutable input guard and common validation. For Remove, validate the change set's formal type and mapping before execution even if the new template Condition is false or the resource is absent. Do not infer new owners during post-deletion synchronization; return identifiers and references to PENDING_DEPLOY only when physical destruction by Delete/Snapshot is confirmed. Retain them and stop for Retain/unknown policies.

@@ -1,6 +1,6 @@
 # CloudFormation Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -12,6 +12,6 @@
 
 ## Service-specific constraints
 
-- AWS CloudFormation StackNameの`number`はoptionalとし、通常は省略する。同じapplication・environment・purposeの複数stackを区別する場合だけ、`purpose`の後に`-01`からの2桁連番を付ける。例：通常は`cfn-stack-app-dev-network`、同用途の複数stackは`cfn-stack-app-dev-job-01`、`cfn-stack-app-dev-job-02`。
-- StackNameの`suffix`はoptionalとし、選択targetに設定がある場合だけ末尾へ付ける。例：`suffix=blue`なら`cfn-stack-app-dev-network-blue`。
-- AWS CloudFormation stack、StackSet、change setは英字で開始し、英数字とhyphenだけを使い、128文字以内とする。Change setはdeployment operationの名前であり、詳細設計resourceとして追加しない。
+- AWS CloudFormation StackName's `number` is optional and normally omitted. Only when distinguishing multiple stacks with the same application, environment, and purpose, append a two-digit sequence starting at `-01` after `purpose`. Examples: normally `cfn-stack-app-dev-network`; multiple stacks for the same purpose: `cfn-stack-app-dev-job-01`, `cfn-stack-app-dev-job-02`.
+- StackName's `suffix` is optional and appended only when configured for the selected target. Example: with `suffix=blue`, `cfn-stack-app-dev-network-blue`.
+- AWS CloudFormation stack, StackSet, and change set names must start with a letter, use only alphanumeric characters and hyphens, and be at most 128 characters. A change set is the name of a deployment operation and must not be added as a detailed design resource.

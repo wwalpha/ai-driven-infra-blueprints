@@ -1,6 +1,6 @@
 # CodeCommit Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,4 +10,4 @@
 
 ## Service-specific constraints
 
-- AWS CodeCommit repositoryの`environment`は、環境間で同じrepositoryを共有する場合は省略し、環境ごとにrepositoryを分ける場合は含める。
+- Omit AWS CodeCommit repository's `environment` when the same repository is shared across environments; include it when separate repositories are used for each environment.

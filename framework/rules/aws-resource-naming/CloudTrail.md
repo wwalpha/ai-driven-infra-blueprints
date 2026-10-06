@@ -1,6 +1,6 @@
 # CloudTrail Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -8,4 +8,4 @@
 | --- | --- | --- | --- | --- |
 | AWS CloudTrail | Trail | `CloudTrail.Trail` | `TrailName` | `ctrail-{{application}}-{{environment}}[-{{suffix}}]` |
 
-`suffix`は共通ルールに従い、選択targetの設定値を使用する。未設定なら区切りごと省略する（例：`ctrail-venusinf-dev`、suffixが`aaaaaa`なら`ctrail-venusinf-dev-aaaaaa`）。
+`suffix` uses the selected target's configured value according to the common rules. If unset, omit it together with the separator (examples: `ctrail-venusinf-dev`; with suffix `aaaaaa`, `ctrail-venusinf-dev-aaaaaa`).

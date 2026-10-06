@@ -1,6 +1,6 @@
 # SNS Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,4 +10,4 @@
 
 ## Service-specific constraints
 
-- Amazon SQS queueは80文字以内とし、FIFO queueは`.fifo`で終える。Amazon SNS FIFO topicも`.fifo`で終える。
+- Amazon SQS queues must be at most 80 characters; FIFO queues must end with `.fifo`. Amazon SNS FIFO topics must also end with `.fifo`.

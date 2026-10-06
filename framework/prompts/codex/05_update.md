@@ -1,198 +1,198 @@
 # Manual Design Update and Deployment Prompt
 
-契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
+Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
-このpromptは、人間が既存のmodel propertiesを手動修正し、まだcommitしていない差分を確定済みdesignとして受け取り、Markdown生成、選択済みIaCへの反映、deploy/apply、完了確認までを一つの`infrastructure` taskで行うために使用する。新規詳細設計の作成には使用しない。
+Use this prompt to receive diffs manually edited by the human in existing model properties and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
 
 ## Check applicability and finish point first
 
-最初に依頼の対象environment／target／service、property、修復対象issueと、終了地点（model修復まで、IaCまで、AWS反映まで）を確定する。依頼に明記された範囲を再質問せず、不足する判断だけを確認する。
+First determine requested environment/target/services, properties, issues to repair, and endpoint (through model repair, IaC, or AWS reflection). Do not ask again about explicitly requested scope; confirm only missing decisions.
 
-- humanの手動model差分をAWSへ反映する依頼だけを、以下の通常update手順で扱う。IaCまでの依頼へpreflight、change set／plan、deploy/applyを追加しない。
-- humanが明示したissue修復は手動model差分を前提とするupdateと区別する。修復値を対象modelと既存IaC・parameterへ変更前に照合し、既存IaCが一致していれば確認対象とする。model修復と生成設計書・該当issueの解消だけが必要なら、design boundaryの修復contractへ対象serviceのValidation scopeとIssue remediationを記載する。手動model差分がないことを理由に修復を止めたり、IaCの同値書換えを要求しない。
-- 実際にIaC変更が必要なら既存のinfrastructure boundaryに従う。model修復とIaC変更を混ぜてupdateのimmutable input制約を解除せず、別taskを自動作成・実行しない。
+- Use the ordinary update procedure below only for requests to reflect human manual model diffs into AWS. Do not add preflight, change sets/plans, or deploy/apply to requests ending at IaC.
+- Distinguish human-explicit issue repairs from update requiring manual model diffs. Before changes, match repair values against target models and existing IaC/parameters; treat matching existing IaC as confirmation targets. If only model repair, generated designs, and corresponding issue resolution are needed, record target service Validation scope and Issue remediation in a design-boundary repair contract. Do not stop repair due to absent manual model diffs or require same-value IaC rewrites.
+- If IaC changes are actually needed, follow existing infrastructure boundaries. Do not mix model repair with IaC changes to lift update immutable input constraints; do not automatically create/execute another task.
 
-契約のRequired changesとAllowed pathsは必要な変更だけに絞り、既存IaCの確認対象と区別する。以下の通常updateの適用条件を満たさない依頼に、その契約・AWS許可を流用しない。明示issue修復は対象serviceの生成、依頼された対象IaCの静的検証、local loopを各一回実行して指定の終了地点で終える。task type固有checkとissue gateは省略しない。
+Limit contract Required changes and Allowed paths to necessary changes and distinguish existing IaC confirmation targets. Do not reuse ordinary update contracts/AWS authorization for requests not meeting its applicability conditions below. Explicit issue repairs run target service generation, static validation of requested target IaC, and local loops once each, then finish at the specified endpoint. Do not omit task-type-specific checks or issue gates.
 
-account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
+Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
 ## Unresolved issue gate
 
-[issue-gate](../../rules/issue-gate.md)を適用し、関係する全serviceを一回のprocessで確認する。
+Apply [issue-gate](../../rules/issue-gate.md) and check every related service in one process.
 
 ```console
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id> [--service <service-id> ...]
 ```
 
-停止・修復例外はissue-gateを正本とする。AWS mutation直前にも同じ全serviceを`--task`付きで再確認し、controller内のtask／issue guardを維持する。
+Issue-gate is authoritative for stops/repair exceptions. Immediately before AWS mutation, also recheck the same services with `--task`; retain controller task/issue guards.
 
 ## Optional user input
 
-- Authorized delete/replacement: 省略時は`none`
-- AWS profile: 任意。省略時はtargetの`awsProfile`、未設定ならdefault credential chain。設定と異なる明示profileは拒否する
+- Authorized delete/replacement: `none` when omitted
+- AWS profile: Optional. When omitted, target `awsProfile`, or default credential chain if unset. Reject explicit profiles differing from settings
 
-通常はどちらも入力不要とする。delete/replacementは対象resourceと理由が明記されている場合だけ事前承認済みとして扱う。事前承認がなくてもchange setまたはplanは作成し、未承認のdelete/replacementを検出した場合だけ下記のhuman確認待ちへ進む。
+Normally neither input is required. Treat delete/replacement as preapproved only when target resources and reasons are explicit. Create change sets/plans even without preapproval; proceed to waiting for human confirmation below only if unapproved delete/replacement is detected.
 
 ## Resolve target and scope from repository state
 
-fileを変更する前に、次の順序でtargetとscopeを特定する。
+Before file changes, determine targets and scope in the following order.
 
-1. `git status --short`と`git diff --name-only HEAD -- model/`を確認する。
-2. humanが変更した既存model propertiesのpathからenvironmentとtarget directoryを取得する。単一fileは`model/<environment>/<target-directory>/<service-id>.properties`、分割modelのpartは既存`model_files.service_model_path`で同じservice入口へ対応付ける。
-3. 取得したenvironment／target directoryの組み合わせが正確に1件で、`project.json`のtargetと一致することを確認し、aliasがある場合はalias、常に実際のAWS account IDを取得する。手動修正済みmodel propertiesがない場合、複数targetの差分が混在する場合、または未登録targetの場合はfileを変更せず停止する。
-4. 同じtargetでhumanが変更した既存model propertiesをすべてDesign scopeとする。policy／設定JSON本文はmodel rowのdocumentをinputとし、Markdown／JSON artifactの手動diffを設計値として採用しない。
-5. 対応する正本service propertiesと既存IaC・parameterを照合し、差分があるpropertyだけを実装対象にする。CloudFormationのstack scopeは同じtargetの正本`cloudformation-stacks.properties`だけから解決する。`desired.stack.*.name`、`.template`、`.parameters`、`.deployOrder`と`desired.deployment.maxConcurrentStacks`を使用し、MaxConcurrentStacks省略時の実効値は1とする。resource所有、共有templateの各stack instanceとparameterの対応はservice propertiesと既存IaCから確認し、曖昧なら停止する。変更済みdesignが同じaccount・regionの別stack所有resourceを参照する場合は、そのproducer stackも必要なOutput/Export追加の候補とする。
-6. 上記のStackName、template／parameter、またはTerraform root／resourceとdependencyをDeployment scopeとする。CloudFormationではDeployOrderが未設定なら推測・migrationせず停止し、順序と並列上限はcontrollerが強制する。DeployOrderをtemplateのDependsOnへ変換しない。Terraformでは既存IaCからroot、workspace、backend、variable input、module/resourceとdependencyを解決し、不足・不一致なら停止する。同じtemplateを使う別StackNameは別unitとし、変更された設計resourceを所有するstackだけをscopeへ含める。cross-stack exportが必要なproducerとconsumerを同じtaskで扱う場合は両stackをscopeへ含める。
+1. Check `git status --short` and `git diff --name-only HEAD -- model/`.
+2. Obtain environment and target directory from existing model properties paths edited by the human. Single files use `model/<environment>/<target-directory>/<service-id>.properties`; map split model parts to the same service entry using existing `model_files.service_model_path`.
+3. Confirm exactly 1 environment/target directory combination matching a `project.json` target; obtain the alias if present and always the actual AWS account ID. Stop without file changes if no manually edited model properties exist, diffs mix multiple targets, or targets are unregistered.
+4. Design scope is all existing model properties edited by the human in the same target. Use model row documents as input for policy/setting JSON bodies; do not adopt manual Markdown/JSON artifact diffs as design values.
+5. Match corresponding authoritative service properties against existing IaC/parameters; implement only differing properties. Resolve CloudFormation stack scope only from authoritative `cloudformation-stacks.properties` in the same target. Use `desired.stack.*.name`, `.template`, `.parameters`, `.deployOrder`, and `desired.deployment.maxConcurrentStacks`; effective MaxConcurrentStacks is 1 when omitted. Confirm resource ownership and each shared-template stack instance/parameter mapping from service properties and existing IaC; stop if ambiguous. If changed design references resources owned by other stacks in the same account/region, also consider those producer stacks for necessary Output/Export additions.
+6. Deployment scope is the above StackNames, templates/parameters, or Terraform roots/resources and dependencies. For CloudFormation, stop without guessing/migration if DeployOrder is unset; the controller enforces order and parallel limits. Do not convert DeployOrder to template DependsOn. For Terraform, resolve roots, workspaces, backends, variable inputs, modules/resources, and dependencies from existing IaC; stop for missing/mismatched inputs. Different StackNames using the same template are separate units; include only stacks owning changed design resources in scope. If handling producers and consumers requiring cross-stack exports in the same task, include both stacks in scope.
 
-scope外のuncommitted changeがある場合は取り込まず停止する。repository内の情報からdeployment unitを一意に特定できない場合だけ、stack名など不足している項目を一回の応答につき一つ質問する。repositoryから特定できるtarget、file path、scope全体をuserへ再入力させず、値を推測しない。
-既存StackNameの削除・改名をstack詳細設計の差分から自動的にstack削除と解釈しない。対象stackの管理終了または削除が必要なら、現在のupdate phaseで実行せず対象と影響を報告して停止する。
+Stop without incorporating out-of-scope uncommitted changes. Only if repository information cannot uniquely identify deployment units, ask one missing item such as stack name per response. Do not require the user to reenter targets, paths, or entire scope identifiable from the repository; do not infer values.
+Do not automatically interpret existing StackName deletions/renames in stack design diffs as stack deletion. If ending management/deleting target stacks is necessary, report targets/impacts and stop without execution in the current update phase.
 
 ## Read before changing files
 
 1. `AGENTS.md`
 2. [task-contract](../../rules/task-contract.md)
-3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
+3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
-5. `git status --short`と、repository差分から特定したDesign scopeのdiff
-6. Design scopeの正本`model/<environment>/<target-directory>/<service-id>.properties`と必要なpart。CloudFormationではstack scope解決に必要な同targetの`cloudformation-stacks.properties`
-7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection)。CloudFormationは[CloudFormation stack詳細設計](../../rules/detailed-design.md#cloudformation-stack詳細設計)、設計表示を変更・調査する場合だけ関連する表示sectionを追加する。
-8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
-9. 選択済みengineに対応する[cloudformation](../../rules/cloudformation.md)または[terraform](../../rules/terraform.md)
+5. `git status --short` and Design scope diffs identified from repository changes
+6. Authoritative Design scope `model/<environment>/<target-directory>/<service-id>.properties` and required parts. For CloudFormation, same-target `cloudformation-stacks.properties` needed for stack scope resolution
+7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
+8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
+9. [cloudformation](../../rules/cloudformation.md) or [terraform](../../rules/terraform.md) for the selected engine
 10. [observed-values](../../rules/observed-values.md)
-11. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)。[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
-12. 対象resourceに関係する`framework/materials/aws/*.properties`と`framework/materials/api/*.properties`および同名API設計schema
-13. CloudFormationの場合は対象resourceのprovider schema
-- [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。命名を確認する場合は[aws-resource-naming](../../rules/aws-resource-naming.md)。
+11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
+12. `framework/materials/aws/*.properties`, `framework/materials/api/*.properties`, and same-named API design schemas relevant to target resources
+13. For CloudFormation, target resource provider schemas
+- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
 
-命名規則は共通入口のService rule lookupから、対象resource typeのcatalog namespaceに対応するservice fileだけを追加で読む。複数serviceでも対象namespaceだけを読み、命名規則directory全体を一括で読まない。Catalog resource types／Naming targetとpatternは選択したservice fileで照合する。
+For naming rules, additionally read only service files corresponding to target resource type catalog namespaces from the common entry's Service rule lookup. Even for multiple services, read only target namespaces, not the whole naming rule directory at once. Match Catalog resource types/Naming target and patterns in selected service files.
 
-Updateの設計inputはauthoritative model propertiesだけとする。generated Markdown本文とgenerated JSON artifactは開始時・IaC生成時・参照解決時のinputとして読まない。`cloudformation-stacks.md`も表示用生成物であり、同じstack scope情報をAgentが再取得・二重比較しない。JSON本文は`desired.row.*.document`を使う。03/04 prompt全文の読込は不要とし、Updateに必要な手順はこのprompt、共通契約は上記の既存rulesに従う。Markdown／JSONの生成・保存、controllerとlocal loopによる整合性検証は維持する。
+Update design inputs are only authoritative model properties. Do not read generated Markdown bodies or generated JSON artifacts as input at start, IaC generation, or reference resolution. `cloudformation-stacks.md` is also a display generated artifact; the Agent must not retrieve/compare the same stack scope information twice. Use `desired.row.*.document` for JSON bodies. Full 03/04 prompt reads are unnecessary; follow this prompt for Update procedures and existing rules above for common contracts. Retain Markdown/JSON generation/saving and consistency validation by controllers/local loops.
 
-resourceが限定される場合は、単一file／分割入口indexの両方で既存部分読込を使用する。selectorはresource number、logical ID、anchorの完全一致とし、未一致・曖昧なら停止する。
+For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number, logical ID, or anchor matches; stop if unmatched/ambiguous.
 
 ```console
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --resource <resource-selector>
 ```
 
-対象resourceと同じgroupの親・子・兄弟、service metadata／notesだけをcontextへ入れる。service全体の変更なら対象service properties全体を読めるが、全service／全modelへ無条件に広げない。propertiesのlogical referenceは`desired.resource.*.anchor`／`.logicalId`と`parentReference`から解決する。別serviceの`.md#anchor` linkはpath／file stemからproducer propertiesへ対応付け、必要なresourceだけ同じ`model_files.py --resource`で追加取得する。generated Markdown本文をfallbackとして読まない。参照先不明、必要なdesired value、stack assignment、human decisionの不足は推測せず停止する。
+Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model_files.py --resource`. Do not read generated Markdown bodies as fallback. Stop without guessing for unknown reference targets or missing required desired values, stack assignments, or human decisions.
 
-読取対象はDesign scopeのresource/propertyと参照解決に必要な箇所へ絞る。分割modelは入口indexから必要なpartだけを読む。同じtaskで確認済みの資料は、内容変更・検証失敗・未解決の依存がなければ再読しない。
+Limit reads to Design scope resources/properties and portions needed for reference resolution. For split models, read only required parts from entry indexes. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 
-`<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
+`<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
-指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 
-framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
+Add [Framework regression](../../rules/loop-engineering.md#framework-regression) for framework changes, [Validation cache](../../rules/loop-engineering.md#validation-cache) for validation reuse, and applicable loop diagnostic sections for stops/long execution. Do not additionally read full README or inapplicable sections; retain schema/reference/account/issue/task-specific checks.
 
 ## Validate human design diff
 
-- 特定したDesign scopeは、対象environment／target directory配下でhumanが変更した既存model propertiesだけとする。
-- Design scopeのmodel propertiesにhumanが作成したuncommitted diffが存在しなければ停止する。
-- 特定したDesign scope外のuncommitted changeがある場合は、今回のtaskへ取り込まず停止する。
-- IaCまたは生成物Markdown／JSONにtask開始前からuncommitted changeがある場合は停止する。正本model propertiesのhuman diffは許可する。
-- humanが変更したintended designをこのtaskで修正、補完、巻き戻ししない。
-- 詳細設計の不足、矛盾、placeholder、schema violation、未確定のhuman decisionがあれば停止する。
-- 対象propertiesに既存`model_design.validate_required_properties`と`DesignSchemaCatalog.literal_errors`などのschema検証を適用し、CREATE／IMPORT、正式型、必須property、型・制約と必要な依存先を確認する。scopeやintended designを自動補完しない。
-- CloudFormationでは対象typeを`design_catalog.py --cloudformation-type <catalog-resource-type>`で解決する。CFn非対応の`Macie.ClassificationJob`等を黙って除外してupdate完了とせず、未反映を報告して停止する。CFnへの誤変換、API実行、Custom Resource追加、旧Jobのキャンセルを行わない。resourceModeの境界はengine ruleを維持する。
+- Identified Design scope is only existing model properties edited by the human under the target environment/target directory.
+- Stop if Design scope model properties contain no human-created uncommitted diff.
+- Stop without incorporating uncommitted changes outside identified Design scope into this task.
+- Stop if IaC or generated Markdown/JSON artifacts have uncommitted changes predating task start. Human diffs in authoritative model properties are permitted.
+- Do not repair, supplement, or roll back human-edited intended design in this task.
+- Stop for detailed design deficiencies, contradictions, placeholders, schema violations, or unconfirmed human decisions.
+- Apply schema validation such as existing `model_design.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to target properties to confirm CREATE/IMPORT, formal types, required properties, types/constraints, and necessary dependencies. Do not automatically supplement scope or intended design.
+- For CloudFormation, resolve target types with `design_catalog.py --cloudformation-type <catalog-resource-type>`. Do not silently exclude CFn-unsupported types such as `Macie.ClassificationJob` and call update complete; report unapplied items and stop. Do not incorrectly convert to CFn, run APIs, add Custom Resources, or cancel old Jobs. Retain engine rule resourceMode boundaries.
 
-task開始時のDesign scope diffを保持し、deploy成功後のgenerated current value更新を除いて完了時まで同じであることを確認する。
+Retain Design scope diffs at task start and confirm they remain identical through completion except for generated current value updates after deploy success.
 
 ## Create active task contract
 
-Codexによる最初のrepository changeとして`tasks/<task-name>.md`を今回の対象だけを許可する内容へ新規登録する。
+As Codex's first repository change, newly register `tasks/<task-name>.md` authorizing only this task's targets.
 
-- Task typeは`infrastructure`とする。
-- Infrastructure phaseは`update`とする。
-- goalにtarget environment、aliasがある場合はalias、AWS account、自動特定したDesign scopeとDeployment scope、選択済みIaC engineを記載する。
-- `Validation scope`はDesign scopeと実装・deploymentに関係するserviceを`<environment>/<target-directory>/<service-id>`で明記する。target全体へ広げない。
-- AWS API executionとdeploy/applyは自動特定したDeployment scopeに限り`allowed`とする。
-- Authorized delete/replacementは明示された値、入力がなければ`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
-- `Required changes`は一意なRequirement ID付きで、human design diffの検証、Markdown生成、IaC implementation、deployment、必要なobserved value更新を分けて記載する。
-- `Acceptance checks`はDesign scope、対応するmodel、対象IaCへ`changed:`を対応付け、deployment unitへ`exists:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsはDesign scopeのmodel properties、生成先Markdown／JSON artifact、対象IaC、`tasks/<task-name>.md`だけに限定する。別targetと`tests/**`は変更禁止とする。
+- Task type is `infrastructure`.
+- Infrastructure phase is `update`.
+- State target environment, alias when present, AWS account, automatically identified Design scope and Deployment scope, and selected IaC engine in the goal.
+- Explicitly state Design scope and implementation/deployment-related services in `Validation scope` as `<environment>/<target-directory>/<service-id>`. Do not expand to the entire target.
+- Set AWS API execution and deploy/apply to `allowed` only within automatically identified Deployment scope.
+- Record explicit Authorized delete/replacement values, or `none` if no input. If the human approves after change set/plan creation, update to target resources, actions, and confirmed reasons within the same task.
+- In `Required changes`, separately state human design diff validation, Markdown generation, IaC implementation, deployment, and necessary observed value updates with unique Requirement IDs.
+- Map `Acceptance checks` using `changed:` for Design scope, corresponding models, and target IaC, and `exists:` for deployment units. Do not treat unexecuted/failed deploy as complete based on repository files.
+- Limit Allowed paths to Design scope model properties, destination Markdown/JSON artifacts, target IaC, and `tasks/<task-name>.md` only. Changes to other targets and `tests/**` are prohibited.
 
 ## Generate Markdown and implement IaC
 
-1. aliasがあるtargetは`framework/scripts/sync-model.py --write --environment <environment> --alias <alias> --service <service-id>`、aliasがないtargetは`framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id> --service <service-id>`を実行し、human design diffを入力としてMarkdown／JSON artifactを生成する。同じtargetの複数対象serviceは`--service`を繰り返して一回で指定し、modelのintended designを変更しない。
-2. Markdown／JSON生成失敗またはvalidation failureではdesignを修正せず停止する。
-3. 上記のpropertiesと既存engine ruleから、自動特定したDeployment scopeに必要なIaCだけを最小変更する。tag、Name、policy document、logical referenceはdesired rowから反映し、physical IDを直書きしない。CloudFormationのcross-stack参照は下記のread-only確認でdeploy済みexportを調べるまでproducer Output/Exportとconsumer `!ImportValue`の変更を保留する。
-4. CloudFormationは対象全templateに`cfn-lint --regions <project.jsonのawsRegion> <template...>`を実行する。Terraformは`terraform fmt -check`、freshな`TF_DATA_DIR`を使った`terraform init -backend=false`、`terraform validate`を実行する。IaC implementation errorは確定済みdesign内で修正可能な場合だけ最大3 iterationまで修正する。material progressなしで同じerrorが2回続く、human decisionまたはdesign変更が必要なら停止する。validation失敗を残してdeployへ進まない。
+1. Run `framework/scripts/sync-model.py --write --environment <environment> --alias <alias> --service <service-id>` for aliased targets, or `framework/scripts/sync-model.py --write --environment <environment> --aws-account-id <aws-account-id> --service <service-id>` for targets without aliases, to generate Markdown/JSON artifacts from human design diffs. Specify multiple target services in the same target once by repeating `--service`; do not change model intended design.
+2. Stop without repairing design on Markdown/JSON generation or validation failure.
+3. From properties above and existing engine rules, minimally change only IaC needed for automatically identified Deployment scope. Reflect tags, Names, policy documents, and logical references from desired rows; do not hardcode physical IDs. For CloudFormation cross-stack references, defer producer Output/Export and consumer `!ImportValue` changes until deployed exports are investigated with the read-only check below.
+4. For CloudFormation, run `cfn-lint --regions <project.jsonのawsRegion> <template...>` for all target templates. For Terraform, run `terraform fmt -check`, `terraform init -backend=false` with fresh `TF_DATA_DIR`, and `terraform validate`. Repair IaC implementation errors for at most 3 iterations only if correctable within confirmed design. Stop if the same error repeats twice without material progress or human decisions/design changes are needed. Do not proceed to deploy with validation failures remaining.
 
 ## Preflight and deploy
 
-このtaskでDesign scopeから生成した対象IaCのuncommitted diffだけはdeploy対象として許可する。task開始前から存在したIaC diffまたはDeployment scope外のdiffは許可しない。engine切替、state/backend不明、designとの不一致、required input missingは停止する。
+Only target IaC uncommitted diffs generated from Design scope in this task are permitted for deploy. IaC diffs predating task start or diffs outside Deployment scope are not permitted. Stop for engine switching, unknown state/backends, design mismatches, or required input missing.
 
 ### CloudFormation read-only dependency check
 
-IaC変更判断にlive AWS stateが必要なcross-stack参照だけ、既存`check-deploy-context.py`の`--read-only`でidentity／account／region／profileを確認してから必要な`describe-stacks`／`list-exports`を実行できる。引数は下記Terraform例と同じtarget selectorへ`--read-only`を加える。この例外は実装判断のread-only確認であり、通常のCloudFormation updateでは実行しない。mutation許可やcontroller final preflightの代替にはしない。不一致・認証失敗では停止し、別profileへfallbackしない。
+Only for cross-stack references requiring live AWS state to decide IaC changes, existing `check-deploy-context.py` with `--read-only` may confirm identity/account/region/profile before necessary `describe-stacks` / `list-exports`. Add `--read-only` to the same target selector as Terraform examples below. This exception is read-only confirmation for implementation decisions; do not run it in ordinary CloudFormation update. It neither authorizes mutation nor replaces controller final preflight. Stop on mismatch/authentication failure; do not fall back to another profile.
 
-producer Outputsと同じaccount・regionの実Export名・値・ExportingStackIdを照合する。既存exportがあればconsumer templateの参照と文字列中の該当箇所を`!ImportValue`へ変更し、static validationからcontrollerへ進む。exportがなければproducer templateに必要なOutput/Exportだけを追加し、static validationとcontrollerでproducer deploy、terminal successと実Export確認を先に行う。その後に初めて未着手NOT_STARTEDのconsumer templateを`!ImportValue`へ変更し、`--pause-after-group`で停止した同じcontroller sessionをresumeする。両stackがDeployment scopeに含まれない場合はscopeを推測で広げず停止する。
+Match actual Export names, values, and ExportingStackId in the same account/region against producer Outputs. If exports exist, change consumer template references and corresponding string portions to `!ImportValue` and proceed from static validation to controller. If no exports exist, add only necessary Output/Export to producer templates and first perform static validation, controller producer deploy, terminal success, and actual Export confirmation. Only afterward change NOT_STARTED consumer templates to `!ImportValue` and resume the same controller session stopped with `--pause-after-group`. If both stacks are not in Deployment scope, stop without expanding scope by guessing.
 
 ### CloudFormation controller
 
-最終preflight責任者は`cloudformation-deploy.py`とする。controllerが既存`check-deploy-context.py` helperでAWS identity、project target、profile、account、region、engine、必要commandを確認し、task scope、issue gate、immutable inputを強制する。同じ最終deploy-context checkをAgentからstandaloneで先に実行しない。明示account／regionはprojectの同targetと照合し、明示profileはcontrollerの`--profile`へ渡す。不一致・credential/permission不足では停止する。cfn-lintと同じPython環境からcontrollerを起動する。
+`cloudformation-deploy.py` is responsible for final preflight. The controller uses existing `check-deploy-context.py` helpers to confirm AWS identity, project targets, profiles, accounts, regions, engines, and necessary commands, enforcing task scope, issue gates, and immutable inputs. The Agent must not first run the same final deploy-context check standalone. Match explicit account/region against the same project target and pass explicit profiles to controller `--profile`. Stop for mismatches or missing credentials/permissions. Launch the controller from the same Python environment as cfn-lint.
 
 ```console
 python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]
 # aliasなしでは --alias の代わりに --aws-account-id <aws-account-id>
 ```
 
-通常は一回のcontroller起動で全DeployOrderを完了する。controllerは全scopeのcfn-lint、input hash、StackNameごとの現存・parameter・resource ownership、ImportValueの実Export確認、validate-template、change set作成・分類・再確認・実行・terminal確認を担当する。change set作成・実行をcontroller外へ分散しない。宣言済みS3成果物配置とtemplateサイズ別送信、group barrier、MaxConcurrentStacks queue、session validation再利用、immutable guard、failure stopとRUNNING stackのdrainは`cloudformation.md`の既存契約を維持する。producer成功前にconsumer change setを作らず、設計外stackを採用・変更・削除しない。
+Normally one controller launch completes all DeployOrders. The controller owns whole-scope cfn-lint, input hashes, per-StackName existence/parameters/resource ownership, actual Export confirmation for ImportValue, validate-template, change set creation/classification/reconfirmation/execution, and terminal confirmation. Do not distribute change set creation/execution outside the controller. Retain existing `cloudformation.md` contracts for declared S3 artifact placement, template-size-based delivery, group barriers, MaxConcurrentStacks queues, session validation reuse, immutable guards, failure stops, and draining RUNNING stacks. Do not create consumer change sets before producer success or adopt/change/delete stacks outside design.
 
-通常成功ではcontroller内でobserved更新とservice指定のsync-modelを完了してから次groupへ進み、最終groupも同期してCOMPLETEとなる。明示producer/consumer IaC変更用途だけ`--pause-after-group`を使い、同期後のGROUP_COMPLETEから同じsessionを`--resume`する。準備済み・実行済みunitのIaC変更を拒否し、成功済みstackを再実行しない。scope超過、account/region不一致、validationまたはdeployment failureでは新規unitを起動せず、RUNNING stackの終状態を確認して停止する。成功済みstackを自動rollback/delete/redeployしない。
+On ordinary success, complete observed updates and service-scoped sync-model inside the controller before proceeding to the next group; synchronize the final group too before COMPLETE. Use `--pause-after-group` only for explicit producer/consumer IaC changes; `--resume` the same session from GROUP_COMPLETE after synchronization. Reject IaC changes to prepared/executed units; do not rerun successful stacks. For scope excess, account/region mismatch, validation failure, or deployment failure, do not start new units; confirm RUNNING stack terminal states and stop. Do not automatically rollback/delete/redeploy successful stacks.
 
 ### Terraform preflight and apply
 
-credential、deploy先account、AWS region、IaC engine、必要commandをLLMの推論で判定せず、repository rootから次を実行する。追加inputがなければ`--profile`を省略してよい。scriptはtargetの`awsProfile`を自動使用する。
+Do not decide credentials, deploy accounts, AWS regions, IaC engines, or necessary commands by LLM inference; run the following from repository root. `--profile` may be omitted without additional input. The script automatically uses target `awsProfile`.
 
-aliasがあるtargetでは次を実行する。
+Run the following for aliased targets.
 
 ```text
 python framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>]
 ```
 
-aliasがないtargetでは次を実行する。
+Run the following for targets without aliases.
 
 ```text
 python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
-scriptが終了code 0を返した場合だけ、出力されたprofile（設定時）をすべての後続AWS実行で使用して続行する。CLI／SDKにはprofileを明示し、Terraformのprovider／AWS backendには`terraform.md`に従いprocess単位で同じ`AWS_PROFILE`を渡す。失敗時はcredential切替、account変更、check bypassを行わず停止する。secretやcredential値を表示または保存しない。
+Continue only if the script returns exit code 0, using the output profile (when configured) for all subsequent AWS execution. Specify profiles explicitly for CLI/SDK; pass the same `AWS_PROFILE` per process for Terraform providers/AWS backends according to `terraform.md`. On failure, stop without switching credentials, changing accounts, or bypassing checks. Do not display/save secrets or credential values.
 
-preflight成功後、同じroot／workspace／backendのstateと既存resourceをread-onlyで照合する。`terraform fmt -check`、`terraform validate`、`terraform plan -out=<repository外の一時path>`を実行し、scope、add、change、destroy、replacementとsensitive outputを確認する。事前承認済みまたは下記でhumanが承認した同じ保存済みplan binaryだけを`terraform apply`する。plan failure、wrong workspace/account/region、sensitive output、不足・不一致では停止する。apply failureはpartial applyの可能性があるため、stateとAWS実体をread-onlyで確認して停止する。state／plan binaryをcommitしない。
+After preflight success, match state and existing resources in the same root/workspace/backend read-only. Run `terraform fmt -check`, `terraform validate`, and `terraform plan -out=<repository外の一時path>`; confirm scope, add, change, destroy, replacement, and sensitive output. `terraform apply` only the same saved plan binary preapproved or approved by the human below. Stop for plan failure, wrong workspace/account/region, sensitive output, or missing/mismatched inputs. Apply failure may mean partial apply; check state and actual AWS resources read-only and stop. Do not commit state/plan binaries.
 
 ## Confirm unapproved delete/replacement
 
-未承認delete/replacementだけはfailureまたはtask完了とせず、change set／planを未実行のままhuman確認待ちにする。engine ruleのDelete and replacement confirmation／Validation and executionを適用し、この場合だけ`04_deploy.md`の`Confirm unapproved delete/replacement` sectionを参照する。対象、action、理由、データ・access・availability等への判明した影響、未確認事項、成功済み／実行中／未実行unitの現在状態を説明し、同じchange set／保存済みplanの全破壊変更を承認するか確認する。一部だけの承認では実行しない。全deploymentを一律停止するreviewは追加しない。
+For unapproved delete/replacement only, do not treat as failure/task completion; leave change sets/plans unexecuted and wait for human confirmation. Apply engine rule Delete and replacement confirmation/Validation and execution; only in this case consult `04_deploy.md`'s `Confirm unapproved delete/replacement` section. Explain targets, actions, reasons, known impacts on data/access/availability, unconfirmed matters, and current states of successful/running/unexecuted units; ask whether to approve all destructive changes in the same change set/saved plan. Do not execute with only partial approval. Do not add review uniformly stopping all deployment.
 
-承認後は同じtaskのAuthorized delete/replacementへ対象resource、action、理由を記載する。CloudFormationは同じsessionへ`--resume --approve-change-set <保存されたchange-set-id>`を渡し、controllerの同一ID、CREATE_COMPLETE/AVAILABLE、変更fingerprint再確認を維持する。Terraformは同じplanのresource address/type/actionを再確認する。失効・再作成・変更されたchange set／planへ以前の承認を流用しない。action不明は停止する。承認されない場合は実行せず、resource保持・管理外化のためのIaC/design変更をこの確認工程に混ぜない。
+After approval, record target resources, actions, and reasons in the same task's Authorized delete/replacement. For CloudFormation, pass `--resume --approve-change-set <保存されたchange-set-id>` to the same session; retain controller checks of the same ID, CREATE_COMPLETE/AVAILABLE, and change fingerprints. For Terraform, reconfirm the same plan's resource addresses/types/actions. Do not reuse prior approval for expired/recreated/changed change sets/plans. Stop if actions are unknown. Without approval, do not execute or mix IaC/design changes for resource retention/releasing management into this confirmation step.
 
 ## Post-deployment model sync
 
 ### CloudFormation
 
-observed収集・model更新・generated artifact同期はcontroller所有とする。`cloudformation_observed.py`が実templateのLogicalId、正式型、catalog IDENTIFIER_OUTPUT、Outputs／PhysicalResourceIdを照合し、必要なnon-ARN identifierと全参照元のobserved rowを更新してservice指定のsync-model生成・検証を行う。COMPLETEと同期結果を確認し、Agentは同じAWS値取得や`sync-model.py --write`を再実行しない。曖昧な対応はAMBIGUOUS_OBSERVED_MAPPINGで停止し、LLMが補完しない。同期失敗では完了扱いにせず、blocker解消後も同じcontroller sessionで再試行する。
+Observed collection, model updates, and generated artifact synchronization are owned by the controller. `cloudformation_observed.py` matches actual template LogicalIds, formal types, catalog IDENTIFIER_OUTPUT, and Outputs/PhysicalResourceId; updates necessary non-ARN identifiers and observed rows of all references, then runs service-scoped sync-model generation/validation. Confirm COMPLETE and synchronization results; the Agent must not rerun the same AWS value retrieval or `sync-model.py --write`. Stop for ambiguous mappings with AMBIGUOUS_OBSERVED_MAPPING; the LLM must not supplement them. Synchronization failure is not completion; retry in the same controller session after resolving blockers.
 
 ### Terraform
 
-applyが成功した場合はAgentが既存post-apply手順を行う。
+After apply succeeds, the Agent performs existing post-apply procedures.
 
-1. terminal successとresource存在を確認し、必要なnon-sensitive identifierをTerraform outputから取得する。対象outputがない場合だけstateのresource attributeをread-only参照し、両方がある場合は一致を確認する。
-2. `observed-values.md`に従いcatalogの正式なIDENTIFIER_OUTPUTへ一意に対応付け、identifier output rowと全参照元のobserved valueを先に更新する。replacement後は新しいID、destroy後はPENDING_DEPLOYを反映する。humanが変更したintended design、link先path／anchor、Source / Commentを変更しない。必要output不足・曖昧な対応・参照不一致は推測せず停止し、generated ARN／secretを保存しない。
-3. 上記のservice指定付き`sync-model.py --write`を、observed valueを更新したserviceだけに実行する。
+1. Confirm terminal success and resource existence; obtain necessary non-sensitive identifiers from Terraform output. Read state resource attributes read-only only when target outputs are absent; confirm equality if both exist.
+2. Under `observed-values.md`, uniquely map to formal catalog IDENTIFIER_OUTPUT and first update identifier output rows and observed values of all references. Reflect new IDs after replacement and PENDING_DEPLOY after destroy. Do not change human-edited intended design, link target paths/anchors, or Source / Comment. Stop without guessing for missing necessary outputs, ambiguous mappings, or reference mismatches; do not save generated ARNs/secrets.
+3. Run the above service-scoped `sync-model.py --write` only for services with updated observed values.
 
-deploy完了status、resource存在、observed value収集をapplication behaviorの検証またはscenario PASSとして扱わない。
+Do not treat deploy completion status, resource existence, or observed value collection as application behavior validation or scenario PASS.
 
 ## Verify and finish
 
-1. task開始時のhuman design diffと比較し、generated current value以外のintended designをCodexが変更していないことを確認する。
-2. 選択済みIaCのsyntax/static validation結果を確認する。成功後に対象IaC・parameter・依存入力が変わっていなければ再実行しない。deploy phaseの必須validation・AWS安全確認は維持する。
-3. `python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md`を一回実行する。Validation scope、task固有check、Acceptance checks、差分checkと、read-onlyの`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致を維持し、不一致ならFAILとする。既存validation cache／service parallelismを使用し、Agentの初期読込削減を理由に検証を省略・弱体化しない。framework regressionの実行条件は`loop-engineering.md`の既存ポリシーを維持し、通常Updateにframework全回帰を追加しない。
+1. Compare against human design diffs at task start and confirm Codex has not changed intended design other than generated current values.
+2. Confirm selected IaC syntax/static validation results. Do not rerun if target IaC, parameters, and dependency inputs remain unchanged after success. Retain mandatory deploy-phase validation and AWS safety checks.
+3. Run `python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md` once. Retain Validation scope, task-specific checks, Acceptance checks, diff checks, and properties/generated Markdown/JSON equality via read-only `sync-model.py`; mismatches are FAIL. Use existing validation cache/service parallelism; do not omit/weaken validation due to reduced Agent initial reading. Retain existing `loop-engineering.md` framework regression execution conditions; do not add all framework regression to ordinary Update.
 
-成功した対象検証の後に追加の全体検証を行わない。生成・検証の再実行は入力変更、新しい失敗、未解決の懸念がある場合だけとし、tool待機timeoutでは同じ実行を追跡する。
+Do not add overall validation after successful scoped validation. Rerun generation/validation only for input changes, new failures, or unresolved concerns; track the same execution on tool wait timeout.
 
-target、Design scope、表示生成、IaC変更、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
+State targets, Design scope, display generation, IaC changes, deployment units/dependency order, plan/change set summaries, human confirmation waits/approval results, deploy completion status, observed value updates, and blockers in completion reports. Do not save verification output in the repository.
 
-scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証が必要な場合は、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。
+Do not change, create, or execute scenarios, scenario results, other targets, or next tasks. If application behavior validation is needed, the human uses `framework/prompts/codex/06_scenario-test.md` as a separate task.

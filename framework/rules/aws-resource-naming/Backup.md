@@ -1,6 +1,6 @@
 # Backup Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -11,4 +11,4 @@
 
 ## Service-specific constraints
 
-- AWS Backup vaultとconsoleで作成するbackup planは50文字以内とする。
+- AWS Backup vaults and backup plans created in the console must be at most 50 characters.

@@ -1,18 +1,18 @@
 # Repository Initialization Prompt
 
-契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
+Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
-このpromptは、Codexが初期化に必要な確定値をhumanへ確認し、`project.json`とtarget pathを作成するために使用する。`docs/system-overview.md`の作成・記入状態を前提にしない。
+Use this prompt for Codex to confirm necessary initialization values with the human and create `project.json` and target paths. Do not assume `docs/system-overview.md` has been created or filled in.
 
-humanへJSONの作成・編集を依頼してはいけない。質問、回答、正規化、file作成はこのinitialization task内で完結させる。
+Do not ask the human to create/edit JSON. Complete questions, answers, normalization, and file creation within this initialization task.
 
 ## Unresolved issue gate
 
-対象serviceの開始・再開・mutation前の停止判定と例外は[issue-gate](../../rules/issue-gate.md)を適用する。
+Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
 
 ## First response
 
-prompt実行後の最初の応答ではfileを変更せず、Project nameだけを質問する。
+In the first response after prompt execution, ask only Project name without changing files.
 
 ```text
 repository初期化を始めます。
@@ -25,89 +25,89 @@ Project nameを入力してください。
 
 1. `AGENTS.md`
 2. [task-contract](../../rules/task-contract.md)
-3. 既存の`project.json`（存在する場合）
+3. Existing `project.json` (if present)
 4. [project-configuration](../../rules/project-configuration.md)
 5. [issue-gate](../../rules/issue-gate.md)
-6. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)と[Other task completion](../../rules/loop-engineering.md#other-task-completion)
+6. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope), and [Other task completion](../../rules/loop-engineering.md#other-task-completion)
 
-指定sectionの読取範囲と条件付き規則はAGENTS.mdの「必要な規則の読み方」に従う。
+Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 
-framework変更時は[Framework regression](../../rules/loop-engineering.md#framework-regression)、検証の再利用時は[Validation cache](../../rules/loop-engineering.md#validation-cache)、停止・長時間実行時はloopの該当診断sectionを追加する。README全文と非該当sectionを追加読込せず、schema／参照／account／issue／task固有checkは維持する。
+Add [Framework regression](../../rules/loop-engineering.md#framework-regression) for framework changes, [Validation cache](../../rules/loop-engineering.md#validation-cache) for validation reuse, and applicable loop diagnostic sections for stops/long execution. Do not additionally read full README or inapplicable sections; retain schema/reference/account/issue/task-specific checks.
 
 ## Stop before reinitialization
 
-`project.json`が既に存在する場合はinitialization済みとして扱う。fileや既存pathを変更せず、target追加には`framework/prompts/codex/02_add-target.md`のmigration taskが必要であることを報告して停止する。
+If `project.json` already exists, treat the repository as initialized. Stop without changing files or existing paths and report that target addition requires a migration task using `framework/prompts/codex/02_add-target.md`.
 
 ## Collect required values
 
-次の順序で、一回の応答につき一つだけ質問する。複数の質問、質問一覧、入力tableを一度に提示しない。
+Ask only one question per response in the following order. Do not present multiple questions, question lists, or input tables at once.
 
 1. Project name
-2. Environment IDを一つ確認し、別のenvironmentを追加するか確認する。追加がなくなるまで繰り返す
-3. 各environmentについて論理配置先が一件か複数かを確認する。複数の場合だけaliasを一つずつ確認し、追加がなくなるまで繰り返す
-4. 各targetについてresource作成時のID設定・名称とtarget identityに使うAWS account ID（`awsAccountId`）を一つずつ確認する。同じAWS account IDを異なるaliasへ設定してよい
-5. 各targetについてAWS regionを一つずつ確認する
-6. 各targetについてIaC engineを一つずつ確認する
-7. 各targetについてAWS profileを任意項目として一つずつ確認する。不要なら省略でき、未設定でも初期化を進める
-8. 各targetについてAWS実行account ID（`awsExecutionAccountId`）を任意項目として一つずつ確認する。省略時は`awsAccountId`で認証照合する
-9. 各targetについて命名suffixを任意項目として一つずつ確認する。不要なtargetは省略し、指定する場合は確定済みnon-empty lower-kebab-case文字列を採用する
+2. Confirm one Environment ID and ask whether to add another environment. Repeat until no additions remain
+3. For each environment, confirm whether it has one or multiple logical destinations. Only for multiple destinations, confirm aliases one at a time, repeating until no additions remain
+4. Confirm each target's AWS account ID (`awsAccountId`) one at a time, for resource creation ID settings/names and target identity. The same AWS account ID may be assigned to different aliases
+5. Confirm AWS region for each target one at a time
+6. Confirm IaC engine for each target one at a time
+7. Confirm optional AWS profiles for each target one at a time. They may be omitted if unnecessary; continue initialization even when unset
+8. Confirm optional AWS execution account IDs (`awsExecutionAccountId`) for each target one at a time. When omitted, authenticate against `awsAccountId`
+9. Confirm optional naming suffixes for each target one at a time. Omit for targets not needing them; when specified, use confirmed non-empty lower-kebab-case strings
 
-Environment IDとaliasはlower-kebab-case、AWS account IDは12桁、IaC engineは`cloudformation`または`terraform`と説明する。aliasはhumanが入力した値だけを使用し、`cde`、`non-cde`などの固定候補を持たない。
+Explain that Environment IDs and aliases use lower-kebab-case, AWS account IDs are 12 digits, and IaC engine is `cloudformation` or `terraform`. Use only aliases entered by the human; do not have fixed candidates such as `cde` or `non-cde`.
 
-- 現時点でEnvironment ID、AWS account ID、AWS region、IaC engineがすべて確定しているtargetだけを収集する。
-- 未作成または必要値が未確定のtargetは今回の初期化対象から除外し、placeholderや`UNSET`を記録しない。確定後に`framework/prompts/codex/02_add-target.md`で追加できることを説明する。
-- 回答を受けるたびに形式と既存回答との矛盾を確認してから次へ進む。
-- 不正または不明な回答は理由を短く説明し、同じ項目だけを再質問する。
-- humanが自発的に複数の確定値を回答した場合は採用し、次の未解決項目を一つだけ質問する。
-- humanが修正を求めた場合は該当値を更新し、依存する未解決項目へ戻る。
-- 一つのenvironmentにtargetが一件だけならoptional `alias`を省略する。複数targetがある場合は全targetでaliasを必須とし、aliasあり／なしを混在させない。
-- aliasは同じenvironment内で一意とし、12桁の数字だけの値を禁止する。
-- 同じenvironment/AWS account IDを持つ複数aliasではIaC engineを統一する。
-- 質問票、回答履歴、session state fileを作成せず、進行中の回答はconversation contextだけで保持する。
-- 値を推測しない。
+- Collect only targets whose Environment ID, AWS account ID, AWS region, and IaC engine are all currently confirmed.
+- Exclude not-yet-created targets or targets with unconfirmed required values from this initialization; do not record placeholders or `UNSET`. Explain they may be added after confirmation with `framework/prompts/codex/02_add-target.md`.
+- On each answer, check format and contradictions with previous answers before proceeding.
+- For invalid/unclear answers, briefly explain the reason and ask only the same item again.
+- If the human volunteers multiple confirmed values, accept them and ask only the next unresolved item.
+- If the human requests corrections, update the corresponding values and return to dependent unresolved items.
+- Omit optional `alias` when an environment has only one target. With multiple targets, aliases are mandatory for all; do not mix aliased/non-aliased targets.
+- Aliases must be unique within the same environment; values consisting only of 12 digits are prohibited.
+- Keep IaC engines consistent across multiple aliases with the same environment/AWS account ID.
+- Do not create questionnaires, answer histories, or session state files; retain ongoing answers only in conversation context.
+- Do not infer values.
 
-すべての値が揃ったら、projectと全targetを一覧で提示し、repositoryを初期化してよいか一つだけ確認する。humanが明示的に承認するまでfileを変更しない。
+Once all values are available, list the project and all targets and ask only one confirmation whether to initialize the repository. Do not change files until the human explicitly approves.
 
 ## Validate answers
 
-file変更前に次を確認する。
+Before file changes, confirm the following.
 
-- Project nameが空でない
-- 任意のtarget suffixはnon-empty lower-kebab-case文字列。一部targetのみの設定を許可し、未確定値を保存しない
-- targetが1件以上ある
-- Environment IDがlower-kebab-case
-- AWS account IDが12桁
-- 任意のAWS実行account IDはASCII数字12桁の文字列。同じenvironment/実行accountのtarget間でもIaC engineを統一する。認証の自動切替は行わず、AWS接続はこのtaskで行わない
-- AWS regionが空でない
-- IaC engineが`cloudformation`または`terraform`
-- 一件だけのenvironmentではaliasがなく、複数targetのenvironmentでは全targetに一意で有効なaliasがある
-- target directoryとなる`alias`または`awsAccountId`が同じenvironment内で重複していない
-- 同じenvironment/AWS account IDのtargetは同じIaC engineを使用する
-- 任意のAWS profileを指定した場合は、前後の空白、改行、NUL、`UNSET`を含まない空でない文字列。profileの存在確認やAWS接続はこのtaskでは行わない
+- Project name is non-empty
+- Optional target suffixes are non-empty lower-kebab-case strings. Configuration for only some targets is permitted; do not save unconfirmed values
+- At least 1 target exists
+- Environment IDs are lower-kebab-case
+- AWS account IDs are 12 digits
+- Optional AWS execution account IDs are strings of 12 ASCII digits. Keep IaC engines consistent also across targets with the same environment/execution account. Do not automatically switch authentication or connect to AWS in this task
+- AWS regions are non-empty
+- IaC engine is `cloudformation` or `terraform`
+- Environments with one target have no alias; all targets in environments with multiple targets have unique valid aliases
+- Target-directory `alias` or `awsAccountId` is not duplicated within the same environment
+- Targets with the same environment/AWS account ID use the same IaC engine
+- Optional AWS profiles, if specified, are non-empty strings without leading/trailing whitespace, newlines, NUL, or `UNSET`. Do not verify profile existence or connect to AWS in this task
 
-不足または不正な値が残る場合は変更せず停止する。
+If missing/invalid values remain, stop without changes.
 
 ## Create active task contract
 
-最初のrepository changeとして、`tasks/<task-name>.md`を次の条件で新規登録する。
+As the first repository change, newly register `tasks/<task-name>.md` under the following conditions.
 
 ```md
 - Task type: `initialization`
 ```
 
-- goalは確認済みproject topologyとtarget pathの初期化だけとする
-- AWS mutation、AWS API、deploy、applyは禁止する
-- `Required changes`は一意なRequirement ID付きで、`project.json`作成、target path作成、IaC engine選択を分けて記載する
-- `Acceptance checks`は各Requirement IDへ`changed:project.json`、作成対象pathの`exists:`、未選択IaC rootの`absent:`を対応付ける
-- allowed pathsは`project.json`、作成対象の`docs/designs/**`、`model/**`、選択済みIaCの初期化path、全targetで未選択のIaC engine root、`tasks/<task-name>.md`に限定する
-- resource設計、IaC implementation、AWS接続確認は対象外とする
-- `tests/scenarios/**`と`tests/results/**`を変更しない
+- Limit the goal to initialization of confirmed project topology and target paths
+- AWS mutation, AWS API, deploy, and apply are prohibited
+- In `Required changes`, separately state `project.json` creation, target path creation, and IaC engine selection with unique Requirement IDs
+- Map `Acceptance checks` to each Requirement ID using `changed:project.json`, `exists:` for paths to create, and `absent:` for unselected IaC roots
+- Limit allowed paths to `project.json`, target `docs/designs/**` and `model/**` to create, selected IaC initialization paths, IaC engine roots unselected by all targets, and `tasks/<task-name>.md`
+- Resource design, IaC implementation, and AWS connection checks are out of scope
+- Do not change `tests/scenarios/**` or `tests/results/**`
 
 ## Create project topology
 
-humanが確認した値からrepository rootに`project.json`を作成する。UTF-8、2-space indentation、final newlineを使用し、targetはenvironment、target directoryの順に並べる。target directoryはaliasがあればalias、なければAWS account IDとする。
+Create `project.json` at repository root from human-confirmed values. Use UTF-8, 2-space indentation, and a final newline; sort targets by environment, then target directory. Target directory is the alias if present, otherwise AWS account ID.
 
 ```json
 {
@@ -127,55 +127,55 @@ humanが確認した値からrepository rootに`project.json`を作成する。U
 }
 ```
 
-aliasなしのtargetでは`alias` key自体を省略する。確認済みの初期化値だけを記録し、`UNSET`、background、purpose、account role、design decisionを入れない。
-suffixを指定しないtargetでは`suffix` key自体を省略する。suffixは`framework/rules/aws-resource-naming.md`に従って`{{suffix}}`を持つpatternだけに使用する。
-AWS実行account IDを指定しないtargetでは`awsExecutionAccountId` key自体を省略する。selectorとpathは`awsAccountId`を維持する。
-AWS profileを指定しないtargetでは`awsProfile` key自体を省略する。credentialは記録しない。
+For targets without aliases, omit the `alias` key itself. Record only confirmed initialization values; do not include `UNSET`, background, purpose, account roles, or design decisions.
+For targets without suffixes, omit the `suffix` key itself. Use suffixes only in patterns containing `{{suffix}}` according to `framework/rules/aws-resource-naming.md`.
+For targets without AWS execution account IDs, omit the `awsExecutionAccountId` key itself. Retain `awsAccountId` for selectors and paths.
+For targets without AWS profiles, omit the `awsProfile` key itself. Do not record credentials.
 
 ## Create target paths
 
-各targetについて、存在しないpathだけを作成し、空directoryには`.gitkeep`を置く。
+For each target, create only absent paths and place `.gitkeep` in empty directories.
 
 ```text
 docs/designs/<environment>/<target-directory>/.gitkeep
 model/<environment>/<target-directory>/.gitkeep
 ```
 
-IaC engineが`cloudformation`の場合:
+If IaC engine is `cloudformation`:
 
 ```text
 infra/cloudformation/parameters/<environment>/<target-directory>/.gitkeep
 ```
 
-IaC engineが`terraform`の場合:
+If IaC engine is `terraform`:
 
 ```text
 infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 ```
 
-全targetの`iacEngine`を確認し、1件も選択されていないIaC engineのrootを削除する。
+Check all targets' `iacEngine` and delete roots of IaC engines selected by no targets.
 
-- CloudFormationを選択したtargetがなければ`infra/cloudformation/`を削除する。
-- Terraformを選択したtargetがなければ`infra/terraform/`を削除する。
-- 両方が選択されている場合だけ両方のrootを残す。
-- 削除対象に`.gitkeep`以外のfileがある場合は、既存implementationとして削除せず停止する。
+- If no target selects CloudFormation, delete `infra/cloudformation/`.
+- If no target selects Terraform, delete `infra/terraform/`.
+- Retain both roots only when both are selected.
+- If deletion targets contain files other than `.gitkeep`, stop without deleting them as existing implementations.
 
 ## Do not create
 
-- 空の詳細設計Markdown
-- 空のservice model properties
+- Empty detailed design Markdown
+- Empty service model properties
 - CloudFormation template
-- Terraform module、resource、provider、state設定
-- 全targetで未選択のIaC engine directory
-- questionnaire、回答履歴、session state
+- Terraform modules, resources, providers, or state settings
+- IaC engine directories unselected by all targets
+- Questionnaires, answer histories, session state
 - sample environment、sample AWS account
 - scenario、scenario result、general task evidence
 
 ## Existing repository handling
 
-- 既存のdesign、model、IaC implementationを上書きしない。
-- target pathが既に存在する場合は再利用し、`.gitkeep`のためだけに内容を変更しない。
-- 確認済みtopologyと既存target pathまたはIaC engineが矛盾する場合は停止する。
+- Do not overwrite existing designs, models, or IaC implementations.
+- Reuse existing target paths; do not change contents solely for `.gitkeep`.
+- Stop if confirmed topology contradicts existing target paths or IaC engines.
 
 ## Verify and finish
 
@@ -183,4 +183,4 @@ infra/terraform/environments/<environment>/<target-directory>/.gitkeep
 2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 
-validation結果、作成したtopology、作成path、既存のため変更しなかったpath、blockerはCodexの完了報告だけに記載する。repositoryへverification resultを保存しない。初期化完了後にdesign task、infrastructure task、scenario-test taskを作成または実行しない。
+Record validation results, created topology, created paths, existing paths left unchanged, and blockers only in Codex completion reports. Do not save verification results in the repository. After initialization, do not create or execute design, infrastructure, or scenario-test tasks.

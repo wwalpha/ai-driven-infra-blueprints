@@ -1,72 +1,72 @@
 # Loop Engineering Rules
 
-loop engineeringはmandatoryとする。「各change」はeditor saveごとではなく、active task内のcoherent logical change setごとを意味する。
+Loop engineering is mandatory. “Each change” means each coherent logical change set within the active task, not each editor save.
 
 ## Task boundary
 
-契約・変更予約・停止と再開は[task-contract](task-contract.md)を正本とする。
+[task-contract](task-contract.md) is the authority for contracts, change reservations, stopping, and resuming.
 
 ## Unresolved issue gate
 
-停止判定・調査／修復／保存限定taskの例外・再確認は[issue-gate](issue-gate.md)に従う。
+Follow [issue-gate](issue-gate.md) for stop decisions, investigation/repair/save-only task exceptions, and rechecks.
 
 ## Local loop
 
-OSに依存しないentrypointは`framework/scripts/blueprint-loop.py`とする。command例の`python`は利用可能なPython 3 launcherを意味し、WindowsでPython Launcherだけがある場合は`py -3`、Unix系OSで`python3`だけがある場合は`python3`を使用する。
+The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In command examples, `python` means an available Python 3 launcher; use `py -3` on Windows when only Python Launcher is available, or `python3` on Unix-like OSes when only `python3` is available.
 
-通常のlocal loopは`blueprint-loop.py --mode task`を使用し、実repository全体の共通checks、Validation scopeのserviceの設計/model checks、task type checks、active task Acceptance checks、必要なframework regression、unstaged/staged両方の`git diff --check`を実行する。変更がある場合はactive taskと有効なTask typeを要求し、今回の予約fileに変更がない場合はtask固有checkを実行しない。一層でも失敗した場合はFAILとする。
+Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, active task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type; do not run task-specific checks when this task's reserved files have no changes. Failure at any layer is FAIL.
 
-契約のRequirement ID／Acceptance checksは[Acceptance contract](task-contract.md#acceptance-contract)に従って毎回検証する。
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract).
 
-各coherent logical change後に次を決定的に確認する。
+After each coherent logical change, deterministically confirm the following.
 
-- 変更がある場合はactive task promptと有効なTask typeが存在する。変更のないidle状態では今回の`tasks/<task-name>.md`がなくてもよい
-- changed pathsがTask type boundaryとAllowed paths内にある
-- `tasks/`には`<task-name>.md`形式の契約だけがあり、running契約間のModified filesは`issues/`配下以外で重複しない。idle状態では`tasks/`ごと省略してよい
-- `framework/materials/aws/`が`framework/materials/catalog.sha256`と一致する
-- 東京regionのCloudFormation provider schema snapshotがlockと一致し、`framework/materials/aws/`の全property pathを解決できる
-- API設計catalog/schemaの固定snapshotとchecksum、選択リスト、CFn非対応定義が整合する。Macie Jobの型・nested値・条件付き必須と正本modelを検証し、CFn型解決で拒否する
-- `bucketDefinitions`型Macie JobのMarkdown対応表が同JobのJSON artifactのaccount・bucket・順序と一致し、欠落・重複・別Jobへの所属を拒否する。`bucketCriteria`型には固定bucket対応表を置かない
-- `framework/rules/resource-layout.json`がCFn/APIの全catalog resourceの表示方針を過不足なく保持し、統合する親・property・個数・識別方法が有効である。新規resourceの未判定を拒否する
-- grouped childの識別、親への所属、schema、参照を検証し、KMSの複数AliasとS3からのAlias参照を失わない
-- required directory/file structureが存在する
-- `project.json`とenvironment/target directory pathが一致する
-- `framework/rules/detailed-design.md`が定める最小Markdown構造、resource table、row numbering、service-based explicit anchorが有効
-- service ownership、Markdown/model service metadata、catalog resource type ownershipが一貫し、異なるAWS service resourceが混在しない
-- 禁止されたtopology/state file metadataとdesign decisions、out-of-scope、generated-values sectionが存在しない
-- resource tableの`Source / Comment`が日本語で記載されている
-- resource tableがproperties選択リスト外の設定項目を含まず、literal値が対応するCFn provider schemaまたはAPI設計schemaの型、enum、pattern、長さ、範囲に適合する
-- JSONが必要なpolicy propertyが所有service配下の有効なJSON artifactを参照し、service modelのartifact pathと一致する
-- 各serviceのpolicy anchorと所有resource、全Statement要素または全設定要素がリンク先JSONと一致し、派生表示をmodelへ重複保存していない。IAMを含む全policyでProperty、JSON、Version、Idの独立metadata行を省略する。信頼ポリシーのVersionはJSONに存在する場合だけ1列表へ表示し、JSONと照合する。元の設定rowの正式propertyとJSONリンク、JSON本文のVersion/Id、設定表内の同名key、全serviceの3列一覧を維持する。marker欠落、不正な所属、表だけの修正を拒否する。policy表示方式の登録は正式catalog propertyとprovider schemaに一致する
-- IAM inline policyのStatement内のSidが存在する場合は文字列かつ16文字以内であり、超過を自動修正していない
-- IAM Roleのtrust policyとinline policy artifactが、Role logical IDおよび明示された`PolicyName`に基づくsemantic filenameを使用する
-- `IAM.Role.RoleName`が正確に1 rowあり、確定済みnon-empty literalである。一覧のResourceName、詳細heading、anchor、参照linkはRoleNameを使用し、Name tag・表示label・role path・内部logical IDで代替しない
-- resource設定表のproperty順がmaterialsのproperties行順と一致する。未選択・非表示項目を無視し、配列要素とgrouped childの所属を維持する。design-only .Name／S3.Regionの特殊表示位置とSG横書き表示を維持し、名前・生成IDの別優先順を使わない
-- CREATEの`EC2.VPC`、`EC2.Subnet`、`EC2.RouteTable`、`EC2.FlowLog`に1 rowの`.Name`とnon-empty valueが存在し、resource heading identifierと一致する
-- CREATEの`EC2.VPCEndpoint`／`EC2.Instance`にcase-sensitiveな`Tags[].Key=Name`と直後の対応する確定済みnon-empty `Tags[].Value`が存在し、一覧・heading・通常の参照linkの表示名と一致する。設計検証・生成は共通helperで必須判定し、display labelによる代替を拒否する
-- 名称propertyのない同型単一の独立resourceは、選択済みName tagと既存labelがなければ型名だけの詳細headingと型名由来anchorを生成する。一覧見出しと詳細headingを区別し、非表示logical ID・desired/observed分離を保持する。派生型名をlabelへ保存せず、同型複数件・名称propertyの省略・CREATEの必須Name tag不足への型名表示は拒否する
-- resourceModeはCREATE／IMPORTのみ、未指定はCREATEとして検証する。IMPORTだけframework命名coverage・lower-kebab・mandatory Name policyを免除し、Name tagがなければ補完しない。区分とresource番号はmodelのanchor対応から参照し、Markdownコメントへ重複保持せずschema・catalog・参照・row構造と生成表示の一致検証を維持する
-- cross-service relative linkとexplicit anchorが解決でき、正本modelから同じreferenceが生成されている
-- `CodeBuild.Project.Name`がresourceごとに1 rowだけ存在し、確定済みnon-empty literalである。設計検証とmodel生成の共通名称検証で欠落・空値・未確定値・重複を拒否し、Name tagや表示labelで代替していない
-- CloudFormation stack詳細設計がある場合は、stack名・templateのファイル名・parameterのファイル名を検証し、generated stack modelとの一致を確認する
-- generated ARNが`model/`に存在しない
-- modelのservice入口indexと各partが600行以下であり、partの欠落・不正参照・未登録・重複keyがない。全partを同じserviceとしてscope・task境界・生成一致・observedを検証する
-- scenario/result structureとmetadataが有効
-- formatting/static checkが成功する
+- When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
+- Changed paths are within the Task type boundary and Allowed paths
+- `tasks/` contains only contracts in `<task-name>.md` format, and Modified files of running contracts do not overlap outside `issues/`. In idle state, `tasks/` itself may be omitted
+- `framework/materials/aws/` matches `framework/materials/catalog.sha256`
+- The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`
+- API design catalog/schema fixed snapshots and checksums, selection lists, and CFn-unsupported definitions are consistent. Validate Macie Job types, nested values, conditional requirements, and authoritative models, and reject them in CFn type resolution
+- Markdown mapping tables for `bucketDefinitions` Macie Jobs match account, bucket, and order in the same Job's JSON artifact; reject missing/duplicate entries or ownership by a different Job. Do not place fixed bucket mapping tables on `bucketCriteria` types
+- `framework/rules/resource-layout.json` holds display policies for all CFn/API catalog resources without omissions or extras, and integrated parents, properties, counts, and identification methods are valid. Reject undecided new resources
+- Validate grouped child identification, parent membership, schemas, and references; do not lose multiple KMS Aliases or Alias references from S3
+- Required directory/file structure exists
+- `project.json` matches environment/target directory paths
+- The minimum Markdown structure, resource tables, row numbering, and service-based explicit anchors defined by `framework/rules/detailed-design.md` are valid
+- Service ownership, Markdown/model service metadata, and catalog resource type ownership are consistent; resources from different AWS services are not mixed
+- Prohibited topology/state file metadata and design decisions, out-of-scope, and generated-values sections are absent
+- Resource table `Source / Comment` is written in Japanese
+- Resource tables contain no settings outside the properties selection list, and literals satisfy the corresponding CFn provider schema or API design schema type, enum, pattern, length, and range
+- Policy properties requiring JSON reference valid JSON artifacts under their owning service and match service model artifact paths
+- Each service's policy anchors, owning resources, and all Statement elements or all setting elements match linked JSON, without duplicate persistence of derived displays in models. Omit independent Property, JSON, Version, and Id metadata rows for all policies including IAM. Display trust policy Version in a one-column table only when it exists in JSON, and match it against JSON. Retain formal properties and JSON links in original setting rows, Version/Id in JSON bodies, same-named keys in setting tables, and three-column overviews for all services. Reject missing markers, invalid ownership, and table-only corrections. Registered policy display methods match formal catalog properties and provider schemas
+- If Sid exists in IAM inline policy Statements, it is a string of at most 16 characters; excess length has not been automatically corrected
+- IAM Role trust policy and inline policy artifacts use semantic filenames based on the Role logical ID and explicit `PolicyName`
+- Exactly 1 `IAM.Role.RoleName` row exists with a confirmed non-empty literal. Overview ResourceName, detail headings, anchors, and reference links use RoleName, not substitutes such as Name tags, display labels, role paths, or internal logical IDs
+- Property order in resource setting tables matches materials properties line order. Ignore unselected/hidden items and retain array elements and grouped child membership. Retain special display positions for design-only .Name/S3.Region and horizontal SG display; do not use a separate priority order for names/generated IDs
+- CREATE `EC2.VPC`, `EC2.Subnet`, `EC2.RouteTable`, and `EC2.FlowLog` have 1 `.Name` row with a non-empty value matching the resource heading identifier
+- CREATE `EC2.VPCEndpoint` / `EC2.Instance` have case-sensitive `Tags[].Key=Name` followed immediately by the corresponding confirmed non-empty `Tags[].Value`, matching overview/heading/ordinary reference link display names. Design validation/generation use the common helper to determine requirements and reject display label substitution
+- Single standalone resources of a type without a name property generate type-only detail headings and type-derived anchors when no selected Name tag or existing label exists. Distinguish overview headings from detail headings; retain hidden logical IDs and desired/observed separation. Do not save derived type names in labels; reject type-name display for multiple resources of the same type, omitted name properties, or missing mandatory CREATE Name tags
+- resourceMode is only CREATE/IMPORT; validate unspecified mode as CREATE. Exempt only IMPORT from framework naming coverage, lower-kebab, and mandatory Name policy; do not fill missing Name tags. Obtain classification and resource numbers from model anchor mappings, without duplicate Markdown comments; retain schema, catalog, reference, row structure, and generated display equality validation
+- Cross-service relative links and explicit anchors resolve, and the same references are generated from authoritative models
+- Each resource has exactly 1 `CodeBuild.Project.Name` row with a confirmed non-empty literal. Common name validation for design validation/model generation rejects missing, empty, unconfirmed, and duplicate values; Name tags/display labels are not substitutes
+- If CloudFormation stack detailed designs exist, validate stack names, template filenames, and parameter filenames, and confirm equality with generated stack models
+- No generated ARNs exist in `model/`
+- Model service entry indexes and each part are at most 600 lines, without missing parts, invalid references, unregistered parts, or duplicate keys. Validate scope, task boundaries, generation equality, and observed values across all parts as the same service
+- Scenario/result structure and metadata are valid
+- Formatting/static checks succeed
 
-task type固有checkはactive taskから省略できず、少なくとも次を確認する。
+Task-type-specific checks cannot be omitted from the active task; confirm at least the following.
 
-- `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
-- `design`: 対象の正本model propertiesを先に変更し、Markdown／JSON artifactがその決定的生成結果と一致
-- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更、または同sessionのcontrolled repair証跡と一致する予約済みfileだけが変更。`update` phaseではhuman-changed model properties、生成Markdown、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
-- `scenario-test`: scenarioと同じtargetのcurrent resultが変更
-- `governance`: active task以外のframework fileが変更
-- `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
-- `migration`: active task以外のrequired outputが変更
+- `initialization`: `project.json` changes, and target paths and IaC selection are valid
+- `design`: Target authoritative model properties change first, and Markdown/JSON artifacts match their deterministic generation results
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed model properties, generated Markdown, and IaC are in the same diff. Scenarios are unchanged in all phases
+- `scenario-test`: The scenario and current results for the same target change
+- `governance`: Framework files other than the active task change
+- `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change
+- `migration`: Required outputs other than the active task change
 
 ## Validation scope
 
-active taskに`## Validation scope`を置き、各entryを``- `<environment>/<target-directory>/<service-id>` ``とする。aliasがあればtarget directoryはalias、なければAWS account IDを使う。サービスはmodelのfile stem（EC2なら`ec2`）で指定する。environmentだけ、accountだけ、serviceだけの指定、未知target、欠落model/Markdownは停止する。Allowed pathsや変更fileから検証対象を推測しない。scope外の設計変更も拒否する。
+Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing model/Markdown. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
 
 ```md
 ## Validation scope
@@ -77,112 +77,112 @@ active taskに`## Validation scope`を置き、各entryを``- `<environment>/<ta
 - `stg/non-cde/ec2`
 ```
 
-`sync-model.py --write`と`--mode task`／`--mode local`／`--mode full`は同じValidation scopeを使用する。validatorからmodel照合まで対象serviceを維持し、暗黙に`--all`へ広げない。対象serviceのmodel、生成Markdown/JSON一致、catalog/schema、命名、policy、参照linkを検証する。参照先はlink解決に必要なanchor、名称、logical/current identifier情報だけを読む。参照先service全体のschema・命名・生成物検証を行わず、prodなど対象外の既存設計エラーをtask失敗理由にしない。task契約、Requirement/Acceptance、変更範囲、project topology、catalog/schema snapshotの完全性、framework構造は共通checkとして維持する。通常design taskでIaC内容やscenario/resultの全面検証を行わない。
+`sync-model.py --write` and `--mode task` / `--mode local` / `--mode full` use the same Validation scope. Retain target services from validator through model matching; do not implicitly expand to `--all`. Validate target service models, generated Markdown/JSON equality, catalog/schema, naming, policies, and reference links. Read only anchors, names, and logical/current identifier information needed to resolve reference target links. Do not validate entire reference-target services' schemas, naming, or generated artifacts or count existing out-of-scope design errors such as prod as task failures. Retain task contracts, Requirement/Acceptance, change scope, project topology, catalog/schema snapshot integrity, and framework structure as common checks. Do not fully validate IaC contents or scenarios/results in ordinary design tasks.
 
-複数targetと同一target内の複数serviceは最大4並列で検証し、全workerの終了を待ってscope順で診断を集約する。生成用の候補が揃ってからread-only照合を並列化し、targetとserviceのworker数を掛け合わせない。`--validation-jobs 1`で直列比較できる。別serviceの生成を避けるため、`sync-model.py --write`もactive taskのscopeを使用する。明示した単一target/serviceには`--environment <env> --alias <alias> --service <service-id>`（aliasなしは`--aws-account-id`）を使用できる。
+Validate multiple targets and multiple services within the same target with at most 4 parallel workers; wait for all workers and aggregate diagnostics in scope order. Parallelize read-only matching after generation candidates are ready; do not multiply target and service worker counts. `--validation-jobs 1` permits serial comparison. `sync-model.py --write` also uses active task scope to avoid generating other services. For an explicit single target/service, `--environment <env> --alias <alias> --service <service-id>` may be used (`--aws-account-id` without an alias).
 
-frameworkだけのgovernance/catalog-maintenance/migrationでは``- `framework` ``を明示できる。全serviceの実設計検証は明示した`--all`またはValidation scopeの単独``- `all` ``だけで行う。scopeが欠落している場合は`full`でも停止し、全体検証へfallbackしない。日次の全体検証は別途設定したscheduleで実行する。対象限定検証の後に「念のため」の全体検証を追加しない。
+Framework-only governance/catalog-maintenance/migration may explicitly specify ``- `framework` ``. Validate actual designs for all services only with explicit `--all` or a sole ``- `all` `` Validation scope entry. If scope is missing, stop even in `full`; do not fall back to overall validation. Daily overall validation runs on a separately configured schedule. Do not add overall validation “just in case” after scoped validation.
 
 
 ## Validation cache
 
-通常のtask/localではcatalogとserviceの成功結果だけをrepository外のOS一時directory `blueprint-validation-cache`へ保存し、内容hashが一致する場合に再利用する。`BLUEPRINT_VALIDATION_CACHE_DIR`でrepository外の保存先を指定できる。file名・file集合・SHA-256、Python/OS、framework全入力（validator/generator/rule/catalog/schemaを含む）、projectとAGENTS、対象modelの入口・part、Markdown・JSON・参照先のmodel/表示をkeyへ含める。参照先の内容は無効化判定に読み取るだけで、scope外serviceのschema検証を追加しない。mtimeだけで判定しない。
+Ordinary task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
 
-新規入力、内容変更、追加・削除file、cache欠落/破損、不明dependency、symlinkでは成功結果を再利用せず、明示scope内を再検証する。検証中の入力変更はFAILとし、そのservice結果を保存しない。task契約、Requirement/Acceptance、issue gate、変更範囲、project topology、model part構造、scope全体のresource所有権とstack重複、IaC/deploy安全確認、Git差分checkは毎回実行する。scopeを変更pathから推測したり、scope外の全体検証へfallbackしない。cacheはAWS現在値、change set、plan、account/region確認を代替しない。
+For new inputs, changed contents, added/deleted files, missing/corrupt caches, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
-`--fresh`は成功結果の再利用を無効化する。`--mode full`と`--all`もfresh検証する。実行中だけのカタログ一覧/model行/path再利用はfreshでも使用し、次の実行へ持ち越さない。再利用service数・実行service数を表示し、再利用した検証件数も成功件数へ含める。60秒を超えた検証を打ち切ってPASSにしない。
+`--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Within-run-only catalog lists/model rows/path reuse is used even in fresh runs and does not carry over to the next execution. Display reused/executed service counts and include reused validation counts in successful counts. Do not terminate validation exceeding 60 seconds and call it PASS.
 
 ## Framework regression
 
-### Windows全回帰の入力ガード
+### Windows full regression input guard
 
-- Windowsの全回帰は、明示した`full`／`--all`、framework変更による自動追加、`--affected`で選んだ結果が全件の場合のいずれでも、検証process起動前に人間のパスワード入力を要求する。対象限定検証と明示対応表で一部だけに絞った回帰は入力不要とする。staged検証ではsnapshot内のrunnerが同じガードを使用する。Windowsでは現行runner／guardをstageし、workspaceと内容が一致しない旧entrypointのdispatchを拒否する。
-- 人間がrepository rootで`python -I -B framework/scripts/regression_guard.py --install`を実行し、repo直下の`.lock`一つだけへsalt付きPBKDF2-HMAC-SHA256のhashを登録する。管理者権限、ProgramData、別helper設置、ACL設定は使用しない。既存の`.lock`は上書きしない。
-- 全回帰開始前に当該repoの`.lock`へ毎回入力を照合する。未登録、不正形式、redirect、非対話入力、不一致、入力キャンセルでは検証processを起動せずPASSにしない。passwordをチャット、引数、環境変数、ログへ渡さず、解除flag／token／認証済み状態を保存しない。エージェントは実passwordを登録・取得せず、ガードを迂回しない。
-- `.lock`はtask artifactではなくローカル設定とし、validatorのchanged task pathsからrepo直下の`.lock`だけを除外する。staged snapshotには同じ登録値を引き継ぎ、source `.lock`変更でも終了結果をstaleにする。実password/hashの登録値を完了報告やログへ表示しない。
-- 旧版のProgramData内`.lock`はrepo直下へコピーすれば同じpasswordで使用できる。修正版はProgramDataを参照せず、既存の外部fileの削除は行わない。repo fileを変更できる権限からの分離とWindows以外のガード有効化は行わない。
+- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all`, automatic addition due to framework changes, or `--affected` selections covering all checks. Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
+- The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
+- Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
+- `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
+- Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
-- 通常のdesign、implement、deploy、update、scenario/evidence、initialization、target migrationは`python framework/scripts/blueprint-loop.py --mode task`を使用する。Validation scopeを引き継ぐ`validate-blueprint.py`と、その内部のservice指定`sync-model.py`によるpropertiesとgenerated Markdown／JSONの一致、active task contract、task固有check、`git diff --check`を維持する。
-- framework script、rule、validator/generator、共通処理の変更taskは`python framework/scripts/blueprint-loop.py --mode full`を使用する。指定scopeのvalidationに加え、`framework/scripts/*.checks.py`全件を最大2並列で実行し、診断と失敗一覧を名前順に集約する。fixture、mock、固定catalog入力のframework自身のregressionだけを通常taskから分離する。
-- `task`／`local`でも、unstaged、staged、untrackedの変更pathが`framework/**`、`.agents/**`、`AGENTS.md`、`README.md`にあれば全regressionを自動追加する。scriptsだけでなくrules、materials（catalog/schema snapshot）、将来のschema/catalog directory、promptと配布skillも対象にする。削除・rename元も検出する。Gitで変更を判定できなければ停止し、regressionを省略しない。commit済み変更の再検証には明示的な`full`を使用する。
-- `--mode local`も`task`と同じ対象限定検証として有効とする。skillが`local`を指定する場合はその実行でよく、追加の`task`／`full`を要求しない。明示`--all`は全体検証＋全regression、`local`のscope `all`も従来どおり全体検証＋全regressionとする。`full`単独やframework変更によるregression追加は実設計scopeを広げない。
-- validatorが失敗してもregressionと差分checkを継続する。Python最適化によるassert無効化を防ぐ。選択したcheckの失敗・未実行はFAILとする。
-- CloudFormationの`cfn-lint`、deploy context、`aws cloudformation validate-template`、change set／change summary、delete/replacement確認、AWS account/region確認、およびTerraformのfmt/init/validate/plan/applyの既存必須手順は各phaseのrules/promptどおり維持する。loopはこれらの実IaC/deployment手順を代替せず、implementとdeployを統合しない。
+- Ordinary design, implement, deploy, update, scenario/evidence, initialization, and target migration use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
+- Tasks changing framework scripts, rules, validators/generators, or common processing use `python framework/scripts/blueprint-loop.py --mode full`. In addition to specified-scope validation, run every `framework/scripts/*.checks.py` with at most 2 parallel workers and aggregate diagnostics/failure lists in name order. Separate only framework-internal regression using fixtures, mocks, and fixed catalog inputs from ordinary tasks.
+- Even in `task` / `local`, automatically add all regression when unstaged, staged, or untracked changed paths include `framework/**`, `.agents/**`, `AGENTS.md`, or `README.md`. Include rules, materials (catalog/schema snapshots), future schema/catalog directories, prompts, and distributed skills as well as scripts. Detect deletion/rename sources too. If Git cannot determine changes, stop without omitting regression. Use explicit `full` to revalidate committed changes.
+- `--mode local` is also valid as the same scoped validation as `task`. If a skill specifies `local`, that execution suffices; do not require additional `task` / `full`. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
+- Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
+- Retain existing mandatory CloudFormation `cfn-lint`, deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
-## 競合解消と再現可能な検証
+## Conflict resolution and reproducible validation
 
-- 起動は`python -X utf8 framework/scripts/blueprint-loop.py --mode task`を推奨する。通常起動でもrunnerはUTF-8 modeで再起動し、子processへ`PYTHONUTF8=1`と`PYTHONIOENCODING=utf-8`を継承する。検証前に日本語のfile読書きと子process出力を確認し、失敗時は回帰を開始しない。text入出力ではUTF-8を明記する。
-- 競合解消後、検証したいfileと今回の`tasks/<task-name>.md`をstageしたうえで、`--staged --base <比較元commit>`を指定する。比較元はhumanの変更範囲に合うcommitを明示し、incomingも比較元との差分に含める。未解決のindex conflictは停止する。通常modeは従来どおりunstaged/staged/untrackedを検証する。
-- staged modeは比較元commit、HEAD、index treeを固定し、repository外の独立Git repositoryへ展開して、そのsnapshotにあるrunner、契約、入力を検証する。元workspaceの未stage変更やuntracked fileは含めず、元indexは書き換えない。snapshot内のHEADを比較元にすることで契約・変更path・差分checkも同じ基準を使う。終了時に元HEAD/index treeが変わっていればstaleとして非zero終了し、旧treeの結果を最新状態のPASSと扱わない。直後の編集までロックするものではない。
-- 選択検証は`--mode task --affected`（`local`も可）で明示する。通常の全回帰自動追加に対する例外とし、runner内の明示対応表だけでcheckを選ぶ。現在の限定対象は既存の回帰script自身の変更とstandalone loop runnerの変更だけとする。共通validator/generator、rule、catalog、prompt、削除・rename元など対応不明のframework変更は全回帰へfallbackする。incomingであることだけを理由に省略しない。
-- `--affected`は`full`／`--all`と併用できない。共通validation、task固有check、Acceptance checks、差分checkは省略しない。選択理由・選択check・未実行checkを表示する。framework開発taskの完了には従来どおり`--mode full`を使う。
-- 回帰fixtureは必要なframework入力とテスト内生成のproject/task/modelだけで構成し、実consumerのissues、project、model、設計、active taskをコピーしない。filesystem pathは`Path`で比較し、Markdown linkなどPOSIX表記が契約の値だけ`as_posix()`で検証する。
-- 独立した回帰scriptだけ最大2並列とし、validatorとGit差分checkは直列にする。`--jobs 1`で直列比較できる。checkごとに一時fixtureを所有し、共有workspaceへ書き込まない。失敗後も残りを実行し、中断時は実行中の子processを停止する。
+- Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
+- After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
+- Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
+- Explicitly select validation with `--mode task --affected` (`local` is also permitted). This is an exception to ordinary automatic full regression addition; select checks only using the runner's explicit mapping. Current limited targets are only changes to existing regression scripts themselves and the standalone loop runner. Fall back to full regression for framework changes with unknown mappings such as common validators/generators, rules, catalogs, prompts, or deletion/rename sources. Do not omit merely because changes are incoming.
+- `--affected` cannot be combined with `full` / `--all`. Do not omit common validation, task-specific checks, Acceptance checks, or diff checks. Display selection reasons, selected checks, and unexecuted checks. Framework development task completion continues to use `--mode full`.
+- Regression fixtures contain only necessary framework inputs and project/task/model generated within tests; do not copy actual consumer issues, projects, models, designs, or active tasks. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
+- Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
 
-## 時間計測と長時間実行
+## Timing and long-running execution
 
-- local loopは実行ごとにrepository外のOS一時directoryへ`blueprint-loop-*`directoryを作成し、絶対pathを開始時に表示する。`--log-dir <repository外のdirectory>`で保存先の親directoryを指定できる。同時・再実行時も既存ログを上書きしない。一時directoryはOSの清掃対象なので、継続保存が必要な場合はrepository外の保存先を指定する。
-- `--profile`指定時は`validate-blueprint.py`とその`sync-model.py`子process、`model_design.checks.py`と`design_catalog.checks.py`をstdlib cProfileで計測し、同じrun directoryへ`.prof`とcheck log内の累積時間上位25件を保存する。cold検証の計測には`--fresh`も指定する。fixture copy、catalog読込、生成・検証の関数別内訳を確認する。計測自体のoverheadがあるため、通常実行の時間と直接比較しない。thread worker内部の関数はcProfileの主thread計測に含まれないため、詳細比較には`--validation-jobs 1`を使う。
-- `timing.jsonl`へUTC時刻、repository、Python launcher、loop/checkのPID、開始・終了、check別・全体の経過秒数、終了code、成否を逐次記録する。所要時間にはmonotonic clockを使用し、失敗後も全checkを実行する。checkのstdout/stderrはcheck別`.log`へ直接保存し、check終了時にterminalへ表示する。
-- checkが30秒以上動いている場合は30秒ごとにcheck名・経過時間・PIDをterminalと`timing.jsonl`へ表示・保存する。これは子プロセスが未終了であることを示す稼働表示であり、処理の進捗率やCopilot sessionの延命を保証しない。
-- エージェントはlocal loopを一度だけ起動し、既存実行のログとPIDを追跡する。toolの待機・追跡timeoutだけで再起動しない。check終了までrepositoryのinputを変更せず、同じrepositoryのloopを重複起動しない。無変更・未完了の実行へfocused checkやfull loopを追加しない。
-- session切断時は同じactive taskを読み直し、開始時のログpathを確認する。`loop_end`の成否・check終了code・全checkの実行と検証中のinput不変を確認する。`loop_end`欠落は未完了であり、heartbeatがあるだけではPASSにしない。PIDは再利用されるためcommand・実行開始時刻も照合する。実プロセスが終了済みで、完了記録がない場合だけ全loopを再実行する。inputが変わった場合は以前のPASSを流用しない。
-- VS Code Copilotのコマンド追跡が長時間実行に追いつかない場合は、humanが通常のterminalから同じlocal loopを実行し、エージェントは保存済みログを確認する。設定・session error・terminal追跡の切り分けはREADMEの手順に従い、検証を省略して回避しない。
-- この時間計測ログはnon-scenario taskで明示的に許可されたローカル診断出力として扱い、`tasks/`や`tests/results/`へ保存・commitしない。
+- Each local loop run creates a `blueprint-loop-*` directory in the OS temporary directory outside the repository and displays its absolute path at start. `--log-dir <repository外のdirectory>` may specify the destination parent. Do not overwrite existing logs on concurrent runs/reruns. OS cleanup applies to temporary directories; specify a destination outside the repository when continued retention is needed.
+- With `--profile`, measure `validate-blueprint.py` and its `sync-model.py` child, `model_design.checks.py`, and `design_catalog.checks.py` using stdlib cProfile; save `.prof` and the top 25 cumulative-time entries in check logs in the same run directory. Also specify `--fresh` for cold validation measurement. Examine per-function breakdowns for fixture copying, catalog reading, generation, and validation. Measurement overhead prevents direct comparison with ordinary execution time. Since thread worker internals are absent from main-thread cProfile measurement, use `--validation-jobs 1` for detailed comparisons.
+- Incrementally record UTC time, repository, Python launcher, loop/check PIDs, start/end, per-check/overall elapsed seconds, exit codes, and success/failure in `timing.jsonl`. Use monotonic clocks for durations; run all checks after failure. Save check stdout/stderr directly in per-check `.log` and display it in the terminal when the check finishes.
+- If a check runs for 30 seconds or longer, display/save its name, elapsed time, and PID in the terminal and `timing.jsonl` every 30 seconds. This is a liveness indication that the child process has not exited, not a progress percentage or guarantee of extending the Copilot session.
+- Agents start the local loop only once and track existing run logs/PIDs. Do not restart merely because tool waiting/tracking times out. Do not change repository inputs until checks finish or launch duplicate loops for the same repository. Do not add focused checks/full loops to unchanged unfinished runs.
+- On session disconnection, reread the same active task and confirm the log path shown at start. Confirm `loop_end` success/failure, check exit codes, execution of all checks, and unchanged inputs during validation. Missing `loop_end` means incomplete; heartbeats alone are not PASS. Because PIDs may be reused, also match commands and process start times. Rerun the entire loop only if actual processes have exited without completion records. Do not reuse previous PASS if inputs changed.
+- If VS Code Copilot command tracking cannot keep up with long execution, the human runs the same local loop in an ordinary terminal and the agent checks saved logs. Follow README procedures to distinguish settings, session errors, and terminal tracking; do not bypass by omitting validation.
+- These timing logs are explicitly permitted local diagnostic output for non-scenario tasks; do not save/commit them under `tasks/` or `tests/results/`.
 
 ## Design task completion
 
-設計質問前・再開時・対象変更時・design契約登録前・保存前に、`aws-resource-naming.md`の開始gateとして`check-design-naming.py`を対象全件で実行する。未登録rule、空pattern、読込失敗、未実行・失敗ではdesignを開始・継続せず、model更新前に不足resource type／propertyを示して停止する。CREATE／IMPORTと明示除外の適用範囲は共通命名ルールに従う。
+Before design questions, on resume, target changes, before design contract registration, and before saving, run `check-design-naming.py` for all targets as the start gate in `aws-resource-naming.md`. Do not start/continue design for unregistered rules, empty patterns, read failures, or unexecuted/failed checks; identify missing resource types/properties and stop before model updates. Follow common naming rules for CREATE/IMPORT and explicit exclusion scope.
 
-1. active promptで指定された`model/**`の正本propertiesを更新する。既存resource取得が指定された場合だけ、repository変更前にread-only AWS contextを検証し、humanが選択したresourceの選択済みpropertyを現在値へ直接差分反映する。
-2. 既存resource取得では必要な非ARN current identifierだけをmodelのobserved rowへ反映する。secret、generated ARN、resource出自を保存しない。
-3. 確定済み設計値を対応する`model/**`へ先に保存する。`framework/scripts/sync-model.py --write`はservice単位に正本propertiesのschema/catalog必須root propertyを生成前に検証し、不足serviceのMarkdown／JSON artifactとpolicy表は一時fileも生成しない。propertiesは入力として保持し、不足するresource／propertyを報告する。必須項目が揃ったserviceだけ一時生成・検証し、成功したserviceを同じcoherent changeへ保存する。`bucketDefinitions`型Macie Jobの対応表もmodelのdocumentから生成する。失敗serviceの保存済みMarkdown／JSONを維持し、他serviceの処理を続ける。失敗が残る場合は完了扱いにせず、正本propertiesから修正・再実行する。
-4. local loopを実行する。
-5. IaC、AWS mutation、scenario、resultを変更せずtaskを終了する。
+1. Update authoritative properties in `model/**` specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
+2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in model observed rows. Do not save secrets, generated ARNs, or resource provenance.
+3. Save confirmed design values in the corresponding `model/**` first. Before generation, `framework/scripts/sync-model.py --write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
+4. Run the local loop.
+5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 
 ## Infrastructure task completion
 
-infrastructure taskのTask contractには`Infrastructure phase`を正確に1件記載し、`implement`、`deploy`、`update`のいずれかだけを許可する。
+Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`; only `implement`, `deploy`, or `update` are permitted.
 
 `implement` phase:
 
-1. 承認済みdesignとservice modelをinputとして、active promptで指定されたIaCだけを作成または変更する。
-2. CloudFormationはtarget region指定の`cfn-lint`、Terraformは`terraform fmt -check`、`terraform init -backend=false`、`terraform validate`でlocal static validationする。
-3. AWS API、CloudFormation change set、Terraform plan、deploy/apply、observed value更新を行わない。
-4. local loopを実行して終了する。
+1. Using approved design and service models as input, create/change only IaC specified by the active prompt.
+2. Perform local static validation with target-region `cfn-lint` for CloudFormation, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
+3. Do not execute AWS APIs, CloudFormation change sets, Terraform plans, deploy/apply, or observed value updates.
+4. Run the local loop and finish.
 
 `deploy` phase:
 
-1. 作成・検証済みIaCでdeterministic preflightを実行する。failureは[Controlled deploy repair](cloudformation.md#controlled-deploy-repair)で分類し、AUTO_REPAIRABLEだけaffected unitを最小修復・再検証する。
-2. CloudFormationは`cfn-lint`、`aws cloudformation validate-template`、change set、Terraformはvalidationと保存済みplanでscopeを確認する。
-3. 未承認のdelete/replacementがなければactive promptが許可した対象だけをdeploy/applyする。未承認のdelete/replacementがあれば、対象、理由、影響、現在の実行状態を説明してhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで再開する。
-4. 成功したAWS mutationがある場合だけmodelのobserved valueを更新し、Markdownを再生成する。
-5. local loopを実行し、scenario testへ進まず終了する。
+1. Run deterministic preflight with created/validated IaC. Classify failures under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair); minimally repair/revalidate affected units only for AUTO_REPAIRABLE.
+2. Confirm scope with `cfn-lint`, `aws cloudformation validate-template`, and change sets for CloudFormation; validation and saved plans for Terraform.
+3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
+4. Update model observed values and regenerate Markdown only when successful AWS mutation exists.
+5. Run the local loop and finish without proceeding to scenario tests.
 
 `update` phase:
 
-1. humanがtask開始前に手動修正した未commitのmodel propertiesだけをimmutable intended-design inputとして確定する。
-2. propertiesからMarkdownを生成し、対象IaCを作成・変更してlocal static validationする。
-3. deterministic preflight、change setまたはplanのscope確認を行う。未承認のdelete/replacementは説明付きhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで許可されたdeploy/applyを再開する。
-4. 成功したAWS mutation後だけmodelのobserved valueを更新し、Markdownを再生成する。
-5. humanのintended-design diffをCodexが変更していないことを確認し、local loop後にscenario testへ進まず終了する。
+1. Confirm only uncommitted model properties manually edited by the human before task start as immutable intended-design input.
+2. Generate Markdown from properties, create/change target IaC, and perform local static validation.
+3. Run deterministic preflight and confirm change set/plan scope. For unapproved delete/replacement, wait for human confirmation with an explanation; after approval, resume authorized deploy/apply in the same task with the same change set or saved plan.
+4. Update model observed values and regenerate Markdown only after successful AWS mutation.
+5. Confirm Codex has not changed the human's intended-design diff; after the local loop, finish without proceeding to scenario tests.
 
 ## Scenario-test task completion
 
-1. active promptで指定されたscenario definitionとtest implementationを作成または更新する。
-2. 指定されたenvironment/target directoryに対応するAWS accountに対してtestを実行する。
-3. 同じscenario-scoped current resultとstable evidence fileを更新する。
-4. scenario変更後に再実行しないresultを`STALE`または`NOT_EXECUTED`へ更新する。
-5. local loopを実行し、failure remediationや別taskへ進まず終了する。
+1. Create/update scenario definitions and test implementations specified by the active prompt.
+2. Run tests against the AWS account corresponding to the specified environment/target directory.
+3. Update the same scenario-scoped current results and stable evidence files.
+4. Update results not rerun after scenario changes to `STALE` or `NOT_EXECUTED`.
+5. Run the local loop and finish without proceeding to failure remediation or another task.
 
 ## Other task completion
 
-- `initialization`、`governance`、`catalog-maintenance`、`migration`はactive promptのscopeだけを検証して終了する。
-- non-scenario taskは`tests/scenarios/**`または`tests/results/**`へverification outputを保存しない。
-- non-scenario taskのverification結果はdefaultではCodexの完了報告だけに記載する。
+- `initialization`, `governance`, `catalog-maintenance`, and `migration` validate only active prompt scope and finish.
+- Non-scenario tasks must not save verification output under `tests/scenarios/**` or `tests/results/**`.
+- By default, non-scenario task verification results belong only in Codex completion reports.
 
 ## Retry and stop
 
-停止・retryと許可範囲は[task-contract](task-contract.md#retry-and-stop)に従う。
+Follow [task-contract](task-contract.md#retry-and-stop) for stopping/retry and authorization scope.
 
-local loopのPASSは実行済みRequirement ID、Acceptance check件数、task type、framework regression script件数を表示する。これらを表示できないgeneric validation結果をtask完了の証明として扱わない。
+Local loop PASS displays executed Requirement IDs, Acceptance check count, task type, and framework regression script count. Do not treat generic validation results unable to display these as proof of task completion.

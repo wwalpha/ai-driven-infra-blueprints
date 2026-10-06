@@ -1,6 +1,6 @@
 # Macie Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,4 +10,4 @@
 
 ## Service-specific constraints
 
-- Amazon Macie ClassificationJobの`purpose`は検出内容を識別するhuman-confirmedな値とし、`name`はnon-emptyかつ500文字以内とする。
+- Amazon Macie ClassificationJob's `purpose` must be a human-confirmed value identifying what is detected; `name` must be non-empty and at most 500 characters.

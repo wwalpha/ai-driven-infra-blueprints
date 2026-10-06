@@ -1,6 +1,6 @@
 # GuardDuty Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -10,7 +10,7 @@
 
 ## Service-specific constraints
 
-- `gdmp`はGuardDuty Malware Protectionの固定prefixとする。`purpose`は保護対象S3バケットの用途を識別するhuman-confirmedな値とする。
-- `number`はoptionalとし、同じ用途のplanが複数ある場合だけ`01`からの2桁連番を使用する。例：`gdmp-venus-dev-upload`、`gdmp-venus-dev-upload-01`。
-- Name tagは任意とし、humanが明示的に使用するときだけpatternを適用する。`Tags[].Key=Name`と直後の対応する`Tags[].Value`で保持し、設計専用の`.Name`は追加しない。
-- `MalwareProtectionPlanId`はAWS生成identifierのため命名対象外とする。`ProtectedResource.S3Bucket.BucketName`と`Role`は参照先の確定済み値を使用し、このpatternを適用しない。
+- `gdmp` is the fixed prefix for GuardDuty Malware Protection. `purpose` must be a human-confirmed value identifying the use of the protected S3 bucket.
+- `number` is optional; use a two-digit sequence starting at `01` only when multiple plans have the same purpose. Examples: `gdmp-venus-dev-upload`, `gdmp-venus-dev-upload-01`.
+- Name tags are optional; apply the pattern only when the human explicitly uses one. Retain it as `Tags[].Key=Name` followed immediately by the corresponding `Tags[].Value`; do not add a design-only `.Name`.
+- `MalwareProtectionPlanId` is an AWS-generated identifier and excluded from naming. `ProtectedResource.S3Bucket.BucketName` and `Role` use confirmed values of their reference targets; do not apply this pattern to them.

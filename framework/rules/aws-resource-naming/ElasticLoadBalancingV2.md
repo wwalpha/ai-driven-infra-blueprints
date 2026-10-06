@@ -1,6 +1,6 @@
 # ElasticLoadBalancingV2 Resource Naming Rules
 
-共通の適用範囲・除外・Name tag policy・component規則は[共通ルール](../aws-resource-naming.md)に従う。
+Follow the [common rules](../aws-resource-naming.md) for the common scope, exclusions, Name tag policy, and component rules.
 
 ## Naming patterns
 
@@ -11,4 +11,4 @@
 
 ## Service-specific constraints
 
-- Elastic Load Balancingのload balancerとtarget groupは32文字以内とする。
+- Elastic Load Balancing load balancers and target groups must be at most 32 characters.
