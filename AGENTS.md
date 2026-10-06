@@ -11,6 +11,7 @@
 - `framework/materials/aws/`は通常taskで変更しない不変カタログ。`docs/system-overview.md`は背景referenceで、`UNSET`を一律blockerにしない。
 - `model/**/*.properties`を設計値の正本とし、Markdown／JSONは生成する。generated ARNを永続化しない。
 - 変更後はtask typeに対応するlocal loopを実行し、成功後だけcompletedにする。
+- Humanのactive task instructionが実行modeとして明示的に`debug`を指定したtaskだけ、開始時から[Debug read reporting](framework/rules/debug-read-reporting.md)を適用する。通常taskではこのruleの追加read・tracking・report生成・保存を行わず、modeを保存・次taskへ継承しない。
 
 ## Task transition
 
