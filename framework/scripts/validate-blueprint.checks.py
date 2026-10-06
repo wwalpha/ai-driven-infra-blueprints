@@ -1391,6 +1391,14 @@ def check_cloudformation_yaml_rules() -> None:
         suffix_import = valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue {Fn::Join: ['', ['KmsAppKeyArn', !Ref Suffix]]}")
         assert not errors(suffix_import), errors(suffix_import)
         assert any("must use YAML short form" in error for error in errors(suffix_import.replace("!Ref Suffix", "{Ref: Suffix}")))
+        export_suffix_import = suffix_import.replace("!Ref Suffix", "!Ref ExportSuffix")
+        assert not errors(export_suffix_import), errors(export_suffix_import)
+        assert any("must use YAML short form" in error for error in errors(export_suffix_import.replace("!Ref ExportSuffix", "{Ref: ExportSuffix}")))
+        for parameter in ("OtherSuffix", "ExportVersion", "NamePart", "namePart2"):
+            parameter_import = suffix_import.replace("!Ref Suffix", f"!Ref {parameter}")
+            assert not errors(parameter_import), errors(parameter_import)
+        assert any("must use YAML short form" in error for error in errors(suffix_import.replace("!Ref Suffix", "!Ref Invalid_Name")))
+        assert any("must use YAML short form" in error for error in errors(suffix_import.replace("['',", "['-',")))
         assert any(
             "resources must be separated by a blank line" in error
             for error in errors(valid.replace("\n  RoleB:", "  RoleB:", 1))

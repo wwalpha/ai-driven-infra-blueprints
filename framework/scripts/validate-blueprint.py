@@ -2328,7 +2328,7 @@ class Validator:
                     for match in QUOTED_LONG_CF_KEY.finditer(line)
                 )
                 # YAML cannot stack short tags; allow only the parameterized export suffix join.
-                for match in re.finditer(r"!ImportValue\s*\{Fn::Join:\s*\[(?:''|\"\"),\s*\['[A-Z][A-Za-z0-9]*',\s*!Ref Suffix\]\]\}", line):
+                for match in re.finditer(r"!ImportValue\s*\{Fn::Join:\s*\[(?:''|\"\"),\s*\['[A-Z][A-Za-z0-9]*',\s*!Ref [A-Za-z][A-Za-z0-9]*\]\]\}", line):
                     if code[match.start():].startswith("!ImportValue"):
                         code = code[:match.start()] + code[match.start():match.end()].replace("Fn::Join:", " " * 9) + code[match.end():]
                 if LONG_CF_KEY.search(code) or quoted_long:
