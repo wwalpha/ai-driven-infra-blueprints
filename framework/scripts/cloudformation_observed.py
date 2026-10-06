@@ -378,6 +378,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     """Resolve ownership/identifier propagation without templates, parameters or AWS.
 
     Legacy IDs cannot establish stack ownership here; require explicit metadata.
+    Unmapped designs without observed identifiers are reported, never synchronized.
     The returned plan is JSON serializable and remains stable after observed sync.
     """
     import hashlib
@@ -392,6 +393,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     changes_by_stack = {name: {} for name in stack_names}
     anchors = {name: {} for name in stack_names}
     owners = {name: [] for name in stack_names}
+    unmapped = []
     for path, values in loaded.items():
         rows = resource_row_index(values)
         for identity, resource in entries(values, "desired.resource."):
@@ -403,8 +405,15 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 formal = None
             if not formal:
                 continue
+            outputs = catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
             if not resource.get("cfn-logicalId"):
-                ambiguous(f"{path.name}/{identity}: destroy requires explicit cfn-logicalId ownership")
+                for rid, row in rows[identity]:
+                    if row["property"] in outputs and values.get(f"observed.row.{rid}.value") not in {
+                            None, "PENDING_DEPLOY", "`PENDING_DEPLOY`"}:
+                        ambiguous(f"{path.name}/{identity}: observed identifier requires explicit cfn-logicalId ownership")
+                unmapped.append({"model": path.relative_to(root).as_posix(), "resource": identity,
+                                 "logicalId": resource.get("logicalId"), "reason": "no cfn-logicalId; no observed identifier"})
+                continue
             name, logical = cfn_resource_identity(resource["cfn-logicalId"])
             if name not in changes_by_stack:
                 continue
@@ -415,7 +424,6 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 raise ValueError(f"task scope violation: destroy ownership requires {'/'.join(service)}")
             owners[name].append({"model": path.relative_to(root).as_posix(), "resource": identity,
                                  "logicalId": logical})
-            outputs = catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
             design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
             for prop in outputs:
                 selected = [(rid, row) for rid, row in rows[identity] if row["property"] == prop]
@@ -459,7 +467,8 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 repr(sorted((key, value) for key, value in loaded[path].items()
                             if not key.startswith("observed."))).encode()).hexdigest()
     return {"updates": result, "owners": owners, "paths": sorted(path.relative_to(root).as_posix() for path in paths),
-            "services": sorted("/".join(service) for service in services), "inputs": inputs}
+            "services": sorted("/".join(service) for service in services), "inputs": inputs,
+            "unmappedResources": unmapped}
 
 
 def sync_destroyed(backend, states, plan):

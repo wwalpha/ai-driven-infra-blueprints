@@ -398,8 +398,23 @@ def check_observed():
         root = Path(directory); fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
+        # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
+        values = properties(source.read_text())
+        for key, value in list(values.items()):
+            if key.startswith(("desired.resource.003.", "display.resource.003.", "desired.row.003-", "observed.row.003-")):
+                values[key.replace(".003", ".004", 1)] = value.replace("test-dev-c", "test-dev-unimplemented").replace("vpc-old-C", "PENDING_DEPLOY").replace("[003]", "[SnowCatConn]")
+        del values["desired.resource.004.cfn-logicalId"]
+        values["desired.resource.004.logicalId"] = "SnowCatConn"
+        source.write_text("\n".join(key + "=" + value for key, value in values.items()) + "\n")
+        design.write_text(markdown_for(design, values, root))
         before = properties(source.read_text())
         plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
+        assert plan["observed"]["unmappedResources"] == [{
+            "model": source.relative_to(root).as_posix(), "resource": "004", "logicalId": "SnowCatConn",
+            "reason": "no cfn-logicalId; no observed identifier"}]
+        assert all(owner["resource"] != "004" for owners in plan["observed"]["owners"].values() for owner in owners)
+        assert all(not key.startswith("observed.row.004-")
+                   for changes in plan["observed"]["updates"].values() for updates in changes.values() for key in updates)
         assert set(plan["observed"]["paths"]) == {source.relative_to(root).as_posix(), design.relative_to(root).as_posix()}
         backend = Fake(["A", "B", "C"])
         backend.root, backend.environment, backend.directory = root, "dev", "123456789012"
@@ -423,6 +438,7 @@ def check_observed():
         assert after["observed.row.099-002.value"] == "PENDING_DEPLOY"
         assert after["observed.row.002-002.value"] == before["observed.row.002-002.value"]
         assert after["observed.row.003-002.value"] == before["observed.row.003-002.value"]
+        assert after["observed.row.004-002.value"] == before["observed.row.004-002.value"]
         assert {key: value for key, value in before.items() if key.startswith("desired.")} == {key: value for key, value in after.items() if key.startswith("desired.")}
         assert states["A"]["observedSynced"] and not states["B"]["observedSynced"]
         assert "PENDING_DEPLOY" in design.read_text() and "vpc-old-A" not in design.read_text()
@@ -452,7 +468,15 @@ def check_observed():
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "reservation")
         task.write_text(text)
         original = source.read_text(); source.write_text(original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
+        # Pending/absent identifiers can stay unmapped, even with a legacy ID.
+        pending = M.local_plan(root, "dev", "123456789012", ["A"])
+        assert pending["observed"]["owners"]["A"] == []
+        assert {entry["resource"] for entry in pending["observed"]["unmappedResources"]} == {"001", "004"}
+        source.write_text(source.read_text().replace("observed.row.001-002.value=`PENDING_DEPLOY`", "observed.row.001-002.value=`vpc-existing`"))
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "explicit cfn-logicalId")
+        source.write_text(original.replace("desired.resource.002.cfn-logicalId=B-Vpc", "desired.resource.002.cfn-logicalId=A-Vpc"))
+        rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "duplicate ownership")
+        print("D15: PASS unmapped pending design reported/unchanged; observed and duplicate ownership still block")
 
 
 def main():
@@ -460,7 +484,7 @@ def main():
     check_absence()
     check_controller()
     check_observed()
-    print("cloudformation-destroy: PASS (D01-D14; fake AWS only)")
+    print("cloudformation-destroy: PASS (D01-D15; fake AWS only)")
 
 
 if __name__ == "__main__":
