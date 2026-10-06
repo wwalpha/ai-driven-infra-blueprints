@@ -15,8 +15,8 @@ from pathlib import Path
 from array_display import indexed_rows
 from model_design import row_table
 
-from cloudformation_schema import CloudFormationSchemaCatalog
-from design_catalog import MACIE_JOB, DesignSchemaCatalog, api_snapshot_errors
+from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text
+from design_catalog import MACIE_JOB, QUICKSIGHT_GROUP, DesignSchemaCatalog, api_snapshot_errors
 from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
 
 
@@ -104,11 +104,48 @@ def markdown(values):
     return text.replace("| [daily-data-scan](#macie-daily-data-scan) | SCHEDULED |", f"| [daily-data-scan](#macie-daily-data-scan) | {values.get('jobType', '')} |")
 
 
+def quicksight_group_markdown():
+    return """# QuickSight 詳細設計
+
+- Design service ID: `quicksight`
+- Owned catalog resource types: `QuickSight.Group`
+
+## リソース一覧
+
+### QuickSight.Group
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [reader-group](#quicksight-reader-group) | 閲覧者group |
+
+## リソース詳細
+
+<!-- resource-logical-id: ReaderGroup -->
+<a id="quicksight-reader-group"></a>
+
+### QuickSight.Group: reader-group
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | AwsAccountId | `123456789012` | QuickSight accountのID |
+| 2 | Namespace | `default` | groupが属するnamespace |
+| 3 | GroupName | `reader-group` | group name |
+| 4 | PrincipalId | `PENDING_DEPLOY` | group principal ID |
+"""
+
+
 def main():
     assert not api_snapshot_errors(ROOT)
     catalog = DesignSchemaCatalog(ROOT)
     assert catalog.cloudformation_type("Macie.Session") == "AWS::Macie::Session"
-    for resource_type in (MACIE_JOB, "Macie.Unknown"):
+    group = catalog.schema(QUICKSIGHT_GROUP)
+    assert group["identityProperties"] == ["AwsAccountId", "Namespace", "GroupName"]
+    assert group["identifierOutputs"] == ["Arn", "PrincipalId"]
+    assert group["source"]["readOperations"] == ["ListGroups", "DescribeGroup"]
+    assert group["source"]["updateOperation"] == "UpdateGroup"
+    assert group["source"]["deleteOperation"] == "DeleteGroup"
+    assert catalog.required_design_properties(QUICKSIGHT_GROUP) == {"AwsAccountId", "Namespace", "GroupName"}
+    for resource_type in (MACIE_JOB, QUICKSIGHT_GROUP, "Macie.Unknown"):
         try:
             catalog.cloudformation_type(resource_type)
         except (ValueError, KeyError):
@@ -121,9 +158,19 @@ def main():
         pass
     else:
         raise AssertionError("API design leaked into the CFn catalog")
-    command = [sys.executable, str(ROOT / "framework/scripts/design_catalog.py"), "--cloudformation-type", MACIE_JOB]
-    result = subprocess.run(command, capture_output=True, encoding="utf-8")
-    assert result.returncode == 1 and "CloudFormation unsupported" in result.stdout
+    for resource_type in (MACIE_JOB, QUICKSIGHT_GROUP):
+        command = [sys.executable, str(ROOT / "framework/scripts/design_catalog.py"), "--cloudformation-type", resource_type]
+        result = subprocess.run(command, capture_output=True, encoding="utf-8")
+        assert result.returncode == 1 and "CloudFormation unsupported" in result.stdout
+
+    with tempfile.TemporaryDirectory() as directory:
+        group_path = Path(directory) / "quicksight.md"
+        group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
+        group_model = MODEL.model_for(group_path, ROOT)
+        assert "resourceType=QuickSight.Group" in group_model
+        assert "QuickSight.Group.PrincipalId" in group_model
+        assert "observed.row." in group_model and "PENDING_DEPLOY" in group_model
+        assert "QuickSight.Group.Arn" not in group_model and "arn:" not in group_model
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
@@ -251,10 +298,20 @@ def main():
         validator = VALIDATOR.Validator(root)
         validator.check_generated_service_models()
         assert validator.errors
+        group_snapshot = root / "framework/materials/api/QuickSight_Group.json"
+        group_original = group_snapshot.read_text(encoding="utf-8")
+        group_schema = json.loads(group_original)
+        group_schema["identityProperties"] = ["Namespace", "GroupName"]
+        group_snapshot.write_text(json.dumps(group_schema, indent=2) + "\n", encoding="utf-8")
+        api_files = sorted((root / "framework/materials/api").glob("*"))
+        (root / "framework/materials/api-catalog.sha256").write_text(manifest_text(root, api_files), encoding="utf-8")
+        assert any("identity must be AwsAccountId + Namespace + GroupName" in error for error in api_snapshot_errors(root))
+        group_snapshot.write_text(group_original, encoding="utf-8")
+        (root / "framework/materials/api-catalog.sha256").write_text(manifest_text(root, api_files), encoding="utf-8")
         snapshot = root / "framework/materials/api/Macie_ClassificationJob.json"
         snapshot.write_text(snapshot.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         assert api_snapshot_errors(root)
-    print("design-catalog: PASS (Macie designs, constraints, model, CFn boundary, snapshot integrity)")
+    print("design-catalog: PASS (Macie and QuickSight API designs, identities, outputs, CFn boundary, snapshot integrity)")
 
 
 if __name__ == "__main__":

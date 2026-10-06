@@ -11,7 +11,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from design_layout import DISPLAY_PROPERTY_ALIASES, LAYOUTS, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
+from design_layout import DISPLAY_PROPERTY_ALIASES, HIDDEN_PROPERTIES, LAYOUTS, RESOURCE_REFERENCE_PROPERTIES, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
 from model_design import pipeline_rows, display_rows, row_table
 from design_layout import SUBNET_LIST_PROPERTIES
@@ -924,6 +924,54 @@ def check_resource_name_headings() -> None:
     assert resource_logical_ids(text.splitlines()) == {("Scheduler.Schedule", name): logical_id}
 
 
+def check_quicksight_group_principal_reference() -> None:
+    source_property = "QuickSight.DataSource.Permissions[].Principal"
+    assert source_property in RESOURCE_REFERENCE_PROPERTIES
+    assert RESOURCE_REFERENCE_PROPERTIES[source_property] == ("QuickSight.Group", "GroupName")
+    assert "QuickSight.Group.Arn" in HIDDEN_PROPERTIES
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        target = root / "docs/designs/dev/123456789012/quicksight.md"
+        target.parent.mkdir(parents=True)
+        text = """# QuickSight 詳細設計
+
+- Design service ID: `quicksight`
+- Owned catalog resource types: `QuickSight.Group`, `QuickSight.DataSource`
+
+## リソース詳細
+
+<!-- resource-logical-id: ReaderGroup -->
+<a id="quicksight-reader-group"></a>
+
+### QuickSight.Group: reader-group
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | GroupName | `reader-group` | group name |
+
+<!-- resource-logical-id: Source -->
+<a id="quicksight-source"></a>
+
+### QuickSight.DataSource: source
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | Permissions[].Principal | [reader-group](#quicksight-reader-group) | 権限を付与するgroup |
+"""
+        target.write_text(text, encoding="utf-8")
+
+        def errors(design_text: str) -> list[str]:
+            target.write_text(design_text, encoding="utf-8")
+            validator = VALIDATOR.Validator(root)
+            validator.check_design_links({"QuickSight.Group": {"QuickSight.Group.PrincipalId"}}, [target])
+            return validator.errors
+
+        assert not errors(text), errors(text)
+        assert errors(text.replace("[reader-group](#quicksight-reader-group)", "[wrong](#quicksight-reader-group)"))
+        assert errors(text.replace("[reader-group](#quicksight-reader-group)", "[reader-group](#quicksight-source)"))
+
+
 def main() -> None:
     for kind in LAYOUTS:
         assert formal_property(kind + ".Name", "S3.Bucket") == kind + ".Name"
@@ -1065,7 +1113,7 @@ def main() -> None:
         broken = {**LAYOUTS, "Example.Child": "independent", "KMS.Alias": {**LAYOUTS["KMS.Alias"], "parentProperty": "Missing"}}
         layout_path.write_text(json.dumps(broken), encoding="utf-8")
         assert any("parent property is absent" in error for error in layout_errors(root))
-    print("design-layout: PASS (grouped identities, parent changes, S3 references, invalid designs, catalog coverage)")
+    print("design-layout: PASS (grouped identities, QuickSight Group Principal reference, parent changes, invalid designs, catalog coverage)")
 
 
 if __name__ == "__main__":

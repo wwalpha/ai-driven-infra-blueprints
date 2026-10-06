@@ -78,6 +78,7 @@ After reading the common rules, read only the file matching the catalog namespac
 | `CodeCommit` | [CodeCommit](aws-resource-naming/CodeCommit.md) |
 | `CodePipeline` | [CodePipeline](aws-resource-naming/CodePipeline.md) |
 | `Config` | [Config](aws-resource-naming/Config.md) |
+| `DataZone` | [DataZone](aws-resource-naming/DataZone.md) |
 | `EC2` | [EC2](aws-resource-naming/EC2.md) |
 | `ElasticLoadBalancingV2` | [ElasticLoadBalancingV2](aws-resource-naming/ElasticLoadBalancingV2.md) |
 | `Events` | [Events](aws-resource-naming/Events.md) |
