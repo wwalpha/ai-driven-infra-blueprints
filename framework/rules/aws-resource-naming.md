@@ -101,6 +101,7 @@ After reading the common rules, read only the file matching the catalog namespac
 | `Route53Profiles` | [Route53Profiles](aws-resource-naming/Route53Profiles.md) |
 | `Route53Resolver` | [Route53Resolver](aws-resource-naming/Route53Resolver.md) |
 | `S3` | [S3](aws-resource-naming/S3.md) |
+| `SageMaker` | [SageMaker](aws-resource-naming/SageMaker.md) |
 | `SNS` | [SNS](aws-resource-naming/SNS.md) |
 | `SQS` | [SQS](aws-resource-naming/SQS.md) |
 | `SSM` | [SSM](aws-resource-naming/SSM.md) |
