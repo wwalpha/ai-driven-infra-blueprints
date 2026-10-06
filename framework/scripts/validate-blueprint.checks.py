@@ -186,7 +186,7 @@ def check_task_type_dispatch() -> None:
 
     validator.changed_paths.add("infra/cloudformation/templates/vpc.yaml")
     validator.check_task_type_requirements()
-    assert "infrastructure deploy phase must not change IaC" in validator.errors
+    assert any("infrastructure deploy phase must not change IaC" in error for error in validator.errors)
 
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.task_type = "infrastructure"

@@ -6,7 +6,7 @@
 
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
 - infrastructure taskの設計inputは承認済みauthoritative model properties入口と必要なpart／参照先modelとする。設計値は`desired.row.*`、JSON本文は`desired.row.*.document`、identity／参照は`desired.resource.*`等のmetadata、current non-ARN identifierは`observed.*`から取得する。通常deployで生成service Markdown／service-owned JSON本文を重ねて読まない。`.md#anchor`は既存model readerとmetadataで対応付け、不明・未一致・曖昧なら停止し、生成Markdown本文をfallbackにしない。
-- 生成物の存在確認、既存のhash監視・予約、sync-model／local loopによる生成物検証と停止条件を維持する。明示された表示不具合・不一致調査では必要な該当箇所だけを読める。不一致後にdeployを継続せず、IaC／intended designを自動修復しない。
+- 生成物の存在確認、既存のhash監視・予約、sync-model／local loopによる生成物検証と停止条件を維持する。明示された表示不具合・不一致調査では必要な該当箇所だけを読める。不一致は下記Controlled deploy repairで分類する。intended designは変更しない。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - 対象targetの`awsProfile`があればpreflightとcontrollerが自動使用する。直接のAWS CLI（validate-template、list/get/describe、observed値取得を含む）にも同じ`--profile`と対象regionを渡す。設定と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
@@ -70,18 +70,18 @@
 
 `deploy` phase:
 
-1. 対象templateを変更せず、target regionを指定した`cfn-lint`を再実行する。
+1. 対象templateを読み、target regionを指定した`cfn-lint`を再実行する。
 2. `aws cloudformation validate-template`でtemplate構文を検証する。このcommandだけをproperty validationの代替にしない。
 3. change setを作成してscope、delete、replacementを確認する。
 4. 全change setを一律停止するhuman reviewは設けない。未承認のdelete/replacementがある場合だけ`framework/prompts/codex/04_deploy.md`に従って説明付きhuman確認待ちにする。
 5. active promptがdeploy/updateを許可し、change scopeがpromptと一致し、delete/replacementが事前承認済みまたはchange set作成後にhuman承認された場合だけexecutionへ進む。
-6. IaC修正が必要な場合はこのphaseで変更せず停止する。
+6. failureはControlled deploy repairで分類し、AUTO_REPAIRABLEだけ同sessionで最小修復・検証・retryする。
 
 複数stackのqueue、順序、並列上限、failure stopは`framework/scripts/cloudformation-deploy.py`で強制する。Deployment scopeのStackNameだけをDeployOrder数値昇順、同group内StackName順に処理する。同一DeployOrder groupだけが並列実行可能であり、RUNNING数はMaxConcurrentStacks以下とする。空いたslotを同groupのqueueへ再利用し、固定batchにしない。group全体のterminal successとobserved value反映後だけ次groupへ進む。値は連番でなくてよい。DeployOrderをCloudFormation resourceの`DependsOn`へ変換せず、stack modelにdependency fieldを追加しない。
 
 consumerのchange set作成直前に、既存cfn-lint decoderで`!ImportValue`を解釈し、stack固有parameter/defaultとaccount/regionを使って参照するExport名を解決し、targetの`list-exports`で実在を確認する。Conditionsを評価し、`!If`の選択枝と有効なresource／Outputだけを走査する。未解決・循環・非booleanの条件は停止し、未使用枝のImportValueを要求しない。未解決式、未存在Export、scope内の未成功producerはBLOCKEDとする。誤ったDeployOrderとImport/Exportの矛盾を説明し、scope外producer追加、順序変更、IaC/intended designの自動修正を行わない。scope外producerのExportが既に存在すればconsumer単独deployを許可する。Transformで動的生成されるimportは事前解決できないため停止する。
 
-failure/rollbackまたはblocker/未承認delete/replacementを検出したら新たなunitを起動せず、実行中のstackだけterminalまで確認する。StackName単位でSUCCESS、FAILED、BLOCKED、NOT_STARTEDを区別する。status API errorはterminal failureとみなさず、queueを止めて実行中stackの取得だけ再試行する。成功済みstackを自動rollback、delete、redeployしない。controller自身はrollback/delete APIを呼ばない。
+failure/rollbackまたはblocker/未承認delete/replacementを検出したら新たなunitを起動せず、実行中のstackだけterminalまで確認する。StackName単位でSUCCESS、FAILED、BLOCKED、NOT_STARTEDを区別する。status API errorはterminal failureとみなさず、queueを止めて実行中stackの取得だけ再試行する。成功済みstackを自動rollback、delete、redeployしない。rollback/deleteは下記のprovenance付きfailed CREATE cleanup例外だけを許可する。
 
 `update` phase:
 
@@ -89,6 +89,21 @@ failure/rollbackまたはblocker/未承認delete/replacementを検出したら�
 2. implement phaseと同じ`cfn-lint`を実行して対象templateを作成・変更する。
 3. deploy phaseと同じpreflight、`aws cloudformation validate-template`、change set確認、execution、完了確認を続けて実行する。
 4. このphase内で生成した対象templateのuncommitted diffだけをdeploy対象として許可する。
+
+## Controlled deploy repair
+
+failureを検出しただけでHumanへ停止しない。既存queueを止め、RUNNINGのpeerをterminalまでdrainし、成功peerのobservedを同期してからcontrollerが診断・分類する。実行tokenに一致するeventsをsessionへ保持し、同じ診断を重複取得しない。
+
+- `AUTO_REPAIRABLE`: task scope内のCREATE管理resourceについて、authoritative modelの型付きproperty／document、resource-owned cfn-logicalId、project metadata、確認済みExport/ownerから修正値・対応先が一意で、intended design／scopeを変更せず、予約済みIaCだけを最小修正できる場合。既存`issues_iac.Comparison`とcatalog row projectionを再利用する。エラー文はfailed resourceとpropertyの選択に使い、値の根拠にはしない。CatalogIdはmodelの確定値がdeployment account自身と一致する場合だけ`AWS::AccountId`へ置換する。
+- `HUMAN_REQUIRED`: external／IMPORTのhandoff不足、未確定／複数解、account／region／ownership／cross-account意図不明、architecture/design変更、外部ownerのIAM/KMS修正、scope拡大、shared templateによる別stackへの影響、未承認delete/replacement、安全なrollback recoveryを証明できない場合。値・export・resource・parameterを発明しない。
+
+契約の`Controlled repair: allowed`とrepository外`Deploy repair session`、対象fileの具体的Modified files／Allowed paths予約を必須とする。infra全体のwrite許可にはしない。一般implement／updateの責務やTerraformのfailure処理は変更しない。新しい設計値・artifact build・resource配置判断はdeploy repairに含めない。
+
+sessionにはfailure class、対象path、old/new file digest、old/new unit digest、repository外のexact repair候補、repair intent、validation、旧change set、retry段階を保存する。中断後も記録したold/new bytesだけを回復候補にし、affected validationを再実施する。修復以外のIaC変更、intended model変更、task scope変更は引き続き停止する。validatorは同sessionの修復履歴と現在bytesが一致する具体的IaC変更だけを許可する。static lintの構造化diagnosticsも同じ基準で分類し、AWS execution前の修復にはcleanupを行わない。一意なpropertyだけが消費する明示parameterのstale値は、templateのRefを保持してparameter fileだけを修正する。旧change set／delivery／client tokenを捨て、affected stackだけlint、既存validatorのaffected service schema／命名／policy／modelと生成物一致、共通task検査、resource mapping／所有検査を再実施する。その後validate-templateと新change setを生成し、既存delete/replacement approvalを再適用する。framework全回帰をdeploy runtimeへ追加しない。
+
+`ROLLBACK_COMPLETE`は今回のsessionでabsenceを確認してCREATE change setを作り、返されたStackIdと実行tokenのStackIdが一致する場合だけcleanup候補にできる。DeletionPolicy／UpdateReplacePolicyのRetain/Snapshot、custom/nested resource、DELETE_SKIPPED、現存resource、termination protectionがあれば自動deleteしない。exact StackIdの現在状態・resource終状態を照合し、failed CREATE shellだけdelete、DELETE_COMPLETE確認後にCREATEを再実行する。同名から出自を推測しない。`ROLLBACK_FAILED`、`UPDATE_ROLLBACK_FAILED`は診断し、template修復だけで安全な通常rollback continuationを証明できないためHumanへ渡す。既存stackのdelete、`ResourcesToSkip`の自動使用は禁止する。
+
+同一logical failure class（logical ID＋property）は最大3 repair iteration。同一修復候補が再出現、または修復後も同じfailureでmodelとの差分がなくmaterial progressを証明できない場合はHumanへ停止する。成功したunitは再deployせず、repair成功後は元のDeployOrder／並列上限／dependency barrierに従ってremaining unitを同controllerで継続する。
 
 ## Delete and replacement confirmation
 
@@ -100,7 +115,7 @@ failure/rollbackまたはblocker/未承認delete/replacementを検出したら�
 
 次の場合は停止する。
 
-- validation failure
+- 修復根拠が一意でないvalidation failure
 - required input missing
 - AWS accountまたはregion mismatch
 - delete/replacementのactionを確定できない

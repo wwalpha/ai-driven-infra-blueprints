@@ -44,7 +44,7 @@ CloudFormation targetでstackを管理する場合は、service別詳細設計�
 | 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | 初期化後にenvironment／logical targetを1件追加するとき | `project.json`と追加target pathを更新する |
 | Design | [`chatbot/service-design.md`](chatbot/service-design.md) | 新しいsystem、機能、serviceの詳細設計値をhumanと確定するとき | 完成したmodel propertiesと生成先Markdown／JSON、または既存resource取得用の自己完結型Codex promptを出力する |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | repositoryへ作成済みの詳細設計をCloudFormation／Terraformへ反映するとき | IaCを作成・変更し、local static validationまで行う |
-| 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | 作成・検証済みIaCをAWSへdeploy/applyするとき | IaCを変更せず実行し、必要なobserved valueを更新する |
+| 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | 作成・検証済みIaCをAWSへdeploy/applyするとき | 実行し、CloudFormationの一意なcontrolled repairと必要なobserved value更新を行う |
 | 5 | [`codex/05_update.md`](codex/05_update.md) | humanが既存詳細設計を手動修正し、未commitのままIaC反映とdeployまで行うとき | Markdown生成、IaC変更、deploy/apply、observed value更新を一つのtaskで行う |
 | 6 | [`codex/06_scenario-test.md`](codex/06_scenario-test.md) | deploy後にapplication behaviorを確認する必要があるとき | scenarioと同じtargetのcurrent resultを更新する |
 

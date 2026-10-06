@@ -47,7 +47,7 @@ CFnの`AWS::AccountId`は実際のstack作成accountです（[AWS公式の擬似
 - `framework/prompts/codex/02_add-target.md`: 初期化後に確定したtargetを1件追加するmigration指示
 - `framework/prompts/chatbot/service-design.md`: 詳細設計fileと、それをrepositoryへ作成する自己完結型Codex promptを出力するAsk指示
 - `framework/prompts/codex/03_implement.md`: 承認済み詳細設計を選択済みIaCへ変換し、local static validationまでを行う指示
-- `framework/prompts/codex/04_deploy.md`: 作成・検証済みIaCを変更せず、安全確認、deploy/apply、deploy完了確認を行う指示
+- `framework/prompts/codex/04_deploy.md`: 作成・検証済みIaCの安全確認、deploy/apply、deploy完了確認を行う指示
 - `framework/prompts/codex/05_update.md`: humanが手動修正した未commitの詳細設計をIaCへ反映し、deploy/applyまで行う指示
 - `framework/prompts/codex/06_scenario-test.md`: deployとは別taskでapplication behaviorを検証する指示
 - `framework/scripts/check-deploy-context.py`: topology、credential、deploy先account、region、IaC engine、必要commandを確認するpreflight
@@ -169,7 +169,7 @@ resource単位の`desired.resource.<nnn>.resourceMode`は`CREATE`／`IMPORT`だ�
 2. Codexはactive prompt、`AGENTS.md`、関連rulesを読み、同じtask type内だけで作業する。
 3. `design` taskはintended designとservice modelを更新して終了する。既存resource取得が明示された場合だけ、read-only AWS APIによる現在値の直接差分反映を含める。
 4. `infrastructure` taskの`implement` phaseはIaC作成とlocal static validationまでで終了する。
-5. 別の`infrastructure` taskの`deploy` phaseは既存IaCを変更せず、CloudFormation change setまたはTerraform planを確認してdeploy/applyし、成功後のobserved value更新までで終了する。
+5. 別の`infrastructure` taskの`deploy` phaseは既存IaCでCloudFormation change setまたはTerraform planを確認してdeploy/applyし、成功後のobserved value更新までで終了する。
 6. `infrastructure` taskの`update` phaseはhumanの未commit model propertiesを変更せず、Markdown生成、IaC反映、deploy/apply、observed value更新までを一つのtaskで行う。
 7. `scenario-test` taskは別途開始し、指定scenarioのtestとcurrent resultだけを更新する。
 8. scenario testが失敗しても、同じtaskでdesign変更、IaC修正、redeploy、remediation task作成へ進まない。
@@ -450,3 +450,5 @@ Lambdaごとの使用fileはresource／propertyとsourceの対応で判定しま
 ローカル成果物を配置した後、宣言済みS3 key/versionだけを内容hashへ置換した実行用copyをrepository外に生成します。Lambda ZIPの配置とCFn templateのS3送信は独立しており、ZIPを配置して小さいtemplateを直接送信できます。ビルド、bucket作成、権限追加、過去成果物削除はdeploy中に自動実行しません。初回のbucket作成は小さいtemplateから行い、成功後に利用stackを実行します。
 
 全scopeをローカル検証し、各stackの順番でupload／checksum確認、AWS template検証、変更セット作成・実行を行います。sessionと隣接する`.files` directoryは同じtaskの再開まで保持してください。入力file、実行用copy、配置済みobjectが変わっていれば再開・実行を停止します。対応property、権限、保持方針の詳細は[CloudFormation rules](framework/rules/cloudformation.md#s3-deployment-artifacts)、正本形式は[model rules](framework/rules/model-information.md#cloudformation-s3配置)を参照してください。
+
+CloudFormation deploy failureは[Controlled deploy repair](framework/rules/cloudformation.md#controlled-deploy-repair)に従い、authoritative情報から一意な修正だけを同sessionで実行・検証し、残りのstackへ継続します。外部情報、設計判断、安全に回復できないrollback、未承認delete/replacementはHumanへ確認します。

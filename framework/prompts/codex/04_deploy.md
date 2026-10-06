@@ -2,7 +2,7 @@
 
 契約登録・予約・停止／再開は[task-contract](../../rules/task-contract.md)に従う。
 
-このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformを変更せずにdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。IaC修正とapplication behavior検証は行わない。
+このpromptは、承認済みの詳細設計から作成・検証済みのCloudFormationまたはTerraformをdeploy/applyし、deploy完了確認と必要なobserved value更新を行う`infrastructure` taskに使用する。CloudFormation failureのcontrolled repairだけを同task内で許可する。intended designとapplication behavior検証は変更・実行しない。
 
 account／profileの共通選択は[Credentials and account](../../rules/project-configuration.md#credentials-and-account)に従い、policy固有条件は[Policy account selection](../../rules/detailed-design.md#policy-account-selection)を適用する。
 
@@ -57,7 +57,7 @@ Python launcherは準備開始時に既存の利用可能な一つの環境へ�
 
 `.md#anchor`形式の参照はMarkdown本文を開く指示ではない。path／file stemから参照先propertiesへ対応付け、既存`model_files.py --resource <resource-selector>`とanchor等のmetadataで必要resourceを確認する。不明・未一致・曖昧なら停止し、生成Markdown本文をfallbackにしない。
 
-生成物の存在確認、hash監視、予約、機械的生成物検証と停止条件は維持する。明示された表示不具合・不一致調査に限り、必要な生成物の該当箇所を読める。model、生成物、IaCの不一致を検出した場合はdeployを継続せず、IaC／intended designを自動修復しない。
+生成物の存在確認、hash監視、予約、機械的生成物検証と停止条件は維持する。明示された表示不具合・不一致調査に限り、必要な生成物の該当箇所を読める。model、生成物、IaCの不一致とdeployment failureは[Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)で分類する。AUTO_REPAIRABLEだけ修復し、検証後に同controllerを継続する。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
 
@@ -101,11 +101,11 @@ framework変更時は[Framework regression](../../rules/loop-engineering.md#fram
 - Authorized delete/replacementは確認済みUser inputの値、入力がない場合は`none`を記載する。change setまたはplan作成後にhumanが承認した場合は、同じtaskのまま対象resource、action、確認済み理由へ更新する。
 - `Required changes`は一意なRequirement ID付きでdeploymentと、必要な場合だけ成功後のobserved value更新を記載する。
 - `Acceptance checks`はdeployment unitの`exists:`と、observed value更新が必要な場合だけ対象詳細設計/modelの`changed:`を対応付ける。deploy未実行や失敗をrepository fileで完了扱いにしない。
-- Allowed pathsは、generated current value更新が必要な対象詳細設計、対応する`model/<environment>/<target-directory>/**`、`tasks/<task-name>.md`だけに限定する。`infra/**`と`tests/**`は変更禁止とする。
+- Allowed pathsはobserved同期対象のmodel／生成物、今回のtask契約と、以下のcontrolled repair fileだけに限定する。CloudFormationはdeployment scopeのtemplate／parameter／宣言済みartifactを具体的fileで予約し、`Controlled repair: allowed`とrepository外の`Deploy repair session`を記載する。予約はcontrolled repair専用で、任意IaC変更を許可しない。TerraformのIaCと`tests/**`は変更禁止とする。
 
 ## Preflight
 
-対象IaCにuncommitted changeがある場合はdeploy対象revisionが一意でないため停止する。unrelatedなworktree変更は上書きまたは巻き戻さない。
+初回は対象IaCがcleanであることを確認する。resumeでは同sessionに記録したAUTO_REPAIRABLEの具体的file bytes／digestだけuncommitted変更を許可し、それ以外は停止する。unrelatedなworktree変更は上書きまたは巻き戻さない。
 
 CloudFormationの最終preflight責任者は`cloudformation-deploy.py`とする。controllerがproject target、profile、account、region、engine、active task scope、issue gate、immutable inputを確認する。同じSTS／context checkをpromptから別途実行しない。明示account/regionはprojectの同targetと照合し、明示profileはcontrollerの`--profile`へ渡す。不一致は停止する。
 
@@ -167,7 +167,7 @@ aliasがある場合はTarget alias行も追加し、その値をbacktickで囲�
 3. controllerは通常一回の起動で全DeployOrderを実行する。順次実行は`--sequential`で実行上限を1にし、設計のMaxConcurrentStacksを変更しない。全対象を繰り返し`--stack`で渡し、順次指定や失敗一覧の収集を理由に1stackずつ別controller／sessionへ分割しない。通常は同group内だけMaxConcurrentStacksまで実行し、空いたslotへ次stackを開始する。producer成功前にconsumerのchange setを作成しない。停止条件後は外側のloopで別stackを起動せず、依存consumerを含む未着手stackをNOT_STARTEDとして報告する。全件の対応付け診断は実行前チェックで収集する。list-exportsに必要なExportがない場合やscope内producerが未成功ならBLOCKEDとし、設計された順序とImport/Export関係の矛盾を報告する。scope外のproducerを自動追加しない。
 4. 未承認delete/replacementがあればcontrollerはBLOCKEDとして同じchange set IDと変更のfingerprintをrepository外sessionへ保持し、他のRUNNING stackをterminalまで確認する。次の`Confirm unapproved delete/replacement`の影響説明・human確認を行う。`--approve-change-set`は人間がそのchange set全体を承認した場合だけ渡す。事前承認も実change setの全破壊変更との一致を確認してから同じ方法で再開する。
 5. 承認後は同じtaskと同じsessionへ`--resume --approve-change-set <保存されたchange-set-id>`を追加する。controllerが同一ID、CREATE_COMPLETE/AVAILABLE、変更fingerprintを再取得・照合して実行する。変更/失効なら以前の承認で実行しない。成功済みstackを再実行しない。
-6. 各groupの成功後、controller内の`cloudformation_observed.py`が実行templateのLogicalId、正式CFn型、catalog IDENTIFIER_OUTPUT、OutputsとPhysicalResourceIdを照合し、必要なnon-ARN identifierと全参照元のobserved rowを更新する。既存sync-modelのservice指定生成・検証が成功してから同process内で次DeployOrderへ進む。最終groupも同期してCOMPLETEとなり、通常成功で追加resumeを要求しない。曖昧な対応は`AMBIGUOUS_OBSERVED_MAPPING`で停止し、LLMが補完しない。failure/blocker時は後続groupへ進まず、成功分のobservedだけ同期する。
+6. 各groupの成功後、controller内の`cloudformation_observed.py`が実行templateのLogicalId、正式CFn型、catalog IDENTIFIER_OUTPUT、OutputsとPhysicalResourceIdを照合し、必要なnon-ARN identifierと全参照元のobserved rowを更新する。既存sync-modelのservice指定生成・検証が成功してから同process内で次DeployOrderへ進む。最終groupも同期してCOMPLETEとなり、通常成功で追加resumeを要求しない。曖昧な対応は`AMBIGUOUS_OBSERVED_MAPPING`で停止し、LLMが補完しない。failure/blocker時は新規起動を止めて成功分のobservedを同期し、AUTO_REPAIRABLEの修復・再検証が成功した場合だけ後続groupへ進む。
 
 7. session v2はinputDigest、validationDigest、validationStatus、検証済み入力digestと計測値を保持する。同一入力／frameworkで前回PASSなら全scope cfn-lintを再実行しない。実AWS context、Export、change set、execute前のimmutable artifact照合は毎回行う。v1 sessionは旧入力hashを照合し、初回の再開で再validation／observed同期してv2へ移行する。sessionはtarget/design/scopeとstackごとのtemplate/parameter/sourceのdigestと配置先bucket/key/version/checksum、実行用template hashを保持する。元IaCを変更しない実行用copyはrepository外sessionに隣接する`.files` directoryへ保存する。配置済みobjectとcopyも再開・execution前に再照合し、以前の承認で変更済み成果物を実行しない。deploy phaseではIaCの変更を一切許さず、update phaseでは未着手NOT_STARTED stackの承認済み設計内のIaC変更だけを再検証して受け付ける。準備済み・実行済みstackのIaCとtarget/design/scopeの変更は再開を拒否する。status/StackId/ARN/履歴はmodelやGitへ保存しない。sessionは同taskの継続用であり成功済みstackを自動rollback/delete/redeployしない。RUNNING取得エラーでは新規起動を止めterminal確認を続ける。controllerへの割り込み後は同じsessionだけで再開し、別sessionの同時実行を行わない。target lockで重複controllerを拒否する。異常終了でlockが残った場合は実行中controllerがないことを確認してからlockだけを除去し、同じsessionを再開する。
 
@@ -203,7 +203,7 @@ humanが全対象と理由を承認した場合は、`tasks/<task-name>.md`のAu
 
 humanが承認しない、または一部だけを承認した場合はchange setまたはplanを実行せず停止する。resource保持、CloudFormation管理外化、configuration変更が必要でも、このdeploy phaseでIaCやintended designを変更しない。
 
-scope超過、account/region不一致、delete/replacementのactionを確定できない、validation/plan failure、credential/permission不足、またはdeployment failureでは停止する。未承認のdelete/replacementだけは上記のhuman確認待ちとし、failureとして終了しない。IaCやintended designをこのtaskで修正せず、同じdeployを原因未確認で再実行しない。CloudFormationで停止条件が発生したら新たなunitを起動せず、実行中stackの終状態を確認して成功済み、失敗、未実行を区別する。成功済みstackを自動rollback、delete、redeployしない。Terraform apply failureはpartial applyの可能性があるため、stateとAWS実体をread-onlyで確認して停止する。
+CloudFormationのfailureはcontrollerのControlled deploy repair分類へ進め、AUTO_REPAIRABLEならrepair・validation・新change set・retry後にremaining unitへ自動継続する。scope超過、account/region不一致、delete/replacementのaction不明、未確定設計、外部権限不足等のHUMAN_REQUIREDだけHumanへ相談する。Terraformのvalidation/plan/apply failureは従来どおり停止する。未承認のdelete/replacementだけは上記のhuman確認待ちとし、failureとして終了しない。intended designを変更せず、修復履歴のないIaC変更や原因未確認のretryを行わない。CloudFormationで停止条件が発生したら新たなunitを起動せず、実行中stackの終状態を確認して成功済み、失敗、未実行を区別する。成功済みstackを自動rollback、delete、redeployしない。Terraform apply failureはpartial applyの可能性があるため、stateとAWS実体をread-onlyで確認して停止する。
 
 CloudFormationのobserved収集・生成はcontroller内で完了する。以下の手動収集手順はTerraformに適用する。
 
@@ -219,9 +219,9 @@ deploy完了status、resource存在、observed value収集をapplication behavio
 
 ## Verify and finish
 
-1. 対象IaCに変更がないことを確認する。
+1. 対象IaCの差分が同sessionのauthorized repair履歴と一致し、対象外変更がないことを確認する。
 2. `python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md`を一回実行する。task scope、Acceptance checks、Git差分checkを含む。framework regressionの既存条件（full／--all／framework変更）を維持し、framework開発taskとdeploy taskを混在させない。
 
 target、account、region、engine、preflight結果、deployment unitとdependency順、plan/change set summary、human確認待ちと承認結果、deploy完了status、observed value更新、blockerを完了報告に記載する。verification outputをrepositoryへ保存しない。
 
-IaC、intended design、scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。
+controlled repair以外のIaC、intended design、scenario、scenario result、別target、次taskを変更、作成、実行しない。application behaviorの検証には、humanが別taskとして`framework/prompts/codex/06_scenario-test.md`を使用する。

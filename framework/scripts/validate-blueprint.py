@@ -165,7 +165,8 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None) -> None:
+        self.iac_paths = iac_paths
         self.workers = workers
         self.model_check = model_check
         self.cache = PassCache(root, fresh) if cache else None
@@ -499,7 +500,13 @@ class Validator:
             if self.infrastructure_phase == "implement":
                 self.check(iac_changed, "infrastructure implement phase must change selected IaC")
             elif self.infrastructure_phase == "deploy":
-                self.check(not iac_changed, "infrastructure deploy phase must not change IaC")
+                if iac_changed:
+                    from deploy_preparation import repair_changes
+                    try:
+                        repair_changes(self.root, task_path(self.root).read_text(encoding="utf-8"),
+                                       {path for path in changed if self.under(path, "infra")})
+                    except (OSError, ValueError, KeyError, TypeError) as error:
+                        self.check(False, f"infrastructure deploy phase must not change IaC without controlled repair evidence: {error}")
             elif self.infrastructure_phase == "update":
                 self.check(iac_changed, "infrastructure update phase must change selected IaC")
                 self.check(
@@ -2301,6 +2308,8 @@ class Validator:
     def check_cloudformation_yaml_rules(self) -> None:
         base = self.root / "infra" / "cloudformation" / "templates"
         for path in sorted(base.rglob("*")):
+            if self.iac_paths is not None and path not in self.iac_paths:
+                continue
             if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
                 continue
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -2424,6 +2433,8 @@ class Validator:
                 stack_parameters[parameter_path] = templates / alias / stack["template"]
         environment_templates: set[Path] = set()
         for path in sorted(templates.rglob("*")):
+            if self.iac_paths is not None and path not in self.iac_paths:
+                continue
             if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
                 continue
             section = ""
@@ -2445,6 +2456,8 @@ class Validator:
                 self.check(declared, f"CloudFormation resource uses Environment without Parameters.Environment: {self.relative(path)}")
 
         for path in sorted(parameters.rglob("*.json")):
+            if self.iac_paths is not None and path not in self.iac_paths:
+                continue
             parts = path.relative_to(parameters).parts
             if len(parts) < 3:
                 continue

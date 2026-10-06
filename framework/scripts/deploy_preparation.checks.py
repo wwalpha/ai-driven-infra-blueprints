@@ -115,7 +115,12 @@ def check_preparation():
         text = (run / "contract.md").read_text(encoding="utf-8")
         reserved = paths_in(text, "## Modified files")
         assert "model/dev/123456789012/ec2/part-003.properties" in reserved
-        assert not any(p.startswith("infra/") for p in reserved)
+        assert {p for p in reserved if p.startswith("infra/")} == {
+            "infra/cloudformation/templates/shared.yaml",
+            "infra/cloudformation/parameters/dev/123456789012/1.json",
+            "infra/cloudformation/parameters/dev/123456789012/2.json"}
+        assert '- Controlled repair: `allowed`' in text
+        assert f'- Deploy repair session: `{run / "session.json"}`' in text
         for document in plan["documents"]:
             assert all(len(Path(chunk).read_text(encoding="utf-8")) <= 6000 for chunk in document["chunks"])
         documents = {d["source"]: d for d in plan["documents"]}

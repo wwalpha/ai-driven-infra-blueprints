@@ -192,7 +192,7 @@ def candidate(root, task, env, directory, target, stacks, services):
              f"- Target environment: `{env}`", f"- Target AWS account: `{target['awsAccountId']}`"]
     if "alias" in target:
         lines.append(f"- Target alias: `{target['alias']}`")
-    lines += [f"- Goal: {env}/{directory}の承認済みCloudFormation {units}を変更せずdeployし、必要なobservedを同期する。",
+    lines += [f"- Goal: {env}/{directory}の承認済みCloudFormation {units}をcontrolled repairの範囲でdeployし、必要なobservedを同期する。",
               f"- Deployment scope: {units}", "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
               "- Authorized delete/replacement: `none`", "", "## Validation scope", ""]
     lines += [f"- `{value}`" for value in scope]
@@ -232,6 +232,14 @@ def prepare(root, args, run, timing):
         execution_inputs = {path for unit in units for path in backend.paths(unit)}
         execution_inputs.update(backend.source_path(artifact) for unit in units for artifact in unit.get("artifacts", []))
         sources.update(execution_inputs)
+        if generated_views & execution_inputs:
+            raise ValueError('generated view conflicts with execution/required input')
+        repair_paths = sorted(path.relative_to(root).as_posix() for path in execution_inputs)
+        for heading in ('## Modified files', '## Allowed paths'):
+            text = text.replace(heading + '\n', heading + '\n' + ''.join(f'- `{relative}`\n' for relative in repair_paths))
+        text = text.replace('- Authorized delete/replacement: `none`',
+                            '- Authorized delete/replacement: `none`\n- Controlled repair: `allowed`\n'
+                            + f'- Deploy repair session: `{run / "session.json"}`')
         checks = [f"- [R1] `exists:{path.relative_to(root).as_posix()}`" for unit in units for path in backend.paths(unit)]
         text = text.replace("## Acceptance checks\n", "## Acceptance checks\n" + "\n".join(sorted(set(checks))) + "\n")
         records = contracts(root)
@@ -336,6 +344,45 @@ def register(root, path, timing):
     plan["within60Seconds"] = plan["preparationSeconds"] <= 60
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return plan
+
+
+def task_digest(text):
+    # Human approval updates the existing contract, not deployment inputs/scope.
+    text = '\n'.join(line for line in text.splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def repair_changes(root, contract, changed):
+    """Shared validator/resume evidence: only exact session-authorized file bytes."""
+    from task_contract import task_path, paths_in
+    entries = re.findall(r"^- Deploy repair session: `([^`]+)`$", contract, re.M)
+    if '- Controlled repair: `allowed`' not in contract.splitlines() or len(entries) != 1:
+        raise ValueError('deploy phase IaC changes need controlled repair session authorization')
+    path = Path(entries[0])
+    if not path.is_absolute() or path.resolve().is_relative_to(root.resolve()):
+        raise ValueError('deploy repair session must be outside repository')
+    session = json.loads(path.read_text(encoding='utf-8'))
+    selected = task_path(root)
+    if (session.get('repository') != str(root.resolve()) or session.get('taskFile') != selected.relative_to(root).as_posix()
+            or session.get('taskDigest') != task_digest(contract)):
+        raise ValueError('deploy repair session task identity changed')
+    authorized = {}
+    for state in session['states'].values():
+        for record in state.get('repairs', []):
+            if record.get('classification') != 'AUTO_REPAIRABLE' or record.get('stage') == 'REPAIR_INTENT':
+                continue
+            relative = record['path']
+            if relative in authorized and authorized[relative]['newFileDigest'] != record['oldFileDigest']:
+                raise ValueError('deploy repair digest chain broken')
+            authorized[relative] = record
+    reserved = paths_in(contract, '## Modified files')
+    allowed = paths_in(contract, '## Allowed paths')
+    for relative in changed:
+        if relative not in reserved or relative not in allowed or relative not in authorized:
+            raise ValueError('unauthorized deploy IaC change: ' + relative)
+        if sha(root / relative) != authorized[relative]['newFileDigest']:
+            raise ValueError('deploy repair file digest changed: ' + relative)
+    return session
 
 
 def run_controller(root, path):

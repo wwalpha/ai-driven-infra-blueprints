@@ -37,6 +37,10 @@
 - `tasks/`には独立した契約だけを置き、task履歴やevidenceを保存しない。Task statusは`running`、`suspend`、`completed`。現在の停止理由はsuspend契約に記載してよい。local loop成功後に今回の契約だけをcompletedへ変更する。suspend契約は再開と未commit差分の所属のため保持し、完了済み契約は未commit差分の所属を保持する間だけ残し、差分がなくなれば削除する。
 - scenario evidenceの過去版はGit履歴で追跡し、実行別・timestamp別directoryを追加しない。
 
+## Controlled deploy repair contract
+
+CloudFormation deploy phaseは[Controlled deploy repair](cloudformation.md#controlled-deploy-repair)だけIaC修正を許可する。`- Controlled repair: `と`- Deploy repair session: `の値をそれぞれbacktick付き`allowed`、repository外の絶対session pathで明記し、対象template／parameter／宣言済みartifactだけを具体的Modified files／Allowed pathsへ予約する。intended design、scope、task typeはimmutableとし、file追加は既存scope expansion／予約検査に従う。修復許可は任意編集の許可ではなく、validatorが同sessionのAUTO_REPAIRABLE履歴・file digestへ一致を要求する。Humanによる既存change setの承認更新は従来どおり許可する。
+
 ## Acceptance contract
 
 active taskの`## Required changes`は一意なRequirement IDを持ち、`## Acceptance checks`で同じIDへ一つ以上のcheckを対応付ける。

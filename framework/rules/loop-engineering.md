@@ -58,7 +58,7 @@ task type固有checkはactive taskから省略できず、少なくとも次を�
 
 - `initialization`: `project.json`が変更され、target pathとIaC selectionが有効
 - `design`: 対象の正本model propertiesを先に変更し、Markdown／JSON artifactがその決定的生成結果と一致
-- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更。`update` phaseではhuman-changed model properties、生成Markdown、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
+- `infrastructure`: `implement` phaseではIaCが変更され、`deploy` phaseではIaCが未変更、または同sessionのcontrolled repair証跡と一致する予約済みfileだけが変更。`update` phaseではhuman-changed model properties、生成Markdown、IaCが同じ差分に含まれる。全phaseでscenarioは未変更
 - `scenario-test`: scenarioと同じtargetのcurrent resultが変更
 - `governance`: active task以外のframework fileが変更
 - `catalog-maintenance`: catalog fileと`framework/materials/catalog.sha256`が変更
@@ -153,7 +153,7 @@ infrastructure taskのTask contractには`Infrastructure phase`を正確に1件�
 
 `deploy` phase:
 
-1. 作成・検証済みIaCを変更せず、deterministic preflightを実行する。
+1. 作成・検証済みIaCでdeterministic preflightを実行する。failureは[Controlled deploy repair](cloudformation.md#controlled-deploy-repair)で分類し、AUTO_REPAIRABLEだけaffected unitを最小修復・再検証する。
 2. CloudFormationは`cfn-lint`、`aws cloudformation validate-template`、change set、Terraformはvalidationと保存済みplanでscopeを確認する。
 3. 未承認のdelete/replacementがなければactive promptが許可した対象だけをdeploy/applyする。未承認のdelete/replacementがあれば、対象、理由、影響、現在の実行状態を説明してhuman確認待ちとし、承認後に同じtaskと同じchange setまたは保存済みplanで再開する。
 4. 成功したAWS mutationがある場合だけmodelのobserved valueを更新し、Markdownを再生成する。

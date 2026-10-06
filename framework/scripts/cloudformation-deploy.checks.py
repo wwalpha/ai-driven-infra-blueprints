@@ -291,7 +291,7 @@ def check_template_validation():
                 patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")) as run:
             backend.validate(unit)
             assert backend.templates["A"][1] == {"Prefix": "Network"}
-            assert run.call_args.args[0] == ["cfn-lint", "--regions", "ap-northeast-1", "--template", str(template)]
+            assert run.call_args.args[0] == ["cfn-lint", "--regions", "ap-northeast-1", "--template", str(template), "--format", "json"]
             assert not calls  # AWS validation happens at the unit's turn, after its bucket exists.
             old = template.read_bytes()
             template.write_text("Resources: {Changed: {}}\n")
@@ -1478,6 +1478,410 @@ def check_api_timing():
         assert all(event["phase"] == "awsApi" and event["seconds"] >= 0 for event in events)
         assert "private-stack" not in path.read_text() and "Stacks" not in path.read_text()
 
+
+def check_controlled_repair():
+    """Ten requested failure cases use real projection/edit/repair/scheduler/approval code."""
+    from deploy_preparation import repair_changes, task_digest
+    from cloudformation_inputs import load_template_inputs
+    spec = importlib.util.spec_from_file_location('repair_models', Path(__file__).with_name('model_design.checks.py'))
+    helpers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helpers)
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        root = (base / 'repo').resolve()
+        shutil.copytree(ROOT / 'framework', root / 'framework')
+        (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
+        modeldir = root / 'model/dev/123456789012'
+        modeldir.mkdir(parents=True)
+        unit = {'name': 'A', 'template': 'a.yaml', 'parameters': 'a.json', 'deployOrder': '1'}
+        following = dict(unit, name='B', template='b.yaml', parameters='b.json', deployOrder='2')
+        scoped = [unit, following]
+        values = {f'desired.stack.{i:03d}.{key}': value for i, u in enumerate(scoped, 1) for key, value in u.items()}
+        for i in (1, 2):
+            values[f'display.stack.{i:03d}.comment'] = '対象stack'
+        (modeldir / 'cloudformation-stacks.properties').write_text(helpers.text(values))
+        template = root / 'infra/cloudformation/templates/a.yaml'
+        template.parent.mkdir(parents=True)
+        template.with_name('b.yaml').write_text('Resources: {}\n')
+        parameters = root / 'infra/cloudformation/parameters/dev/123456789012'
+        parameters.mkdir(parents=True)
+        for key in ('a', 'b'):
+            (parameters / (key + '.json')).write_text('[]\n')
+        task = root / 'tasks/active.md'
+        task.parent.mkdir()
+        state_path = base / 'session.json'
+        source_path = modeldir / 'ec2.properties'
+        def configure(service, kind, rows, text, reason, *, create=False, repeated=False, destructive=False):
+            for key in ('a', 'b'):
+                (parameters / (key + '.json')).write_text('[]\n')
+            template.with_name('b.yaml').write_text('Resources: {}\n')
+            for i, u in enumerate(scoped, 1):
+                values[f'desired.stack.{i:03d}.deployOrder'] = u['deployOrder']
+            (modeldir / 'cloudformation-stacks.properties').write_text(helpers.text(values))
+            for path in modeldir.glob('*.properties'):
+                if path.name != 'cloudformation-stacks.properties':
+                    path.unlink()
+            resource = helpers.model(service, kind, 'app-dev-item', rows, 'Item')
+            resource['desired.resource.001.cfn-logicalId'] = 'A-Item'
+            modelpath = modeldir / (service + '.properties')
+            modelpath.write_text(helpers.text(resource))
+            template.write_text(text)
+            relative = template.relative_to(root).as_posix()
+            contract = '\n'.join(['## Task contract', '- Task type: `infrastructure`', '- Task status: `running`',
+                '- Infrastructure phase: `deploy`', '- Controlled repair: `allowed`',
+                f'- Deploy repair session: `{state_path}`', '## Validation scope', f'- `dev/123456789012/{service}`',
+                '## Modified files', '- `tasks/active.md`', f'- `{relative}`',
+                '## Allowed paths', '- `tasks/active.md`', f'- `{relative}`'])
+            task.write_text(contract)
+            backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+            session = {'states': states(scoped), 'metrics': {'observedSyncSeconds': 0},
+                       'repository': str(root), 'taskFile': 'tasks/active.md', 'taskDigest': task_digest(contract),
+                       'infraManifest': {p.relative_to(root).as_posix(): backend.file_digest(p) for p in (root / 'infra').rglob('*') if p.is_file()},
+                       'unitDigests': {u['name']: backend.input_digest(u) for u in scoped}}
+            backend.session, backend.states = session, session['states']
+            backend.expected_digests = session['unitDigests']
+            backend.workdir = base / 'files'
+            calls, executions, validations = [], [], []
+            current = {'A': None if create else 'UPDATE_COMPLETE', 'B': None}
+            stackid = {name: f'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/session-unique' for name in ('A', 'B')}
+            changes, tokens = {}, {}
+            def aws(operation, *args, **kwargs):
+                calls.append((operation, args))
+                if operation in {'delete-stack', 'execute-change-set', 'create-change-set'}:
+                    backend.guard()
+                if '--stack-name' in args:
+                    name = args[args.index('--stack-name')+1]
+                    name = name.split(':stack/')[-1].split('/')[0]
+                else:
+                    name = 'A'
+                if operation == 'describe-stacks':
+                    if current[name] is None:
+                        raise M.Blocked('stack does not exist')
+                    return {'Stacks': [{'StackStatus': current[name], 'StackId': stackid[name]}]}
+                if operation == 'list-stack-resources':
+                    return {'StackResourceSummaries': []}
+                if operation == 'create-change-set':
+                    key = args[args.index('--change-set-name')+1]
+                    changes[name] = key
+                    return {'Id': key, 'StackId': stackid[name]}
+                if operation == 'describe-change-set':
+                    replacement = destructive and executions.count('A') >= 1 and name == 'A'
+                    return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': [{'ResourceChange': {
+                        'LogicalResourceId': 'Item', 'ResourceType': 'AWS::' + kind.replace('.', '::'),
+                        'Action': 'Modify' if replacement else 'Add', 'Replacement': 'True' if replacement else 'False'}}]}
+                if operation == 'execute-change-set':
+                    executions.append(name)
+                    tokens[name] = args[args.index('--client-request-token')+1]
+                    failed = name == 'A' and (executions.count('A') == 1 or repeated)
+                    current[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failed else 'CREATE_COMPLETE'
+                    return {}
+                if operation == 'describe-stack-events':
+                    events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
+                               'ResourceStatus': current[name], 'StackId': stackid[name]}]
+                    if 'ROLLBACK' in current[name]:
+                        events.append({'ResourceType': 'AWS::' + kind.replace('.', '::'), 'LogicalResourceId': 'Item',
+                                       'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': reason,
+                                       'ClientRequestToken': tokens[name]})
+                    return {'StackEvents': events}
+                if operation == 'delete-stack':
+                    assert args[args.index('--stack-name')+1] == stackid['A']
+                    current['A'] = None
+                return {}
+            backend.aws = aws
+            def guard():
+                manifest = {p.relative_to(root).as_posix(): backend.file_digest(p) for p in (root / 'infra').rglob('*') if p.is_file()}
+                if manifest != session['infraManifest']:
+                    raise M.Blocked('unauthorized IaC change outside controlled repair')
+                if any(backend.input_digest(u) != session['unitDigests'][u['name']] for u in scoped):
+                    raise M.Blocked('unit digest changed')
+            backend.guard = guard
+            def save():
+                state_path.write_text(json.dumps(session))
+            def validate(u):
+                validations.append(u['name'])
+                repair_changes(root, task.read_text(), {session['states'][u['name']]['repairs'][-1]['path']})
+                backend.validate(u)  # Real cfn-lint and template decoder, no AWS.
+                assert backend.input_digest(u) == session['unitDigests'][u['name']]
+            backend.refresh_validation, backend.save = validate, save
+            backend.load_inputs(unit)
+            backend.load_inputs(following)
+            backend.validated_digests = dict(session['unitDigests'])
+            save()
+            def run():
+                def synced(_backend, items, saved):
+                    for item in items:
+                        saved[item['name']]['observedSynced'] = True
+                with patch.object(M, 'sync_successful', side_effect=synced):
+                    return M.run_session(scoped, 2, session, backend, save, sleep=lambda _: None)
+            return backend, session, calls, executions, validations, run
+        vpc = 'Resources:\n  Item:\n    Type: AWS::EC2::VPC\n    Properties:\n      EnableDnsSupport: true\n'
+        # Case 1: an omitted typed model property is inserted, validated and retried.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        before = template.read_text()
+        assert run() == 'COMPLETE', session
+        assert executed == ['A', 'A', 'B'] and validated == ['A']
+        assert 'EnableDnsSupport: true' in template.read_text() and 'CidrBlock: 10.0.0.0/16' in template.read_text()
+        history = session['states']['A']['repairs']
+        assert history[0]['classification'] == 'AUTO_REPAIRABLE' and history[0]['oldDigest'] != history[0]['newDigest']
+        assert len({args[args.index('--change-set-name')+1] for op, args in calls if op == 'create-change-set' and args[1] == 'A'}) == 2
+        # Real task validator consumes session evidence, rejects arbitrary extra changes.
+        spec = importlib.util.spec_from_file_location('repair_task_validator', Path(__file__).with_name('validate-blueprint.py'))
+        vm = importlib.util.module_from_spec(spec); spec.loader.exec_module(vm)
+        validator = vm.Validator(root); validator.task_type = 'infrastructure'; validator.infrastructure_phase = 'deploy'
+        validator.changed_paths = {'infra/cloudformation/templates/a.yaml', 'tasks/active.md'}
+        validator.check_task_type_requirements(); assert not validator.errors, validator.errors
+        template.write_text(template.read_text() + '# unauthorized\n')
+        validator.check_task_type_requirements(); assert validator.errors
+        # Case 2: stale Subnet resolves from explicit CREATE identity, failed shell cleanup by StackId.
+        lambda_text = '''Resources:
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: vpc-12345678
+      CidrBlock: 10.0.0.0/24
+
+  Item:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: 'def handler(event, context): return 1'
+      Runtime: python3.12
+      Handler: index.handler
+      Role: arn:aws:iam::123456789012:role/app-dev-role
+      VpcConfig:
+        SubnetIds: [subnet-0521f67350b825ab6]
+        SecurityGroupIds: [sg-12345678]
+'''
+        backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
+            [('VpcConfig.SubnetIds', '[subnet](ec2.md#ec2-app-dev-subnet)', 'subnet')], lambda_text, 'SubnetNotFound subnet-0521f67350b825ab6', create=True)
+        subnet = helpers.model('ec2', 'EC2.Subnet', 'app-dev-subnet', [('SubnetId', '[subnet](#ec2-app-dev-subnet)', 'ID')], 'Subnet')
+        subnet['desired.resource.001.cfn-logicalId'] = 'A-Subnet'
+        source_path.write_text(helpers.text(subnet))
+        task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n## Modified files'))
+        session['taskDigest'] = task_digest(task.read_text()); backend.save()
+        assert run() == 'COMPLETE', session
+        assert executed == ['A', 'A', 'B'] and any(op == 'delete-stack' for op, _ in calls)
+        assert '!Ref' in template.read_text() and 'Subnet' in template.read_text()
+        assert session['states']['A']['cleanupStatus'] == 'DELETE_COMPLETE'
+        # A nonfailing external Role expression does not force consultation for a known Subnet repair.
+        lambda_with_import = lambda_text.replace('Role: arn:aws:iam::123456789012:role/app-dev-role', 'Role: !ImportValue RoleArn')
+        backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
+            [('VpcConfig.SubnetIds', '[subnet](ec2.md#ec2-app-dev-subnet)', 'subnet'),
+             ('Role', '[role](iam.md#iam-app-dev-role)', 'role')], lambda_with_import, 'SubnetNotFound old subnet')
+        source_path.write_text(helpers.text(subnet))
+        role = helpers.model('iam', 'IAM.Role', 'app-dev-role', [('RoleName', '`app-dev-role`', '名前')], 'Role')
+        role['desired.resource.001.cfn-logicalId'] = 'B-Role'
+        (modeldir / 'iam.properties').write_text(helpers.text(role))
+        task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n- `dev/123456789012/iam`\n## Modified files'))
+        session['taskDigest'] = task_digest(task.read_text()); backend.save()
+        event_subnet = {'LogicalResourceId': 'Item', 'ResourceType': 'AWS::Lambda::Function',
+                        'ResourceStatus': 'STATIC_VALIDATION_FAILED', 'ResourceStatusReason': 'SubnetNotFound old subnet'}
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event_subnet])
+        assert backend.repair(unit, state), state
+        assert 'Role: !ImportValue RoleArn' in template.read_text()
+        # Cross-stack Subnet correction confirms the existing actual Export expression and owner.
+        external_lambda = 'Resources:\n  Item:' + lambda_text.split('\n  Item:', 1)[1]
+        backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
+            [('VpcConfig.SubnetIds', '[subnet](ec2.md#ec2-app-dev-subnet)', 'subnet')], external_lambda, 'SubnetNotFound old subnet')
+        subnet['desired.resource.001.cfn-logicalId'] = 'B-Subnet'
+        source_path.write_text(helpers.text(subnet))
+        producer = {'Resources': {'Subnet': {'Type': 'AWS::EC2::Subnet', 'Properties': {'VpcId': 'vpc-12345678', 'CidrBlock': '10.0.0.0/24'}}},
+                    'Outputs': {'SubnetId': {'Value': {'Ref': 'Subnet'}, 'Export': {'Name': 'SubnetExport'}}}}
+        template.with_name('b.yaml').write_text(json.dumps(producer))
+        task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n## Modified files'))
+        session['taskDigest'] = task_digest(task.read_text())
+        session['infraManifest']['infra/cloudformation/templates/b.yaml'] = backend.file_digest(template.with_name('b.yaml'), fresh=True)
+        session['unitDigests']['B'] = backend.input_digest(following, fresh=True)
+        original_aws = backend.aws
+        def reference_aws(operation, *args, **kwargs):
+            if operation == 'list-exports':
+                calls.append((operation, args))
+                return {'Exports': [{'Name': 'SubnetExport', 'Value': 'subnet-current',
+                                     'ExportingStackId': 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/B/id'}]}
+            if operation == 'get-template':
+                calls.append((operation, args)); return {'TemplateBody': producer}
+            if operation == 'describe-stacks' and args == ('--stack-name', 'B'):
+                calls.append((operation, args)); return {'Stacks': [{'StackStatus': 'CREATE_COMPLETE', 'Parameters': []}]}
+            return original_aws(operation, *args, **kwargs)
+        backend.aws = reference_aws
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event_subnet])
+        backend.save()
+        assert backend.repair(unit, state), state
+        assert '!ImportValue' in template.read_text() and 'SubnetExport' in template.read_text()
+        assert sum(op == 'get-template' for op, _ in calls) == 1
+        subnet['desired.resource.001.cfn-logicalId'] = 'A-Subnet'
+        # Case 3: explicit approved account projection, not an inference from AccessDenied.
+        glue_text = 'Resources:\n  Item:\n    Type: AWS::Glue::Database\n    Properties:\n      CatalogId: "111111111111"\n      DatabaseInput:\n        Name: app_dev_database\n'
+        backend, session, calls, executed, validated, run = configure('glue', 'Glue.Database',
+            [('CatalogId', '`123456789012`', 'approved own account')], glue_text, 'Catalog AccessDenied')
+        assert run() == 'COMPLETE', session
+        assert '!Ref' in template.read_text() and 'AWS::AccountId' in template.read_text() and executed == ['A', 'A', 'B']
+        # Case 4: external key absent, authoritative handoff unresolved: no edits.
+        backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
+            [('KmsKeyArn', '`UNSET`', 'external key unknown')], lambda_text, 'KMS key does not exist')
+        before = template.read_bytes(); assert run() == 'STOPPED'
+        assert template.read_bytes() == before and session['states']['A']['failureClassification'] == 'HUMAN_REQUIRED'
+        assert not validated and not any(op == 'delete-stack' for op, _ in calls)
+        # An IMPORT Key reference without an approved handoff is also never guessed.
+        backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
+            [('KmsKeyArn', '[key](kms.md#kms-app-dev-key)', 'external key')], lambda_text, 'KMS key does not exist')
+        imported = helpers.model('kms', 'KMS.Key', 'app-dev-key', [('KeyId', '[key](#kms-app-dev-key)', '外部鍵')], 'Key')
+        imported['desired.resource.001.resourceMode'] = 'IMPORT'
+        (modeldir / 'kms.properties').write_text(helpers.text(imported))
+        task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/kms`\n## Modified files'))
+        session['taskDigest'] = task_digest(task.read_text()); backend.save()
+        before = template.read_bytes(); assert run() == 'STOPPED' and template.read_bytes() == before
+        assert session['states']['A']['failureClassification'] == 'HUMAN_REQUIRED' and not validated
+        # Case 5: approved cross-account CatalogId already matches, never rewrite to execution account.
+        backend, session, calls, executed, validated, run = configure('glue', 'Glue.Database',
+            [('CatalogId', '`111111111111`', 'cross-account')], glue_text, 'Catalog AccessDenied')
+        before = template.read_bytes(); assert run() == 'STOPPED' and template.read_bytes() == before
+        assert session['states']['A']['failureClassification'] == 'HUMAN_REQUIRED'
+        # Case 6: new replacement change set reaches the existing exact-ID Human approval gate.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing', destructive=True)
+        assert run() == 'STOPPED' and executed == ['A']
+        assert session['states']['A']['status'] == 'BLOCKED' and 'human confirmation' in session['states']['A']['reason']
+        # Case 7: repeated logical error after deterministic repair has no new material correction.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock request-id changed', repeated=True)
+        assert run() == 'STOPPED' and executed == ['A', 'A'] and len(session['states']['A']['repairs']) == 1
+        # Case 8: out-of-scope bytes cannot be absorbed into a repair transaction.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        template.with_name('b.yaml').write_text('Resources: {}\n# unauthorized\n')
+        before = template.read_bytes(); assert run() == 'STOPPED' and template.read_bytes() == before
+        assert 'unauthorized IaC' in session['states']['A']['reason']
+        # Case 9: successful peer is drained/synced once, never restarted during repair.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        following['deployOrder'] = '1'
+        assert run() == 'COMPLETE' and executed.count('B') == 1 and executed.count('A') == 2
+        following['deployOrder'] = '2'
+        # Case 10: UPDATE_ROLLBACK_FAILED/ResourcesToSkip never causes skip or deletion.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_FAILED', reason='ResourcesToSkip required')
+        before = template.read_bytes(); assert not backend.repair(unit, state)
+        assert template.read_bytes() == before and state['failureClassification'] == 'HUMAN_REQUIRED'
+        assert not any(op in {'delete-stack', 'continue-update-rollback'} for op, _ in calls)
+        # The three-iteration cap is enforced independently of changing request/error strings.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        state = session['states']['A']
+        event = {'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
+                 'ResourceStatus': 'STATIC_VALIDATION_FAILED', 'ResourceStatusReason': 'CidrBlock missing'}
+        state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event],
+                     repairs=[{'failureClass': 'Item:CidrBlock|Peer' + str(i) + ':Property', 'newFileDigest': str(i), 'stage': 'RETRY_READY'} for i in range(3)])
+        assert not backend.repair(unit, state) and 'iteration limit' in state['reason'] and not validated
+        # Structured lint failure is repaired before the first AWS change set.
+        invalid = vpc.replace('true', 'invalid_boolean') + '      CidrBlock: 10.0.0.0/16\n'
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('EnableDnsSupport', '`true`', 'DNS')], invalid, 'EnableDnsSupport invalid')
+        rejects(lambda: backend.validate(unit), 'cfn-lint failed')
+        assert backend.validation_failures['A']
+        state = session['states']['A']
+        state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=backend.validation_failures['A'])
+        assert backend.repair(unit, state) and validated == ['A'] and not calls, state
+        # Both interruption boundaries recover only persisted exact candidate bytes, then revalidate.
+        for boundary in ('REPAIR_INTENT', 'VALIDATING'):
+            backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+                [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+            state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+            original_save = backend.save
+            def interrupted():
+                original_save()
+                if state.get('repairs') and state['repairs'][-1]['stage'] == boundary:
+                    raise KeyboardInterrupt()
+            backend.save = interrupted
+            try:
+                backend.repair(unit, state)
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError('repair interruption not exercised')
+            assert not validated
+            backend.save = original_save
+            assert backend.repair(unit, state) and validated == ['A'] and state['status'] == 'NOT_STARTED'
+            assert len(state['repairs']) == 1
+        # Concurrent scope/parameter edits during diagnostics or intent persistence cannot be admitted.
+        for boundary in ('diagnostics', 'intent'):
+            backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+                [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+            state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+            untouched = template.read_bytes()
+            if boundary == 'diagnostics':
+                plan = backend.repair_plan
+                def concurrent_plan(*args):
+                    result = plan(*args)
+                    (parameters / 'b.json').write_text('[]\n# scope change')
+                    return result
+                backend.repair_plan = concurrent_plan
+            else:
+                original_save = backend.save
+                def concurrent_intent():
+                    original_save()
+                    if state.get('repairs') and state['repairs'][-1]['stage'] == 'REPAIR_INTENT':
+                        (parameters / 'a.json').write_text('[]\n# unauthorized parameter change')
+                backend.save = concurrent_intent
+            assert not backend.repair(unit, state) and not validated and not executed
+            if boundary == 'diagnostics':
+                assert template.read_bytes() == untouched
+            else:
+                assert 'outside the exact authorized candidate' in state['reason']
+        # Isolated stale parameter keeps its template Ref and changes only the reserved parameter file.
+        parameter_template = 'Parameters:\n  Cidr:\n    Type: String\nResources:\n  Item:\n    Type: AWS::EC2::VPC\n    Properties:\n      CidrBlock: !Ref Cidr\n'
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], parameter_template, 'CidrBlock invalid')
+        parameter = parameters / 'a.json'
+        parameter.write_text('[{"ParameterKey":"Cidr","ParameterValue":"10.1.0.0/16"}]')
+        relative = parameter.relative_to(root).as_posix()
+        task.write_text(task.read_text().replace('## Modified files', '## Modified files\n- `' + relative + '`').replace('## Allowed paths', '## Allowed paths\n- `' + relative + '`'))
+        session['taskDigest'] = task_digest(task.read_text())
+        session['infraManifest'][relative] = backend.file_digest(parameter, fresh=True)
+        session['unitDigests']['A'] = backend.input_digest(unit, fresh=True)
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+        backend.save()
+        before = template.read_bytes()
+        assert backend.repair(unit, state) and template.read_bytes() == before
+        assert json.loads(parameter.read_text())[0]['ParameterValue'] == '10.0.0.0/16'
+        # Reset to a template case for the rollback safety checks below.
+        backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
+            [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
+        state = session['states']['A']
+        # Unknown provenance and retained resource conditions are checked before delete.
+        state.update(stackStatus='ROLLBACK_COMPLETE', operationType='CREATE', absentBeforeCreate=True, stackId='id', operationStackId='other')
+        rejects(lambda: backend.cleanup_failed_create(unit, state), 'provenance')
+        state['operationStackId'] = 'id'
+        backend.templates['A'][0]['Resources']['Item']['DeletionPolicy'] = 'Retain'
+        rejects(lambda: backend.cleanup_failed_create(unit, state), 'retained')
+        backend.templates['A'][0]['Resources']['Item'].pop('DeletionPolicy')
+        def protected(operation, *args):
+            return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE', 'EnableTerminationProtection': True}]}
+        backend.aws = protected
+        rejects(lambda: backend.cleanup_failed_create(unit, state), 'protected')
+        def partial_asset(operation, *args):
+            if operation == 'describe-stacks':
+                return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
+            return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
+                                                'ResourceStatus': 'CREATE_FAILED', 'PhysicalResourceId': 'vpc-existing'}]}
+        backend.aws = partial_asset
+        rejects(lambda: backend.cleanup_failed_create(unit, state), 'still owns resources')
+        assert M.merge_selected([{'Key': 'Name', 'Value': 'old'}, {'Key': 'Owner', 'Value': 'keep'}],
+                                [{'Key': 'Name', 'Value': 'new'}], 'Tags') == [{'Key': 'Name', 'Value': 'new'}, {'Key': 'Owner', 'Value': 'keep'}]
+        empty = 'Resources:\n  Item:\n    Type: AWS::EC2::VPC\n'
+        assert 'Properties:' in M.repair_template(empty, 'Item', 'CidrBlock', '10.0.0.0/16')
+        flow = 'Resources: {Item: {Type: AWS::EC2::VPC, Properties: {CidrBlock: old, EnableDnsSupport: true}}}\n'
+        assert 'EnableDnsSupport: true' in M.repair_template(flow, 'Item', 'CidrBlock', '10.0.0.0/16')
+        # Source-span edits preserve sibling keys and comments across scalar/list/map values.
+        sample = 'Resources:\n  Item:\n    Type: AWS::Glue::Database\n    Properties:\n      CatalogId: "old" # comment\n      DatabaseInput:\n        Name: db\n        Description: old\n      Tags: [one]\n'
+        updated = M.repair_template(sample, 'Item', 'DatabaseInput', {'Name': 'db', 'Description': 'new'})
+        assert 'Tags: [one]' in updated and 'CatalogId: "old" # comment' in updated
+    print('Controlled deploy repair: PASS (Cases 1-10, typed projection, static lint, session evidence, no guessed values, provenance/retention gates)')
+
+
+check_controlled_repair()
 
 check_api_timing()
 
