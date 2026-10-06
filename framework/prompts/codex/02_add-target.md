@@ -32,7 +32,7 @@ Step 1: Environment
 
 If `project.json` is absent, stop without changing files and report that initialization using `framework/prompts/codex/01_initialize.md` is required.
 
-Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
+Follow AGENTS.md “How to read required rules” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 

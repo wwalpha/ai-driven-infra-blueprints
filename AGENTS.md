@@ -23,7 +23,7 @@ The following guides you to authoritative sources; it is not a list of files to 
 
 - [task-contract](framework/rules/task-contract.md): Contracts for repository changes, Task boundary, Acceptance contract
 - [issue-gate](framework/rules/issue-gate.md): Service-targeted task start, resume, saving, AWS mutation, and investigation/repair/save exceptions
-- [project-configuration](framework/rules/project-configuration.md): Target directory, topology, profile, and account determination/validation
+- [project-configuration](framework/rules/project-configuration.md): target directory, topology, profile, and account determination/validation
 - [model-information](framework/rules/model-information.md): Authoritative model, format, generation
 - [detailed-design](framework/rules/detailed-design.md): Target resource design/display
 - [observed-values](framework/rules/observed-values.md): Current identifier retrieval, saving, propagation

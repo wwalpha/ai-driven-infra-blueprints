@@ -80,7 +80,7 @@ Limit reads to Design scope resources/properties and portions needed for referen
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
-Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
+Follow AGENTS.md “How to read required rules” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 

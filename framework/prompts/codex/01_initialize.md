@@ -30,7 +30,7 @@ Project nameを入力してください。
 5. [issue-gate](../../rules/issue-gate.md)
 6. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope), and [Other task completion](../../rules/loop-engineering.md#other-task-completion)
 
-Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
+Follow AGENTS.md “How to read required rules” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 

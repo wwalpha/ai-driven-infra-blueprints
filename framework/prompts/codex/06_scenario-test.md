@@ -45,7 +45,7 @@ Retain Markdown/JSON artifact generation and authoritative properties consistenc
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID. Record the actual AWS account ID from `project.json` in result metadata AWS account, not the directory name.
 
-Follow AGENTS.md “必要な規則の読み方” for specified section read ranges and conditional rules.
+Follow AGENTS.md “How to read required rules” for specified section read ranges and conditional rules.
 
 ### Conditional rule readings
 

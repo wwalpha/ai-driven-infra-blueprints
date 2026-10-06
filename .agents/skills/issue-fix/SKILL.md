@@ -1,45 +1,45 @@
 ---
 name: issue-fix
-description: AWS Blueprintの明示指定された1 environment内のtarget・serviceについてissues skillでローカル調査し、その結果の表示関連の問題だけを修復するときに使用する。環境指定は必須とし、複数環境の実行は禁止する。
+description: Use when locally investigating targets/services within one explicitly specified AWS Blueprint environment with the issues skill and repairing only display-related problems in its results. Environment specification is mandatory; execution across multiple environments is prohibited.
 ---
 
-# 表示関連issueの修復
+# Display-related issue repair
 
-共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。本skillの呼び出しは、依頼範囲の表示関連issueの調査と修復を許可する。設計値の変更、IaC修正、AWS API、deploy/apply、scenarioは含めない。
+The common authority is maintained in the `ai-driven-infra-blueprints` repository. Invoking this skill authorizes investigation and repair of display-related issues within the request scope. It does not include design-value changes, IaC repair, AWS APIs, deploy/apply, or scenarios.
 
-## 環境指定
+## Environment specification
 
-- humanによるenvironment名の明示指定を必須とし、1回の実行は1 environmentだけに限定する。未指定なら環境名を確認し、回答までissuesの調査・契約登録・修復を開始しない。既存契約、path、唯一のenvironmentから推測・補完しない。
-- 複数environmentや全環境の指定は禁止する。指定された場合は1 environmentの選択を求め、回答まで開始しない。先頭の環境だけを選ぶ、環境ごとのtaskへ自動分割する、順次実行することも行わない。
-- 指定されたenvironmentが`project.json`に存在することを確認する。issuesの先行調査、修復、再生成、再検証、issues.md更新まで同じenvironmentを維持し、契約のValidation scope・Issue remediation・model／生成物／issuesのpathへ別environmentを混ぜない。
+- Require the human to explicitly specify the environment name; limit one execution to one environment. If unspecified, ask for the environment name and do not start issues investigation, contract registration, or repair until answered. Do not infer or fill it from existing contracts, paths, or the sole environment.
+- Multiple environments or all environments are prohibited. If specified, ask for selection of one environment and do not start until answered. Do not select only the first environment, automatically split into tasks per environment, or execute sequentially.
+- Confirm that the specified environment exists in `project.json`. Retain the same environment through preliminary issues investigation, repair, regeneration, revalidation, and issues.md updates; do not mix other environments into the contract Validation scope, Issue remediation, or model/generated artifact/issues paths.
 
-## issuesによる先行調査
+## Preliminary investigation with issues
 
-1. 最初にissues skillの[対象の確認](../issues/SKILL.md#対象の確認)、[issue登録の判定](../issues/SKILL.md#issue登録の判定)、[命名規則の確認](../issues/SKILL.md#命名規則の確認)、[出力](../issues/SKILL.md#出力)を読み、同じenvironment・target・serviceについて呼び出す。この段階は読み取り専用のローカル調査とし、結果をチャットまたはrepository外の一時fileへ出す。issuesの調査方法・命名確認・未確認の扱いに従い、保存限定taskやissues.mdへの書き込みはまだ行わない。read-only調査ではrepository taskを登録しない。
-2. `project.json`で対象を確認し、既存の`issues/<environment>/<target-directory>/issues.md`を読む。対象指定が不足している場合は確認し、別target・serviceへ広げない。`AGENTS.md`、[issue-gate](../../../framework/rules/issue-gate.md)、[Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure)と対象resourceの表示・参照section、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)を読む。
-3. 調査結果を、表示だけで修復できる問題、設計判断・設定変更が必要な問題、未確認へ分ける。表示以外のissueが残っていても、明示された表示修復はIssue remediationとして扱える。表示修復対象がなければ調査結果を報告して終了する。
+1. First read the issues skill's [Scope confirmation](../issues/SKILL.md#scope-confirmation), [Issue registration decisions](../issues/SKILL.md#issue-registration-decisions), [Naming rule confirmation](../issues/SKILL.md#naming-rule-confirmation), and [Output](../issues/SKILL.md#output), and invoke it for the same environment/target/service. This phase is read-only local investigation; output results in chat or a temporary file outside the repository. Follow issues investigation methods, naming confirmation, and unconfirmed-item handling; do not yet perform a save-only task or write issues.md. Do not register a repository task for read-only investigation.
+2. Confirm the scope with `project.json` and read existing `issues/<environment>/<target-directory>/issues.md`. If scope specification is insufficient, ask; do not expand to another target/service. Read `AGENTS.md`, [issue-gate](../../../framework/rules/issue-gate.md), [Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure) and the target resource's display/reference sections, [Model authority](../../../framework/rules/model-information.md#model-authority), and [Properties format](../../../framework/rules/model-information.md#properties-format).
+3. Separate investigation results into problems repairable through display alone, problems requiring design decisions/setting changes, and unconfirmed items. Explicit display repair may be treated as Issue remediation even if other issues remain. If no display repair targets exist, report the investigation results and finish.
 
-## 修復範囲
+## Repair scope
 
-- 対象は、見出し・一覧・表の形式や番号、propertyの表示alias、説明文、リンクの表示text・anchor、正本modelと生成Markdown／JSONの表示不一致。resourceの所属、正式property、設定値、名称、tag、policy本文、参照先resource、resourceMode、logical ID、current identifierは維持する。
-- 表示入力の修復は`display.*`や説明commentなど対応するmodel propertiesを先に変更する。説明は確定済み設計から根拠を確認できる内容だけとし、不明な用途・表示名を作らない。正式名称のrename、必須Name／tagの追加、欠落する設計値の補完を表示修復へ含めない。
-- 設定値が正しく生成物だけが古い場合は、modelを変更せず再生成する。リンクは同じenvironment・targetの実resourceへの対応を確認し、既存の参照先を維持して表示を修復する。参照先が不明・複数候補・未設計なら未確認として残す。
-- 生成Markdown／JSONを直接編集しない。`--import-markdown`で既存modelを上書きしない。generator／validator／共通表示ruleの不具合を検知した場合は、原因と必要なframework修正を報告し、consumerのmodelで回避しない。framework修正は本skillから別taskとして自動開始しない。
+- Targets are heading/list/table format and numbering, property display aliases, descriptions, link display text/anchors, and display mismatches between authoritative models and generated Markdown/JSON. Preserve resource ownership, formal properties, setting values, names, tags, policy bodies, reference target resources, resourceMode, logical IDs, and current identifiers.
+- For display input repair, first change corresponding model properties such as `display.*` and explanatory comments. Limit descriptions to contents supported by confirmed design; do not invent unknown uses or display names. Do not include formal name renaming, mandatory Name/tag additions, or filling missing design values in display repair.
+- If setting values are correct and only generated artifacts are stale, regenerate without changing the model. For links, confirm correspondence to actual resources in the same environment/target and repair display while retaining existing reference targets. If the target is unknown, has multiple candidates, or is undesigned, retain it as unconfirmed.
+- Do not directly edit generated Markdown/JSON. Do not overwrite existing models with `--import-markdown`. If a generator/validator/common display rule defect is detected, report the cause and necessary framework repair; do not work around it in consumer models. Do not automatically start framework repair as another task from this skill.
 
-## 修復契約と生成
+## Repair contract and generation
 
-- 調査で特定した表示問題だけを対象に、`migration` taskを登録する。GoalとRequired changesへ対象issue、原因、表示修復scopeを記載し、既存issueの番号と根拠、または今回の調査結果を示す。この契約は保存限定taskの免除を使わず、`## Validation scope`とその部分集合の`## Issue remediation`へ具体的な`<environment>/<target-directory>/<service-id>`を列挙する。`all`／`framework`を修復例外にしない。
-- 契約の`## Modified files`と`## Allowed paths`へ、自分の契約、変更するmodel入口・part、生成Markdown／JSON、対象issues.mdの具体的pathを列挙する。変更予定fileは実変更前に予約し、各Requirement IDへ`changed:`／`exists:`または登録済み`check:`を対応付ける。別taskの変更・未予約の生成先を取り込まない。
-- repository外の候補から`task_contract.py --task-file tasks/<task-name>.md --source <候補file>`で登録し、以後は`BLUEPRINT_TASK_FILE`で同じ契約を選ぶ。重複時は新規taskを停止し、既存taskを変更しない。詳細は[task-contract](../../../framework/rules/task-contract.md)に従う。
-- modelは入口indexと必要なpartを一つの論理serviceとして扱う。変更前後で設定値・resource identity・参照先が維持されていることを確認し、`framework/scripts/sync-model.py --write`で契約scopeのserviceを生成する。成功serviceの生成物を保存し、失敗serviceの保存済み生成物を保持する。
+- Register a `migration` task targeting only display problems identified through investigation. Record target issues, causes, and display repair scope in Goal and Required changes, and show existing issue numbers/evidence or this investigation's results. This contract does not use the save-only task exemption; in `## Validation scope` and its subset `## Issue remediation`, enumerate specific `<environment>/<target-directory>/<service-id>` entries. Do not use `all`/`framework` as repair exceptions.
+- Enumerate specific paths for your own contract, changed model entries/parts, generated Markdown/JSON, and target issues.md in `## Modified files` and `## Allowed paths`. Reserve planned files before actual changes and map each Requirement ID to `changed:`/`exists:` or registered `check:`. Do not incorporate another task's changes or unreserved generation destinations.
+- Register from a candidate outside the repository using `task_contract.py --task-file tasks/<task-name>.md --source <候補file>`; thereafter select the same contract with `BLUEPRINT_TASK_FILE`. On overlap, stop the new task and do not change existing tasks. Follow [task-contract](../../../framework/rules/task-contract.md) for details.
+- Treat model entry indexes and necessary parts as one logical service. Confirm that setting values, resource identity, and reference targets are preserved before/after changes; generate services in contract scope with `framework/scripts/sync-model.py --write`. Save successful services' artifacts and retain failed services' already saved artifacts.
 
-## 再検証と一覧更新
+## Revalidation and list updating
 
-- 修復後に同じ範囲でissues skillの読み取り専用調査を再実行し、対象問題の解消と生成一致、リンク・anchor、表構造を確認する。検証失敗や比較不能を解消と扱わない。設定・名称・policy・参照先resource等の意味が変わった差分は表示修復として保存しない。
-- issues.mdは同じ修復契約内で更新する。解消を確認できた対象issueだけを除去し、表示以外の問題、未確認、対象外serviceの既存issueを保持する。新たに確認した未解決問題はissues skillの形式で記載し、更新日時・確認範囲・未検証範囲を更新する。0件でもfileを残す。
-- 最後に`python3 -B framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task-name>.md`を実行する。成功後だけ今回の契約を`completed`にする。失敗時は今回の契約を`suspend`にし、失敗check・file・具体的errorと必要なrepository外logを記録する。再開時は`task_contract.py --task-file tasks/<task-name>.md --resume`で競合を確認する。
-- チャットには修復内容、保存file、検証結果、残る設計問題・未確認を簡潔に報告して終了する。対象外の修復、次工程、別taskの作成・再開へ進まない。
+- After repair, rerun read-only issues skill investigation within the same scope; confirm resolution of target problems, generation equality, links/anchors, and table structure. Do not treat validation failure or incomparability as resolution. Do not save differences changing the meaning of settings, names, policies, reference target resources, etc. as display repair.
+- Update issues.md within the same repair contract. Remove only target issues confirmed resolved; retain non-display problems, unconfirmed items, and existing issues of out-of-scope services. Record newly confirmed unresolved problems in the issues skill format and update the timestamp, confirmed scope, and unverified scope. Retain the file even with 0 issues.
+- Finally run `python3 -B framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task-name>.md`. Mark this contract `completed` only after success. On failure, mark this contract `suspend` and record the failed check/file, specific error, and necessary log outside the repository. On resume, check conflicts with `task_contract.py --task-file tasks/<task-name>.md --resume`.
+- Briefly report repairs, saved files, validation results, and remaining design problems/unconfirmed items in chat and finish. Do not proceed to out-of-scope repair, the next phase, or creating/resuming another task.
 
-読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+Follow AGENTS.md “How to read required rules” for reading rules. Read [project-configuration](../../../framework/rules/project-configuration.md) for target determination and account/profile validation, and [issue-gate](../../../framework/rules/issue-gate.md) for stop and investigation/repair/save exception decisions. Only for repository changes, additionally read [task-contract](../../../framework/rules/task-contract.md), [Local loop](../../../framework/rules/loop-engineering.md#local-loop), [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), and [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion).
 
-framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。
+Only for framework changes, additionally read [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression).

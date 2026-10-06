@@ -1,67 +1,67 @@
 ---
 name: issues
-description: AWS Blueprintの指定environment・target・serviceをローカルで調査・検証し、問題一覧をissues配下へ保存・更新するとき、または提示済みの調査結果を保存するときに使用する。AWS APIチェックはaws-check skillで扱う。
+description: Use when locally investigating/validating the specified AWS Blueprint environment, target, and service and saving/updating issue lists under issues, or when saving already presented investigation results. AWS API checks are handled by the aws-check skill.
 ---
 
-保存・修復の契約登録は[task-contract](../../../framework/rules/task-contract.md)に従う。
+Follow [task-contract](../../../framework/rules/task-contract.md) for save/repair contract registration.
 
 
-# 問題の整理
+# Issue organization
 
-本スキルの共通正本は`ai-driven-infra-blueprints`リポジトリで管理する。
+The common authority for this skill is maintained in the `ai-driven-infra-blueprints` repository.
 
-通常の調査は[対象限定scanと保存](../../../framework/rules/issues-investigation.md)のPython入口を使い、機械診断＋命名全件材料＋残る判断点だけを確認する。model／Markdown／IaC全文の定型的な再読込、一致確認の再実行、report全文のLLM再編集を行わない。
+For ordinary investigation, use the Python entrypoint in [Scoped scan and saving](../../../framework/rules/issues-investigation.md) and check only mechanical diagnostics + all naming materials + remaining judgment points. Do not routinely reread full model/Markdown/IaC, rerun equality confirmation, or have the LLM re-edit full reports.
 
-依頼された範囲のローカル調査結果・検証エラーを、`issues/<environment>/<target-directory>/issues.md`へ保存する。model desired → ローカルIaC差分はPythonが別の`iac-issues.md`へ整形・保存し、通常issueへ混ぜない。未比較と処理errorを差分件数から分け、IaC差分自体は非阻害とする。実行ごとに同じファイルを更新する。AWS APIチェック、SDKによる現在値取得・比較は本skillに含めない。AWSチェックの依頼は[aws-check](../aws-check/SKILL.md)で扱い、issuesの実行から自動で開始しない。設計・model・IaC修正、deploy/applyは開始しない。
+Save local investigation results/validation errors within the requested scope to `issues/<environment>/<target-directory>/issues.md`. Python formats/saves model desired → local IaC differences to a separate `iac-issues.md`; do not mix them into ordinary issues. Separate uncompared items and processing errors from difference counts; IaC differences themselves are non-blocking. Update the same file on each execution. AWS API checks and SDK current-value retrieval/comparison are not included in this skill. Handle AWS check requests with [aws-check](../aws-check/SKILL.md); do not automatically start them from issues execution. Do not start design/model/IaC repair or deploy/apply.
 
-別途取得・調査済みのAWSチェック結果の保存が依頼された場合は、その結果を根拠として扱い、AWS APIを呼ばずに一覧へ反映する。ローカル検証だけでAWS現在値の一致・問題解消を確認したとは扱わない。
+If saving separately retrieved/investigated AWS check results is requested, treat those results as evidence and reflect them in the list without calling AWS APIs. Do not treat local validation alone as confirmation of current AWS value equality or problem resolution.
 
-## 保存と更新
+## Saving and updating
 
-- 保存は`migration` taskとして扱う。変更前に`AGENTS.md`と[loopのLocal loop](../../../framework/rules/loop-engineering.md#local-loop)を読み、最初のrepository変更として`tasks/<task-name>.md`を今回の対象・Goalで新規登録する。Validation scopeに今回対象のenvironment/target/serviceを明記する。Allowed pathsは`tasks/<task-name>.md`と今回対象の問題一覧ファイル（通常調査は`issues.md`と`iac-issues.md`、取得済み通常結果の保存だけは`issues.md`）だけとし、各Required changesにRequirement IDと対応する`exists:` Acceptance checkを記載する。
-- この保存限定taskは既存issueによる停止判定の対象外となる。未解決issueがあっても調査と一覧の更新を続け、Issue remediationによる修復例外は追加しない。設計・model・IaC変更やAWS mutationには通常のissue gateが適用される。
-- `docs/designs/<environment>/<target-directory>/`と同じ環境・target directory構成で保存する。複数targetは別ファイルに分け、必要なdirectoryだけ作成する。
-- 既存一覧のscope・所属・human確認はPythonが抽出する。LLMは対応が未確定の既存issueだけを限定確認し、Pythonが保存直前の再読込・共有排他・atomic writeでscope限定更新する。明示再検証の根拠付き解消だけを除去し、新scanに出なかった問題は保持する。具体的な不整合・不足を検出済みで解消が未確認の問題は、未確認と記載して保持する。未検証範囲だけを新しいissueとして登録しない。今回対象外のservice・問題は保持する。
-- ファイル冒頭に更新日時（Asia/Tokyo）と今回確認した範囲を記載する。未検証範囲があれば冒頭に明記する。対象targetの問題がなくなった場合もファイルを残し、`未解決issueなし`と確認範囲を記載する。履歴用・timestamp別ファイルは増やさない。
-- 保存後は`python3 framework/scripts/blueprint-loop.py --mode local`を実行し、チャットには保存したファイルへのリンクと検証結果を報告する。検証失敗時も調査結果を保存したまま失敗を報告し、対象外の修正や別taskへ進まない。
+- Treat saving as a `migration` task. Before changes, read `AGENTS.md` and [loop Local loop](../../../framework/rules/loop-engineering.md#local-loop); newly register `tasks/<task-name>.md` with this scope/Goal as the first repository change. Explicitly state the target environment/target/service in Validation scope. Limit Allowed paths to `tasks/<task-name>.md` and this task's target issue-list files (`issues.md` and `iac-issues.md` for ordinary investigation, only `issues.md` for saving already retrieved ordinary results); record Requirement IDs and corresponding `exists:` Acceptance checks for each Required change.
+- This save-only task is exempt from stop decisions due to existing issues. Continue investigation/list updates even with unresolved issues; do not add repair exceptions through Issue remediation. Ordinary issue gates apply to design/model/IaC changes and AWS mutation.
+- Save with the same environment/target directory structure as `docs/designs/<environment>/<target-directory>/`. Separate multiple targets into different files and create only necessary directories.
+- Python extracts existing list scope/ownership/human confirmation. The LLM checks only existing issues with unconfirmed correspondence; immediately before saving, Python rereads, uses shared mutual exclusion, and atomically writes scope-limited updates. Remove only resolutions supported by explicit revalidation; retain problems absent from the new scan. Retain problems with detected specific inconsistencies/deficiencies whose resolution is unconfirmed, stating that they are unconfirmed. Do not register unverified scope alone as a new issue. Preserve services/problems outside this scope.
+- Record update time (Asia/Tokyo) and this confirmed scope at the file start. Explicitly state any unverified scope at the start. Even when the target has no remaining problems, retain the file and record `未解決issueなし` and confirmed scope. Do not add history/timestamp-specific files.
+- After saving, run `python3 framework/scripts/blueprint-loop.py --mode local`; report links to saved files and validation results in chat. Even on validation failure, retain saved investigation results and report failure; do not proceed to out-of-scope repair or another task.
 
-## 対象の確認
+## Scope confirmation
 
-- `project.json`と対象fileのpathで環境・targetを確認する。aliasがあるtargetはalias、ないtargetはAWS account IDを使う。
-- serviceはPythonが正本service metadataと生成設計の機械診断で確認し、環境・aliasの異なる問題を同じblockへ混ぜない。
-- 参照不整合は既存の対象service限定validatorが同じ環境・targetの現行`docs/designs/**`と対応する`model/**`のresource、名称、anchorを照合する。LLMは未機械化・診断の判断に必要な該当resourceだけ追加取得する。移動前のfileや別環境だけを見てresource不在と断定しない。
-- 対象が不明なら質問し、別environment・target・serviceへ自動拡大しない。
-- 実行不能や比較不能は、check・対象・具体的errorを未検証範囲として記録し、AWS resourceの問題へ推測で置き換えない。実行済みcheckが検出した具体的なvalidation errorはissueとして記録し、未実行のcheckを成功扱いにしない。
-- 未deployのgenerated IDが`PENDING_DEPLOY`でも、設計の参照先が解決できれば参照欠落として扱わない。今回確認できていない事項は未検証範囲へ記載する。
+- Confirm environment/target using `project.json` and target file paths. Use aliases for targets with aliases, or AWS account IDs without aliases.
+- Python confirms services using authoritative service metadata and mechanical generated-design diagnostics; do not mix problems from different environments/aliases in one block.
+- For reference inconsistencies, the existing target-service-scoped validator compares resources, names, and anchors in current `docs/designs/**` and corresponding `model/**` within the same environment/target. The LLM additionally retrieves only corresponding resources necessary for non-mechanized/diagnostic judgments. Do not conclude resources are absent by looking only at files before relocation or another environment.
+- Ask if the target is unclear; do not automatically expand to another environment/target/service.
+- Record inability to execute or compare as unverified scope with the check/target/specific error; do not infer an AWS resource problem instead. Record specific validation errors detected by executed checks as issues; do not treat unexecuted checks as successful.
+- Even if an undeployed generated ID is `PENDING_DEPLOY`, do not treat it as a missing reference if the design reference target resolves. Record items unconfirmed in this investigation in unverified scope.
 
-## issue登録の判定
+## Issue registration decisions
 
-- 番号付きissueは、対象resource・propertyに対する具体的な不整合、適用ルール違反、必須設計値の不足、または指定checkの再現可能な失敗を根拠付きで確認した場合だけ登録する。今回AWS APIや動作を調べていないこと、任意の実装注記、account/regionの文字列差だけを問題の根拠にしない。未検証範囲は冒頭の通常文章にまとめ、service配下の番号付きissueと分ける。
-- humanが対象・構成・動作を確認済みと明示した事項は、確認範囲と根拠がhuman確認であることを冒頭に保持する。反証となる具体的な診断がなければ未確認として再掲しない。human確認を今回のAWS API実行や未実行checkの成功に置き換えず、無関係な既存issueは除去しない。
-- ARNは`framework/rules/observed-values.md`と`model-information.md`に従い、generated current ARNと既存またはhuman-provided design inputを区別する。文字列が実ARNであることやdesired注記に含まれることだけでgenerated ARNと断定しない。禁止対象への該当根拠が不足する場合は確認範囲の限界として記載し、規則違反issueを作らない。generated ARNの保存禁止は維持する。
+- Register numbered issues only when evidence confirms a specific inconsistency, applicable rule violation, missing mandatory design value, or reproducible failure of a specified check for the target resource/property. Do not use the fact that this investigation did not check AWS APIs/behavior, optional implementation notes, or account/region string differences alone as problem evidence. Summarize unverified scope as ordinary text at the start, separate from numbered issues under services.
+- For items the human explicitly states are confirmed for scope/configuration/behavior, retain the confirmed scope and that the evidence is human confirmation at the start. Do not relist them as unconfirmed without concrete contradictory diagnostics. Do not substitute human confirmation for this execution of AWS APIs or success of unexecuted checks; do not remove unrelated existing issues.
+- Follow `framework/rules/observed-values.md` and `model-information.md` for ARNs; distinguish generated current ARNs from existing or human-provided design inputs. Do not conclude an ARN is generated solely because the string is an actual ARN or appears in desired notes. If evidence that the prohibition applies is insufficient, state the confirmation-scope limitation and do not create a rule-violation issue. Retain the prohibition on saving generated ARNs.
 
-## 命名規則の確認
+## Naming rule confirmation
 
-ローカル調査を行う場合は、[aws-resource-naming](../../../framework/rules/aws-resource-naming.md)、[Model authority](../../../framework/rules/model-information.md#model-authority)と[Properties format](../../../framework/rules/model-information.md#properties-format)、[Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure)と対象resourceの表示・参照sectionを読む。local loopの命名診断だけではpatternへの適合確認を完了扱いにしない。調査済み結果の保存だけを依頼された場合は再調査を自動追加せず、命名確認の未実施範囲を明記する。
+For local investigation, read [aws-resource-naming](../../../framework/rules/aws-resource-naming.md), [Model authority](../../../framework/rules/model-information.md#model-authority), [Properties format](../../../framework/rules/model-information.md#properties-format), [Markdown structure](../../../framework/rules/detailed-design.md#markdown-structure), and target resource display/reference sections. Do not treat local loop naming diagnostics alone as completed pattern-conformance confirmation. If only saving already investigated results is requested, do not automatically add reinvestigation; explicitly state unperformed naming confirmation scope.
 
-- Pythonが対象serviceの正本propertiesを入口indexとpartから一度検証parseし、全resourceの名称・実file/part/key/行位置を抽出する。LLMは全件の抽出材料から、`desired.*`の選択済み名称property、必須`.Name`、必須またはhuman-selectedな`Name` tagを確認する。診断に出た名称だけへ限定せず、独立した子resourceも自身のresourceModeで判定する。observed値や生成Markdownの表示labelを名称の正本にしない。
-- CREATE（mode未指定を含む）はresource typeと正式propertyを命名ルールのNaming targetへ対応付け、coverage、pattern、service固有制約、必須Nameの有無を確認する。`environment`、`target_alias`、`account_id`、`region`は`project.json`の対象targetへ、application・purpose等はhuman-confirmedなcomponentへ照合する。名称の文字列から未知componentを推測して適合扱いにしない。
-- IMPORTにはframework命名convention・coverage・mandatory Name policyを適用しない。propertyごとの適用除外とhumanが明示した命名例外は、根拠と適用scopeを確認して尊重する。coverageだけの除外をpatternや値検証の除外へ拡張せず、env-diffだけの例外をissuesへ自動適用しない。AWS生成ID・ARN・DNS名・IP・表示labelへ名称patternを適用しない。provider schema、catalog、参照、確定値の検証は維持する。
-- 適用対象の不一致、命名ルール未登録、必須Nameの欠落は対象resource・property・実値と該当ruleを根拠に問題へ記録する。componentや例外の根拠不足、読込・検証失敗は不足する確認を具体的に示して`未確認`とし、`問題なし`や解消扱いにしない。
-- 参照値は同じenvironment・targetのdesired参照先を解決し、名称propertyと区別する。参照先serviceが調査対象なら命名不一致は参照先serviceへまとめる。対象外serviceは参照解決に必要な情報だけを確認し、命名調査へ自動拡大しない。名称の補正、rename、tag追加、model変更は行わない。
+- Python validates/parses target service authoritative properties once from entry indexes/parts and extracts all resource names and actual file/part/key/line positions. From all extracted materials, the LLM confirms selected `desired.*` name properties, mandatory `.Name`, and mandatory or human-selected `Name` tags. Do not limit confirmation to names in diagnostics; judge independent child resources by their own resourceMode. Do not use observed values or generated Markdown display labels as name authority.
+- For CREATE (including unspecified mode), map resource types/formal properties to naming rule Naming targets and confirm coverage, patterns, service-specific constraints, and mandatory Name presence. Compare `environment`, `target_alias`, `account_id`, and `region` against the `project.json` target, and application/purpose etc. against human-confirmed components. Do not infer unknown components from name strings and treat them as conforming.
+- Do not apply framework naming conventions, coverage, or mandatory Name policy to IMPORT. Confirm evidence/applicable scope and respect property-specific exemptions and naming exceptions explicitly stated by the human. Do not extend coverage-only exemptions to pattern/value validation exemptions or automatically apply env-diff-only exceptions to issues. Do not apply name patterns to AWS-generated IDs/ARNs/DNS names/IPs/display labels. Retain provider schema, catalog, reference, and confirmed-value validation.
+- Record applicable mismatches, unregistered naming rules, and missing mandatory Names as problems supported by the target resource/property/actual value and applicable rule. For insufficient component/exception evidence or read/validation failures, specify missing confirmation as `未確認`; do not treat it as `問題なし` or resolved.
+- Resolve reference values to desired targets in the same environment/target and distinguish them from name properties. If the reference target service is within investigation scope, collect naming mismatches under that service. For out-of-scope services, confirm only information necessary for reference resolution; do not automatically expand to naming investigation. Do not correct names, rename, add tags, or change models.
 
-## 出力
+## Output
 
-- 問題一覧のMarkdownには「調査しました」「保存しました」「検証PASS」などの作業報告・完了報告・実行履歴を記載せず、チャットだけで報告する。既存の作業報告も今回更新する範囲から除去する。更新日時、確認範囲・未検証範囲、問題の根拠に必要な診断は維持する。
-- H2を`環境／alias`、H3をservice名とし、その下に番号付きlistを置く。aliasがない場合のH2は`環境／AWS account ID`とする。
-- service名がmodelのservice IDと異なる場合は`<!-- issue-service: <service-id> -->`を置き、issue gateが所属を確定できるようにする。
-- 番号はservice blockごとに1から始め、1項目に1問題を記載する。空のblockは作らない。
-- 各問題は対象resource・propertyと、何が不整合／不足／未確認かを具体的に短く書く。必要な判断が確認できた場合だけ、その未確定点を添える。
-- 同じ環境・target・service内の同じ原因による反復診断はまとめ、件数と対象を記載する。診断件数とresource件数、派生エラーを混同しない。
-- 問題一覧の根拠リンクは、保存先fileからの相対pathを使う。行番号はリンク先に付けず、`[athena.md:20](../../../docs/designs/dev/cde/athena.md)`のように表示文字列へ記載する。リンク先fileの存在と行番号を確認し、絶対pathは保存しない。pathにspaceがある場合はリンク先を`<...>`で囲む。
-- 対応策・優先度は依頼された場合に追加し、問題一覧だけを求められた場合は一覧に絞る。
+- Do not record work/completion reports or execution history such as “調査しました”, “保存しました”, or “検証PASS” in issue-list Markdown; report them only in chat. Also remove existing work reports from the scope being updated. Retain update time, confirmed/unverified scope, and diagnostics necessary as problem evidence.
+- Use `環境／alias` as H2 and service names as H3, followed by numbered lists. Without an alias, use `環境／AWS account ID` as H2.
+- If the service name differs from the model service ID, place `<!-- issue-service: <service-id> -->` so the issue gate can determine ownership.
+- Start numbering at 1 for each service block and state one problem per item. Do not create empty blocks.
+- Briefly and specifically state the target resource/property and what is inconsistent/missing/unconfirmed for each problem. Attach its undecided point only when necessary judgments can be confirmed.
+- Combine repeated diagnostics with the same cause within the same environment/target/service, stating counts and targets. Do not confuse diagnostic counts, resource counts, and derived errors.
+- Use paths relative to the saved file for issue evidence links. Put line numbers in display text, such as `[athena.md:20](../../../docs/designs/dev/cde/athena.md)`, rather than in link targets. Confirm target file existence and line numbers; do not save absolute paths. Enclose link targets in `<...>` if paths contain spaces.
+- Add remedies/priorities when requested; limit output to the list when only an issue list is requested.
 
-出力例（`issues/dev/cde/issues.md`）:
+Output example (`issues/dev/cde/issues.md`):
 
 ```markdown
 # 問題一覧
@@ -80,8 +80,8 @@ description: AWS Blueprintの指定environment・target・serviceをローカル
 
 ```
 
-`dev／non-cde`の問題は`issues/dev/non-cde/issues.md`へ同じ形式で保存する。
+Save `dev／non-cde` problems to `issues/dev/non-cde/issues.md` in the same format.
 
-読取規則はAGENTS.mdの「必要な規則の読み方」に従う。targetの確定・account／profile検証には[project-configuration](../../../framework/rules/project-configuration.md)、停止・調査／修復／保存の例外判定には[issue-gate](../../../framework/rules/issue-gate.md)を読む。repository変更時だけ[task-contract](../../../framework/rules/task-contract.md)と[Local loop](../../../framework/rules/loop-engineering.md#local-loop)と[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope)、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion)を追加する。
+Follow AGENTS.md “How to read required rules” for reading rules. Read [project-configuration](../../../framework/rules/project-configuration.md) for target determination and account/profile validation, and [issue-gate](../../../framework/rules/issue-gate.md) for stop and investigation/repair/save exception decisions. Only for repository changes, additionally read [task-contract](../../../framework/rules/task-contract.md), [Local loop](../../../framework/rules/loop-engineering.md#local-loop), [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), and [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion).
 
-framework変更時だけ[Framework regression](../../../framework/rules/loop-engineering.md#framework-regression)を追加で読む。
+Only for framework changes, additionally read [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression).
