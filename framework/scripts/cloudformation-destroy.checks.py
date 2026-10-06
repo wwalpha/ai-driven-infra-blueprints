@@ -5,7 +5,6 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import copy
 import importlib.util
 import io
 import json
@@ -151,6 +150,21 @@ def check_order_and_safety():
         state, fake = execute(orders, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
         assert not fake.deleted and "actual import dependency conflicts with designed DeployOrder" in state["reason"]
     print("D06: PASS consumer first; conflicting/equal designed orders block")
+    cached = session({"A": 10, "B": 20})
+    fake = Fake(["A", "B"], exports={"Vpc": ("A", ["B"])})
+    M.preflight(cached, fake, 2, lambda: None)
+    M.dependencies(cached, fake, lambda: None)
+    fake.export_imports["Vpc"] = ("A", ["B", "Outside"])
+    M.preflight(cached, fake, 2, lambda: None)
+    rejects(lambda: M.dependencies(cached, fake, lambda: None), "outside live destroy scope")
+    assert sum(op == "list-exports" for op, _ in fake.calls) == 1 and not fake.deleted
+    for operation in ("list-exports", "list-imports"):
+        fake = Fake(["A"], exports={"Vpc": ("A", [])})
+        state = session({"A": 10}); M.preflight(state, fake, 1, lambda: None)
+        aws = fake.aws
+        with patch.object(fake, "aws", side_effect=lambda op, *args: {} if op == operation else aws(op, *args)):
+            rejects(lambda: M.dependencies(state, fake, lambda: None), "cannot prove dependencies")
+        assert not fake.deleted
     fake = Fake(["A"]); fake.overrides["A"] = {"EnableTerminationProtection": True}
     state, fake = execute({"A": 10}, fake=fake)
     assert state["status"] == "BLOCKED" and not fake.deleted
@@ -165,6 +179,16 @@ def check_order_and_safety():
     assert state["states"]["A"]["status"] == "DELETE_FAILED" and state["states"]["B"]["status"] == "DELETE_COMPLETE"
     assert all(state["states"][name]["status"] == "NOT_STARTED" for name in ("C", "D"))
     assert not any("FORCE_DELETE_STACK" in args for _, args in fake.calls)
+    fake = Fake(["A"], {"A": ["DELETE_COMPLETE"]}); fake.retained.add("A")
+    retained, _ = execute({"A": 10}, fake=fake)
+    assert retained["states"]["A"]["retained"][0]["ResourceStatus"] == "DELETE_SKIPPED"
+    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
+    pages = [{"StackEvents": [{"ResourceStatus": "DELETE_SKIPPED"}], "NextToken": "page2"},
+             {"StackEvents": [{"PhysicalResourceId": stack_id("A"), "ResourceType": "AWS::CloudFormation::Stack", "ResourceStatus": "DELETE_IN_PROGRESS"},
+                              {"ResourceStatus": "DELETE_SKIPPED", "LogicalResourceId": "OldHistory"}], "NextToken": "oldpage"}]
+    with patch.object(backend, "aws", side_effect=pages) as events:
+        history = backend.events(stack_id("A"))
+        assert events.call_count == 2 and len(history) == 2 and "--no-paginate" in events.call_args.args
     print("D09: PASS failure stops starts, drains peers, leaves lower order")
     for override in ({"StackId": stack_id("Other")}, {"StackName": "Other"},
                      {"StackId": stack_id("A").replace("123456789012", "999999999999")},
@@ -182,10 +206,18 @@ def check_absence():
     assert state["states"]["A"]["status"] == "DELETE_COMPLETE"
     assert not fake.deleted
     print("D10: PASS saved deletion evidence + pinned absence")
+    state = session({"A": 10})
+    state["states"]["A"].update(StackId=stack_id("A"), status="DELETE_IN_PROGRESS")
+    M.preflight(state, fake, 1, lambda: None)
+    assert state["states"]["A"]["status"] == "DELETE_COMPLETE"
     for evidence in ({}, {"StackId": stack_id("A"), "status": "DELETE_INTENT"}):
         state = session({"A": 10}); state["states"]["A"].update(evidence)
         M.preflight(state, fake, 1, lambda: None)
         assert state["states"]["A"]["status"] == "ALREADY_ABSENT"
+        # A new same-name stack appearing later is outside the pinned session.
+        replacement = Fake(["A"])
+        M.preflight(state, replacement, 1, lambda: None)
+        assert state["states"]["A"]["status"] == "ALREADY_ABSENT" and not replacement.calls
     print("D11: PASS fresh absence / intent alone do not prove deletion")
     # Resume never switches to a replacement stack with the same name.
     fake = Fake(["A"]); fake.overrides["A"] = {"StackId": stack_id("A") + "-replacement"}
@@ -256,7 +288,9 @@ def fixture(root, names, models=False):
 
 
 def check_controller():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/destroy.md"}):
+    runner = M.run_session
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/destroy.md"}), \
+            patch.object(M, "run_session", side_effect=lambda *args, **kwargs: runner(*args, **kwargs, sleep=lambda _: None)):
         base = Path(directory); root = base / "repo"; root.mkdir()
         fixture(root, {"A": 10})
         fake = Fake(["A"])
@@ -291,8 +325,18 @@ def check_controller():
             assert M.controller_main(argv + ["--resume"], root) == 0
             assert sum(op == "list-exports" for op, _ in fake.calls) == 1
             assert fake.deleted == ["A"]
+            previous_calls = len(fake.calls)
+            with patch.dict(os.environ, {"AWS_PROFILE": "different-resume-profile"}):
+                assert M.controller_main(argv + ["--resume"], root) == 1
+            assert len(fake.calls) == previous_calls
+            state_path = base / "session.json"
+            pristine = state_path.read_text()
+            state = json.loads(pristine); state["states"]["A"]["DeployOrder"] = 99
+            state_path.write_text(json.dumps(state))
+            assert M.controller_main(argv + ["--resume"], root) == 1
+            assert len(fake.calls) == previous_calls
+            state_path.write_text(pristine)
         print("D01: PASS real controller fake subprocess: STS=1, delete=1 by StackId, heavy AWS APIs=0")
-        print("D14: PASS no template/parameter reads, infra/framework full guard scans or IaC tools")
         # --local-plan is genuinely offline, even before task creation.
         with patch.object(M.subprocess, "run", side_effect=AssertionError("local-plan used AWS")), redirect_stdout(io.StringIO()):
             assert M.controller_main(argv + ["--local-plan"], root) == 0
@@ -312,6 +356,41 @@ def check_controller():
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             assert M.controller_main(argv + ["--profile", "other"], root) == 1
         assert not fake.calls
+        # Multiple deletes run the real lightweight guard; tree/body access remains trapped.
+        root = base / "multi"; root.mkdir()
+        fixture(root, {"A": 30, "B": 20, "C": 10})
+        fake = Fake(["A", "B", "C"])
+        argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--stack", "C", "--state", str(base / "multi.json")]
+        with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", side_effect=lambda command: "aws" if command == "aws" else None), \
+                patch.object(M.tempfile, "gettempdir", return_value=str(base)), patch.object(M.time, "sleep", lambda _: None), \
+                patch.object(Path, "read_text", checked_read), patch.object(Path, "rglob", checked_glob), \
+                patch.object(M, "require_target_no_issues", wraps=M.require_target_no_issues) as issue_check, redirect_stdout(io.StringIO()):
+            assert M.controller_main(argv, root) == 0
+            assert issue_check.call_count == 1
+        counts = Counter(op for op, _ in fake.calls)
+        assert fake.deleted == ["A", "B", "C"]
+        assert counts["get-caller-identity"] == counts["list-exports"] == 1 and counts["delete-stack"] == 3
+        print("D14: PASS 3 real-guard deletes: STS=1, exports=1, issue check=1, full tree/body scans=0")
+        # A relevant issue/task change after the first delete blocks subsequent starts.
+        task = root / "tasks/destroy.md"; original = task.read_text()
+        for drift in ("task", "issue"):
+            state_path = base / "multi.json"; state_path.unlink()
+            fake = Fake(["A", "B", "C"])
+            def mutate(name):
+                if name == "A":
+                    if drift == "task":
+                        task.write_text(original + "\n")
+                    else:
+                        path = root / "issues/dev/123456789012/issues.md"
+                        path.parent.mkdir(parents=True)
+                        path.write_text("### cloudformation-stacks\n1. 未解決問題\n")
+            fake.hook = mutate
+            with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
+                    patch.object(M.tempfile, "gettempdir", return_value=str(base)), patch.object(M.time, "sleep", lambda _: None), redirect_stdout(io.StringIO()):
+                assert M.controller_main(argv, root) == 1
+            assert fake.deleted == ["A"] and not fake.running
+            task.write_text(original)
+            (root / "issues/dev/123456789012/issues.md").unlink(missing_ok=True)
 
 
 def check_observed():
@@ -349,6 +428,14 @@ def check_observed():
         assert "PENDING_DEPLOY" in design.read_text() and "vpc-old-A" not in design.read_text()
         assert calls == [["ec2"]]
         assert M.local_plan(root, "dev", "123456789012", ["A", "B", "C"]) == plan
+        batched = session({"A": 30, "B": 20, "C": 10})["states"]
+        for name in ("A", "B"):
+            batched[name].update(status="DELETE_COMPLETE", StackId=stack_id(name), deleteObserved=True)
+        calls.clear()
+        with patch.object(observed, "observed_destinations", side_effect=counted_destinations), redirect_stdout(io.StringIO()):
+            observed.sync_destroyed(backend, batched, plan["observed"])
+        assert calls == [["ec2"]] and all(batched[name]["observedSynced"] for name in ("A", "B"))
+        assert properties(source.read_text())["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
         # Fresh absence must not synchronize even with a valid planned owner.
         absent = session({"A": 30})["states"]; absent["A"]["status"] = "ALREADY_ABSENT"
         snapshot = source.read_bytes(); observed.sync_destroyed(backend, absent, plan["observed"])

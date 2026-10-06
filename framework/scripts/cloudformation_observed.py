@@ -469,6 +469,8 @@ def sync_destroyed(backend, states, plan):
                  if state["status"] == "DELETE_COMPLETE" and not state.get("observedSynced")]
     if not completed:
         return
+    if any(not states[name].get("StackId") or not states[name].get("deleteObserved") for name in completed):
+        raise ValueError("destroy observed sync requires pinned StackId and deletion evidence")
     loaded, changes = {}, {}
     import hashlib
     for name in completed:
