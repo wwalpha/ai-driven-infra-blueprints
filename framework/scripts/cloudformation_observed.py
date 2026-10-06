@@ -289,7 +289,7 @@ def sync_successful(backend, units, states):
         states[unit["name"]]["observedSynced"] = True
 
 
-def propagate_references(root, loaded, changes, identifiers):
+def propagate_references(root, loaded, changes, identifiers, by_identifier=None):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
@@ -317,6 +317,8 @@ def propagate_references(root, loaded, changes, identifiers):
             target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
             if (target, link.group(3)) in identifiers:
                 changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[target, link.group(3)])
+                if by_identifier is not None:
+                    by_identifier.setdefault((target, link.group(3)), {}).setdefault(path, {})[f"observed.row.{rid}.value"] = identifiers[target, link.group(3)]
 
 
 def observed_destinations(root, environment, directory, loaded, changes, check_scope=True):
@@ -382,6 +384,11 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
     direct, _ = resource_index(loaded, catalog)
+    scope = active_scope(root) if check_scope else None
+    for (name, logical), candidates in direct.items():
+        if name in stack_names and any(resource.get("resourceMode", "CREATE") != "CREATE" or not formal
+                                     for _, _, resource, formal in candidates):
+            ambiguous(f"{name}/{logical}: destroy ownership requires CREATE and formal CloudFormation type")
     changes_by_stack = {name: {} for name in stack_names}
     anchors = {name: {} for name in stack_names}
     owners = {name: [] for name in stack_names}
@@ -404,7 +411,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
             if len(direct[name, logical]) != 1:
                 ambiguous(f"{name}/{logical}: duplicate ownership")
             service = tuple(path.relative_to(root / "model").with_suffix("").parts)
-            if check_scope and service not in (active_scope(root) or set()):
+            if check_scope and service not in (scope or set()):
                 raise ValueError(f"task scope violation: destroy ownership requires {'/'.join(service)}")
             owners[name].append({"model": path.relative_to(root).as_posix(), "resource": identity,
                                  "logicalId": logical})
@@ -421,11 +428,21 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 changes_by_stack[name].setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
                 anchors[name][design.resolve(), resource["anchor"]] = "PENDING_DEPLOY"
     result, paths, services, inputs = {}, set(), set(), {}
+    all_anchors = {}
+    for name in stack_names:
+        if all_anchors.keys() & anchors[name].keys():
+            ambiguous("identifier anchor owned by multiple stacks")
+        all_anchors.update(anchors[name])
+    references = {}
+    propagate_references(root, loaded, {}, all_anchors, references)
     for name in stack_names:
         services.update(tuple(Path(owner["model"]).relative_to("model").with_suffix("").parts) for owner in owners[name])
     for name in stack_names:
         changes = changes_by_stack[name]
-        propagate_references(root, loaded, changes, anchors[name])
+        for anchor in anchors[name]:
+            for path, updates in references.get(anchor, {}).items():
+                for key, value in updates.items():
+                    changes.setdefault(path, {}).setdefault(key, value)
         if changes:
             destinations, views, _ = observed_destinations(root, environment, directory, loaded, changes, check_scope)
             for part, text in destinations.items():

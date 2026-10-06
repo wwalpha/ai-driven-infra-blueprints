@@ -195,7 +195,7 @@ def check_absence():
 
 def fixture(root, names, models=False):
     (root / "model/dev/123456789012").mkdir(parents=True)
-    (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}))
+    (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     values = {"desired.deployment.maxConcurrentStacks": "2"}
     for number, (name, order) in enumerate(names.items(), 1):
         values.update({f"desired.stack.{number:03d}.{key}": str(value) for key, value in
@@ -277,6 +277,7 @@ def check_controller():
             return rglob(path, *args, **kwargs)
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--state", str(base / "session.json")]
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", side_effect=lambda command: "aws" if command == "aws" else None), \
+                patch.object(M.tempfile, "gettempdir", return_value=str(base)), \
                 patch.object(M.time, "sleep", lambda _: None), patch.object(Path, "read_text", checked_read), patch.object(Path, "rglob", checked_glob), \
                 redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors:
             code = M.controller_main(argv, root)
@@ -299,6 +300,7 @@ def check_controller():
         (base / "session.json").unlink()
         fake.absent.clear(); fake.completed.clear(); fake.deleted.clear()
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
+                patch.object(M.tempfile, "gettempdir", return_value=str(base)), \
                 patch.object(M.time, "sleep", lambda _: None), redirect_stdout(io.StringIO()):
             assert M.controller_main(argv + ["--sequential"], root) == 0
         assert json.loads((base / "session.json").read_text())["identity"]["limit"] == 1
@@ -306,7 +308,8 @@ def check_controller():
         (base / "session.json").unlink()
         project = json.loads((root / "project.json").read_text()); project["targets"][0]["awsProfile"] = "configured"
         (root / "project.json").write_text(json.dumps(project)); fake.calls.clear()
-        with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
+                patch.object(M.tempfile, "gettempdir", return_value=str(base)), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             assert M.controller_main(argv + ["--profile", "other"], root) == 1
         assert not fake.calls
 

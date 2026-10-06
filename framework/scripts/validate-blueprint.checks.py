@@ -189,6 +189,7 @@ def check_destroy_phase() -> None:
         assert sum("destroy phase permits only" in error for error in validator.errors) == 4
         # Exercise run() dispatch: destroy retains common/model checks but never enters IaC.
         validator = MODULE.Validator(root)
+        validator.scope = {("dev", "123456789012", "ec2")}
         validator.task_type = "infrastructure"
         validator.infrastructure_phase = "destroy"
         banned = {"check_iac_selection", "check_cloudformation_yaml_rules", "check_cloudformation_environment_parameters"}
