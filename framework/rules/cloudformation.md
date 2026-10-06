@@ -5,7 +5,8 @@
 対象serviceの停止と例外は[issue-gate](issue-gate.md)に従う。
 
 - CloudFormationは`infrastructure` taskでのみ作成・変更・実行する。
-- infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
+- infrastructure taskの設計inputは承認済みauthoritative model properties入口と必要なpart／参照先modelとする。設計値は`desired.row.*`、JSON本文は`desired.row.*.document`、identity／参照は`desired.resource.*`等のmetadata、current non-ARN identifierは`observed.*`から取得する。通常deployで生成service Markdown／service-owned JSON本文を重ねて読まない。`.md#anchor`は既存model readerとmetadataで対応付け、不明・未一致・曖昧なら停止し、生成Markdown本文をfallbackにしない。
+- 生成物の存在確認、既存のhash監視・予約、sync-model／local loopによる生成物検証と停止条件を維持する。明示された表示不具合・不一致調査では必要な該当箇所だけを読める。不一致後にdeployを継続せず、IaC／intended designを自動修復しない。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがCloudFormationを選択した場合だけ使用する。
 - 対象targetの`awsProfile`があればpreflightとcontrollerが自動使用する。直接のAWS CLI（validate-template、list/get/describe、observed値取得を含む）にも同じ`--profile`と対象regionを渡す。設定と異なる明示profileは実行前に拒否し、認証失敗時に別profileへfallbackしない。
@@ -22,8 +23,8 @@
 - CloudFormation YAMLの`Resources`配下は、resourceと次のresourceの間に1行以上の空行を入れる。
 - nested stackは使用しない。
 - stack/template boundaryはAWS service単位ではなく、change unit、rollback unit、dependency direction、deploy responsibilityで決める。
-- `1 template = 1 deploy responsibility`をdefaultとするが、同じtemplateを複数stack instanceで使用できる。deploy/updateの実行単位はtemplate pathではなく`cloudformation-stacks.md`のStackNameとする。
-- CloudFormation targetのstack作成・更新には`framework/rules/detailed-design.md`のstack詳細設計を必須とする。各stack instanceのStackName、templateのファイル名、個別parameterのファイル名、DeployOrderとtargetのMaxConcurrentStacksを正本propertiesから解決し、生成Markdownと一致を確認する。templateとparameterの配置先はこのruleのpath規約に従う。templateやparameterのファイル名だけからStackNameを推測しない。
+- `1 template = 1 deploy responsibility`をdefaultとするが、同じtemplateを複数stack instanceで使用できる。deploy/updateの実行単位はtemplate pathではなく正本`cloudformation-stacks.properties`のStackNameとする。
+- CloudFormation targetのstack作成・更新には`framework/rules/detailed-design.md`のstack詳細設計を必須とする。各stack instanceのStackName、templateのファイル名、個別parameterのファイル名、DeployOrderとtargetのMaxConcurrentStacksを正本`cloudformation-stacks.properties`から解決する。deployでは既存`load_units()`が生成stack Markdownとの一致を確認し、AIによる同値の手動二重比較は要求しない。一般serviceの生成物検証は既存sync-model／local loopの実行時点を維持する。templateとparameterの配置先はこのruleのpath規約に従う。templateやparameterのファイル名だけからStackNameを推測しない。
 - deploy前に対象account/regionのstackをread-onlyで照合し、設計済みstackの現存・状態・parameter・resource所有を確認する。設計外stack、同名だが設計と異なるstack、設計済みでAWSに存在しないstackを区別し、設計外stackを自動採用・変更・削除しない。stackのcurrent statusはAWSから都度取得し、Gitへstatus snapshotを保存しない。
 - 設計からStackNameが消えたり別名へ変わったりしても、既存stackのdeleteまたはrenameとして解釈しない。既存stackの管理終了・削除は対象と影響が明示された別の許可scopeで判断し、現在のdeploy/updateへ暗黙に含めない。
 - CloudWatch Logs resource（`AWS::Logs::*`）とSecurity Group（`AWS::EC2::SecurityGroup*`）だけを所有する単独template/stackは作らず、利用するresourceのtemplateに含める。IAM Roleは同じtargetで直接利用するresourceがあればそのtemplateに含める。直接利用するresourceがないRole（cross-account switch roleなど）は、同targetの設計resourceからRoleへの直接参照がないこととRoleのtrust policyのPrincipalを確認し、用途とAssumeRole元を設計に記録してから、Roleと付随するIAM Policy/ManagedPolicyだけを所有する専用template/stackに置く。このtemplateには`Metadata`直下の`RolePlacement: standalone`を宣言する。宣言は設計判断を表し、AWS上の未利用を証明しない。InstanceProfileを加えてRole専用templateとはみなさない。

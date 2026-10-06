@@ -5,7 +5,8 @@
 対象serviceの停止と例外は[issue-gate](issue-gate.md)に従う。
 
 - Terraformは`infrastructure` taskでのみ作成・変更・実行する。
-- infrastructure taskは承認済みの詳細設計とservice modelをinputとして読み取る。
+- infrastructure taskの設計inputは承認済みauthoritative model properties入口と必要なpart／参照先modelとする。設計値は`desired.row.*`、JSON本文は`desired.row.*.document`、identity／参照は`desired.resource.*`等のmetadata、current non-ARN identifierは`observed.*`から取得する。通常deployで生成service Markdown／service-owned JSON本文を重ねて読まない。`.md#anchor`は既存model readerとmetadataで対応付け、不明・未一致・曖昧なら停止し、生成Markdown本文をfallbackにしない。
+- 生成物の存在確認、既存のhash監視・予約、sync-model／local loopによる生成物検証と停止条件を維持する。明示された表示不具合・不一致調査では必要な該当箇所だけを読める。不一致後にdeployを継続せず、IaC／intended designを自動修復しない。
 - intended designの変更が必要な場合は値を補完せず停止し、別の`design` taskが必要であることを報告する。
 - active projectと対象environment/target directoryがTerraformを選択した場合だけ使用する。
 - 1 environment/AWS accountは1 IaC engineだけで管理し、同じAWS account IDを持つalias間でもengineを統一する。同じenvironment/実行accountのtargetでもengineを統一する。

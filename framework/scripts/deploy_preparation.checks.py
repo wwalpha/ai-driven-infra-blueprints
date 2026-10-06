@@ -5,6 +5,8 @@ if not __debug__:
 
 from contextlib import redirect_stdout, redirect_stderr
 import io
+import hashlib
+import zipfile
 import json
 from pathlib import Path
 import shutil
@@ -16,7 +18,7 @@ from unittest.mock import patch
 
 import deploy_preparation as M
 from model_design import markdown_for
-from model_files import model_file_contents
+from model_files import model_file_contents, model_parts, read_model
 from task_contract import contracts, paths_in, start
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +35,7 @@ def fixture(root):
     shutil.copy(ROOT / "framework/prompts/codex/04_deploy.md", root / "framework/prompts/codex/04_deploy.md")
     for name in ("AGENTS.md", "README.md"):
         shutil.copy(ROOT / name, root / name)
-    (root / "project.json").write_text(json.dumps({"targets": [TARGET]}), encoding="utf-8")
+    (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [TARGET]}) + "\n", encoding="utf-8")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
     design = root / "docs/designs/dev/123456789012"
@@ -54,6 +56,18 @@ def fixture(root):
         path.parent.mkdir(exist_ok=True)
         path.write_text(content, encoding="utf-8")
     (design / "ec2.md").write_text("# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8")
+    # A real JSON-owning model; the synthetic EC2 view above only measures I/O.
+    examples = M.module("preparation_model_examples", ROOT / "framework/scripts/model_design.checks.py")
+    values = examples.model("iam", "IAM.Role", "app-dev-worker-role", [
+        ("RoleName", "`app-dev-worker-role`", "ロール名"),
+        ("AssumeRolePolicyDocument", "[Trust](iam/worker-role-trust-policy.json)", "信頼ポリシー"),
+    ], "WorkerRole")
+    document = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}
+    values["desired.row.001-002.document"] = json.dumps(document, separators=(",", ":"))
+    (model / "iam.properties").write_text(examples.text(values), encoding="utf-8")
+    (design / "iam").mkdir()
+    (design / "iam/worker-role-trust-policy.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    (design / "iam.md").write_text(markdown_for(design / "iam.md", values, ROOT), encoding="utf-8")
     template = root / "infra/cloudformation/templates/shared.yaml"
     template.parent.mkdir(parents=True)
     template.write_text("Resources: {}\n", encoding="utf-8")
@@ -65,7 +79,7 @@ def fixture(root):
 
 def arguments(root, base):
     return ["--repository-root", str(root), "--environment", "dev", "--aws-account-id", "123456789012",
-            "--stack", STACKS[0], "--stack", STACKS[1], "--service", "ec2",
+            "--stack", STACKS[0], "--stack", STACKS[1], "--service", "ec2", "--service", "iam",
             "--task-file", "tasks/deploy-offline.md", "--sequential", "--log-dir", str(base / "logs")]
 
 
@@ -83,7 +97,7 @@ def invoke(args):
 
 def check_preparation():
     with tempfile.TemporaryDirectory() as directory:
-        base = Path(directory)
+        base = Path(directory).resolve()
         root = base / "repo"
         fixture(root)
         original = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
@@ -97,7 +111,7 @@ def check_preparation():
         assert plan["controllerArgv"].count("--stack") == 2
         assert "--sequential" in plan["controllerArgv"] and "--timing-log" in plan["controllerArgv"]
         assert plan["controllerArgv"][0] == sys.executable
-        assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2"]
+        assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
         text = (run / "contract.md").read_text(encoding="utf-8")
         reserved = paths_in(text, "## Modified files")
         assert "model/dev/123456789012/ec2/part-003.properties" in reserved
@@ -105,6 +119,22 @@ def check_preparation():
         for document in plan["documents"]:
             assert all(len(Path(chunk).read_text(encoding="utf-8")) <= 6000 for chunk in document["chunks"])
         documents = {d["source"]: d for d in plan["documents"]}
+        generated = {"docs/designs/dev/123456789012/" + name for name in
+                     ("ec2.md", "iam.md", "cloudformation-stacks.md", "iam/worker-role-trust-policy.json")}
+        assert plan["generatedViews"] == sorted(generated)
+        assert generated <= plan["inputs"].keys() and generated <= reserved
+        assert not generated & documents.keys()
+        for relative, digest in plan["inputs"].items():
+            assert digest == hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()}
+        assert len(documents) == len(plan["documents"])
+        entrance = root / "model/dev/123456789012/ec2.properties"
+        assert all(p.relative_to(root).as_posix() in documents for p in [entrance, *model_parts(entrance)])
+        iam = documents["model/dev/123456789012/iam.properties"]
+        assert "desired.row.001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
+        assert all("infra/cloudformation/parameters/dev/123456789012/" + str(i) + ".json" in documents for i in (1, 2))
+        assert "AGENTS.md" in documents
+        assert all(name in plan["controllerArgv"] for name in STACKS)
         model_rules = documents["framework/rules/model-information.md"]
         selected = "".join(Path(chunk).read_text(encoding="utf-8") for chunk in model_rules["chunks"])
         assert "## CloudFormation deployment policy" in selected
@@ -117,6 +147,7 @@ def check_preparation():
         assert "framework/rules/terraform.md" not in documents and "README.md" not in documents
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         assert contracts(root)["tasks/deploy-offline.md"] == text
+        assert invoke(arguments(root, base)) == 1  # Registered tasks keep the existing resume path.
         with patch.object(M.subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
             assert launch.call_count == 1 and launch.call_args.args[0] == plan["controllerArgv"]
@@ -132,15 +163,29 @@ def check_preparation():
 
 
 def check_stale_and_conflicts():
-    for reason in ("input", "issue", "reservation", "runtime", "candidate"):
+    for reason in ("input", "issue", "reservation", "runtime", "candidate", "model", "markdown-change",
+                   "markdown-delete", "json-change", "json-delete", "legacy-change", "legacy-delete"):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             root = base / "repo"
             fixture(root)
             assert invoke(arguments(root, base)) == 0
             run = next((base / "logs").iterdir())
             path = run / "preparation.json"
-            if reason == "input":
+            if reason.startswith(("markdown-", "json-", "legacy-")):
+                generated = root / "docs/designs/dev/123456789012" / ("iam/worker-role-trust-policy.json" if reason.startswith("json-") else "ec2.md")
+                if reason.startswith("legacy-"):
+                    plan = json.loads(path.read_text(encoding="utf-8"))
+                    plan.pop("generatedViews")
+                    path.write_text(json.dumps(plan), encoding="utf-8")
+                if reason.endswith("delete"):
+                    generated.unlink()
+                else:
+                    generated.write_text("changed", encoding="utf-8")
+            elif reason == "model":
+                source = root / "model/dev/123456789012/iam.properties"
+                source.write_text(source.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+            elif reason == "input":
                 # Unread sections still invalidate the full-file immutable input guard.
                 path_to_rule = root / "framework/rules/model-information.md"
                 path_to_rule.write_text(path_to_rule.read_text(encoding="utf-8") + "\n## Unread section\nchanged\n", encoding="utf-8")
@@ -157,6 +202,117 @@ def check_stale_and_conflicts():
                 assert invoke(["--repository-root", str(root), "--register", str(path)]) == 1, reason
             assert not (root / "tasks/deploy-offline.md").exists()
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
+
+
+def check_generated_boundaries():
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory).resolve()
+        root = base / "repo"
+        fixture(root)
+        source = root / "model/dev/123456789012/iam.properties"
+        original = source.read_text(encoding="utf-8")
+        source.write_text("\n".join(line for line in original.splitlines() if ".document=" not in line) + "\n", encoding="utf-8")
+        try:
+            M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
+        except ValueError as error:
+            assert all(value in str(error) for value in ("authoritative JSON document missing", "resource 001", "row 001-002", "iam/worker-role-trust-policy.json"))
+        else:
+            raise AssertionError("missing document accepted")
+        source.write_text(original, encoding="utf-8")
+        source.write_text(original.replace("iam/worker-role-trust-policy.json", "ec2/worker-role-trust-policy.json"), encoding="utf-8")
+        try:
+            M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
+        except ValueError as error:
+            assert "belong to selected service" in str(error)
+        else:
+            raise AssertionError("foreign JSON accepted")
+        source.write_text(original, encoding="utf-8")
+        controller = M.module("boundary_controller", root / "framework/scripts/cloudformation-deploy.py")
+        real_module = M.module
+        real_load = controller.load_units
+        artifacts = root / "infra/cloudformation/artifacts"
+        artifacts.mkdir(parents=True)
+        (artifacts / "execution.json").write_text('{"StartAt":"Done"}', encoding="utf-8")
+        with zipfile.ZipFile(artifacts / "build.zip", "w") as archive:
+            archive.writestr("main.py", "pass")
+        def load_with_artifacts(*args):
+            limit, units = real_load(*args)
+            units[0]["artifacts"] = [
+                {"source": "infra/cloudformation/artifacts/execution.json", "property": "DefinitionS3Location"},
+                {"source": "infra/cloudformation/artifacts/build.zip", "property": "Code"},
+            ]
+            return limit, units
+        def modules(name, path):
+            return controller if name == "preparation_controller" else real_module(name, path)
+        with patch.object(controller, "load_units", side_effect=load_with_artifacts), patch.object(M, "module", side_effect=modules):
+            assert invoke(arguments(root, base)) == 0
+        run = next((base / "logs").iterdir())
+        plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
+        documents = {d["source"] for d in plan["documents"]}
+        assert "infra/cloudformation/artifacts/execution.json" in documents
+        assert "infra/cloudformation/artifacts/build.zip" not in documents
+        assert "infra/cloudformation/artifacts/build.zip" in plan["inputs"]
+        assert "infra/cloudformation/artifacts/build.zip" not in plan["generatedViews"]
+        for relative, digest in plan["inputs"].items():
+            assert digest == M.sha(root / relative)
+        with patch.object(controller.AwsBackend, "paths", return_value=(root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json", artifacts / "execution.json")), patch.object(M, "module", side_effect=modules):
+            output = io.StringIO()
+            with redirect_stderr(output):
+                assert M.main(arguments(root, base)) == 1
+            assert "generated view conflicts with execution/required input" in output.getvalue()
+        view = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+        original_view = view.read_text(encoding="utf-8")
+        view.write_text(original_view + "changed", encoding="utf-8")
+        try:
+            real_load(root, "dev", "123456789012", STACKS)
+        except Exception as error:
+            assert "stack model/generated design mismatch" in str(error)
+        else:
+            raise AssertionError("stack mismatch accepted")
+        view.write_text(original_view, encoding="utf-8")
+        parameter = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
+        parameter.unlink()
+        parameter.symlink_to(parameter.with_name("2.json"))
+        output = io.StringIO()
+        with redirect_stderr(output):
+            assert M.main(arguments(root, base)) == 1
+        assert "task path must not use symlinks" in output.getvalue()
+        assert not (root / "tasks/deploy-offline.md").exists()
+
+
+def check_service_generated_equality():
+    # Only the valid IAM model/view is used for schema/generated equality evidence.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve() / "repo"
+        fixture(root)
+        shutil.copytree(ROOT / "framework/materials", root / "framework/materials")
+        sync = M.module("equality_sync", ROOT / "framework/scripts/sync-model.py")
+        contract, _, _, _ = M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
+        start(root, "tasks/deploy-offline.md", contract)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            assert sync.sync(root, True, "dev", "123456789012", services=["iam"]) == 0
+            assert sync.sync(root, False, "dev", "123456789012", services=["iam"]) == 0
+            for relative in ("iam.md", "iam/worker-role-trust-policy.json"):
+                path = root / "docs/designs/dev/123456789012" / relative
+                original = path.read_text(encoding="utf-8")
+                path.write_text(original + "\nchanged\n", encoding="utf-8")
+                try:
+                    sync.sync(root, False, "dev", "123456789012", services=["iam"])
+                except ValueError as error:
+                    assert "generated Markdown is stale or missing" in str(error)
+                else:
+                    raise AssertionError("service generated mismatch accepted")
+                path.write_text(original, encoding="utf-8")
+
+
+def check_workflow_contract():
+    prompt = (ROOT / "framework/prompts/codex/04_deploy.md").read_text(encoding="utf-8")
+    reading = M.markdown_sections(prompt)["read-before-changing-files"]
+    assert "docs/designs/<environment>/<target-directory>/<service-id>.md" not in reading
+    for text in (prompt, *((ROOT / "framework/rules" / (engine + ".md")).read_text(encoding="utf-8") for engine in ("cloudformation", "terraform"))):
+        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "存在確認", "hash", "予約", "local loop", "fallback", "停止"))
+        assert "承認済みの詳細設計とservice modelをinputとして読み取る" not in text
+    assert all(value in prompt for value in ("generatedViews", "inputs", "未読section", "load_units()", "登録済みtaskを新規登録し直さない"))
 
 
 def check_dependencies_and_timing():
@@ -213,4 +369,7 @@ if __name__ == "__main__":
     check_dependencies_and_timing()
     check_preparation()
     check_stale_and_conflicts()
+    check_generated_boundaries()
+    check_service_generated_equality()
+    check_workflow_contract()
     print("Deployment preparation checks: PASS")

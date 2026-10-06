@@ -30,7 +30,7 @@ AWS APIを実行する前にUser inputを確認する。placeholder、空、不�
 
 environment、alias、AWS accountは`project.json`の同じtargetに存在する候補だけを提示し、自動選択しない。environmentにtargetが1件だけの場合はaliasを質問しない。delete/replacementは、対象resourceと理由がUser inputに明記されている場合だけ事前承認済みとして扱う。事前承認がない場合は`none`のままchange setまたはplanを作成し、未承認のdelete/replacementを検出した場合だけ作成後にhumanへ確認する。AWS profileがplaceholderまたは空の場合はtargetの`awsProfile`を使用し、未設定ならdefault credential chainを使用する。profile名を質問しない。設定と異なる明示profileは実行前に拒否する。
 
-`project.json`、対象の承認済み詳細設計、対応するservice model、または対象IaCが存在しない場合は、値を推測せず停止する。
+`project.json`、対象の承認済み正本service model、対応する生成Markdown／JSON、または対象IaCが存在しない場合は、値を推測せず停止する。生成物の存在確認はAIの本文読込を要求しない。
 
 ## Read before changing files
 
@@ -38,22 +38,26 @@ environment、alias、AWS accountは`project.json`の同じtargetに存在する
 2. [task-contract](../../rules/task-contract.md)
 3. 存在する場合は`tasks/<task-name>.md`。ない場合はidle状態として扱い、Create active task contractで最初に作成する。
 4. `project.json`
-5. deployment scopeが所有・参照するserviceの`docs/designs/<environment>/<target-directory>/<service-id>.md`
-6. 対応する`model/<environment>/<target-directory>/<service-id>.properties`と必要なpart。StackName対応はcontrollerが正本stack modelから解決する
+5. deployment scopeが所有・参照するserviceの正本`model/<environment>/<target-directory>/<service-id>.properties`入口と必要なpart、参照解決に必要な参照先model
+6. CloudFormationは同targetの`cloudformation-stacks.properties`。StackName対応と生成stack Markdownの照合は既存controllerの`load_units()`へ委ね、AIが同じ値を手動で二重比較しない
 7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection)。CloudFormationは[CloudFormation stack詳細設計](../../rules/detailed-design.md#cloudformation-stack詳細設計)、設計表示を変更・調査する場合だけ関連する表示sectionを追加する。
 8. [Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[Properties format](../../rules/model-information.md#properties-format)。生成する場合は[Properties先行更新と表示生成](../../rules/model-information.md#properties先行更新と表示生成)、CloudFormationは[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)を追加する。
 9. 選択済みengineに対応する[cloudformation](../../rules/cloudformation.md)または[terraform](../../rules/terraform.md)
 10. [observed-values](../../rules/observed-values.md)
 11. [Local loop](../../rules/loop-engineering.md#local-loop)と[Validation scope](../../rules/loop-engineering.md#validation-scope)。[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
-12. 対象IaC file
+12. 対象IaC fileとstack固有parameter、宣言済み実行入力
 
 - [project-configuration](../../rules/project-configuration.md)と[issue-gate](../../rules/issue-gate.md)。
 
-必須文書はfile／指定sectionごとに読む。tool出力の上限を超える場合は同じfileを行範囲または後述の6,000文字chunkで分割し、指定された読取範囲を省略なしで確認する。複数の大きなfileを一つの出力へ連結しない。同じ準備中に確認済みのfileは内容hashが同じなら再読しない。変更・追加・削除があれば該当fileだけ読み直す。
+必須文書はfile／指定sectionごとに読む。tool出力の上限を超える場合は同じfileを行範囲または後述の6,000文字chunkで分割し、指定された読取範囲を省略なしで確認する。複数の大きなfileを一つの出力へ連結しない。同じ準備中に実際に確認済みの必要範囲だけは内容hashが同じなら再読しない。未読sectionをhash一致だけで確認済みにしない。変更・追加・削除があれば変更内容と必要な入力範囲を確認して再準備する。生成物変更を理由に全文再読を要求しない。
 
 Python launcherは準備開始時に既存の利用可能な一つの環境へ固定し、以後の準備・契約登録・controller・local loopへ同じ絶対pathとPATH/PYTHONPATHを使う。依存不足は一度に列挙して同じ環境で解消し、別Pythonを順番に試したり認証確認を重ねたりしない。credential値をログへ保存しない。
 
-詳細設計、service model、IaCが矛盾する場合は、値やIaCを修正せず停止する。
+通常deployのAI向け設計入力はauthoritative model propertiesとする。設計値は`desired.row.*`、JSON本文は`desired.row.*.document`、resource identity／参照は`desired.resource.*`等の既存metadata、current non-ARN identifierは`observed.*`、stack設定は`cloudformation-stacks.properties`から取得する。生成service Markdown、`cloudformation-stacks.md`、service-owned生成JSON、ビルド済みZIPは通常の本文入力から除外する。
+
+`.md#anchor`形式の参照はMarkdown本文を開く指示ではない。path／file stemから参照先propertiesへ対応付け、既存`model_files.py --resource <resource-selector>`とanchor等のmetadataで必要resourceを確認する。不明・未一致・曖昧なら停止し、生成Markdown本文をfallbackにしない。
+
+生成物の存在確認、hash監視、予約、機械的生成物検証と停止条件は維持する。明示された表示不具合・不一致調査に限り、必要な生成物の該当箇所を読める。model、生成物、IaCの不一致を検出した場合はdeployを継続せず、IaC／intended designを自動修復しない。
 
 `<target-directory>`は、選択targetにaliasがあればalias、なければAWS account IDとする。
 
@@ -74,7 +78,7 @@ framework変更時は[Framework regression](../../rules/loop-engineering.md#fram
 
 この処理はAWS API、account認証、対応付け検証、lint、controllerを起動せず、repositoryも変更しない。依存をまとめて確認し、既存`load_target`／`load_units`／`read_model`／`model_parts`でtarget・正本StackNameと生成stack設計の一致を解決し、既存の予約検査で競合を確認する。`cloudformation-stacks`を含む明示serviceのmodel入口・part・observed追加時の分割候補・生成Markdown/JSONを具体的pathで予約する。scope外の参照元が必要ならcontrollerの安全確認で停止し、scopeを暗黙に広げない。
 
-出力のrepository外`preparation.json`に、確認するfileと内容hash、必須ruleの指定sectionとfile別の6,000文字以内のchunk、契約候補、固定Pythonとtool path、全StackNameを含む一つのcontroller argv／sessionを保存する。`documents`のchunkをfileごとに省略なしで確認し、同じhashで指定範囲を確認済みのfileは再読しない。これは文書確認用であり、modelから生成した設計の整合性検証を代替しない。binary artifactはhashだけを記録する。
+出力のrepository外`preparation.json`に、全入力pathと内容hashを`inputs`へ、AIが読む必須ruleの指定sectionとfile別の6,000文字以内のchunkを`documents`へ、本文を省略した生成物pathをソート・重複除去した`generatedViews`へ、契約候補、固定Pythonとtool path、全StackNameを含む一つのcontroller argv／sessionを保存する。`documents`のchunkをfileごとに省略なしで確認し、同じhashで指定範囲を確認済みのfileは再読しない。これは文書確認用であり、modelから生成した設計の整合性検証を代替しない。生成Markdown／JSONとbinary ZIPは`inputs`のhashと予約に残し、`documents`と本文chunk fileを作らない。`generatedViews`は説明用metadataであり、検証済み／PASSの根拠や入力guard省略の理由にしない。一般serviceの生成物一致は既存sync-model／local loopの実行時点で検証し、準備やcontrollerがすべてdeploy前に検証するとは扱わない。
 
 全必須文書と候補が今回のhuman依頼に一致したら、次を実行する。追加のhuman review gateを設けない。
 
@@ -82,7 +86,7 @@ framework変更時は[Framework regression](../../rules/loop-engineering.md#fram
 <fixed-python> framework/scripts/deploy_preparation.py --register <external-preparation.json>
 ```
 
-登録時は入力hash・runtime・最新issue・競合を再確認し、同じPythonで既存`task_contract.py --task-file ... --source ...`を一回使用する。候補の変更・入力変更・競合では登録せず停止する。変更した文書を読み直して準備を作り直し、既存task／sessionの再開では新規準備・契約を作らず既存resume手順を使用する。生成された契約と出力だけでdeploy完了とは扱わない。
+登録時は入力hash・runtime・最新issue・競合を再確認し、同じPythonで既存`task_contract.py --task-file ... --source ...`を一回使用する。候補の変更・入力変更・競合では登録せず停止する。変更内容と必要な入力だけを再確認して準備を作り直し、既存task／sessionの再開では新規準備・契約を作らず既存resume手順を使用する。新しい本文出力形式が必要な未登録候補は再準備する。`generatedViews`のない従来形式でも`inputs`全件のguardは維持する。登録済みtaskを新規登録し直さない。生成された契約と出力だけでdeploy完了とは扱わない。
 
 `timing.jsonl`は環境確認、契約準備、文書のI/O、文書snapshot作成後から登録までの経過、登録を分けて記録する。snapshot以後の経過にはエージェントの確認・tool待ち時間も含まれる。通常準備は60秒以内を目標にし、`within60Seconds=false`なら遅い工程を実測で報告する。60秒超過だけで打切り、PASS、確認省略を行わない。認証・通信はcontroller側の別工程として測定する。fixtureによるAWS変更なしの計測は実deploy時の所要時間と区別する。
 
@@ -127,7 +131,7 @@ CloudFormationはcontrollerがscopeの既知StackNameへ`describe-stacks`を実�
 
 ## Resolve deployment units
 
-CloudFormationでは正本stack propertiesと生成Markdownの一致を確認し、StackNameをdeployment identityとしてTemplate、stack固有Parameters、DeployOrder、MaxConcurrentStacksを解決する。同じtemplateの全StackNameを個別unitとして保持する。resource所有、parameter、既存stackとの照合は既存設計とIaCから確認し、曖昧なら停止する。Deployment scopeを自動拡張しない。順序と並列数はcontrollerで強制し、LLMがdependency順を再計算しない。
+CloudFormationでは既存`load_units()`が正本stack propertiesと生成Markdownの一致を確認し、AIは正本propertiesからStackNameをdeployment identityとしてTemplate、stack固有Parameters、DeployOrder、MaxConcurrentStacksを解決する。同じtemplateの全StackNameを個別unitとして保持する。resource所有、parameter、既存stackとの照合は既存設計とIaCから確認し、曖昧なら停止する。Deployment scopeを自動拡張しない。順序と並列数はcontrollerで強制し、LLMがdependency順を再計算しない。
 
 同stack modelの任意TemplateBucket／TemplateKeyPrefixとartifact対応表を`cloudformation.md`のS3 deployment artifactsに従って読む。配置先は同targetのS3 modelの確定済みBucketNameから解決する。sourceは事前にビルドしたローカルfileとし、deploy中にビルド・対応表・元IaCを変更しない。今回のscopeの宣言済み成果物配置はAWS execution許可に含む。必要bucketが未作成なら停止し、bucket作成やscope拡張を自動実行しない。
 

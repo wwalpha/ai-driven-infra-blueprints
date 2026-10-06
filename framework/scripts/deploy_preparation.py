@@ -155,7 +155,7 @@ def candidate(root, task, env, directory, target, stacks, services):
     from model_design import properties, entries
     from task_contract import safe_path
     sync = module("preparation_sync", root / "framework/scripts/sync-model.py")
-    files, sources = {task}, set()
+    files, sources, generated_views = {task}, set(), set()
     for service in services:
         source = root / "model" / env / directory / (service + ".properties")
         design = root / "docs/designs" / env / directory / (service + ".md")
@@ -163,6 +163,7 @@ def candidate(root, task, env, directory, target, stacks, services):
         values = properties(text)
         parts = model_parts(source)
         sources.update([source, *parts, design])
+        generated_views.add(design)
         files.update(path.relative_to(root).as_posix() for path in [source, *parts, design])
         # Reserve possible part growth before observed sync; no model values are written.
         additions = []
@@ -175,8 +176,11 @@ def candidate(root, task, env, directory, target, stacks, services):
                 artifact = (design.parent / match.group(1)).resolve()
                 if not artifact.is_relative_to(design.parent / service):
                     raise ValueError(f"generated JSON must belong to selected service: {artifact}")
+                if "document" not in row:
+                    raise ValueError(f"authoritative JSON document missing: resource {rid.rpartition('-')[0]}, row {rid}, path {artifact.relative_to(root)}")
                 files.add(artifact.relative_to(root).as_posix())
                 sources.add(artifact)
+                generated_views.add(artifact)
         projected = text if not additions else text.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
         files.update(path.relative_to(root).as_posix() for path in model_file_contents(source, projected))
     for path in files:
@@ -196,7 +200,7 @@ def candidate(root, task, env, directory, target, stacks, services):
               "", "## Acceptance checks", ""]
     lines += ["## Modified files", "", *[f"- `{path}`" for path in sorted(files)],
               "", "## Allowed paths", "", *[f"- `{path}`" for path in sorted(files)], ""]
-    return "\n".join(lines), sources, scope
+    return "\n".join(lines), sources, scope, generated_views
 
 
 def prepare(root, args, run, timing):
@@ -220,14 +224,14 @@ def prepare(root, args, run, timing):
         directory = args.alias or target["awsAccountId"]
         _, units = controller.load_units(root, args.environment, directory, args.stack)
         services = sorted(set(args.service) | {"cloudformation-stacks"})
-        text, sources, scope = candidate(root, args.task_file, args.environment, directory, target, args.stack, services)
+        text, sources, scope, generated_views = candidate(root, args.task_file, args.environment, directory, target, args.stack, services)
         errors = issue_errors(root, {tuple(value.split("/")) for value in scope})
         if errors:
             raise ValueError("\n".join(errors))
         backend = controller.AwsBackend(root, args.environment, directory, target, args.profile)
-        for unit in units:
-            sources.update(backend.paths(unit))
-            sources.update(backend.source_path(artifact) for artifact in unit.get("artifacts", []))
+        execution_inputs = {path for unit in units for path in backend.paths(unit)}
+        execution_inputs.update(backend.source_path(artifact) for unit in units for artifact in unit.get("artifacts", []))
+        sources.update(execution_inputs)
         checks = [f"- [R1] `exists:{path.relative_to(root).as_posix()}`" for unit in units for path in backend.paths(unit)]
         text = text.replace("## Acceptance checks\n", "## Acceptance checks\n" + "\n".join(sorted(set(checks))) + "\n")
         records = contracts(root)
@@ -245,7 +249,12 @@ def prepare(root, args, run, timing):
             raise ValueError("deployment prompt has no required rule readings")
         required = ["AGENTS.md", "project.json", "framework/prompts/codex/04_deploy.md"]
         sources.update(rules)
-        sources.update(root / path for path in required)
+        required_inputs = {*(root / path for path in required), *rules}
+        conflicts = generated_views & (execution_inputs | required_inputs)
+        if conflicts:
+            raise ValueError("generated view conflicts with execution/required input: " +
+                             ", ".join(path.relative_to(root).as_posix() for path in sorted(conflicts)))
+        sources.update(required_inputs)
         documents, hashes = [], {}
         docs = run / "documents"
         docs.mkdir()
@@ -256,8 +265,8 @@ def prepare(root, args, run, timing):
             hashes[relative] = hashlib.sha256(data).hexdigest()
             if path in rules and data.decode("utf-8") != rules[path]["sourceText"]:
                 raise ValueError(f"rule changed during preparation: {relative}")
-            # Binary build artifacts are fingerprinted, never rendered as documents.
-            if path.suffix == ".zip":
+            # Generated views and binary build artifacts remain fingerprinted, without body chunks.
+            if path in generated_views or path.suffix == ".zip":
                 continue
             content = rules[path]["text"] if path in rules else data.decode("utf-8")
             chunks = []
@@ -287,6 +296,7 @@ def prepare(root, args, run, timing):
         command.append("--sequential")
     return {"repository": str(root), "taskFile": args.task_file, "contract": str(contract),
             "contractDigest": sha(contract), "runtime": runtime, "inputs": hashes, "documents": documents,
+            "generatedViews": sorted(path.relative_to(root).as_posix() for path in generated_views),
             "scope": scope, "controllerArgv": command,
             "environment": {key: os.environ[key] for key in ("PATH", "PYTHONPATH") if key in os.environ}
                            | {"BLUEPRINT_TASK_FILE": args.task_file, "PYTHONDONTWRITEBYTECODE": "1"},
@@ -308,8 +318,8 @@ def register(root, path, timing):
         from task_contract import safe_path
         for relative, digest in plan["inputs"].items():
             safe_path(root, relative)
-            if sha(root / relative) != digest:
-                raise ValueError(f"preparation input changed; reread and prepare again: {relative}")
+            if not (root / relative).is_file() or sha(root / relative) != digest:
+                raise ValueError(f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}")
         contract = Path(plan["contract"]).resolve()
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
             raise ValueError("contract candidate changed; prepare again")
