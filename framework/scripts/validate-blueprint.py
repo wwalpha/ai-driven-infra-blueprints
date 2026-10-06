@@ -223,8 +223,9 @@ class Validator:
             self.check_observed_values()
         elif not self.errors:
             self.check_scoped_designs()
-        self.check_iac_selection()
-        if self.scope is None or self.task_type == "infrastructure":
+        if self.infrastructure_phase != "destroy":
+            self.check_iac_selection()
+        if self.infrastructure_phase != "destroy" and (self.scope is None or self.task_type == "infrastructure"):
             self.check_cloudformation_yaml_rules()
             self.check_cloudformation_environment_parameters()
         if self.scope is None or self.task_type == "scenario-test":
@@ -266,6 +267,7 @@ class Validator:
             "framework/prompts/codex/04_deploy.md",
             "framework/prompts/codex/05_update.md",
             "framework/prompts/codex/06_scenario-test.md",
+            "framework/prompts/codex/07_destroy.md",
             "framework/scripts/blueprint-loop.py",
             "framework/scripts/check-deploy-context.py",
             "framework/scripts/cloudformation_schema.py",
@@ -357,7 +359,7 @@ class Validator:
         if infrastructure_phases:
             self.infrastructure_phase = infrastructure_phases[0]
             self.check(
-                self.infrastructure_phase in {"implement", "deploy", "update"},
+                self.infrastructure_phase in {"implement", "deploy", "update", "destroy"},
                 f"unknown Infrastructure phase: {self.infrastructure_phase}",
             )
 
@@ -447,6 +449,9 @@ class Validator:
             elif self.task_type == "infrastructure":
                 forbidden = self.under(changed, "tests")
                 self.check(not forbidden, f"infrastructure task boundary violation: {changed}")
+                if self.infrastructure_phase == "destroy":
+                    permitted = changed == prompt_path or changed.startswith("model/") and changed.endswith(".properties") or changed.startswith("docs/designs/") and Path(changed).suffix in {".md", ".json"}
+                    self.check(permitted, f"infrastructure destroy phase permits only observed models/generated views/active contract: {changed}")
             elif self.task_type == "scenario-test":
                 permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
                 self.check(permitted, f"scenario-test task boundary violation: {changed}")
@@ -517,6 +522,21 @@ class Validator:
                     any(path.startswith("model/") and path.endswith(".properties") for path in changed),
                     "infrastructure update phase must include human-changed authoritative service properties",
                 )
+            elif self.infrastructure_phase == "destroy":
+                self.check(not iac_changed, "infrastructure destroy phase must not change IaC")
+                for relative in sorted(changed):
+                    if not relative.startswith("model/") or not relative.endswith(".properties"):
+                        continue
+                    before = subprocess.run(["git", "show", "HEAD:" + relative], cwd=self.root,
+                                            capture_output=True, text=True, encoding="utf-8")
+                    path = self.root / relative
+                    try:
+                        old = properties(before.stdout) if before.returncode == 0 else {}
+                        new = properties(path.read_text(encoding="utf-8")) if path.is_file() else {}
+                        intended = lambda values: {key: value for key, value in values.items() if not key.startswith("observed.")}
+                        self.check(intended(old) == intended(new), f"infrastructure destroy phase must not change desired/display model: {relative}")
+                    except (OSError, ValueError) as error:
+                        self.check(False, f"destroy observed-only validation: {relative}: {error}")
         elif self.task_type == "scenario-test":
             self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
             self.check(any(self.under(path, "tests/results") for path in changed), "scenario-test task must change its current result")

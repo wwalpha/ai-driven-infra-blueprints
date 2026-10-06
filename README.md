@@ -92,14 +92,14 @@ Record exactly one of the following in the active prompt's `## Task contract`.
 For `infrastructure` tasks, also record exactly one of the following in the same Task contract.
 
 ```md
-- Infrastructure phase: `<implement-or-deploy-or-update>`
+- Infrastructure phase: `<implement-or-deploy-or-update-or-destroy>`
 ```
 
 Allowed task types:
 
 - `initialization`: Confirm required values with the human and initialize project topology/target paths.
 - `design`: Update detailed design and corresponding service models; finish after local validation.
-- `infrastructure`: Create/validate IaC in the `implement` phase, deploy/apply existing IaC in the `deploy` phase, or reflect human uncommitted design differences into IaC and deploy/apply in the `update` phase.
+- `infrastructure`: Create/validate IaC in the `implement` phase, deploy/apply existing IaC in the `deploy` phase, or reflect human uncommitted design differences into IaC and deploy/apply in the `update` phase, or explicitly delete designed CloudFormation stacks in the independent `destroy` phase. IaC and desired design remain unchanged during destroy.
 - `scenario-test`: Update scenarios, test implementation, execution, and scenario-scoped current results, then finish.
 - `governance`: Change repository rules/workflows.
 - `catalog-maintenance`: Maintain materials catalogs within explicit scope.
@@ -136,7 +136,7 @@ Follow [Acceptance contract](framework/rules/task-contract.md#acceptance-contrac
 
 - Execute only within active prompt, task type, and repository rule scope
 - Finish design tasks with detailed design/service models. Only if the chatbot specifies existing-resource retrieval, read-only AWS APIs may reflect selected properties and necessary non-ARN current identifiers
-- Execute only one of `implement`, `deploy`, or `update` in infrastructure tasks
+- Execute only one of `implement`, `deploy`, `update`, or `destroy` in infrastructure tasks
 - Change only scenarios/current results in scenario-test tasks
 - Do not automatically proceed to the next phase after task completion
 
@@ -205,6 +205,7 @@ framework/
       04_deploy.md
       05_update.md
       06_scenario-test.md
+      07_destroy.md
   rules/
   materials/
     catalog.properties
@@ -453,3 +454,9 @@ After uploading local artifacts, generate an execution copy outside the reposito
 Validate the whole scope locally; perform upload/checksum confirmation, AWS template validation, and change set creation/execution in each stack's order. Retain the session and adjacent `.files` directory until resuming the same task. Stop resume/execution if input files, execution copies, or uploaded objects change. See [CloudFormation rules](framework/rules/cloudformation.md#s3-deployment-artifacts) for corresponding properties, permissions, and retention policies, and [model rules](framework/rules/model-information.md#cloudformation-s3配置) for the authoritative format.
 
 For CloudFormation deploy failures, follow [Controlled deploy repair](framework/rules/cloudformation.md#controlled-deploy-repair); execute/validate only repairs uniquely determined from authoritative information in the same session and continue remaining stacks. Ask the Human about external information, design decisions, rollback that cannot be safely recovered, and unapproved delete/replacement.
+
+## Explicit CloudFormation Stack destroy
+
+Use `/destroy <StackName> [<StackName> ...]` with `.agents/skills/destroy/SKILL.md`, delegating to `framework/prompts/codex/07_destroy.md`. Register an `infrastructure` / `destroy` contract with exact account/environment/stack scope and observed output reservations from the controller's `--local-plan` JSON. Run independent `framework/scripts/cloudformation-destroy.py` once with `--environment`, `--alias` (or `--aws-account-id`), repeated `--stack`, and an external `--state`; use `--resume`, `--sequential` and external `--timing-log` when needed.
+
+Destroy performs one STS/context check per invocation, pinned StackId/protection/nested checks and actual export/import dependency validation before standard deletion. Delete reverse DeployOrder with bounded same-order concurrency; block external importers/order conflicts, stop starts and drain peers on failure. No protection disable, force delete, retained-resource cleanup or deploy validation. Fresh absence never changes observed values; proven deletions reset identifiers/references in one batch. Finish with one scoped task loop. The controller never invokes deploy preparation, cfn-lint, templates/parameters, change sets or per-stack full repository guards. The framework implementation is verified using fake AWS only.

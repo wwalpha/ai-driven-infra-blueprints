@@ -46,6 +46,7 @@ For manual edits, do not split implement and deploy. `05_update.md` receives hum
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | Reflect detailed designs already created in the repository into CloudFormation/Terraform | Create/change IaC through local static validation |
 | 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, perform uniquely determined CloudFormation controlled repair, and update necessary observed values |
 | 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing detailed designs, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
+| 7 | [`codex/07_destroy.md`](codex/07_destroy.md) | Explicit CloudFormation Stack deletion requested | Independent destroy; observed consistency and scoped local loop |
 | 6 | [`codex/06_scenario-test.md`](codex/06_scenario-test.md) | Application behavior confirmation is needed after deploy | Update scenarios and current results for the same target |
 
 Use `02_add-target.md`, `05_update.md`, and `06_scenario-test.md` only when applicable. `05_update.md` is a separate branch from the ordinary new-design workflow.
@@ -220,3 +221,7 @@ If design changes need new human decisions, confirm them in chat before reposito
 - `05_update.md` leaves human detailed design diffs unchanged and updates only models, IaC, and generated current values, then deploys/applies.
 - `06_scenario-test.md` changes only scenarios/results, without repairing designs or IaC.
 - Do not treat deploy success as application behavior PASS.
+
+### `codex/07_destroy.md`
+
+Independent infrastructure phase `destroy`, invoked by `/destroy <StackName> [<StackName> ...]`. Resolve one explicit target and local JSON ownership/reservation plan, register the contract, then run cloudformation-destroy.py with external resumable state. Destroy checks context/StackId/protection/nested/export-import dependencies, deletes reverse DeployOrder with bounded concurrency, and batches proven-success observed updates. No deploy preparation, IaC validation, change sets, force delete, retained-resource cleanup, or scenarios. Complete with one scoped task loop.

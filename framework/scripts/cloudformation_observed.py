@@ -6,7 +6,7 @@ import re
 from design_catalog import DesignSchemaCatalog
 from model_design import properties, entries, catalog_outputs, stack_model, cfn_resource_identity, LINK
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
-from model_files import read_model, model_parts, model_file_contents, MAX_LINES
+from model_files import read_model, model_parts, model_file_contents, resource_row_index, MAX_LINES
 from task_contract import require_writable, task_path, paths_in, matches
 from validation_scope import active_scope
 from issue_gate import require_target_no_issues
@@ -276,6 +276,21 @@ def sync_successful(backend, units, states):
                     ambiguous(f"{name}/{logical}: multiple identifiers for one anchor")
                 identifiers[anchor_key] = value
                 changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
+    propagate_references(root, loaded, changes, identifiers)
+    if not changes:
+        for unit in units:
+            states[unit["name"]]["observedSynced"] = True
+        return
+    destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
+    sync.save_files(destinations)
+    if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
+        raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
+    for unit in units:
+        states[unit["name"]]["observedSynced"] = True
+
+
+def propagate_references(root, loaded, changes, identifiers):
+    """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
     for path in sorted((root / "model").glob("*/*/*.properties")) if identifiers else []:
@@ -302,22 +317,23 @@ def sync_successful(backend, units, states):
             target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
             if (target, link.group(3)) in identifiers:
                 changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[target, link.group(3)])
-    if not changes:
-        for unit in units:
-            states[unit["name"]]["observedSynced"] = True
-        return
-    scope = active_scope(root)
+
+
+def observed_destinations(root, environment, directory, loaded, changes, check_scope=True):
+    """Plan exact model parts/views before writes, preserving desired/display bytes."""
+    scope = active_scope(root) if check_scope else None
     destinations = {}
     for path, updates in changes.items():
         service = tuple(path.relative_to(root / "model").with_suffix("").parts)
         if scope is not None and service not in scope or service[:2] != (environment, directory):
             raise ValueError(f"task scope violation: observed reference requires {'/'.join(service)}")
         for key in list(updates):
+            if not key.endswith(".value"):
+                continue
             rid = key.removeprefix("observed.row.").removesuffix(".value")
             for field in ("property", "comment"):
                 observed = f"observed.row.{rid}.{field}"
-                if observed not in loaded[path]:
-                    updates[observed] = loaded[path][f"desired.row.{rid}.{field}"]
+                updates[observed] = loaded[path].get(observed, loaded[path][f"desired.row.{rid}.{field}"])
         # Preserve existing comments/order/parts and all desired/display inputs.
         parts = model_parts(path)
         remaining = dict(updates)
@@ -346,16 +362,117 @@ def sync_successful(backend, units, states):
         for _, row in entries(loaded[path], "desired.row."):
             if match := sync.JSON_LINK.fullmatch(row["value"]):
                 views.add((design.parent / match.group(1)).resolve())
+    if not check_scope:
+        return destinations, views, sync
     require_writable(root, set(destinations) | views)
     contract = task_path(root).read_text(encoding="utf-8")
     allowed = paths_in(contract, "## Allowed paths")
     if any(not any(matches(path.relative_to(root).as_posix(), p) for p in allowed) for path in set(destinations) | views):
         raise ValueError("task scope violation: observed model/view output outside Allowed paths")
-    sync.save_files(destinations)
-    if changes and sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
-        raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
-    for unit in units:
-        states[unit["name"]]["observedSynced"] = True
+    return destinations, views, sync
+
+
+def destroy_plan(root, environment, directory, stack_names, check_scope=True):
+    """Resolve ownership/identifier propagation without templates, parameters or AWS.
+
+    Legacy IDs cannot establish stack ownership here; require explicit metadata.
+    The returned plan is JSON serializable and remains stable after observed sync.
+    """
+    import hashlib
+    loaded = models(root, environment, directory)
+    catalog = DesignSchemaCatalog(root) if loaded else None
+    direct, _ = resource_index(loaded, catalog)
+    changes_by_stack = {name: {} for name in stack_names}
+    anchors = {name: {} for name in stack_names}
+    owners = {name: [] for name in stack_names}
+    for path, values in loaded.items():
+        rows = resource_row_index(values)
+        for identity, resource in entries(values, "desired.resource."):
+            if resource.get("resourceMode", "CREATE") != "CREATE":
+                continue
+            try:
+                formal = catalog.cloudformation_type(resource["resourceType"])
+            except (KeyError, ValueError):
+                formal = None
+            if not formal:
+                continue
+            if not resource.get("cfn-logicalId"):
+                ambiguous(f"{path.name}/{identity}: destroy requires explicit cfn-logicalId ownership")
+            name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+            if name not in changes_by_stack:
+                continue
+            if len(direct[name, logical]) != 1:
+                ambiguous(f"{name}/{logical}: duplicate ownership")
+            service = tuple(path.relative_to(root / "model").with_suffix("").parts)
+            if check_scope and service not in (active_scope(root) or set()):
+                raise ValueError(f"task scope violation: destroy ownership requires {'/'.join(service)}")
+            owners[name].append({"model": path.relative_to(root).as_posix(), "resource": identity,
+                                 "logicalId": logical})
+            outputs = catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
+            design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+            for prop in outputs:
+                selected = [(rid, row) for rid, row in rows[identity] if row["property"] == prop]
+                if len(selected) != 1:
+                    ambiguous(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
+                rid, row = selected[0]
+                link = LINK.fullmatch(row["value"])
+                if not link or link.group(2) not in {"", path.stem + ".md"} or link.group(3) != resource["anchor"]:
+                    ambiguous(f"{name}/{logical}: identifier must reference its own resource anchor")
+                changes_by_stack[name].setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
+                anchors[name][design.resolve(), resource["anchor"]] = "PENDING_DEPLOY"
+    result, paths, services, inputs = {}, set(), set(), {}
+    for name in stack_names:
+        services.update(tuple(Path(owner["model"]).relative_to("model").with_suffix("").parts) for owner in owners[name])
+    for name in stack_names:
+        changes = changes_by_stack[name]
+        propagate_references(root, loaded, changes, anchors[name])
+        if changes:
+            destinations, views, _ = observed_destinations(root, environment, directory, loaded, changes, check_scope)
+            for part, text in destinations.items():
+                intended = lambda content: {key: value for key, value in properties(content).items() if not key.startswith("observed.")}
+                if intended(part.read_text(encoding="utf-8") if part.exists() else "") != intended(text):
+                    ambiguous("destroy observed append requires model repartition; split in a separate task first")
+            paths.update(destinations)
+            paths.update(views)
+        result[name] = {path.relative_to(root).as_posix(): updates for path, updates in changes.items()}
+        for path in changes:
+            services.add(tuple(path.relative_to(root / "model").with_suffix("").parts))
+            # Intended inputs remain immutable, observed transitions are idempotent on resume.
+            inputs[path.relative_to(root).as_posix()] = hashlib.sha256(
+                repr(sorted((key, value) for key, value in loaded[path].items()
+                            if not key.startswith("observed."))).encode()).hexdigest()
+    return {"updates": result, "owners": owners, "paths": sorted(path.relative_to(root).as_posix() for path in paths),
+            "services": sorted("/".join(service) for service in services), "inputs": inputs}
+
+
+def sync_destroyed(backend, states, plan):
+    """Batch only proven deletions using the write plan established before mutation."""
+    root, environment, directory = backend.root, backend.environment, backend.directory
+    completed = [name for name, state in states.items()
+                 if state["status"] == "DELETE_COMPLETE" and not state.get("observedSynced")]
+    if not completed:
+        return
+    loaded, changes = {}, {}
+    import hashlib
+    for name in completed:
+        for relative, updates in plan["updates"][name].items():
+            path = root / relative
+            values = properties(read_model(path))
+            current = hashlib.sha256(repr(sorted((key, value) for key, value in values.items()
+                                               if not key.startswith("observed."))).encode()).hexdigest()
+            if current != plan["inputs"][relative]:
+                raise ValueError(f"destroy observed inputs changed: {relative}; resume after restoring inputs")
+            loaded[path] = values
+            changes.setdefault(path, {}).update(updates)
+    if changes:
+        destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
+        if {path.relative_to(root).as_posix() for path in set(destinations) | views} - set(plan["paths"]):
+            raise ValueError("destroy observed output differs from pre-mutation reservations")
+        sync.save_files(destinations)
+        if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
+            raise ValueError("destroy observed sync failed; resume same session")
+    for name in completed:
+        states[name]["observedSynced"] = True
 
 
 def preflight(root, environment, directory, stack_names):

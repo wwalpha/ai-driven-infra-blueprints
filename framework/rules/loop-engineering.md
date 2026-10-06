@@ -58,7 +58,7 @@ Task-type-specific checks cannot be omitted from the active task; confirm at lea
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
 - `design`: Target authoritative model properties change first, and Markdown/JSON artifacts match their deterministic generation results
-- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed model properties, generated Markdown, and IaC are in the same diff. Scenarios are unchanged in all phases
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed model properties, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change
 - `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change
@@ -102,7 +102,7 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
 - Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
-- Ordinary design, implement, deploy, update, scenario/evidence, initialization, and target migration use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
+- Ordinary design, implement, deploy, update, destroy, scenario/evidence, initialization, and target migration use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
 - Tasks changing framework scripts, rules, validators/generators, or common processing use `python framework/scripts/blueprint-loop.py --mode full`. In addition to specified-scope validation, run every `framework/scripts/*.checks.py` with at most 2 parallel workers and aggregate diagnostics/failure lists in name order. Separate only framework-internal regression using fixtures, mocks, and fixed catalog inputs from ordinary tasks.
 - Even in `task` / `local`, automatically add all regression when unstaged, staged, or untracked changed paths include `framework/**`, `.agents/**`, `AGENTS.md`, or `README.md`. Include rules, materials (catalog/schema snapshots), future schema/catalog directories, prompts, and distributed skills as well as scripts. Detect deletion/rename sources too. If Git cannot determine changes, stop without omitting regression. Use explicit `full` to revalidate committed changes.
 - `--mode local` is also valid as the same scoped validation as `task`. If a skill specifies `local`, that execution suffices; do not require additional `task` / `full`. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
@@ -142,7 +142,7 @@ Before design questions, on resume, target changes, before design contract regis
 
 ## Infrastructure task completion
 
-Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`; only `implement`, `deploy`, or `update` are permitted.
+Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`; only `implement`, `deploy`, `update`, or `destroy` are permitted.
 
 `implement` phase:
 
@@ -166,6 +166,21 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 3. Run deterministic preflight and confirm change set/plan scope. For unapproved delete/replacement, wait for human confirmation with an explanation; after approval, resume authorized deploy/apply in the same task with the same change set or saved plan.
 4. Update model observed values and regenerate Markdown only after successful AWS mutation.
 5. Confirm Codex has not changed the human's intended-design diff; after the local loop, finish without proceeding to scenario tests.
+
+## Infrastructure destroy completion
+
+Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
+
+1. Resolve local ownership/write paths, reserve them and confirm exact target/account/region/profile/pinned StackIds, protection and nested identity.
+2. Validate actual export/import dependencies for the whole scope before any delete.
+3. Delete standard stacks in reverse DeployOrder with bounded same-order concurrency; stop starts on failure and drain running stacks.
+4. Confirm DELETE_COMPLETE using pinned session evidence; fresh ALREADY_ABSENT is reported separately.
+5. Reset only proven deleted stacks' observed identifiers and incoming references to PENDING_DEPLOY, preserving desired inputs.
+6. Regenerate affected Markdown/JSON in one batch (partial success permitted, failed/unexecuted unchanged).
+7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
+8. Finish without scenario tests or another task.
+
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary/reservations, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes still require normal full regression.
 
 ## Scenario-test task completion
 

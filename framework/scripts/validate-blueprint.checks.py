@@ -12,6 +12,9 @@ import re
 import shlex
 import subprocess
 import tempfile
+import io
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -157,6 +160,52 @@ def check_idle_without_active_task() -> None:
         validator = MODULE.Validator(root)
         validator.check_task_scope()
         assert any("active task prompt missing" in error for error in validator.errors)
+
+
+def check_destroy_phase() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        model = root / "model/dev/123456789012/ec2.properties"
+        model.parent.mkdir(parents=True)
+        model.write_text("desired.row.001-001.value=`fixed`\nobserved.row.001-001.value=`vpc-old`\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline"], cwd=root, check=True)
+        validator = MODULE.Validator(root)
+        validator.task_type = "infrastructure"
+        validator.infrastructure_phase = "destroy"
+        validator.changed_paths = {"model/dev/123456789012/ec2.properties", "tasks/destroy.md"}
+        model.write_text("desired.row.001-001.value=`fixed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n", encoding="utf-8")
+        validator.check_task_type_requirements()
+        validator.check_task_boundary(root / "tasks/destroy.md")
+        assert not validator.errors, validator.errors
+        model.write_text("desired.row.001-001.value=`changed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n", encoding="utf-8")
+        validator.check_task_type_requirements()
+        assert any("must not change desired/display" in error for error in validator.errors)
+        validator.changed_paths = {"infra/cloudformation/templates/a.yaml", "framework/scripts/a.py", "project.json", "tests/results/a.md"}
+        validator.check_task_type_requirements()
+        validator.check_task_boundary(root / "tasks/destroy.md")
+        assert any("must not change IaC" in error for error in validator.errors)
+        assert sum("destroy phase permits only" in error for error in validator.errors) == 4
+        # Exercise run() dispatch: destroy retains common/model checks but never enters IaC.
+        validator = MODULE.Validator(root)
+        validator.task_type = "infrastructure"
+        validator.infrastructure_phase = "destroy"
+        banned = {"check_iac_selection", "check_cloudformation_yaml_rules", "check_cloudformation_environment_parameters"}
+        invoked = []
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for name in ("check_structure", "check_task_scope", "check_tasks", "check_project_topology", "check_validation_scope",
+                         "check_model_files", "check_issue_gate", "check_task_type_requirements", "check_initialized_paths",
+                         "check_catalog", "check_resource_layout", "check_scoped_designs", "check_designs", "check_observed_values",
+                         "check_acceptance_checks", *banned):
+                def check(*args, name=name):
+                    assert name not in banned, name
+                    invoked.append(name)
+                stack.enter_context(patch.object(validator, name, check))
+            with redirect_stdout(io.StringIO()):
+                assert validator.run() == 0
+        assert {"check_task_scope", "check_scoped_designs", "check_acceptance_checks"} <= set(invoked)
 
 
 def check_task_type_dispatch() -> None:
@@ -1677,6 +1726,7 @@ def main() -> None:
     check_rule_reading_contract()
     check_task_contract()
     check_idle_without_active_task()
+    check_destroy_phase()
     check_task_type_dispatch()
     check_optional_alias_targets()
     check_optional_alias_contract()
