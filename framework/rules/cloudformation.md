@@ -48,8 +48,8 @@ Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
 ## Design coverage and CloudFormation support
 
 - Detailed designs/models also contain CFn-unsupported resources. Resolve formal CFn types for every implementation target resource type with `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`. Unknown types or `cloudFormationType: null` are failures; do not invent `AWS::` types merely by resource type string replacement.
-- `Macie.Session` uses existing CFn schemas. Treat `Macie.ClassificationJob` as CFn-unsupported; do not include Jobs in CFn templates, Outputs, or `!Ref`.
-- If the active task specifies only CFn-supported scope, implement that scope and finish. If Jobs are requested for implementation, explicitly state them as unimplemented; do not silently narrow scope or call the request complete. Do not automatically add Custom Resources or other engines for Jobs.
+- `Macie.Session` uses existing CFn schemas. Treat `Macie.ClassificationJob` and `QuickSight.Group` as CFn-unsupported; do not include them in CFn templates, Outputs, or `!Ref`.
+- If the active task specifies only CFn-supported scope, implement that scope and finish. If API-only resources are requested for implementation, explicitly state them as unimplemented; do not silently narrow scope or call the request complete. Do not automatically add Custom Resources or other engines.
 - Even if CFn resources need API resource identifiers, do not generate fictitious `!Ref`. Without approved external input handoff design, report missing dependencies and stop. Do not infer implementation methods from link display current IDs.
 
 ## Resource mode boundary

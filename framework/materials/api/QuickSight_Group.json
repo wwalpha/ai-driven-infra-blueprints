@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "AwsAccountId": {
+      "type": "string",
+      "minLength": 12,
+      "maxLength": 12,
+      "pattern": "^[0-9]{12}$"
+    },
+    "Namespace": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-zA-Z0-9._-]*$"
+    },
+    "GroupName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "[\\u0020-\\u00FF]+"
+    },
+    "Description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "Arn": {
+      "type": "string"
+    },
+    "PrincipalId": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "AwsAccountId",
+    "Namespace",
+    "GroupName"
+  ],
+  "resourceType": "QuickSight.Group",
+  "cloudFormationType": null,
+  "identityProperties": [
+    "AwsAccountId",
+    "Namespace",
+    "GroupName"
+  ],
+  "identifierOutputs": [
+    "Arn",
+    "PrincipalId"
+  ],
+  "source": {
+    "apiVersion": "2018-04-01",
+    "operation": "CreateGroup",
+    "readOperations": [
+      "ListGroups",
+      "DescribeGroup"
+    ],
+    "updateOperation": "UpdateGroup",
+    "deleteOperation": "DeleteGroup",
+    "documentationUrl": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_CreateGroup.html",
+    "readDocumentationUrl": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_DescribeGroup.html",
+    "updateDocumentationUrl": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_UpdateGroup.html",
+    "deleteDocumentationUrl": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_DeleteGroup.html",
+    "listDocumentationUrl": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_ListGroups.html",
+    "modelUrl": "https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/quicksight/2018-04-01/service-2.json",
+    "modelSha256": "2c2fe286859ba2014551f49f60fc4ab3be90df17ae2632472b7912c14b774175",
+    "reviewedOn": "2026-10-06"
+  }
+}

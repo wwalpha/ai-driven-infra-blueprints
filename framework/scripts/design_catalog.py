@@ -1,4 +1,4 @@
-"""Design catalogs: retain CFn schemas and add the pinned Macie Job API contract."""
+"""Design catalogs: retain CFn schemas and add pinned API design contracts."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from validation_cache import memoized
 
 
 MACIE_JOB = "Macie.ClassificationJob"
+QUICKSIGHT_GROUP = "QuickSight.Group"
 
 
 @memoized
@@ -149,10 +150,15 @@ def api_snapshot_errors(root: Path) -> list[str]:
     files = sorted(directory.glob("*"))
     try:
         catalog = DesignSchemaCatalog(root)
-        if {path.name for path in files} != {"Macie_ClassificationJob.json", "Macie_ClassificationJob.properties"}:
-            return ["API design catalog must contain the registered Macie Job snapshot and selection list"]
+        expected_files = {
+            "Macie_ClassificationJob.json", "Macie_ClassificationJob.properties",
+            "QuickSight_Group.json", "QuickSight_Group.properties",
+        }
+        if {path.name for path in files} != expected_files:
+            return ["API design catalog files differ from the registered API snapshots"]
         if (root / "framework/materials/api-catalog.sha256").read_text(encoding="utf-8") != manifest_text(root, files):
             return ["API design catalog checksum mismatch"]
+
         schema = catalog.schema(MACIE_JOB)
         source = schema["source"]
         if schema["resourceType"] != MACIE_JOB or schema["cloudFormationType"] is not None:
@@ -169,6 +175,49 @@ def api_snapshot_errors(root: Path) -> list[str]:
             return ["Macie API selection list does not match its design schema"]
         for key in schema["properties"]:
             catalog.property_schema(MACIE_JOB, key)
+
+        schema = catalog.schema(QUICKSIGHT_GROUP)
+        source = schema["source"]
+        expected_properties = {
+            "AwsAccountId": {"type": "string", "minLength": 12, "maxLength": 12, "pattern": r"^[0-9]{12}$"},
+            "Namespace": {"type": "string", "maxLength": 64, "pattern": r"^[a-zA-Z0-9._-]*$"},
+            "GroupName": {"type": "string", "minLength": 1, "pattern": r"[\u0020-\u00FF]+"},
+            "Description": {"type": "string", "minLength": 1, "maxLength": 512},
+            "Arn": {"type": "string"},
+            "PrincipalId": {"type": "string"},
+        }
+        if schema["resourceType"] != QUICKSIGHT_GROUP or schema["cloudFormationType"] is not None:
+            return ["QuickSight Group must be an API design type without a CloudFormation type"]
+        if catalog.canonical_type(QUICKSIGHT_GROUP) in catalog.resource_types:
+            return ["QuickSight Group API and CloudFormation catalogs overlap; explicit migration required"]
+        if schema["identityProperties"] != ["AwsAccountId", "Namespace", "GroupName"]:
+            return ["QuickSight Group identity must be AwsAccountId + Namespace + GroupName"]
+        if schema["properties"] != expected_properties or schema["required"] != ["AwsAccountId", "Namespace", "GroupName"] or schema["additionalProperties"] is not False:
+            return ["QuickSight Group schema differs from the official API fields and constraints"]
+        if schema["identifierOutputs"] != ["Arn", "PrincipalId"]:
+            return ["QuickSight Group identifier outputs must be Arn and PrincipalId"]
+        if (
+            source["operation"] != "CreateGroup"
+            or source["readOperations"] != ["ListGroups", "DescribeGroup"]
+            or source["updateOperation"] != "UpdateGroup"
+            or source["deleteOperation"] != "DeleteGroup"
+            or source["apiVersion"] != "2018-04-01"
+            or source["modelSha256"] != "2c2fe286859ba2014551f49f60fc4ab3be90df17ae2632472b7912c14b774175"
+        ):
+            return ["QuickSight Group lifecycle, discovery, or source provenance is incomplete"]
+        selected = (directory / "QuickSight_Group.properties").read_text(encoding="utf-8").splitlines()
+        expected = [
+            "QuickSight.Group.AwsAccountId=",
+            "QuickSight.Group.Namespace=",
+            "QuickSight.Group.GroupName=",
+            "QuickSight.Group.Description=",
+            "QuickSight.Group.Arn=IDENTIFIER_OUTPUT",
+            "QuickSight.Group.PrincipalId=IDENTIFIER_OUTPUT",
+        ]
+        if selected != expected:
+            return ["QuickSight Group selection list or display order differs from its design schema"]
+        for key in schema["properties"]:
+            catalog.property_schema(QUICKSIGHT_GROUP, key)
     except (OSError, KeyError, ValueError, TypeError) as error:
         return [f"API design snapshot cannot be loaded: {error}"]
     return []

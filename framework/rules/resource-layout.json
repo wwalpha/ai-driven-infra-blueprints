@@ -153,6 +153,7 @@
   "QuickSight.Dashboard": "independent",
   "QuickSight.DataSet": "independent",
   "QuickSight.DataSource": "independent",
+  "QuickSight.Group": "independent",
   "QuickSight.VPCConnection": "independent",
   "RDS.DBCluster": "independent",
   "RDS.DBClusterParameterGroup": "independent",

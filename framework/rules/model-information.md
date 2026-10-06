@@ -198,11 +198,11 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 
 ## API-backed resources
 
-- Include `framework/materials/api/*.properties` in the same catalog loading. Generate `Macie.ClassificationJob` resource types, logical IDs, anchors, and all design rows into existing `desired.*`.
-- Determine `jobId` from that catalog's `IDENTIFIER_OUTPUT`; retain logical references to self-anchors in desired and current IDs or `PENDING_DEPLOY` in observed. Ordinary Markdown links referencing Job IDs also use existing identifier reference processing.
+- Include `framework/materials/api/*.properties` in the same catalog loading. Generate registered API resource types, including `Macie.ClassificationJob` and `QuickSight.Group`, logical IDs, anchors, and all design rows into existing `desired.*`.
+- Determine API outputs from each catalog's `IDENTIFIER_OUTPUT`; retain logical references to self-anchors in desired and current non-ARN identifiers or `PENDING_DEPLOY` in observed. Ordinary Markdown links referencing API identifiers also use existing identifier reference processing. QuickSight Group `Arn` is hidden from persisted model rows; `PrincipalId` is a persisted non-ARN output.
 - Retain inline JSON object/array values as-is, and retain existing paths and canonical hashes for JSON artifacts. Do not add `clientToken`, `jobArn`, CFn mapping information, or creator information to models.
 - For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate same-service `S3JobDefinition` JSON artifacts and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links and canonical hashes. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
-- Do not use Jobs' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas.
+- Do not use API resources' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas. QuickSight `Permissions[].Principal` may reference a Group anchor; the link represents its ARN output without persisting the ARN.
 
 ## Grouping
 

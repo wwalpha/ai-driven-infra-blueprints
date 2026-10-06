@@ -77,12 +77,15 @@ RESOURCE_REFERENCE_PROPERTIES = {
     "KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN": ("KMS.Key", "KeyId"),
     "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN": ("S3.Bucket", "BucketName"),
     "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN": ("IAM.Role", "RoleName"),
+    # DataSource permissions resolve this Group identity link to its transient Arn output.
+    "QuickSight.DataSource.Permissions[].Principal": ("QuickSight.Group", "GroupName"),
 }
 HIDDEN_PROPERTIES = {
     "CodeCommit.Repository.RepositoryId",
     # These Id attributes return ARNs, not persistable observed identifiers.
     "SecretsManager.Secret.Id",
     "SecretsManager.RotationSchedule.Id",
+    "QuickSight.Group.Arn",
 }
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")

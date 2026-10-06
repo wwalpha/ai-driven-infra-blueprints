@@ -104,7 +104,7 @@ As the first repository change, newly register `tasks/<task-name>.md` authorizin
 
 ## Check implementation support
 
-Separately check resources listed in authoritative properties and resources implementable by the selected engine. For CloudFormation, run `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>` for each type in implementation scope and use only successful formal types. `Macie.ClassificationJob` is unsupported by CFn; do not convert Jobs to templates, Outputs, or `!Ref`.
+Separately check resources listed in authoritative properties and resources implementable by the selected engine. For CloudFormation, run `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>` for each type in implementation scope and use only successful formal types. `Macie.ClassificationJob` and `QuickSight.Group` are unsupported by CFn; do not convert them to templates, Outputs, or `!Ref`.
 
 If Jobs are in requested scope, explicitly state them as unimplemented; implementing only supported resources is not completion of the whole request. Tasks already limited to CFn-supported scope may finish within that scope. Do not add Custom Resources, other engines, or API mutation because of unsupported resources.
 
