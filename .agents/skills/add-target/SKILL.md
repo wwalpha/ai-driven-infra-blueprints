@@ -1,8 +1,8 @@
 ---
 name: add-target
-description: 初期化済みのAWS Blueprint repositoryへ、既存の02_add-target workflowに従ってtargetを1件追加するときに使用する。
+description: Use when adding one target to an initialized AWS Blueprint repository according to the existing 02_add-target workflow.
 ---
 
-Repository rootの`framework/prompts/codex/02_add-target.md`を全文読み、その内容だけを正文として実行する。Skill呼び出しに続く入力はworkflowへのhuman inputとして扱う。prompt本文を複製、再解釈、拡張しない。prompt fileが存在しない場合はrepositoryを変更せず停止する。
+Read `framework/prompts/codex/02_add-target.md` at the repository root in full and execute only its contents as the authoritative text. Treat input following the Skill invocation as human input to the workflow. Do not duplicate, reinterpret, or extend the prompt body. If the prompt file does not exist, stop without changing the repository.
 
-読取範囲・条件付き規則・検証scopeは対応promptのRead節を正本とする。
+The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.

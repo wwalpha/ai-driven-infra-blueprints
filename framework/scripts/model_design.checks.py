@@ -1368,7 +1368,7 @@ def check_subnet_list_display():
                for line in path.read_text(encoding="utf-8").splitlines() if "=" in line}
     subnet_lists = {prop for prop in catalog if prop.rsplit(".", 1)[-1].removesuffix("[]") in {"SubnetIds", "Subnets", "VpcSubnetIds"}}
     assert SUBNET_LIST_PROPERTIES == subnet_lists
-    assert len(subnet_lists) == 15  # 14 arrays and Secrets Manager's string list.
+    assert len(subnet_lists) == 16  # 15 arrays and Secrets Manager's string list.
     for prop in sorted(subnet_lists):
         kind = ".".join(prop.split(".")[:2])
         field = prop.removeprefix(kind + ".").removesuffix("[]")

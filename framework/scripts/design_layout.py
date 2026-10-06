@@ -57,6 +57,7 @@ SUBNET_LIST_PROPERTIES = {
     "RDS.DBProxy.VpcSubnetIds[]",
     "RDS.DBProxyEndpoint.VpcSubnetIds[]",
     "RDS.DBSubnetGroup.SubnetIds[]",
+    "SageMaker.Domain.SubnetIds[]",
     "Scheduler.Schedule.Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
     "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
 }

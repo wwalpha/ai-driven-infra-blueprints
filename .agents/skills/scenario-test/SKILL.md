@@ -1,8 +1,8 @@
 ---
 name: scenario-test
-description: AWS application behaviorを、既存の06_scenario-test workflowに従って独立したscenario-test taskとして検証するときに使用する。
+description: Use when validating AWS application behavior as an independent scenario-test task according to the existing 06_scenario-test workflow.
 ---
 
-Repository rootの`framework/prompts/codex/06_scenario-test.md`を全文読み、その内容だけを正文として実行する。Skill呼び出しに続く入力はworkflowへのhuman inputとして扱う。prompt本文を複製、再解釈、拡張しない。prompt fileが存在しない場合はrepositoryを変更せず停止する。
+Read `framework/prompts/codex/06_scenario-test.md` at the repository root in full and execute only its contents as the authoritative text. Treat input following the Skill invocation as human input to the workflow. Do not duplicate, reinterpret, or extend the prompt body. If the prompt file does not exist, stop without changing the repository.
 
-読取範囲・条件付き規則・検証scopeは対応promptのRead節を正本とする。
+The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.

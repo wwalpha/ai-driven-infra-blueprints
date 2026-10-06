@@ -1,32 +1,32 @@
 # AGENTS.md
 
-このリポジトリはrepository rootを作業ディレクトリとしてCodexで運用する。
+Operate this repository in Codex with the repository root as the working directory.
 
-## 常時適用ルール
+## Always applicable rules
 
-- active promptのscopeだけを実行し、次工程・別taskへ自動で進まない。未確定のresource・parameter・対応付けを推測しない。
-- repository変更前に今回の契約を登録する。他taskの契約・予約・未commit変更を維持する。
-- 未解決issueの停止判定と明示修復・保存限定taskの例外を適用する。
-- AWS mutationとdeploy/applyは、infrastructure契約が明示した許可範囲だけで行う。designのAWS APIは明示した既存resourceのread-only取得だけに限定する。
-- `framework/materials/aws/`は通常taskで変更しない不変カタログ。`docs/system-overview.md`は背景referenceで、`UNSET`を一律blockerにしない。
-- `model/**/*.properties`を設計値の正本とし、Markdown／JSONは生成する。generated ARNを永続化しない。
-- 変更後はtask typeに対応するlocal loopを実行し、成功後だけcompletedにする。
-- Humanのactive task instructionが実行modeとして明示的に`debug`を指定したtaskだけ、開始時から[Debug read reporting](framework/rules/debug-read-reporting.md)を適用する。通常taskではこのruleの追加read・tracking・report生成・保存を行わず、modeを保存・次taskへ継承しない。
+- Execute only the active prompt scope; do not automatically proceed to the next phase or another task. Do not infer unconfirmed resources, parameters, or mappings.
+- Register this contract before repository changes. Preserve other tasks' contracts, reservations, and uncommitted changes.
+- Apply unresolved-issue stop decisions and the exceptions for explicit repair and save-only tasks.
+- Perform AWS mutation and deploy/apply only within the permission scope explicitly stated by the infrastructure contract. Limit design AWS APIs to read-only retrieval of explicitly specified existing resources.
+- `framework/materials/aws/` is an immutable catalog that ordinary tasks do not change. `docs/system-overview.md` is a background reference; do not uniformly treat `UNSET` as a blocker.
+- Treat `model/**/*.properties` as the authority for design values and generate Markdown/JSON. Do not persist generated ARNs.
+- After changes, run the local loop corresponding to the task type; mark completed only after success.
+- Apply [Debug read reporting](framework/rules/debug-read-reporting.md) from task start only for tasks whose Human active task instruction explicitly specifies `debug` as the execution mode. For ordinary tasks, do not perform this rule's additional reads, tracking, report generation, or saving; do not save the mode or carry it into the next task.
 
 ## Task transition
 
-変更時は[task契約](framework/rules/task-contract.md)に従い`tasks/<task-name>.md`を登録する。read-only調査とchat-only相談は契約不要。[issue gate](framework/rules/issue-gate.md)の適用条件は別途確認する。
+For changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation and chat-only consultation require no contract. Separately confirm the [issue gate](framework/rules/issue-gate.md) applicability conditions.
 
-## 必要な規則の読み方
+## How to read required rules
 
-以下は正本への案内で、全fileの全文読込リストではない。使用skill／workflowのRead節が指定する必須sectionと、その工程・resourceに適用される条件付きsectionだけを読む。指定sectionは見出しから次の同階層以上の見出し直前まで（子sectionを含む）。fileだけ指定された場合は全文を読む。固有規則・例外・必要な参照先を省略せず、不足・参照不明なら停止する。本文を読まないことを理由に必須checkやValidation scopeを縮小しない。
+The following guides you to authoritative sources; it is not a list of files to read in full. Read only the mandatory sections specified by the skill/workflow Read section and conditional sections applicable to the phase/resource. Read a specified section from its heading to immediately before the next heading of the same or higher level (including child sections). If only a file is specified, read it in full. Do not omit specific rules, exceptions, or necessary references; stop if anything is missing or a reference is unclear. Do not reduce mandatory checks or Validation scope because you have not read the body.
 
-- [task-contract](framework/rules/task-contract.md): repository変更の契約・Task boundary・Acceptance contract
-- [issue-gate](framework/rules/issue-gate.md): service対象taskの開始・再開・保存・AWS mutationと調査／修復／保存の例外
-- [project-configuration](framework/rules/project-configuration.md): target directory、topology、profile、accountの確定・検証
-- [model-information](framework/rules/model-information.md): 正本model・形式・生成
-- [detailed-design](framework/rules/detailed-design.md): 対象resourceの設計・表示
-- [observed-values](framework/rules/observed-values.md): current identifierの取得・保存・伝播
-- [cloudformation](framework/rules/cloudformation.md)／[terraform](framework/rules/terraform.md): 選択済みengineの固有手順
-- [scenario-testing](framework/rules/scenario-testing.md): scenario固有手順
-- [loop-engineering](framework/rules/loop-engineering.md): 検証scope・check・regression・完了条件
+- [task-contract](framework/rules/task-contract.md): Contracts for repository changes, Task boundary, Acceptance contract
+- [issue-gate](framework/rules/issue-gate.md): Service-targeted task start, resume, saving, AWS mutation, and investigation/repair/save exceptions
+- [project-configuration](framework/rules/project-configuration.md): Target directory, topology, profile, and account determination/validation
+- [model-information](framework/rules/model-information.md): Authoritative model, format, generation
+- [detailed-design](framework/rules/detailed-design.md): Target resource design/display
+- [observed-values](framework/rules/observed-values.md): Current identifier retrieval, saving, propagation
+- [cloudformation](framework/rules/cloudformation.md)/[terraform](framework/rules/terraform.md): Procedures specific to the selected engine
+- [scenario-testing](framework/rules/scenario-testing.md): Scenario-specific procedures
+- [loop-engineering](framework/rules/loop-engineering.md): Validation scope, checks, regression, completion conditions
