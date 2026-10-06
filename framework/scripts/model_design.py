@@ -232,7 +232,7 @@ def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[st
             if not line.startswith("|"):
                 continue
             cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if len(cells) == 5 and cells[2].startswith("`") and re.fullmatch(r"`[^`]+`", cells[4]):
+            if len(cells) in {5, 6} and cells[2].startswith("`") and re.fullmatch(r"`[^`]+`", cells[4]):
                 for kind in re.findall(r"`([^`]+)`", cells[2]):
                     targets.setdefault(kind, set()).add(cells[3].strip("`"))
     return targets

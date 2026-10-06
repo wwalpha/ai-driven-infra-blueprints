@@ -957,6 +957,10 @@ def check_naming_exclusions():
 
 
 def check_service_scoped_naming():
+    datazone_targets = naming_targets(ROOT, "DataZone")
+    for kind in ("DataZone.Domain", "DataZone.Project", "DataZone.DataSource"):
+        assert datazone_targets[kind] == {"Name"}, kind
+        assert not design_naming_errors(ROOT, kind), kind
     selected = naming_rule_files(ROOT, "S3")
     assert [path.name for path in selected] == ["aws-resource-naming.md", "S3.md"]
     read_text = Path.read_text
