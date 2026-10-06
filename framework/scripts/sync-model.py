@@ -172,6 +172,8 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
             )
             if current_anchor not in resource_numbers:
                 output.append(f"desired.resource.{key}.logicalId={current_logical_id}")
+            if source is not None and (approval := source.get(f'desired.resource.{key}.deploymentEncryption')) is not None:
+                output.append(f'desired.resource.{key}.deploymentEncryption={approval}')
             if current_anchor in cfn_ids:
                 output.append(f"desired.resource.{key}.cfn-logicalId={cfn_ids.pop(current_anchor)}")
             if child := children.get(current_anchor):

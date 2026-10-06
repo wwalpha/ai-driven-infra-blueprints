@@ -179,6 +179,8 @@ For Terraform:
 4. Run `terraform apply` only for the same plan binary preapproved or approved by the human after plan creation.
 5. After success, obtain necessary non-sensitive identifiers from Terraform output; read state resource attributes read-only only when target outputs are absent. Confirm equality if both exist and update formal identifier output rows and all references.
 
+Before any same-DeployOrder change set creation/execution, the controller aggregates required S3 placements and completes the read preflight and actual artifact/template delivery barrier under [S3 deployment artifacts](../../rules/cloudformation.md#s3-deployment-artifacts). Resolve SSE headers exclusively from the approved S3 model; omit them only with explicit `deploymentEncryption=default` approval. Defer consumers until producer success and observed reflection; check only templates requiring S3 after packaging. Model/AWS mismatches, read denial, unknown encryption-policy applicability, unsupported encryption, KMS incompatibility and changed external-session conditions stop new launches and retain existing drain rules. Verify existing/pinned objects' encryption and required KMS key as well as checksum/size/version on reuse, resume and before execution. Report read confirmation separately from unconfirmed effective PutObject/KMS permission; required file placement supplies the final write check. Do not use probe objects, infer new design values from policies, or relax AWS settings.
+
 ## Confirm unapproved delete/replacement
 
 If only unapproved delete/replacement is detected, do not treat it as deployment failure/task completion; wait for human confirmation in the same task. Do not uniformly hold all deployment for confirmation.

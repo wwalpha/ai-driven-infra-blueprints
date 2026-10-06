@@ -23,6 +23,7 @@ from urllib.parse import quote, urlencode
 from model_design import (properties, stack_model, markdown_for, deployment_settings,
                           deployment_bucket, ARTIFACT_PROPERTIES, LINK, cfn_resource_identity)
 from model_files import read_model
+from s3_delivery import preflight as placement_preflight, read as placement_read, upload_options, verify_encryption
 from deploy_preparation import Timing
 from issue_gate import require_target_no_issues
 from issues_iac import Comparison, put_row, same
@@ -83,6 +84,15 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
     order = min(int(unit["deployOrder"]) for unit in pending)
     group = [unit for unit in pending if int(unit["deployOrder"]) == order]
     stopped = drain_only or any(state["status"] == "FAILED" for state in states.values())
+    if not stopped and hasattr(backend, 'prepare_delivery_group'):
+        try:
+            backend.prepare_delivery_group(group, states)
+        except Exception as error:
+            candidate = next((u for u in group if states[u['name']]['status'] not in {'RUNNING', 'SUCCESS'}), None)
+            if candidate:
+                states[candidate['name']].update(status='BLOCKED', reason=str(error))
+            stopped = True
+            save()
     while True:
         # Poll every running stack before reusing any freed slot.
         active = [unit for unit in group if states[unit["name"]]["status"] == "RUNNING"]
@@ -339,7 +349,6 @@ class AwsBackend:
         self.save = lambda: None
         self.guard = lambda: None
         self.hashes = {}
-        self.bucket_regions = {}
         self.session = {}
         self.refresh_validation = lambda unit: None
         self.uploaded = {}
@@ -437,26 +446,27 @@ class AwsBackend:
                      "--checksum-mode", "ENABLED"]
         if obj.get("version"):
             arguments += ["--version-id", obj["version"]]
-        current = self.aws("head-object", *arguments, service="s3api")
+        current = placement_read(self, "head-object", *arguments)
         if current.get("ChecksumSHA256") != obj["checksum"] or current.get("ContentLength") != obj["size"]:
             raise Blocked("S3 artifact checksum/size changed; upload or execution blocked")
+        if 'encryption' not in obj:
+            raise Blocked('S3_PLACEMENT_INDETERMINATE: legacy object lacks resolved encryption conditions')
+        conditions = placement_preflight(self, obj['bucket'], obj['prefix'], [obj['key']])
+        if conditions != obj['encryption']:
+            raise Blocked('S3_PLACEMENT_CHANGED: object placement conditions changed')
+        verify_encryption(current, conditions)
         return current
 
     def upload(self, path, bucket, prefix):
-        if bucket not in self.bucket_regions:
-            location = self.aws("get-bucket-location", "--bucket", bucket, "--expected-bucket-owner", self.target.get("awsExecutionAccountId", self.target["awsAccountId"]), service="s3api")
-            region = location.get("LocationConstraint") or "us-east-1"
-        else:
-            region = self.bucket_regions[bucket]
-        if ("eu-west-1" if region == "EU" else region) != self.target["awsRegion"]:
-            raise Blocked("deployment bucket region does not match target")
-        self.bucket_regions[bucket] = region
         digest = self.file_digest(path)
         obj = {"bucket": bucket, "key": prefix + digest + path.suffix,
-               "checksum": base64.b64encode(bytes.fromhex(digest)).decode(), "size": path.stat().st_size}
+               "checksum": base64.b64encode(bytes.fromhex(digest)).decode(), "size": path.stat().st_size,
+               "prefix": prefix}
+        obj['encryption'] = placement_preflight(self, bucket, prefix, [obj['key']])
         cache_key = (bucket, obj["key"], digest)
         if cache_key in self.uploaded:
-            return dict(self.uploaded[cache_key])  # Execution still rechecks the immutable object.
+            self.verify_object(self.uploaded[cache_key])
+            return dict(self.uploaded[cache_key])
         try:
             current = self.verify_object(obj)
         except Blocked as error:
@@ -465,10 +475,11 @@ class AwsBackend:
             try:
                 current = self.aws("put-object", "--bucket", bucket, "--key", obj["key"], "--body", str(path),
                     "--expected-bucket-owner", self.target.get("awsExecutionAccountId", self.target["awsAccountId"]), "--if-none-match", "*",
-                    "--checksum-algorithm", "SHA256", "--checksum-sha256", obj["checksum"], service="s3api")
+                    "--checksum-algorithm", "SHA256", "--checksum-sha256", obj["checksum"],
+                    *upload_options(obj['encryption']), service="s3api")
             except Blocked as error:
                 if "(PreconditionFailed)" not in str(error):
-                    raise
+                    raise Blocked('S3_PLACEMENT_UPLOAD_DENIED_OR_FAILED: ' + str(error)) from error
                 current = self.verify_object(obj)
         if current.get("VersionId") not in {None, "null"}:
             obj["version"] = current["VersionId"]
@@ -483,6 +494,8 @@ class AwsBackend:
         exports = {e["Name"]: e["Value"] for e in self.aws("list-exports").get("Exports", [])} if unit.get("artifacts") else {}
         for artifact in unit.get("artifacts", []):
             resource = document["Resources"][artifact["resource"]]
+            if not condition_active(document, parameters, pseudo, resource):
+                continue
             container = resource["Properties"]
             parts = artifact["property"].split(".")
             for part in parts[:-1]:
@@ -505,7 +518,41 @@ class AwsBackend:
             bindings.append((artifact, container, parts[-1], fields))
         return bindings
 
-    def template_arguments(self, unit, state):
+    def prepare_delivery_group(self, units, states):
+        """Read all destinations, stage all files, then allow bounded change set creation."""
+        pending = [u for u in units if states[u['name']]['status'] not in {'RUNNING', 'SUCCESS'}]
+        destinations = {}
+        for unit in pending:
+            self.check_imports(unit)
+            document, parameters = self.templates[unit['name']]
+            bindings = self.artifact_bindings(unit, document, parameters)
+            for artifact, _, _, _ in bindings:
+                path = self.source_path(artifact)
+                key = artifact['keyPrefix'] + self.file_digest(path) + path.suffix
+                destinations.setdefault((artifact['bucket'], artifact['keyPrefix']), set()).add(key)
+            delivery = states[unit['name']].get('delivery', {})
+            for obj in delivery.get('objects', []):
+                destinations.setdefault((obj['bucket'], obj.get('prefix', '')), set()).add(obj['key'])
+        for (bucket, prefix), keys in destinations.items():
+            placement_preflight(self, bucket, prefix, sorted(keys))
+        # Artifact versions determine the actual execution-template byte size.
+        for unit in pending:
+            self.template_arguments(unit, states[unit['name']], stage_only=True)
+        destinations = {}
+        for unit in pending:
+            delivery = states[unit['name']]['delivery']
+            path = Path(delivery['path'])
+            if path.stat().st_size > 51200:
+                if not unit.get('templateBucket') or not unit.get('templateKeyPrefix'):
+                    raise Blocked('large template requires designed TemplateBucket and TemplateKeyPrefix')
+                key = unit['templateKeyPrefix'] + self.file_digest(path) + path.suffix
+                destinations.setdefault((unit['templateBucket'], unit['templateKeyPrefix']), set()).add(key)
+        for (bucket, prefix), keys in destinations.items():
+            placement_preflight(self, bucket, prefix, sorted(keys))
+        for unit in pending:
+            self.template_arguments(unit, states[unit['name']])
+
+    def template_arguments(self, unit, state, stage_only=False):
         """Prepare only declared S3 references in a copy outside the repository."""
         if state.get("delivery"):
             delivery = state["delivery"]
@@ -518,37 +565,46 @@ class AwsBackend:
                 raise Blocked("prepared deployment template changed")
             for obj in delivery["objects"]:
                 self.verify_object(obj)
-            return delivery["arguments"]
-        path, _ = self.paths(unit)
-        document, parameters = self.templates[unit["name"]]
-        document = copy.deepcopy(document)
-        objects = []
-        input_digest = self.input_digest(unit)
-        if unit["name"] in self.validated_digests and self.validated_digests[unit["name"]] != input_digest:
-            raise Blocked("deployment inputs changed after validation")
-        bindings = self.artifact_bindings(unit, document, parameters)
-        if bindings:
-            if self.workdir is None:
-                raise Blocked("artifact packaging requires the external deployment session directory")
-            for artifact, container, prop, fields in bindings:
-                obj = self.upload(self.source_path(artifact), artifact["bucket"], artifact["keyPrefix"])
-                objects.append(obj)
-                if fields:
-                    container[prop][fields[1]] = obj["key"]
-                    container[prop].pop(fields[2], None)
-                    if obj.get("version"):
-                        container[prop][fields[2]] = obj["version"]
-                else:
-                    container[prop] = f"s3://{obj['bucket']}/{obj['key']}"
-            self.workdir.mkdir(parents=True, exist_ok=True)
-            path = self.workdir / (unit["name"] + ".json")
-            path.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-            result = subprocess.run(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(path)], capture_output=True, text=True)
-            if result.returncode:
-                raise Blocked("packaged template cfn-lint failed: " + result.stdout + result.stderr)
+            if delivery.get('arguments'):
+                return delivery['arguments']
+            path, objects = Path(delivery['path']), delivery['objects']
+            input_digest = delivery['inputDigest']
+        else:
+            path, _ = self.paths(unit)
+            document, parameters = self.templates[unit["name"]]
+            document = copy.deepcopy(document)
+            objects = []
+            input_digest = self.input_digest(unit)
+            if unit["name"] in self.validated_digests and self.validated_digests[unit["name"]] != input_digest:
+                raise Blocked("deployment inputs changed after validation")
+            bindings = self.artifact_bindings(unit, document, parameters)
+            if bindings:
+                if self.workdir is None:
+                    raise Blocked("artifact packaging requires the external deployment session directory")
+                for artifact, container, prop, fields in bindings:
+                    obj = self.upload(self.source_path(artifact), artifact["bucket"], artifact["keyPrefix"])
+                    objects.append(obj)
+                    if fields:
+                        container[prop][fields[1]] = obj["key"]
+                        container[prop].pop(fields[2], None)
+                        if obj.get("version"):
+                            container[prop][fields[2]] = obj["version"]
+                    else:
+                        container[prop] = f"s3://{obj['bucket']}/{obj['key']}"
+                self.workdir.mkdir(parents=True, exist_ok=True)
+                path = self.workdir / (unit["name"] + ".json")
+                path.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                result = subprocess.run(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(path)], capture_output=True, text=True)
+                if result.returncode:
+                    raise Blocked("packaged template cfn-lint failed: " + result.stdout + result.stderr)
         size = path.stat().st_size
         if size > 1024 * 1024:
             raise Blocked("template exceeds the 1 MiB CloudFormation limit")
+        state['delivery'] = {'inputDigest': input_digest, 'path': str(path),
+                             'templateSha256': self.file_digest(path), 'objects': objects}
+        self.save()
+        if stage_only:
+            return []
         arguments = ["--template-body", "file://" + str(path)]
         if size > 51200:
             if not unit.get("templateBucket") or not unit.get("templateKeyPrefix"):
@@ -675,7 +731,11 @@ class AwsBackend:
         if state.get("delivery") and self.file_digest(Path(state["delivery"]["path"]), fresh=True) != state["delivery"]["templateSha256"]:
             state["status"] = "BLOCKED"
             raise Blocked("prepared deployment template changed")
-        self.template_arguments(unit, state)
+        try:
+            self.template_arguments(unit, state)
+        except Blocked:
+            state['status'] = 'BLOCKED'  # No stack execution was sent; drain only already-running peers.
+            raise
         self.check_imports(unit)
         current = self.describe_change_set(unit, state)
         if current["Status"] != "CREATE_COMPLETE" or current["ExecutionStatus"] != "AVAILABLE" or \

@@ -80,6 +80,8 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
         for identity, fields in groups.items():
             # Legacy identity remains readable; new models use their entry number internally.
             fields.setdefault("logicalId", identity)
+            if 'deploymentEncryption' in fields and (fields.get('resourceType') != 'S3.Bucket' or fields['deploymentEncryption'] != 'default'):
+                raise ValueError('deploymentEncryption is only default on an S3.Bucket')
             if "cfn-logicalId" in fields:
                 cfn_resource_identity(fields["cfn-logicalId"])
     result = sorted(groups.items())

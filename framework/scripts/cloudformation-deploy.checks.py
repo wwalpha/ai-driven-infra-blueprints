@@ -152,6 +152,9 @@ class StubAws(M.AwsBackend):
             {"ResourceChange": {"LogicalResourceId": "App", "ResourceType": "AWS::S3::Bucket",
                                 "Action": "Remove" if destructive else "Add"}}]}
 
+    def prepare_delivery_group(self, units, states):
+        pass  # Scheduler/CFn adapter tests replace delivery; DeliveryAws exercises the real barrier.
+
     def template_arguments(self, unit, state):
         return ["--template-body", "file://" + str(self.paths(unit)[0])]
 
@@ -399,19 +402,50 @@ def check_inputs():
     assert backend.target["awsAccountId"] == TARGET["awsAccountId"]
     backend = M.AwsBackend(ROOT, "dev", "123456789012", {**TARGET, "awsExecutionAccountId": execution})
     with patch.object(backend, "aws", return_value={"ChecksumSHA256": "checksum", "ContentLength": 1}) as aws:
-        backend.verify_object({"bucket": "bucket", "key": "key", "checksum": "checksum", "size": 1})
+        rejects(lambda: backend.verify_object({"bucket": "bucket", "key": "key", "checksum": "checksum", "size": 1}), 'legacy object')
         arguments = aws.call_args.args
         assert arguments[arguments.index("--expected-bucket-owner") + 1] == execution
 
 
 class DeliveryAws(StubAws):
     template_arguments = M.AwsBackend.template_arguments
+    prepare_delivery_group = M.AwsBackend.prepare_delivery_group
 
     def __init__(self, root, workdir, destructive=False):
         super().__init__(destructive=destructive)
         self.root, self.workdir = root, workdir
         self.objects, self.region, self.fail = {}, "ap-northeast-1", None
         self.export_values = {}
+        self.default_algorithm, self.default_key, self.policy = 'AES256', None, None
+        self.key_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/test-key'
+        self.key_state, self.key_enabled = 'Enabled', True
+        # Fixture-owned authoritative models; no consumer files or live AWS.
+        for bucket in ('app-dev-assets', 'app-dev-other'):
+            self.add_bucket(bucket)
+
+    def add_bucket(self, bucket, algorithm='AES256', key=None, delegation=False):
+        path = self.root / 'model/dev/123456789012/s3.properties'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = properties(path.read_text()) if path.exists() else {}
+        from model_design import entries
+        identities = {r['logicalId']: i for i, r in entries(existing, 'desired.resource.')}
+        identity = next((i.split('-')[0] for i, row in entries(existing, 'desired.row.')
+                         if row.get('property') == 'S3.Bucket.BucketName' and row.get('value', '').strip('`') == bucket),
+                        f'{len(identities) + 1:03d}')
+        values = {k: v for k, v in existing.items() if not k.startswith((f'desired.resource.{identity}.', f'desired.row.{identity}-'))}
+        values.update({f'desired.resource.{identity}.resourceType': 'S3.Bucket',
+                       f'desired.resource.{identity}.logicalId': bucket,
+                       f'desired.resource.{identity}.anchor': 's3-' + bucket})
+        if delegation:
+            values[f'desired.resource.{identity}.deploymentEncryption'] = 'default'
+        from s3_delivery import ALGORITHM, KEY
+        rows = [('BucketName', bucket), ('Region', self.region), (ALGORITHM, algorithm)]
+        if key:
+            rows.append((KEY, key))
+        for number, (prop, value) in enumerate(rows, 1):
+            values[f'desired.row.{identity}-{number:03d}.property'] = 'S3.Bucket.' + prop
+            values[f'desired.row.{identity}-{number:03d}.value'] = value
+        path.write_text('\n'.join(f'{k}={v}' for k, v in values.items()), encoding='utf-8')
 
     def aws(self, operation, *arguments, service="cloudformation"):
         if service == "cloudformation":
@@ -422,7 +456,24 @@ class DeliveryAws(StubAws):
         self.calls.append((operation, arguments))
         if self.fail == operation:
             raise M.Blocked("simulated S3 permission/upload failure")
+        if service == 'kms':
+            assert operation == 'describe-key'
+            key = arguments[arguments.index('--key-id') + 1]
+            arn = self.key_arn if key in ('test-key', 'alias/test', self.key_arn) else key if key.startswith('arn:') else self.key_arn.replace('test-key', key)
+            return {'KeyMetadata': {'Arn': arn, 'KeyId': arn.split('key/')[-1], 'AWSAccountId': arn.split(':')[4],
+                    'KeyState': self.key_state, 'Enabled': self.key_enabled, 'KeyUsage': 'ENCRYPT_DECRYPT', 'KeySpec': 'SYMMETRIC_DEFAULT'}}
         assert arguments[arguments.index("--expected-bucket-owner") + 1] == TARGET["awsAccountId"]
+        if operation == 'head-bucket':
+            return {}
+        if operation == 'get-bucket-encryption':
+            default = {'SSEAlgorithm': self.default_algorithm}
+            if self.default_key:
+                default['KMSMasterKeyID'] = self.default_key
+            return {'ServerSideEncryptionConfiguration': {'Rules': [{'ApplyServerSideEncryptionByDefault': default}]}}
+        if operation == 'get-bucket-policy':
+            if self.policy is None:
+                raise M.Blocked('(NoSuchBucketPolicy)')
+            return {'Policy': json.dumps(self.policy)}
         if operation == "get-bucket-location":
             return {"LocationConstraint": self.region}
         bucket, key = (arguments[arguments.index(flag) + 1] for flag in ("--bucket", "--key"))
@@ -433,7 +484,10 @@ class DeliveryAws(StubAws):
             data = Path(arguments[arguments.index("--body") + 1]).read_bytes()
             checksum = base64.b64encode(hashlib.sha256(data).digest()).decode()
             assert checksum == arguments[arguments.index("--checksum-sha256") + 1]
-            self.objects[bucket, key] = {"ChecksumSHA256": checksum, "ContentLength": len(data), "VersionId": "version+1", "data": data}
+            self.objects[bucket, key] = {"ChecksumSHA256": checksum, "ContentLength": len(data), "VersionId": "version+1", "data": data,
+                                      'ServerSideEncryption': arguments[arguments.index('--server-side-encryption') + 1] if '--server-side-encryption' in arguments else self.default_algorithm}
+            if self.objects[bucket, key]['ServerSideEncryption'] == 'aws:kms':
+                self.objects[bucket, key]['SSEKMSKeyId'] = self.key_arn
         if (bucket, key) not in self.objects:
             raise M.Blocked("(404)")
         return self.objects[bucket, key]
@@ -499,7 +553,7 @@ def check_delivery():
         assert first["S3Key"] == second["S3Key"] == third["S3Key"]
         assert first["S3Bucket"] != third["S3Bucket"] and first["S3ObjectVersion"] == "version+1"
         assert sum(op == "put-object" for op, _ in backend.calls) == 2  # Shared ZIP reused within a bucket.
-        assert sum(op == "get-bucket-location" for op, _ in backend.calls) == 1  # Existing bucket metadata reused.
+        assert any(op == 'get-bucket-encryption' for op, _ in backend.calls)
         assert template.read_bytes() == original and document["Resources"]["First"]["Properties"]["Code"]["S3Key"] == "lambda/current.zip"
         assert packaged["Resources"]["First"]["Properties"]["Handler"] == "index.handler"
         assert max(i for i, (op, _) in enumerate(backend.calls) if op == "put-object") < next(i for i, (op, _) in enumerate(backend.calls) if op == "create-change-set")
@@ -578,7 +632,7 @@ def check_delivery():
         design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
         design.parent.mkdir(parents=True)
         model = root / "model/dev/123456789012/s3.properties"
-        model.parent.mkdir(parents=True)
+        model.parent.mkdir(parents=True, exist_ok=True)
         model.write_text("desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=Assets\n"
                          "desired.resource.001.anchor=s3-app-dev-assets\ndesired.row.001-001.property=S3.Bucket.BucketName\n"
                          "desired.row.001-001.value=`app-dev-assets`\n")
@@ -638,6 +692,25 @@ def check_delivery():
         assert "| Property | Value |" not in design.read_text()
         assert deployment_settings(stack_delivery(design) | {"desired.stack.001.name": values["desired.stack.001.name"]})[1]
 
+        backend.add_bucket('app-dev-assets')
+        backend.add_bucket('app-dev-other')
+        # Default delegation is model-only approval, preserved through display reparsing.
+        approved = properties(model.read_text())
+        approved.update({'desired.service.s3.serviceId': 's3',
+                         'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
+                         'display.service.title': '# S3 詳細設計',
+                         'desired.resource.001.deploymentEncryption': 'default'})
+        from model_design import entries
+        for identity, resource in entries(approved, 'desired.resource.'):
+            approved[f'desired.resource.{identity}.resourceMode'] = 'IMPORT'
+            approved[f'display.resource.{identity}.comment'] = '配置先bucket'
+        for identity, row in entries(approved, 'desired.row.'):
+            approved[f'desired.row.{identity}.comment'] = '承認済み設定'
+        bucket_view = design.with_name('s3.md')
+        bucket_view.write_text(markdown_for(bucket_view, approved, root))
+        reparsed = properties(sync.model_for(bucket_view, root, source=approved))
+        assert reparsed['desired.resource.001.deploymentEncryption'] == 'default'
+        rejects(lambda: entries(approved | {'desired.resource.001.deploymentEncryption': 'guessed'}, 'desired.resource.'), 'only default')
         # A producer Export changing after packaging cannot redirect the preserved bucket expression.
         template.write_text(json.dumps(document))
         document["Resources"]["First"]["Properties"]["Code"]["S3Bucket"] = {"Fn::ImportValue": "AssetsBucket"}
@@ -655,7 +728,7 @@ def check_delivery():
         bootstrap = DeliveryAws(root, base / "bootstrap.files")
         scoped = units(10, 20)
         scoped[0]["template"], scoped[1]["template"] = "bucket.yaml", "large.yaml"
-        scoped[1].update(settings)
+        scoped[1].update(settings | {"templateBucket": "app-dev-assets"})
         for entry, size in zip(scoped, (20, 51201)):
             file, inputs = bootstrap.paths(entry)
             file.write_bytes(b" " * size)
@@ -679,8 +752,219 @@ def check_delivery():
         session = states(scoped)
         assert M.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
         assert session["B"]["status"] == "NOT_STARTED" and not any(op == "put-object" for op, _ in bootstrap.calls)
-        assert finish(scoped, 1, session, bootstrap) == "COMPLETE"
+        assert finish(scoped, 1, session, bootstrap) == "COMPLETE", session
         assert any(op == "put-object" for op, _ in bootstrap.calls)
+
+
+def check_delivery_encryption():
+    from s3_delivery import preflight, model_conditions, policy_conditions, ALGORITHM
+    def policy(bucket, header, operator, value, prefix='templates/'):
+        return {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
+                'Resource': f'arn:aws:s3:::{bucket}/{prefix}*', 'Condition': {operator: {header: value}}}]}
+    algorithm_header = 's3:x-amz-server-side-encryption'
+    key_header = algorithm_header + '-aws-kms-key-id'
+    with tempfile.TemporaryDirectory() as directory:
+        base, bucket, prefix = Path(directory), 'app-dev-assets', 'templates/'
+        def fresh():
+            backend = DeliveryAws(base / 'repo', base / 'session.files')
+            source = base / 'template.yaml'
+            source.write_bytes(b' ' * 51201)
+            return backend, source
+        # Inactive resources never create S3 placement destinations.
+        backend, source = fresh()
+        document = {'Conditions': {'Skip': {'Fn::Equals': ['one', 'two']}}, 'Resources': {
+            'Function': {'Condition': 'Skip', 'Type': 'AWS::Lambda::Function', 'Properties': {
+                'Code': {'S3Bucket': bucket, 'S3Key': 'lambda/old.zip'}}}}}
+        mapping = {'resource': 'Function', 'property': 'Code', 'bucket': bucket, 'keyPrefix': 'lambda/'}
+        assert backend.artifact_bindings({'name': 'A', 'artifacts': [mapping]}, document, {}) == []
+        # Explicit SSE-S3, conditional PutObject, reuse and encryption drift.
+        backend, source = fresh()
+        obj = backend.upload(source, bucket, prefix)
+        request = next(args for op, args in backend.calls if op == 'put-object')
+        assert request[request.index('--server-side-encryption') + 1] == 'AES256'
+        assert '--ssekms-key-id' not in request
+        assert backend.upload(source, bucket, prefix) == obj
+        assert sum(op == 'put-object' for op, _ in backend.calls) == 1
+        assert all(v['effectiveWritePermission'] == 'UNCONFIRMED' for v in backend.session['placementPreflight'].values())
+        backend.objects[bucket, obj['key']]['ServerSideEncryption'] = 'aws:kms'
+        rejects(lambda: backend.upload(source, bucket, prefix), 'existing object encryption')
+        # Explicit SSE-KMS and exact header policy, with ARN normalization for default/key identity.
+        backend, source = fresh()
+        backend.default_algorithm, backend.default_key = 'aws:kms', 'test-key'
+        backend.add_bucket(bucket, 'aws:kms', backend.key_arn)
+        backend.policy = policy(bucket, key_header, 'StringNotEquals', backend.key_arn)
+        obj = backend.upload(source, bucket, prefix)
+        request = next(args for op, args in backend.calls if op == 'put-object')
+        assert request[request.index('--server-side-encryption') + 1] == 'aws:kms'
+        assert request[request.index('--ssekms-key-id') + 1] == backend.key_arn
+        backend.objects[bucket, obj['key']]['SSEKMSKeyId'] = backend.key_arn.replace('test-key', 'another-key')
+        rejects(lambda: backend.verify_object(obj), 'existing object KMS key')
+        # Existing logical KMS Key/Alias and parent mapping; no generated ARN in model.
+        path = backend.root / 'model/dev/123456789012/kms.properties'
+        path.write_text('\n'.join([
+            'desired.resource.001.resourceType=KMS.Key', 'desired.resource.001.anchor=kms-key',
+            'desired.row.001-001.property=KMS.Key.KeyId', 'desired.row.001-001.value=[PENDING_DEPLOY](#kms-key)',
+            'observed.row.001-001.value=test-key', 'desired.resource.002.resourceType=KMS.Alias',
+            'desired.resource.002.anchor=kms-alias', 'desired.resource.002.parentReference=[key](#kms-key)',
+            'desired.row.002-001.property=KMS.Alias.AliasName', 'desired.row.002-001.value=alias/test']))
+        for reference in ('[key](kms.md#kms-key)', '[alias/test](kms.md#kms-alias)'):
+            backend.add_bucket(bucket, 'aws:kms', reference)
+            before = path.read_bytes()
+            assert model_conditions(backend, bucket)['requestKey'] == backend.key_arn
+            assert path.read_bytes() == before
+        path.write_text(path.read_text().replace('observed.row.001-001.value=test-key', 'observed.row.001-001.value=other-key'))
+        rejects(lambda: model_conditions(backend, bucket), 'approved parent')
+        # Approval is explicit; default delegation omits both headers, including for KMS defaults.
+        for algorithm, key in (('AES256', None), ('aws:kms', 'test-key')):
+            backend, source = fresh()
+            backend.default_algorithm, backend.default_key = algorithm, key
+            backend.add_bucket(bucket, algorithm, key, delegation=True)
+            obj = backend.upload(source, bucket, prefix)
+            request = next(args for op, args in backend.calls if op == 'put-object')
+            assert '--server-side-encryption' not in request and '--ssekms-key-id' not in request
+            assert obj['encryption']['mode'] == 'default'
+        # Default delegation cannot satisfy a request-header mandate.
+        backend, source = fresh()
+        backend.add_bucket(bucket, delegation=True)
+        backend.policy = policy(bucket, algorithm_header, 'StringNotEquals', 'AES256')
+        rejects(lambda: backend.upload(source, bucket, prefix), 'policy denies')
+        assert not any(op == 'put-object' for op, _ in backend.calls)
+        # Scope, AND/Null/IfExists semantics and unknown clauses stay fail-closed.
+        explicit = model_conditions(DeliveryAws(base / 'repo', base / 'other.files'), bucket)
+        assert explicit['mode'] == 'explicit'
+        policy_conditions(policy(bucket, algorithm_header, 'StringNotEquals', 'aws:kms', 'other/'), bucket, 'templates/key', explicit)
+        policy_conditions(policy(bucket, algorithm_header, 'Null', 'true'), bucket, 'templates/key', explicit)
+        rejects(lambda: policy_conditions(policy(bucket, key_header, 'StringNotEqualsIfExists', 'key'), bucket, 'templates/key', explicit), 'policy denies')
+        unknown = policy(bucket, algorithm_header, 'StringEquals', 'AES256')
+        unknown['Statement'][0]['Condition']['StringEquals']['aws:PrincipalArn'] = 'arn:*'
+        rejects(lambda: policy_conditions(unknown, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        for modification in ({'Principal': {'AWS': TARGET['awsAccountId']}}, {'NotResource': '*'}):
+            item = policy(bucket, algorithm_header, 'StringNotEquals', 'aws:kms')
+            item['Statement'][0].update(modification)
+            rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        item = policy(bucket, algorithm_header, 'StringEquals', '${aws:PrincipalTag/encryption}')
+        rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        item = policy(bucket, algorithm_header + '-context', 'StringEquals', 'context')
+        rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        # Unknown read failures and malformed responses remain distinct from design mismatches.
+        backend, source = fresh()
+        aws = backend.aws
+        def unreadable(operation, *args, **kwargs):
+            if operation == 'get-bucket-policy':
+                raise TimeoutError('read timed out')
+            return aws(operation, *args, **kwargs)
+        backend.aws = unreadable
+        rejects(lambda: backend.upload(source, bucket, prefix), 'READ_UNCONFIRMED')
+        def malformed(operation, *args, **kwargs):
+            if operation == 'get-bucket-encryption':
+                return {'ServerSideEncryptionConfiguration': {'Rules': [{}]}}
+            return aws(operation, *args, **kwargs)
+        backend.aws = malformed
+        rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
+        def missing_policy(operation, *args, **kwargs):
+            if operation == 'get-bucket-policy':
+                return {}
+            return aws(operation, *args, **kwargs)
+        backend.aws = missing_policy
+        rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
+        rejects(lambda: policy_conditions({}, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        # Design/AWS differences, refused reads, missing/unsupported models and key state.
+        for change, expected in ((lambda b: setattr(b, 'default_algorithm', 'aws:kms'), 'MISMATCH'),
+                                 (lambda b: setattr(b, 'region', 'us-east-1'), 'MISMATCH')):
+            backend, source = fresh()
+            change(backend)
+            rejects(lambda: backend.upload(source, bucket, prefix), expected)
+            assert not any(op == 'put-object' for op, _ in backend.calls)
+        for operation in ('head-bucket', 'get-bucket-location', 'get-bucket-encryption', 'get-bucket-policy', 'describe-key'):
+            backend, source = fresh()
+            backend.add_bucket(bucket, 'aws:kms', 'test-key')
+            backend.default_algorithm, backend.default_key = 'aws:kms', 'test-key'
+            aws = backend.aws
+            def denied(op, *args, **kwargs):
+                if op == operation:
+                    raise M.Blocked('(AccessDenied)')
+                return aws(op, *args, **kwargs)
+            backend.aws = denied
+            rejects(lambda: backend.upload(source, bucket, prefix), 'READ_DENIED')
+            assert not any(op == 'put-object' for op, _ in backend.calls)
+        backend, source = fresh()
+        backend.add_bucket(bucket, 'aws:kms', 'test-key')
+        backend.default_algorithm, backend.default_key = 'aws:kms', 'other-key'
+        rejects(lambda: backend.upload(source, bucket, prefix), 'default KMS key differs')
+        backend.default_key, backend.key_state = 'test-key', 'Disabled'
+        rejects(lambda: backend.upload(source, bucket, prefix), 'not Enabled')
+        backend.key_state, backend.key_arn = 'Enabled', backend.key_arn.replace('ap-northeast-1', 'us-east-1')
+        rejects(lambda: backend.upload(source, bucket, prefix), 'account/region')
+        backend, source = fresh()
+        backend.add_bucket(bucket, 'aws:kms:dsse')
+        rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
+        backend.add_bucket(bucket, 'UNSET')
+        rejects(lambda: backend.upload(source, bucket, prefix), 'unconfirmed')
+        model = backend.root / 'model/dev/123456789012/s3.properties'
+        model.unlink()
+        rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
+        # Session restart rechecks AWS policy/default/alias and never adopts changed conditions.
+        backend, source = fresh()
+        obj = backend.upload(source, bucket, prefix)
+        session = json.loads(json.dumps(backend.session))
+        resumed = DeliveryAws(backend.root, base / 'session.files')
+        resumed.session, resumed.objects = session, backend.objects
+        resumed.policy = {'Statement': [{'Effect': 'Allow', 'Principal': '*', 'Action': 's3:GetObject', 'Resource': '*'}]}
+        rejects(lambda: resumed.verify_object(obj), 'CHANGED')
+        assert not any(op == 'put-object' for op, _ in resumed.calls)
+        resumed.policy, resumed.default_algorithm = None, 'aws:kms'
+        rejects(lambda: resumed.verify_object(obj), 'MISMATCH')
+        backend, source = fresh()
+        backend.add_bucket(bucket, 'aws:kms', 'alias/test')
+        backend.default_algorithm, backend.default_key = 'aws:kms', 'alias/test'
+        obj = backend.upload(source, bucket, prefix)
+        resumed = DeliveryAws(backend.root, base / 'session.files')
+        resumed.add_bucket(bucket, 'aws:kms', 'alias/test')
+        resumed.session, resumed.objects = json.loads(json.dumps(backend.session)), backend.objects
+        resumed.default_algorithm, resumed.default_key = 'aws:kms', 'alias/test'
+        resumed.key_arn = resumed.key_arn.replace('test-key', 'rotated-key')
+        rejects(lambda: resumed.verify_object(obj), 'CHANGED')
+        # Entire same-order delivery barrier precedes any change set even at concurrency 1.
+        backend, source = fresh()
+        scoped = units(10, 10)
+        for unit in scoped:
+            unit['template'] = unit['name'] + '.yaml'
+            template, parameters = backend.paths(unit)
+            template.parent.mkdir(parents=True, exist_ok=True)
+            parameters.parent.mkdir(parents=True, exist_ok=True)
+            template.write_bytes(b' ' * 51201 + unit['name'].encode())
+            parameters.write_text('[]')
+            unit.update(templateBucket=bucket, templateKeyPrefix=prefix)
+            backend.templates[unit['name']] = ({'Resources': {}}, {})
+        state = states(scoped)
+        backend.poll = lambda *args: 'CREATE_COMPLETE'
+        assert finish(scoped, 1, state, backend) == 'COMPLETE'
+        put_indices = [i for i, (op, _) in enumerate(backend.calls) if op == 'put-object']
+        assert len(put_indices) == 2
+        assert max(put_indices) < next(i for i, (op, _) in enumerate(backend.calls) if op == 'create-change-set')
+        # A later peer's actual placement refusal prevents all new stacks, preserving drain.
+        backend.calls.clear()
+        backend.uploaded, backend.objects = {}, {}
+        state = states(scoped)
+        aws, count = backend.aws, [0]
+        def refuse_second(operation, *args, **kwargs):
+            if operation == 'put-object':
+                count[0] += 1
+                if count[0] == 2:
+                    raise M.Blocked('(AccessDenied)')
+            return aws(operation, *args, **kwargs)
+        backend.aws = refuse_second
+        assert finish(scoped, 1, state, backend) == 'STOPPED'
+        assert 'UPLOAD_DENIED_OR_FAILED' in state['A']['reason']
+        assert state['B']['status'] == 'NOT_STARTED'
+        assert not any(op in {'create-change-set', 'execute-change-set'} for op, _ in backend.calls)
+        backend.aws, backend.fail = aws, 'put-object'
+        state = states(scoped)
+        state['A']['status'] = 'RUNNING'
+        assert finish(scoped, 1, state, backend) == 'STOPPED'
+        assert state['A']['status'] == 'SUCCESS' and state['B']['status'] == 'BLOCKED'
+        assert not any(op == 'execute-change-set' for op, _ in backend.calls)
+    print('S3 delivery encryption/preflight checks: PASS (SSE-S3/KMS/default, model/key/policy/read/write/object/resume guards, group barrier/drain)')
 
 
 def check_session_cli():
@@ -1890,6 +2174,7 @@ check_aws_adapter()
 check_template_validation()
 check_inputs()
 check_delivery()
+check_delivery_encryption()
 check_session_cli()
 check_parallel_and_restart()
 check_observed_collector()
