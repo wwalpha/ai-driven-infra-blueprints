@@ -102,6 +102,9 @@ class AwsBackend:
                 # Only this exact CFN not-found diagnostic constitutes absence.
                 if operation == "describe-stacks" and re.search(r"\(ValidationError\).*Stack with id .+ does not exist", result.stderr):
                     return None
+                if operation == "list-imports" and re.search(
+                        r"\(ValidationError\) when calling the ListImports operation: Export .+ is not imported by any stack\.?\s*$", result.stderr):
+                    return {"Imports": []}
                 raise Blocked(f"{operation}: {result.stderr.strip() or 'AWS CLI failed'}")
             return json.loads(result.stdout) if result.stdout.strip() else {}
         finally:

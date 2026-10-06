@@ -198,6 +198,30 @@ def check_order_and_safety():
         assert not fake.deleted and state["status"] == "BLOCKED"
 
 
+def check_unused_export():
+    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
+    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
+    fake = Fake(["A"], exports={"Vpc": ("A", [])})
+    state = session({"A": 10})
+    M.preflight(state, fake, 1, lambda: None)
+    aws = fake.aws
+    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)), \
+            patch.object(fake, "aws", side_effect=lambda op, *args: backend.aws(op, *args) if op == "list-imports" else aws(op, *args)):
+        M.dependencies(state, fake, lambda: None)
+        assert state["dependencySnapshot"] == [{"export": "Vpc", "producer": "A", "importers": []}]
+        assert not fake.deleted
+    for error in (diagnostic.replace("ValidationError", "AccessDenied"),
+                  diagnostic.replace("is not imported by any stack", "does not exist"),
+                  "An error occurred (ValidationError) when calling the ListImports operation: Invalid export name"):
+        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=error)):
+            rejects(lambda: backend.aws("list-imports", "--export-name", "Vpc"), "list-imports:")
+    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)):
+        rejects(lambda: backend.aws("list-exports"), "list-exports:")
+    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Imports": []}', stderr="")):
+        assert backend.aws("list-imports", "--export-name", "Vpc") == {"Imports": []}
+    print("D16: PASS unused export means no dependencies; other AWS errors still block")
+
+
 def check_absence():
     fake = Fake(["A"], absent=["A"])
     state = session({"A": 10})
@@ -481,10 +505,11 @@ def check_observed():
 
 def main():
     check_order_and_safety()
+    check_unused_export()
     check_absence()
     check_controller()
     check_observed()
-    print("cloudformation-destroy: PASS (D01-D15; fake AWS only)")
+    print("cloudformation-destroy: PASS (D01-D16; fake AWS only)")
 
 
 if __name__ == "__main__":
