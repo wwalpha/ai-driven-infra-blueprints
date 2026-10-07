@@ -65,6 +65,14 @@ Reservations are scoped to the Git worktree, identified by a fingerprint of its 
 
 Write workers automatically refresh reservations, finish Active work first, then retry Deferred outputs every 30 seconds for up to 20 attempts under the existing registration lock. Agents run `python framework/scripts/task_contract.py --task-file tasks/<task-name>.md --wait` themselves after Active work, then immediately continue acquired files; humans need not monitor or resume. At exhaustion the execution ends cleanly with unfinished Deferred work retained, neither failed nor completed. Normal reexecution acquires available files automatically. `--resume` remains for real suspended errors. Keep the task `running` while Deferred work remains; after all requested work and the successful final loop, use `--complete`. Foreign tasks cannot be selected or executed in this worktree.
 
+### Isolated change tasks
+
+Use `/worktree <task-id> <child skill/task and inputs>` with [the worktree skill](.agents/skills/worktree/SKILL.md): **change task → isolated worktree → task validation/completion → commit → rebase onto latest local base → ff-only merge → cleanup**. Read-only investigation/review usually needs no worktree. The child workflow and worktree-scoped reservations remain unchanged.
+
+`framework/scripts/worktree_task.py create|finalize|cleanup --task-id <task-id>` returns JSON and an exit code. It uses `codex/worktree/<task-id>` and `.worktrees/<task-id>`, resolving repository-local `blueprint.baseBranch`, otherwise the existing `origin/HEAD` default, then `main`/`master`. No fetch/pull/push is required. Finalize requires the existing Task Contract's `completed` status and a clean checkout holding the local base; it never switches/stashes another checkout. Failed/incomplete tasks and aborted rebase conflicts retain their worktree, branch and task changes. Cleanup failure retains merged history and reports leftovers for a safe `cleanup` retry.
+
+Worktrees start from committed base inputs. `/update` requires the human's uncommitted intended model diff in the task worktree; source dirty files are not automatically copied. Git isolation does not isolate AWS resources; cross-worktree AWS mutation locking is a separate responsibility.
+
 ## Task stops due to unresolved issues
 
 Treat [issue gate](framework/rules/issue-gate.md) as authoritative for stop conditions and repair/save-only task exceptions.
