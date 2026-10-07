@@ -2417,11 +2417,14 @@ class Validator:
             role_only = "AWS::IAM::Role" in resource_types and resource_types <= {
                 "AWS::IAM::Role", "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy",
             }
+            rules_only = bool(resource_types) and resource_types <= {
+                "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress",
+            }
             if role_only:
                 self.check(standalone_marker, f"Role-only template requires Metadata.RolePlacement: standalone: {self.relative(path)}")
             elif standalone_marker:
                 self.check(False, f"Metadata.RolePlacement: standalone requires a Role-only template: {self.relative(path)}")
-            if requires_consumer and not role_only:
+            if requires_consumer and not role_only and not rules_only:
                 self.check(
                     any(
                         not kind.startswith("AWS::Logs::")

@@ -1510,9 +1510,28 @@ def check_cloudformation_yaml_rules() -> None:
         assert any(boundary_error in error for error in errors(
             "Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n  Ingress:\n    Type: AWS::EC2::SecurityGroupIngress\n"
         ))
-        assert any(boundary_error in error for error in errors(
-            "Resources:\n  Egress:\n    Type: AWS::EC2::SecurityGroupEgress\n"
-        ))
+        ingress = (
+            "Resources:\n  Ingress:\n    Type: AWS::EC2::SecurityGroupIngress\n"
+            "    Properties:\n"
+            "      GroupId: !ImportValue GroupAId\n"
+            "      SourceSecurityGroupId: !ImportValue GroupBId\n"
+        )
+        egress = (
+            "\n  Egress:\n    Type: AWS::EC2::SecurityGroupEgress\n"
+            "    Properties:\n"
+            "      GroupId: !ImportValue GroupBId\n"
+            "      DestinationSecurityGroupId: !ImportValue GroupAId\n"
+        )
+        assert not errors(ingress)
+        assert not errors("Resources:\n" + egress)
+        assert not errors(ingress + egress)
+        for support in (
+            "AWS::EC2::SecurityGroup", "AWS::Logs::LogGroup", "AWS::IAM::Role",
+        ):
+            assert any(boundary_error in error for error in errors(
+                ingress + egress + f"\n  Support:\n    Type: {support}\n"
+            ))
+        assert any("requires a Role-only template" in error for error in errors(marker + ingress))
         assert not errors("Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n" + consumer)
         assert not errors("Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n" + consumer)
 
