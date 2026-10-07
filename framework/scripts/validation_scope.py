@@ -10,7 +10,7 @@ def active_scope(root: Path, full: bool = False) -> set[tuple[str, str, str]] | 
         return None
     path = task_path(root)
     if not path.is_file():
-        if contracts(root):
+        if contracts(root, include_foreign=True):
             return set()  # All registered tasks are completed; retain shared idle checks.
         raise ValueError("validation scope missing: selected task contract; specify scope or --all")
     lines = path.read_text(encoding="utf-8").splitlines()

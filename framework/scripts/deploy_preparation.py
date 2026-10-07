@@ -380,6 +380,7 @@ def register(root, path, timing):
                                  "--source", str(contract)], capture_output=True, text=True, encoding="utf-8")
         if result.returncode:
             raise ValueError(result.stdout.strip() or result.stderr.strip() or "contract registration failed")
+    plan["registeredContractDigest"] = sha(root / plan["taskFile"])
     plan["preparationSeconds"] += time.perf_counter() - plan["reviewStarted"]
     plan["within60Seconds"] = plan["preparationSeconds"] <= 60
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -432,7 +433,7 @@ def run_controller(root, path):
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(root / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
     selected = task_path(root, plan["taskFile"])
-    if sha(selected) != plan["contractDigest"]:
+    if sha(selected) != plan.get("registeredContractDigest", plan["contractDigest"]):
         raise ValueError("registered contract changed; use existing controller resume procedure")
     if any(os.environ.get(key) != value for key, value in plan["environment"].items() if key in {"PATH", "PYTHONPATH"}):
         raise ValueError("prepared runtime environment changed")

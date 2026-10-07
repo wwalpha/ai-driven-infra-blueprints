@@ -16,13 +16,13 @@ The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In comma
 
 Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, active task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type; do not run task-specific checks when this task's reserved files have no changes. Failure at any layer is FAIL.
 
-Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract).
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). A partial run with Deferred files reports Active validation and pending path-based Acceptance checks; it retains `running` and cannot authorize final completion. Finish Active work, automatically retry Deferred reservations every 30 seconds for up to 20 attempts, and continue acquired work before the final successful loop and `--complete`. On exhaustion, end cleanly with unfinished Deferred work retained; do not mark failed/completed. Do not repeat validation at every reservation poll. Do not suspend a task solely because a requested file is Deferred; real check failures retain normal suspension behavior.
 
 After each coherent logical change, deterministically confirm the following.
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
-- `tasks/` contains only contracts in `<task-name>.md` format, and Modified files of running contracts do not overlap outside `issues/`. In idle state, `tasks/` itself may be omitted
+- `tasks/` contains only contracts in `<task-name>.md` format. Current-worktree running tasks have exclusive Active file reservations, including `issues/**`; overlapping requests remain Deferred and non-conflicting work continues. Foreign-worktree tasks do not affect selection/ownership. In idle state, `tasks/` itself may be omitted
 - `framework/materials/aws/` matches `framework/materials/catalog.sha256`
 - The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`
 - API design catalog/schema fixed snapshots and checksums, selection lists, and CFn-unsupported definitions are consistent. Validate Macie Job types, nested values, conditional requirements, and authoritative models, and reject them in CFn type resolution

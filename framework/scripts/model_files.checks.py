@@ -6,6 +6,7 @@ if not __debug__:
 
 import importlib.util
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -232,6 +233,49 @@ def main():
             result = cli("--split")
             assert result.returncode == 1, result
             assert all(path.read_bytes() == content for path, content in snapshot.items())
+        contract.write_text(original_contract)
+        # The split worker preserves its indivisible output batch and exits cleanly
+        # on exhaustion; released files are acquired in a normal invocation.
+        import task_contract as tasks
+        import model_files as files
+        contract.unlink()  # Migrate the fixture's legacy contract before concurrency.
+        owner, worker = "tasks/owner.md", "tasks/worker.md"
+        first_part = model_parts(source)[0]
+        def register(name, paths):
+            listed = "\n".join(f"- `{path.relative_to(root)}`" for path in [root / name, *paths])
+            tasks.start(root, name, "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
+                        "## Validation scope\n- `dev/123456789012/config`\n"
+                        f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n")
+        register(owner, [first_part])
+        register(worker, snapshot)
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(sys, "argv", ["model_files.py", str(source), "--split"]):
+            with patch.object(tasks.time, "sleep") as sleep:
+                assert files.main() == 0 and sleep.call_count == 20
+                assert all(path.read_bytes() == content for path, content in snapshot.items())
+                assert tasks.reservations(root, tasks.contracts(root))[worker].state == "running"
+            attempts = []
+            def release(seconds):
+                assert seconds == 30
+                attempts.append(seconds)
+                if len(attempts) == 3:
+                    tasks.complete(root, owner)
+            with patch.object(tasks.time, "sleep", side_effect=release):
+                assert files.main() == 0 and len(attempts) == 3
+        assert all(path.read_bytes() == content for path, content in snapshot.items())
+        for name in (owner, worker):
+            (root / name).unlink()
+        register(owner, [first_part])
+        register(worker, snapshot)
+        def change_input(seconds):
+            assert seconds == 30
+            first_part.write_bytes(snapshot[first_part] + b"# owner changed this part\n")
+            tasks.complete(root, owner)
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(sys, "argv", ["model_files.py", str(source), "--split"]), patch.object(tasks.time, "sleep", side_effect=change_input):
+            assert files.main() == 1
+        assert first_part.read_bytes() == snapshot[first_part] + b"# owner changed this part\n"
+        first_part.write_bytes(snapshot[first_part])
+        for name in (owner, worker):
+            (root / name).unlink()
         contract.write_text(original_contract)
         validator = VALIDATOR.Validator(root, scope)
         validator.check_project_topology()

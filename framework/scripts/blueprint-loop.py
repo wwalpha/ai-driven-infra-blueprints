@@ -17,7 +17,8 @@ import time
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
-from task_contract import SELECTOR, task_path, task_changes, suspend
+from task_contract import (SELECTOR, task_path, task_changes, suspend, contracts, reservations,
+                           bind_worktree, worktree_owner, local_contract)
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -217,6 +218,11 @@ def staged_snapshot(root, args, directory, environment):
     (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
+    # A validation snapshot executes source-local tasks in an independent Git directory.
+    # Rebind only those contracts inside the disposable snapshot; foreign tasks stay foreign.
+    for name, text in contracts(snapshot, include_foreign=True).items():
+        if worktree_owner(text) is not None and local_contract(root, text):
+            (snapshot / name).write_text(bind_worktree(snapshot, text), encoding="utf-8")
     metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
     (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
@@ -395,6 +401,10 @@ def main() -> int:
         result = run_commands(root, commands, environment, directory, jobs=args.jobs)
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
+        elif selected_name:
+            pending = reservations(root, contracts(root))[selected_name].deferred
+            if pending:
+                print("Blueprint task: DEFERRED (Active checks passed; remains running): " + ", ".join(pending), flush=True)
         return result
     except KeyboardInterrupt:
         suspend_selected(root, selected_name, f"Local loop interrupted; checks incomplete; logs: {directory}")

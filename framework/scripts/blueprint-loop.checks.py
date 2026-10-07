@@ -435,12 +435,15 @@ def check_staged_snapshot():
         # These isolated runner fixtures exercise orchestration after authorization.
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (root / "tasks").mkdir()
-        active = root / "tasks/active.md"
-        contract = "- Task type: `governance`\n## Validation scope\n- `framework`\n"
-        active.write_text(contract, encoding="utf-8")
+        active = root / "tasks/snapshot.md"
+        contract = ("## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+                    "## Validation scope\n- `framework`\n## Modified files\n- `tasks/snapshot.md`\n"
+                    "- `framework/scripts/validate-blueprint.py`\n## Allowed paths\n- `tasks/snapshot.md`\n"
+                    "- `framework/scripts/validate-blueprint.py`\n")
+        MODULE.git(root, "init", "-q")
+        active.write_text(tasks.bind_worktree(root, contract), encoding="utf-8")
         validator = scripts / "validate-blueprint.py"
         validator.write_text("print('base')\n", encoding="utf-8")
-        MODULE.git(root, "init", "-q")
         MODULE.git(root, "add", ".")
         MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "base")
         (root / "historical.txt").write_text("old version", encoding="utf-8")
@@ -449,7 +452,10 @@ def check_staged_snapshot():
         base = MODULE.git(root, "rev-parse", "HEAD")
         validator.write_text(
             "from pathlib import Path\nimport subprocess\n"
-            f"assert Path('tasks/active.md').read_text(encoding='utf-8') == {contract!r}\n"
+            "from task_contract import worktree_owner, worktree_identity\n"
+            "text=Path('tasks/snapshot.md').read_text(encoding='utf-8')\n"
+            "assert worktree_owner(text) == worktree_identity(Path.cwd())\n"
+            f"assert '\\n'.join(line for line in text.splitlines() if not line.startswith('- Worktree identity:')) + '\\n' == {contract!r}\n"
             "assert not Path('untracked.txt').exists()\n"
             "assert subprocess.check_output(['git','rev-list','--count','HEAD'], text=True).strip() == '1'\n"
             "paths=subprocess.check_output(['git','diff','--cached','--name-only'], text=True)\n"
@@ -511,16 +517,16 @@ def check_staged_snapshot():
         validator.write_text(original_validator, encoding="utf-8")
         # A concurrent index edit cannot be reported as current validation success.
         validator.write_text(validator.read_text(encoding="utf-8") +
-            f"subprocess.run(['git','add','tasks/active.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
+            f"subprocess.run(['git','add','tasks/snapshot.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
         MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
         result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode == 1 and "snapshot is stale" in result.stdout, result.stdout + result.stderr
         rejected = subprocess.run([*command, "--affected", "--all"], capture_output=True, encoding="utf-8")
         assert rejected.returncode and "cannot narrow" in rejected.stderr
         # write-tree must reject unresolved conflicts before any validation starts.
-        blob = MODULE.git(root, "rev-parse", "HEAD:tasks/active.md")
-        conflict = "0 " + "0" * len(blob) + "\ttasks/active.md\n"
-        conflict += "".join(f"100644 {blob} {stage}\ttasks/active.md\n" for stage in (1, 2, 3))
+        blob = MODULE.git(root, "rev-parse", "HEAD:tasks/snapshot.md")
+        conflict = "0 " + "0" * len(blob) + "\ttasks/snapshot.md\n"
+        conflict += "".join(f"100644 {blob} {stage}\ttasks/snapshot.md\n" for stage in (1, 2, 3))
         subprocess.run(["git", "update-index", "--index-info"], cwd=root,
                        input=conflict, encoding="utf-8", check=True)
         result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
@@ -616,14 +622,14 @@ def check_failure_suspension():
         assert "PASS own.checks.py" in result.stdout, "remaining checks must finish before releasing reservations"
         replacement = "tasks/replacement.md"
         tasks.start(root, replacement, contract(replacement, "first.md"))
-        before = (root / first).read_bytes()
-        try:
-            tasks.resume(root, first)
-        except ValueError as error:
-            assert "conflict" in str(error)
-        else:
-            raise AssertionError("resume stole another task's reservation")
-        assert (root / first).read_bytes() == before
+        tasks.resume(root, first)
+        entry = tasks.reservations(root, tasks.contracts(root))[first]
+        assert entry.state == "running" and entry.deferred == {"first.md": (replacement,)}
+        validator.write_text("print('validator passed')\n", encoding="utf-8")
+        save_inputs()
+        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0 and "Blueprint task: DEFERRED" in result.stdout, result.stdout + result.stderr
+        assert tasks.status((root / first).read_text()) == "running"
         tasks.suspend(root, replacement, "replacement paused after check failure")
         tasks.resume(root, first)
         validator.write_text("print('validator passed')\n", encoding="utf-8")

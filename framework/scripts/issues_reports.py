@@ -10,7 +10,7 @@ import tempfile
 from datetime import datetime, timezone, timedelta
 
 from issue_gate import unresolved_services
-from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section
+from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section, reserved_batches
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
 from issues_iac import safe_value
@@ -234,7 +234,7 @@ def iac_merge(root, path, environment, directory, services, records):
     return prefix + ''.join(line + '\n' for line in extras) + ''.join(output)
 
 
-def save_authority(root, environment, directory, services, filenames):
+def save_authority(root, environment, directory, services, filenames, check_write=True):
     prompt = task_path(root)
     text = prompt.read_text(encoding='utf-8')
     scope = active_scope(root)
@@ -249,7 +249,8 @@ def save_authority(root, environment, directory, services, filenames):
     paths = [safe_path(root, f'issues/{environment}/{directory}/{name}') for name in filenames]
     if any(path.relative_to(root).as_posix() not in allowed for path in paths):
         raise ValueError('report is outside Allowed paths')
-    require_writable(root, set(paths))
+    if check_write:
+        require_writable(root, set(paths))
     return paths
 
 
@@ -285,14 +286,16 @@ def atomic_files(contents):
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
-    # Existing portable registration lock is outside the repository and fail-closed.
-    # All report writers through this entrypoint share it; callers retry a busy save.
-    with registration_lock(root):
-        paths = save_authority(root, environment, directory, services, names)
-        contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
-        if iac is not None:
-            contents[paths[1]] = iac_merge(root, paths[1], environment, directory, services, iac)
-        if guard:
-            guard()  # Check after formatting, immediately before publication; never repeat comparison.
-        atomic_files(contents)
+    outputs = save_authority(root, environment, directory, services, names, check_write=False)
+    for _ in reserved_batches(root, {'reports': outputs}):
+        # Merge the latest saved service blocks only after acquisition. Keep the
+        # existing publication mutex and indivisible report batch; never sleep here.
+        with registration_lock(root):
+            paths = save_authority(root, environment, directory, services, names)
+            contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
+            if iac is not None:
+                contents[paths[1]] = iac_merge(root, paths[1], environment, directory, services, iac)
+            if guard:
+                guard()  # Check after formatting, immediately before publication; never repeat comparison.
+            atomic_files(contents)
     return paths

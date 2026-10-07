@@ -621,27 +621,56 @@ def comparison_repair_cases():
 
 
 def concurrency(root):
-    # Different selected contracts may reserve the same report; writes must merge latest contents.
+    # Same-worktree report writes wait for file acquisition, then merge latest contents.
+    from task_contract import refresh, complete, reservations, contracts, status
     commands = []
     contexts = []
+    names = []
     for service in ('s3', 'sqs'):
         context = task(root, [service], name='parallel-' + service)
         context.__enter__()
         contexts.append(context)
+        name = 'tasks/parallel-' + service + '.md'
+        names.append(name)
+        refresh(root, name)
         result = root.parent / ('results-' + service + '.json')
         write(result, json.dumps({'issues': [{'service': service, 'message': 'concurrent-' + service}]}))
         commands.append([sys.executable, '-B', str(ROOT / 'framework/scripts/issues_scan.py'), '--repository-root', str(root),
-                         '--task-file', 'tasks/parallel-' + service + '.md', 'save-results', '--environment', 'dev',
+                         '--task-file', name, 'save-results', '--environment', 'dev',
                          '--target-directory', '123456789012', '--service', service, '--results', str(result)])
-    processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for command in commands]
-    for process, command in zip(processes, commands):
-        stdout, stderr = process.communicate(timeout=30)
-        if process.returncode:
-            assert 'registration is busy' in stderr, stderr
-            result = subprocess.run(command, capture_output=True, text=True)
-            assert result.returncode == 0, result.stderr
     try:
-        text = (root / 'issues/dev/123456789012/issues.md').read_text()
+        report = 'issues/dev/123456789012/issues.md'
+        entries = reservations(root, contracts(root))
+        assert report in entries[names[0]].active and report in entries[names[1]].deferred
+        first = subprocess.run(commands[0], capture_output=True, text=True, timeout=30)
+        assert first.returncode == 0, first.stderr
+        # Exercise the actual CLI worker with a test clock. It releases the owner
+        # on retry 3; the same save invocation must acquire and publish automatically.
+        driver = """
+import runpy, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1]); sys.argv = sys.argv[2:]
+import task_contract as tasks
+root = Path(sys.argv[sys.argv.index('--repository-root') + 1])
+count = 0
+def sleep(seconds):
+    global count
+    assert seconds == 30
+    count += 1
+    if count == 3:
+        tasks.complete(root, 'tasks/parallel-s3.md')
+    assert count <= 3
+tasks.time.sleep = sleep
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+        result = subprocess.run([sys.executable, '-B', '-c', driver,
+                                 str(ROOT / 'framework/scripts'), *commands[1][2:]],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        assert 'Acquired deferred reservation' in result.stdout, result.stdout
+        assert status((root / names[1]).read_text()) == 'running'
+        assert not reservations(root, contracts(root))[names[1]].deferred
+        text = (root / report).read_text()
         assert 'concurrent-s3' in text and 'concurrent-sqs' in text
     finally:
         for context in reversed(contexts):

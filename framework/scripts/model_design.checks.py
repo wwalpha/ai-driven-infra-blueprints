@@ -1853,6 +1853,75 @@ def main():
         assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
         assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
         assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
+        # A Deferred JSON keeps its Markdown/JSON publication together. Other
+        # services save first, then the same worker resumes without regenerating.
+        import task_contract as tasks
+        owner, worker = "tasks/owner.md", "tasks/worker.md"
+        json_path = docs / "iam/flow-role-trust-policy.json"
+        outputs = [docs / "iam.md", json_path, docs / "logs.md", docs / "vpc.md"]
+        def register(name, files):
+            listed = "\n".join(f"- `{p.relative_to(root)}`" for p in [root / name, *files])
+            tasks.start(root, name, "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+                        "## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n"
+                        f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n")
+        register(owner, [json_path])
+        register(worker, outputs)
+        snapshot = {path: path.read_bytes() for path in outputs}
+        logs.update(renamed_logs)
+        logs["desired.row.001-002.value"] = "`3`"
+        (base / "logs.properties").write_text(text(logs))
+        document["Statement"][0]["Sid"] = "AutomaticallyAcquired"
+        iam["desired.row.001-002.document"] = json.dumps(document)
+        (base / "iam.properties").write_text(text(iam))
+        sleeps = []
+        def release(seconds):
+            sleeps.append(seconds)
+            assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
+            assert all(path.read_bytes() == snapshot[path] for path in [docs / "iam.md", json_path])
+            if len(sleeps) == 3:
+                tasks.complete(root, owner)
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=release), patch.object(SYNC, "markdown_for", wraps=SYNC.markdown_for) as generate:
+            assert SYNC.sync(root, True, "dev", "123456789012") == 0
+            assert generate.call_count == 3, "retry must not regenerate services"
+        assert sleeps == [30] * 3 and json.loads(json_path.read_text()) == document
+        for name in (owner, worker):
+            (root / name).unlink()
+        (root / "tasks").rmdir()
+        register(owner, [json_path])
+        register(worker, outputs)
+        document["Statement"][0]["Sid"] = "StillDeferred"
+        iam["desired.row.001-002.document"] = json.dumps(document)
+        (base / "iam.properties").write_text(text(iam))
+        before = json_path.read_bytes()
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep") as sleep, patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write"]):
+            assert SYNC.main() == 0 and sleep.call_count == 20
+        assert json_path.read_bytes() == before
+        assert tasks.reservations(root, tasks.contracts(root))[worker].state == "running"
+        assert json_path.relative_to(root).as_posix() in tasks.reservations(root, tasks.contracts(root))[worker].deferred
+        tasks.complete(root, owner)
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=AssertionError("normal reexecution must acquire immediately")):
+            assert SYNC.sync(root, True, "dev", "123456789012") == 0
+        for name in (owner, worker):
+            (root / name).unlink()
+        (root / "tasks").rmdir()
+        register(owner, [json_path])
+        register(worker, outputs)
+        before = json_path.read_bytes()
+        source = base / "iam.properties"
+        source_before = source.read_bytes()
+        def change_input(seconds):
+            assert seconds == 30
+            source.write_bytes(source_before + b"# changed by the owner during waiting\n")
+            tasks.complete(root, owner)
+        errors = io.StringIO()
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write"]), redirect_stderr(errors):
+            assert SYNC.main() == 1  # A changed authoritative input is a real error.
+        assert "model inputs changed" in errors.getvalue() and json_path.read_bytes() == before
+        source.write_bytes(source_before)
+        for name in (owner, worker):
+            (root / name).unlink()
+        (root / "tasks").rmdir()
+
         # The CLI returns failure while persisting an unrelated successful service.
         (root / "tasks").mkdir()
         (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")

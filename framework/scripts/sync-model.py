@@ -19,7 +19,7 @@ from pathlib import Path
 
 from design_catalog import DesignSchemaCatalog, design_material_files
 from validation_scope import active_scope, reference_lines, scoped_files
-from task_contract import task_path, require_writable
+from task_contract import task_path, require_writable, reserved_batches, DeferredExhausted
 from issue_gate import require_no_issues
 from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, ROTATION_SCHEDULE, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
@@ -365,13 +365,19 @@ def sync(
         contract = task_path(root)
         if not contract.is_file() or "- Task type: `migration`" not in contract.read_text(encoding="utf-8"):
             raise ValueError("Markdown import is allowed only in an explicit migration task")
+        import_inputs = {path: path.read_bytes() for path in markdown_paths}
         expected_models = {(models / path.relative_to(docs)).with_suffix(".properties"): imported_model(path, root) for path in markdown_paths}
         if any(path.is_file() for path in expected_models):
             raise ValueError("Markdown import must not overwrite an existing authoritative model")
         outputs = {file: content for path, text in expected_models.items()
                    for file, content in model_file_contents(path, text).items()}
-        require_writable(root, outputs)
-        save_files(outputs)
+        for _ in reserved_batches(root, {"import": outputs}):
+            require_writable(root, outputs)
+            if any(path.is_file() for path in expected_models):
+                raise ValueError("Markdown import must not overwrite an existing authoritative model")
+            if any(not path.is_file() or path.read_bytes() != original for path, original in import_inputs.items()):
+                raise ValueError("Markdown import inputs changed before publication; rerun import")
+            save_files(outputs)
         print(f"Service model import: PASS ({len(expected_models)} files); verify and generate Markdown next")
         return 0
     destinations = {}
@@ -496,23 +502,40 @@ def sync(
                 restore_view(stage, root, path)
         saved = {}
         save_failed = False
-        for path, files in generated.items():
-            try:
-                expected = {root / file.relative_to(stage): file.read_text(encoding="utf-8") for file in files}
-                if write:
-                    require_writable(root, expected)
-                    originals = {file: file.read_bytes() if file.is_file() else None for file in expected}
-                    save_files(expected)
-                    saved[path] = originals
-                else:
-                    stale = [str(file.relative_to(root)) for file, content in expected.items()
-                             if not file.is_file() or file.read_text(encoding="utf-8") != content]
-                    if stale:
-                        raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
-                saved.setdefault(path, {})
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                failures.append(f"{path.relative_to(root)}: {error}")
-                save_failed = True
+        expected_outputs = {path: {root / file.relative_to(stage): file.read_text(encoding="utf-8") for file in files}
+                            for path, files in generated.items()}
+        source_inputs = {}
+        if write:
+            for path in generated:
+                source = (stage / "model" / path.relative_to(docs)).with_suffix(".properties")
+                source_inputs[path] = {root / part.relative_to(stage): part.read_bytes()
+                                       for part in {source, *model_parts(source)}}
+        pending_error = None
+        batches = reserved_batches(root, expected_outputs) if write else iter(generated)
+        try:
+            for path in batches:
+                try:
+                    expected = expected_outputs[path]
+                    if write:
+                        require_writable(root, expected)
+                        if any(not source.is_file() or source.read_bytes() != original
+                               for source, original in source_inputs[path].items()):
+                            raise ValueError("authoritative model inputs changed before publication; rerun generation")
+                        originals = {file: file.read_bytes() if file.is_file() else None for file in expected}
+                        save_files(expected)
+                        saved[path] = originals
+                    else:
+                        stale = [str(file.relative_to(root)) for file, content in expected.items()
+                                 if not file.is_file() or file.read_text(encoding="utf-8") != content]
+                        if stale:
+                            raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
+                    saved.setdefault(path, {})
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    failures.append(f"{path.relative_to(root)}: {error}")
+                    save_failed = True
+        except DeferredExhausted as error:
+            pending_error = error
+            save_failed = True  # Validate saved references against retained Deferred outputs, too.
         # Filesystem failures can invalidate newly saved references, too.
         while write and save_failed and saved:
             rejected = []
@@ -539,6 +562,8 @@ def sync(
             (docs / path.relative_to(models)).with_suffix(".md") for path in model_paths
         }) - saved.keys()
         raise ValueError(f"{len(saved)} services succeeded; {len(failed_services)} services failed; {len(failures)} diagnostics\n- " + "\n- ".join(failures))
+    if pending_error:
+        raise pending_error
     print(f"Design Markdown sync: PASS ({len(saved)} services)")
     return 0
 
@@ -706,13 +731,21 @@ def main() -> int:
             try:
                 sync(root, args.write, environment, target, args.import_markdown, services,
                      jobs=args.jobs if len(groups) == 1 else 1)
+            except DeferredExhausted as error:
+                return error
             except (OSError, ValueError, KeyError, TypeError) as error:
                 return str(error)
             return None
         with ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as executor:
             failures = [error for error in executor.map(generate, groups.items()) if error]
         if failures:
-            raise ValueError("\n- ".join(failures))
+            real_errors = [error for error in failures if not isinstance(error, DeferredExhausted)]
+            if real_errors:
+                raise ValueError("\n- ".join(real_errors))
+            raise failures[0]
+        return 0
+    except DeferredExhausted as error:
+        print(str(error))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Design Markdown sync: FAIL\n- {error}", file=sys.stderr)

@@ -185,6 +185,8 @@ class Validator:
         self.requirement_ids: list[str] = []
         self.acceptance_checks: list[tuple[str, str, str]] = []
         self.acceptance_results: list[str] = []
+        self.deferred_files: set[str] = set()
+        self.deferred_acceptance: list[str] = []
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
@@ -243,13 +245,17 @@ class Validator:
                 print(f"- {error}")
             return 1
 
-        print(f"Blueprint repository validation: PASS ({self.checks} checks)")
+        result = "DEFERRED (Active checks passed; task remains running)" if self.deferred_files else "PASS"
+        print(f"Blueprint repository validation: {result} ({self.checks} checks)")
         if self.task_type:
             print(f"- task type: {self.task_type}")
         else:
             print("- task state: idle (no active task)")
         print(f"- task requirements: {', '.join(self.requirement_ids)}")
         print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
+        if self.deferred_files:
+            print(f"- Deferred files: {', '.join(sorted(self.deferred_files))}")
+            print(f"- deferred acceptance: {', '.join(self.deferred_acceptance)}")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
         print(f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}")
         return 0
@@ -313,7 +319,7 @@ class Validator:
         if not self.changed_paths:
             return
         if not prompt.is_file():
-            if contracts(self.root):
+            if contracts(self.root, include_foreign=True):
                 self.changed_paths = task_changes(self.root, self.changed_paths)
                 return
             self.check(
@@ -323,6 +329,7 @@ class Validator:
             return
 
         self.changed_paths = task_changes(self.root, self.changed_paths, self.relative(prompt))
+        self.deferred_files = set(reservations(self.root, contracts(self.root))[self.relative(prompt)].deferred)
         if not self.changed_paths:
             return
 
@@ -566,6 +573,9 @@ class Validator:
             "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
         }
         for requirement_id, kind, value in self.acceptance_checks:
+            if kind != "check" and any(self.matches(path, value) for path in self.deferred_files):
+                self.deferred_acceptance.append(f"{requirement_id}:{kind}:{value}")
+                continue  # Pending work is not a passed Acceptance check.
             before = len(self.errors)
             if kind == "changed":
                 self.check(any(self.matches(path, value) for path in self.changed_paths), f"required changed path missing: {requirement_id}: {value}")

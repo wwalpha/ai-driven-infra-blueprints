@@ -151,7 +151,12 @@ def check_preparation():
         assert "framework/rules/project-configuration.md" in documents
         assert "framework/rules/terraform.md" not in documents and "README.md" not in documents
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
-        assert contracts(root)["tasks/deploy-offline.md"] == text
+        registered = contracts(root)["tasks/deploy-offline.md"]
+        from task_contract import reservations, worktree_owner, worktree_identity
+        assert paths_in(registered, "## Modified files") == paths_in(text, "## Modified files")
+        assert worktree_owner(registered) == worktree_identity(root)
+        entry = reservations(root, contracts(root))["tasks/deploy-offline.md"]
+        assert entry.active == entry.files and not entry.deferred
         assert invoke(arguments(root, base)) == 1  # Registered tasks keep the existing resume path.
         with patch.object(M.subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
@@ -204,7 +209,14 @@ def check_stale_and_conflicts():
             elif reason == "candidate":
                 (run / "contract.md").write_text("changed", encoding="utf-8")
             with patch.dict(M.os.environ, {"PATH": "changed"}) if reason == "runtime" else patch.dict(M.os.environ, {}):
-                assert invoke(["--repository-root", str(root), "--register", str(path)]) == 1, reason
+                result = invoke(["--repository-root", str(root), "--register", str(path)])
+                assert result == (0 if reason == "reservation" else 1), reason
+            if reason == "reservation":
+                from task_contract import reservations
+                entry = reservations(root, contracts(root))["tasks/deploy-offline.md"]
+                assert entry.state == "running" and entry.deferred
+                assert entry.active == {"tasks/deploy-offline.md"}
+                continue
             assert not (root / "tasks/deploy-offline.md").exists()
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
 

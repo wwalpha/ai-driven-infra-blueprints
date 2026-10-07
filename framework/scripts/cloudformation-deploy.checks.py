@@ -2371,6 +2371,369 @@ def check_controlled_repair():
     print('Controlled deploy repair: PASS (Cases 1-10, typed projection, static lint, session evidence, no guessed values, provenance/retention gates)')
 
 
+def check_secret_runtime_bootstrap():
+    """Requested Cases 1-13 exercise the controller, ownership mappings and durable resumes."""
+    from cloudformation_observed import mappings
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        root = base / 'repo'
+        shutil.copytree(ROOT / 'framework/materials', root / 'framework/materials')
+        modeldir = root / 'model/dev/123456789012'
+        modeldir.mkdir(parents=True)
+        selected = [dict(name=name, template=name.lower() + '.yaml', parameters=name.lower() + '.json', deployOrder=str(order))
+                    for name, order in [('SecretOwner', 1), ('A', 2), ('B', 2), ('C', 3)]]
+        template_dir = root / 'infra/cloudformation/templates'
+        parameter_dir = root / 'infra/cloudformation/parameters/dev/123456789012'
+        template_dir.mkdir(parents=True); parameter_dir.mkdir(parents=True)
+        task = root / 'tasks/active.md'; task.parent.mkdir()
+        task.write_text('\n'.join(['- Controlled repair: `allowed`', '- AWS API execution: `allowed`', '- Deploy/apply: `allowed`',
+            '## Validation scope', '- `dev/123456789012/secretsmanager`', '- `dev/123456789012/quicksight`',
+            '## Modified files', '- `tasks/active.md`', '## Allowed paths', '- `tasks/active.md`']), encoding='utf-8')
+        (modeldir / 'cloudformation-stacks.properties').write_text('\n'.join(
+            f'desired.stack.{i:03d}.{key}={value}' for i, unit in enumerate(selected, 1) for key, value in unit.items()), encoding='utf-8')
+        for service, kind, stack, logical in [('secretsmanager', 'SecretsManager.Secret', 'SecretOwner', 'Secret'),
+                                             ('quicksight', 'QuickSight.DataSource', 'B', 'Consumer')]:
+            (modeldir / (service + '.properties')).write_text('\n'.join([
+                f'desired.resource.001.resourceType={kind}', f'desired.resource.001.cfn-logicalId={stack}-{logical}',
+                'desired.resource.001.anchor=' + service + '-item', 'desired.resource.001.label=item']), encoding='utf-8')
+        arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app-dev-secret-abcdef'
+        stack_ids = {u['name']: f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{u['name']}/session-id" for u in selected}
+        source = {'Resources': {'Secret': {'Type': 'AWS::SecretsManager::Secret', 'Properties': {'Name': 'app-dev-secret'}}},
+                  'Outputs': {'SecretId': {'Value': {'Ref': 'Secret'}, 'Export': {'Name': 'SecretExport'}}}}
+        def consumer_reference(key):
+            return {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key + '}}',
+                               {'Secret': {'Fn::ImportValue': 'SecretExport'}}]}
+        secret_model = modeldir / 'secretsmanager.properties'
+        secret_model_text = secret_model.read_text(encoding='utf-8')
+        def configure(*, keys=('username', 'password'), create=True, repeated=False, future=False):
+            active = selected + ([dict(name='FutureSecretOwner', template='future.yaml', parameters='future.json', deployOrder='4')] if future else [])
+            secret_model.write_text(secret_model_text + ('\ndesired.resource.002.resourceType=SecretsManager.Secret\n'
+                'desired.resource.002.cfn-logicalId=FutureSecretOwner-OtherSecret\n'
+                'desired.resource.002.anchor=secretsmanager-other\ndesired.resource.002.label=other\n' if future else ''), encoding='utf-8')
+            (modeldir / 'cloudformation-stacks.properties').write_text('\n'.join(
+                f'desired.stack.{i:03d}.{key}={value}' for i, u in enumerate(active, 1) for key, value in u.items()), encoding='utf-8')
+            consumer = {'Resources': {'Consumer': {'Type': 'AWS::QuickSight::DataSource', 'Properties': {
+                'AwsAccountId': '123456789012', 'DataSourceId': 'app-dev-source', 'Name': 'app-dev-source', 'Type': 'POSTGRESQL',
+                'DataSourceParameters': {'PostgreSqlParameters': {'Host': 'db.example', 'Port': 5432, 'Database': 'app'}},
+                'Credentials': {'CredentialPair': {'Username': consumer_reference(keys[0]), 'Password': consumer_reference(keys[-1])}}}}}}
+            docs = {'SecretOwner': json.loads(json.dumps(source)), 'A': {'Resources': {}}, 'B': consumer, 'C': {'Resources': {}}}
+            if future:
+                docs['FutureSecretOwner'] = {'Resources': {'OtherSecret': {'Type': 'AWS::SecretsManager::Secret'}}}
+            for name, doc in docs.items():
+                u = next(u for u in active if u['name'] == name)
+                (template_dir / u['template']).write_text(json.dumps(doc), encoding='utf-8')
+                (parameter_dir / u['parameters']).write_text('[]\n', encoding='utf-8')
+            backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+            backend.mapping_units = active
+            for unit in active:
+                backend.load_inputs(unit)
+            backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
+            session = {'states': states(active), 'metrics': {'observedSyncSeconds': 0},
+                       'unitDigests': {u['name']: backend.input_digest(u) for u in active}}
+            session['states']['SecretOwner'].update(status='SUCCESS', stackId=stack_ids['SecretOwner'], observedSynced=True)
+            backend.states = session['states']; backend.session = session
+            backend.expected_digests = session['unitDigests']; backend.validated_digests = dict(session['unitDigests'])
+            calls, executed, validations, syncs = [], [], [], []
+            versions = {}
+            knobs = {'getError': None, 'describeError': False, 'listError': False,
+                     'canonicalArn': arn, 'ownerArn': arn, 'rotation': False, 'race': False, 'promotionRace': False,
+                     'interruptPut': False, 'invalidVersionResponse': False, 'unsafeCleanup': False}
+            statuses = {'SecretOwner': 'CREATE_COMPLETE', 'A': None, 'B': None if create else 'UPDATE_COMPLETE', 'C': None}
+            if future:
+                statuses['FutureSecretOwner'] = None
+                stack_ids['FutureSecretOwner'] = 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/FutureSecretOwner/session-id'
+            tokens = {}
+            session_path = base / 'session.json'
+            def save():
+                session_path.write_text(json.dumps(session), encoding='utf-8')
+            backend.save = save
+            before = {p: p.read_bytes() for parent in (root / 'infra', modeldir) for p in parent.rglob('*') if p.is_file()}
+            def guard():
+                assert all(p.read_bytes() == data for p, data in before.items()), 'runtime bootstrap changed repository inputs'
+            backend.guard = guard
+            def aws(operation, *args, service='cloudformation'):
+                calls.append((operation, args))
+                if service == 'secretsmanager':
+                    if operation == 'describe-secret':
+                        if knobs['describeError']:
+                            raise M.Blocked('ResourceNotFoundException')
+                        return {'ARN': knobs['canonicalArn'], 'Name': 'app-dev-secret', 'RotationEnabled': knobs['rotation'],
+                                'VersionIdsToStages': {k: list(v) for k, v in versions.items() if v}}
+                    if operation == 'list-secret-version-ids':
+                        if knobs['listError']:
+                            raise M.Blocked('AccessDeniedException')
+                        if knobs['invalidVersionResponse']:
+                            return {}
+                        return {'ARN': arn, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
+                    if operation == 'get-secret-value':
+                        assert '--query' in args and args[args.index('--query')+1] == M.SECRET_METADATA_QUERY
+                        if knobs['getError']:
+                            raise M.Blocked(knobs['getError'])
+                        current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
+                        if not current:
+                            error = M.Blocked('current version missing'); error.current_missing = True
+                            raise error
+                        return {'ARN': arn, 'VersionId': current[0], 'VersionStages': versions[current[0]], 'HasValue': True}
+                    if operation == 'put-secret-value':
+                        guard()
+                        saved = json.loads(session_path.read_text())['states']['B']['repairs'][-1]
+                        assert saved['classification'] == 'RUNTIME_BOOTSTRAP' and saved['stage'] == 'PUT_SUBMITTED'
+                        token = args[args.index('--client-request-token')+1]
+                        assert saved['clientRequestToken'] == token
+                        assert session['states']['A']['observedSynced'], 'successful peers must sync before PUT'
+                        if knobs['race']:
+                            versions['external-version'] = ['AWSCURRENT']
+                        stages = [args[args.index('--version-stages')+1]]
+                        if not versions:
+                            stages.append('AWSCURRENT')
+                        versions.setdefault(token, stages)
+                        if knobs['interruptPut']:
+                            raise KeyboardInterrupt()
+                        return {'ARN': arn, 'VersionId': token, 'VersionStages': versions[token]}
+                    if operation == 'update-secret-version-stage':
+                        guard()
+                        assert '--remove-from-version-id' not in args
+                        if knobs['promotionRace']:
+                            versions['external-version'] = ['AWSCURRENT']
+                        if any('AWSCURRENT' in v for v in versions.values()):
+                            raise M.Blocked('stage already exists')
+                        versions[args[args.index('--move-to-version-id')+1]].append('AWSCURRENT')
+                        return {'ARN': arn, 'Name': 'app-dev-secret'}
+                    raise AssertionError(operation)
+                name = args[args.index('--stack-name')+1] if '--stack-name' in args else 'B'
+                name = name.split(':stack/')[-1].split('/')[0]
+                if operation == 'list-exports':
+                    return {'Exports': [{'Name': 'SecretExport', 'Value': arn, 'ExportingStackId': stack_ids['SecretOwner']}]}
+                if operation == 'list-stack-resources':
+                    if name == 'FutureSecretOwner' and statuses[name] is None:
+                        raise M.Blocked('stack does not exist')
+                    return {'StackResourceSummaries': ([{'LogicalResourceId': 'Secret', 'ResourceType': 'AWS::SecretsManager::Secret',
+                        'ResourceStatus': 'CREATE_COMPLETE', 'PhysicalResourceId': knobs['ownerArn']}] if name == 'SecretOwner' else
+                        [{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource', 'ResourceStatus': 'DELETE_SKIPPED'}]
+                        if knobs['unsafeCleanup'] else [])}
+                if operation == 'get-template':
+                    return {'TemplateBody': docs[name]}
+                if operation == 'describe-stacks':
+                    if statuses[name] is None:
+                        raise M.Blocked('stack does not exist')
+                    return {'Stacks': [{'StackId': stack_ids[name], 'StackStatus': statuses[name], 'Parameters': []}]}
+                if operation == 'create-change-set':
+                    return {'Id': args[args.index('--change-set-name')+1], 'StackId': stack_ids[name]}
+                if operation == 'describe-change-set':
+                    return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': []}
+                if operation == 'execute-change-set':
+                    executed.append(name); tokens[name] = args[args.index('--client-request-token')+1]
+                    failing = name == 'B' and (executed.count('B') == 1 or repeated)
+                    statuses[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failing else 'CREATE_COMPLETE'
+                    return {}
+                if operation == 'describe-stack-events':
+                    events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
+                               'ResourceStatus': statuses[name], 'StackId': stack_ids[name]}]
+                    if 'ROLLBACK' in statuses[name]:
+                        events.append({'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
+                            'ResourceStatus': 'CREATE_FAILED', 'ClientRequestToken': tokens[name],
+                            'ResourceStatusReason': "Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"})
+                    return {'StackEvents': events}
+                if operation == 'delete-stack':
+                    assert args == ('--stack-name', stack_ids['B'])
+                    statuses[name] = None; return {}
+                if operation == 'validate-template':
+                    return {}
+                raise AssertionError(operation)
+            backend.aws = aws
+            def validate(unit):
+                validations.append(unit['name'])
+                backend.validate(unit)  # Actual cfn-lint/decoder and unchanged input digests.
+                backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
+            backend.refresh_validation = validate
+            def synced(_backend, items, saved):
+                for item in items:
+                    syncs.append(item['name']); saved[item['name']]['observedSynced'] = True
+            def run():
+                with patch.object(M, 'sync_successful', side_effect=synced):
+                    return M.run_session(active, 2, session, backend, backend.save, sleep=lambda _: None)
+            def failed():
+                state = session['states']['B']
+                statuses['B'] = 'ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE'
+                state.update(status='FAILED', stackStatus=statuses['B'], stackId=stack_ids['B'],
+                    failureEvents=[{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
+                                    'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': 'SECRET_CURRENT_VALUE_MISSING'}])
+                session['states']['A'].update(status='SUCCESS', observedSynced=True)
+                backend.save()
+                return state
+            save()
+            return SimpleNamespace(backend=backend, session=session, calls=calls, executed=executed, validations=validations,
+                syncs=syncs, versions=versions, knobs=knobs, docs=docs, run=run, failed=failed, saved=session_path, before=before)
+
+        def puts(f):
+            return [args for op, args in f.calls if op == 'put-secret-value']
+        # Cases 1, 8, 13: one JSON PUT, failed CREATE cleanup/retry, peer sync and original remaining order.
+        f = configure()
+        assert f.run() == 'COMPLETE', f.session
+        assert f.executed == ['A', 'B', 'B', 'C'] and f.validations == ['B'] and f.syncs.count('A') == 1
+        assert len(puts(f)) == 1
+        assert json.loads(puts(f)[0][puts(f)[0].index('--secret-string')+1]) == {'username': 'DUMMY_DEPLOY_ONLY', 'password': 'DUMMY_DEPLOY_ONLY'}
+        entry = f.session['states']['B']['repairs'][0]
+        assert entry['classification'] == 'RUNTIME_BOOTSTRAP' and entry['stage'] == 'RETRY_READY'
+        assert entry['requiredJsonKeys'] == ['password', 'username']
+        assert all(p.read_bytes() == data for p, data in f.before.items()) and 'DUMMY_DEPLOY_ONLY' not in f.saved.read_text()
+        assert 'SecretString' not in f.saved.read_text() and 'SecretBinary' not in f.saved.read_text()
+        # Later uncreated Secret producers do not block the proven current Secret's bootstrap.
+        f = configure(future=True)
+        assert f.run() == 'COMPLETE' and f.executed == ['A', 'B', 'B', 'C', 'FutureSecretOwner'], f.session
+        assert len(puts(f)) == 1 and not any(op == 'list-stack-resources' and args == ('--stack-name', 'FutureSecretOwner')
+                                            for op, args in f.calls)
+        # Cases 2-7: existing value, denied reads/KMS, absent resource, IMPORT, foreign/unknown owner never PUT/cleanup.
+        for mode in ('current', 'denied', 'kms', 'absent', 'import', 'crossAccount', 'crossRegion', 'unknownOwner', 'unknownVersions', 'invalidResponse', 'rotation', 'listDenied'):
+            f = configure(); state = f.failed()
+            if mode == 'current': f.versions['existing-version'] = ['AWSCURRENT']
+            if mode == 'denied': f.knobs['getError'] = 'AccessDeniedException'
+            if mode == 'kms': f.knobs['getError'] = 'DecryptionFailure'
+            if mode == 'absent': f.knobs['describeError'] = True
+            if mode == 'import': f.backend.mapping_plan[1]['SecretOwner']['Secret'][2]['resourceMode'] = 'IMPORT'
+            if mode == 'crossAccount': f.knobs['canonicalArn'] = arn.replace('123456789012', '999999999999')
+            if mode == 'crossRegion': f.knobs['canonicalArn'] = arn.replace('ap-northeast-1', 'us-east-1')
+            if mode == 'unknownOwner': f.knobs['ownerArn'] = 'external'
+            if mode == 'unknownVersions': f.versions['previous-version'] = ['AWSPREVIOUS']
+            if mode == 'invalidResponse': f.knobs['invalidVersionResponse'] = True
+            if mode == 'rotation': f.knobs['rotation'] = True
+            if mode == 'listDenied': f.knobs['listError'] = True
+            assert not f.backend.repair(selected[2], state), mode
+            assert state['failureClassification'] == 'HUMAN_REQUIRED' and not puts(f), (mode, state)
+            assert not any(op == 'delete-stack' for op, _ in f.calls), mode
+        # Case 9: whole credential JSON/unknown special schema and mixed string/key consumers stop.
+        for mode in ('opaque', 'mixed', 'pinned', 'multiple', 'unresolved', 'badExport', 'inactive'):
+            f = configure(); state = f.failed(); credential = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+            if mode == 'opaque':
+                f.docs['B']['Resources']['Consumer']['Properties']['Credentials'] = consumer_reference('')
+            if mode == 'mixed': credential['Username'] = consumer_reference('')
+            if mode == 'pinned': credential['Username'] = consumer_reference('username:AWSPREVIOUS')
+            if mode == 'multiple': credential['Username'] = '{{resolve:secretsmanager:other:SecretString:username}}'
+            if mode == 'unresolved': credential['Username']['Fn::Sub'][1]['Secret'] = {'Ref': 'Unknown'}
+            if mode == 'badExport': f.docs['SecretOwner']['Outputs']['SecretId']['Value'] = 'unproven'
+            if mode == 'inactive':
+                f.docs['B']['Conditions'] = {'Off': {'Fn::Equals': ['yes', 'no']}}
+                f.docs['B']['Resources']['Consumer']['Condition'] = 'Off'
+            f.backend.templates['B'] = (f.docs['B'], {})
+            assert not f.backend.repair(selected[2], state) and not puts(f), (mode, state)
+        # A proven scalar slot consumes the whole string; no JSON keys are invented.
+        f = configure(keys=('', '')); assert f.run() == 'COMPLETE'
+        assert puts(f)[0][puts(f)[0].index('--secret-string')+1] == 'DUMMY_DEPLOY_ONLY'
+        # Explicit parameter files/defaults and Ref resolve the same owner, without failure-text IDs.
+        for explicit in (True, False):
+            f = configure(); state = f.failed()
+            f.docs['B']['Parameters'] = {'SecretInput': {'Type': 'String', 'Default': arn}}
+            pair = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+            for slot, key in (('Username', 'username'), ('Password', 'password')):
+                pair[slot] = {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key + '}}', {'Secret': {'Ref': 'SecretInput'}}]}
+            path = parameter_dir / 'b.json'
+            (template_dir / 'b.yaml').write_text(json.dumps(f.docs['B']), encoding='utf-8')
+            path.write_text(json.dumps([{'ParameterKey': 'SecretInput', 'ParameterValue': arn}] if explicit else []), encoding='utf-8')
+            f.before[template_dir / 'b.yaml'] = (template_dir / 'b.yaml').read_bytes(); f.before[path] = path.read_bytes()
+            f.session['unitDigests']['B'] = f.backend.input_digest(selected[2], fresh=True)
+            f.backend.load_inputs(selected[2]); f.backend.save()
+            assert f.backend.repair(selected[2], state) and len(puts(f)) == 1, state
+        # Conditional imports inside Sub maps use only the active branch.
+        f = configure(); state = f.failed()
+        f.docs['B']['Parameters'] = {'Switch': {'Type': 'String', 'Default': 'yes'}}
+        f.docs['B']['Conditions'] = {'Enabled': {'Fn::Equals': [{'Ref': 'Switch'}, 'yes']}}
+        pair = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+        for value in pair.values():
+            value['Fn::Sub'][1]['Secret'] = {'Fn::If': ['Enabled', {'Fn::ImportValue': 'SecretExport'}, {'Fn::ImportValue': 'MissingInactiveExport'}]}
+        path = template_dir / 'b.yaml'; path.write_text(json.dumps(f.docs['B']), encoding='utf-8')
+        f.before[path] = path.read_bytes(); f.session['unitDigests']['B'] = f.backend.input_digest(selected[2], fresh=True)
+        f.backend.load_inputs(selected[2]); f.backend.save()
+        assert f.backend.repair(selected[2], state) and len(puts(f)) == 1, state
+        # A value appearing after durable missing-check persistence prevents even the initial PUT.
+        f = configure(); state = f.failed(); save = f.backend.save
+        def concurrent_value():
+            save()
+            if state.get('repairs') and state['repairs'][-1]['stage'] == 'VALUE_CHECKED_MISSING':
+                f.versions['external-version'] = ['AWSCURRENT']
+        f.backend.save = concurrent_value
+        assert not f.backend.repair(selected[2], state) and not puts(f)
+        assert f.versions == {'external-version': ['AWSCURRENT']}
+        # Cases 10/11: process interruption before PUT, after accepted PUT, and before cleanup.
+        for boundary in ('BOOTSTRAP_INTENT', 'VALUE_CHECKED_MISSING', 'PUT_SUBMITTED', 'afterPut', 'BOOTSTRAP_CONFIRMED', 'RETRY_READY'):
+            f = configure(); state = f.failed(); save = f.backend.save
+            def interrupted():
+                save()
+                records = state.get('repairs', [])
+                if records and records[-1]['stage'] == boundary:
+                    raise KeyboardInterrupt()
+            f.backend.save = interrupted
+            f.knobs['interruptPut'] = boundary == 'afterPut'
+            try:
+                f.backend.repair(selected[2], state)
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError('bootstrap interruption not exercised: ' + boundary)
+            persisted = json.loads(f.saved.read_text())
+            token = persisted['states']['B']['repairs'][0]['clientRequestToken']
+            # Reload all persisted state, as a new process would; the AWS versions survive.
+            f.session.clear(); f.session.update(persisted)
+            previous = f.backend
+            f.backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+            f.backend.session = f.session; f.backend.states = f.session['states']
+            f.backend.mapping_units = selected; f.backend.mapping_plan = previous.mapping_plan
+            f.backend.templates = previous.templates; f.backend.aws = previous.aws; f.backend.guard = previous.guard
+            f.backend.expected_digests = f.session['unitDigests']
+            f.backend.refresh_validation = lambda unit: f.backend.validate(unit)
+            state = f.backend.states['B']; f.backend.save = save; f.knobs['interruptPut'] = False
+            if boundary != 'RETRY_READY':
+                assert f.backend.repair(selected[2], state), (boundary, state)
+            assert f.session['states']['B']['repairs'][0]['clientRequestToken'] == token
+            assert len(puts(f)) == 1 and len(f.versions) == 1
+            assert f.session['states']['B']['status'] == 'NOT_STARTED'
+        # Case 12: the same failure after retry cannot trigger a second PUT or empty-shell recreation.
+        f = configure(repeated=True)
+        assert f.run() == 'STOPPED' and f.executed == ['A', 'B', 'B'] and len(puts(f)) == 1
+        assert f.session['states']['B']['failureClassification'] == 'HUMAN_REQUIRED'
+        assert f.session['states']['C']['status'] == 'NOT_STARTED'
+        assert sum(op == 'delete-stack' for op, _ in f.calls) == 1
+        # Existing UPDATE_ROLLBACK_COMPLETE handling does not delete/redeploy the successful peer.
+        f = configure(create=False); assert f.run() == 'COMPLETE' and not any(op == 'delete-stack' for op, _ in f.calls)
+        # Ownership, current-state, guard and cleanup uncertainty fail closed.
+        f = configure(); state = f.failed(); f.knobs['unsafeCleanup'] = True
+        assert not f.backend.repair(selected[2], state) and not any(op == 'delete-stack' for op, _ in f.calls)
+        for race in ('race', 'promotionRace'):
+            f = configure(); state = f.failed(); f.knobs[race] = True
+            if race == 'promotionRace':
+                f.versions.clear()
+                original = f.backend.aws
+                def staging_only(operation, *args, **kwargs):
+                    result = original(operation, *args, **kwargs)
+                    if operation == 'put-secret-value':
+                        for v in f.versions.values():
+                            if 'AWSCURRENT' in v: v.remove('AWSCURRENT')
+                    return result
+                f.backend.aws = staging_only
+            assert not f.backend.repair(selected[2], state) and f.versions['external-version'] == ['AWSCURRENT']
+            assert len(puts(f)) == 1
+        # The wrapper never reveals secret values via exceptions, process timeout, stdout or timing.
+        backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+        from deploy_preparation import Timing
+        backend.timing = Timing(root, base / 'timing.jsonl')
+        rejects(lambda: backend.aws('get-secret-value', '--secret-id', arn, service='secretsmanager'), 'metadata-only')
+        for failure in ('denied', 'missing', 'timeout', 'invalid'):
+            result = SimpleNamespace(returncode=1, stdout='', stderr='An error occurred (AccessDeniedException) DUMMY_DEPLOY_ONLY')
+            if failure == 'missing': result.stderr = "An error occurred (ResourceNotFoundException): Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"
+            if failure == 'invalid': result = SimpleNamespace(returncode=0, stdout='DUMMY_DEPLOY_ONLY', stderr='')
+            error = M.subprocess.TimeoutExpired(['aws', '--secret-string', 'DUMMY_DEPLOY_ONLY'], 60)
+            with patch.object(M.subprocess, 'run', side_effect=error if failure == 'timeout' else None, return_value=result):
+                try:
+                    backend.aws('get-secret-value', '--secret-id', arn, '--version-stage', 'AWSCURRENT', '--query', M.SECRET_METADATA_QUERY, service='secretsmanager')
+                except M.Blocked as caught:
+                    assert 'DUMMY_DEPLOY_ONLY' not in str(caught)
+                    assert getattr(caught, 'current_missing', False) == (failure == 'missing')
+                else:
+                    raise AssertionError('sensitive API failure not handled')
+        assert 'DUMMY_DEPLOY_ONLY' not in (base / 'timing.jsonl').read_text()
+    print('Secrets Manager RUNTIME_BOOTSTRAP: PASS (Cases 1-13, one PUT, JSON/scalar, guards, interruption, peer sync/order, concurrent-value protection, redaction)')
+
+
+check_secret_runtime_bootstrap()
 check_controlled_repair()
 
 check_api_timing()

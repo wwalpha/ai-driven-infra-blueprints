@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 from validation_cache import memoized
-from task_contract import task_path, require_writable
+from task_contract import task_path, require_writable, reserved_batches, DeferredExhausted
 
 MAX_LINES = 600
 PART_LINES = 550
@@ -216,6 +216,7 @@ def main() -> int:
             raise ValueError("split service is outside active task validation scope")
         require_no_issues(root, {identity})
         output = model_file_contents(path, text)
+        original_inputs = {part: part.read_bytes() for part in {path, *parts}}
         obsolete = set(parts) - output.keys() - {path}
         if "## Allowed paths\n" not in contract:
             raise ValueError("split task must declare Allowed paths")
@@ -227,11 +228,17 @@ def main() -> int:
         spec = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        require_writable(root, set(output) | obsolete)
-        module.save_files(output)
-        for part in obsolete:
-            part.unlink()
+        for _ in reserved_batches(root, {'split': set(output) | obsolete}):
+            require_writable(root, set(output) | obsolete)
+            if any(not part.is_file() or part.read_bytes() != original for part, original in original_inputs.items()):
+                raise ValueError("split model inputs changed before publication; rerun split")
+            module.save_files(output)
+            for part in obsolete:
+                part.unlink()
         print(f"Service model split: PASS ({path}; {len(output)} files)")
+        return 0
+    except DeferredExhausted as error:
+        print(str(error))
         return 0
     except (OSError, ValueError, IndexError) as error:
         print(f"Service model files: FAIL: {error}", file=sys.stderr)
