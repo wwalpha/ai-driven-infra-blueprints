@@ -47,6 +47,7 @@ This rule is the default naming convention when determining human-selected AWS r
 - Do not use organization-specific tokens `ISZPF`, `ISZ`, `PF`, `isuzu`, or `isuzucojp` in generic patterns or examples.
 - Confirm final names satisfy the target property's provider schema type, pattern, length, and AWS uniqueness scope. If exceeded, do not automatically truncate, add hashes, or abbreviate; ask the human for shorter values.
 - If changing an explicit name entails replacement, only confirm the rename in the design task; do not proceed to IaC changes or replacement execution.
+- A Naming Target applies only to the explicitly defined resource property. A root target such as `Name` does not implicitly apply to nested properties that share the same terminal name; nested targets must be explicitly defined by full property path.
 - Rows whose `Naming target` is `.Name` or `Name tag` apply the pattern to mandatory or human-selected `Name` tag values.
 - If the mandatory or human-selected `Name` tag pattern is absent from the target service file's table, ask the human one question without inferring the name.
 

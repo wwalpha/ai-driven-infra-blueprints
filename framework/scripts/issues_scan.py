@@ -19,7 +19,7 @@ import time
 
 from design_layout import resource_mode, resource_name_fields, resource_has_name_property, REQUIRED_NAME_TAG_TYPES
 from design_catalog import selected_properties
-from model_design import entries, naming_rule_files, naming_targets, catalog_outputs, NAMING_EXEMPT_PROPERTIES
+from model_design import entries, naming_rule_files, naming_targets, naming_target_matches, catalog_outputs, NAMING_EXEMPT_PROPERTIES
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, DeferredExhausted
@@ -134,7 +134,7 @@ def naming_materials(comparison):
                     prop = row['property'].removeprefix(kind + '.')
                     if row['property'] in outputs:
                         continue
-                    if prop in fields or prop.rsplit('.', 1)[-1] in targets:
+                    if prop in fields or naming_target_matches(prop, targets, kind):
                         selected.append((rid, row, prop, row['value']))
                     if prop in {'Tags[].Key', 'HostedZoneTags[].Key'} and literal(row['value']) == 'Name':
                         valuefield = prop.replace('.Key', '.Value')

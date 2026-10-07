@@ -224,6 +224,12 @@ def naming_rule_files(root: Path, namespace: str | None = None) -> tuple[Path, .
     return tuple(files)
 
 
+def naming_target_matches(prop: str, targets: set[str], kind: str | None = None) -> bool:
+    """Match a Naming Target at its declared root or exact nested property path."""
+    normalized = {target.removeprefix(kind + ".") if kind else target for target in targets}
+    return prop in normalized
+
+
 @memoized
 def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[str]]:
     targets: dict[str, set[str]] = {}
@@ -247,13 +253,12 @@ def naming_coverage_errors(root: Path, kind: str, selected: set[str], name_tag: 
         return []
     targets = naming_targets(root, kind.partition(".")[0])
     expected = selected & set(resource_name_fields(kind))
-    expected.update(selected & targets.get(kind, set()))
+    expected.update(field for field in selected if naming_target_matches(field, targets.get(kind, set()), kind))
     if name_tag:
         expected.add("Name tag")
     return [f"naming rule missing: {kind}: {field}" for field in sorted(expected)
             if kind + "." + field not in NAMING_EXEMPT_PROPERTIES
-            and field not in targets.get(kind, set()) and kind + "." + field not in targets.get(kind, set())
-            and field.rsplit(".", 1)[-1] not in targets.get(kind, set())]
+            and not naming_target_matches(field, targets.get(kind, set()), kind)]
 
 
 def design_naming_errors(root: Path, kind: str, mode: str = "CREATE", name_tag: bool = False) -> list[str]:

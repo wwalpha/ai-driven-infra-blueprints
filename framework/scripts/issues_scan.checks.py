@@ -21,7 +21,8 @@ from unittest.mock import patch
 from issues_iac import Comparison, same, selected_same, strict_json, module
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload
 from issues_reports import save, blocks, numbered, identifier, iac_merge
-from model_design import properties, entries, markdown_for
+from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
+from design_layout import resource_name_fields
 from model_files import load_model, read_model, model_file_contents, resource_row_index
 from validation_cache import input_scope
 from task_contract import SELECTOR
@@ -123,6 +124,62 @@ def task(root, services, name='save', allowed=None):
         else:
             os.environ[SELECTOR] = previous
         (root / f'tasks/{name}.md').unlink(missing_ok=True)
+
+
+def naming_target_scope_cases():
+    with tempfile.TemporaryDirectory(prefix='naming-target-path-') as directory:
+        root = Path(directory) / 'project'
+        fixture(root)
+        specifications = {
+            'codebuild': ('CodeBuild.Project', [
+                ('Name', '`invalid_root_name`'),
+                ('Environment.EnvironmentVariables[].Name', '`AWS_REGION`'),
+                ('Environment.EnvironmentVariables[].Name', '`BUILD_BUCKET_NAME`'),
+                ('Environment.EnvironmentVariables[].Name', '`TARGET`'),
+                ('Artifacts.Name', '`artifact-name`'),
+            ]),
+            'codepipeline': ('CodePipeline.Pipeline', [
+                ('Name', '`invalid_root_name`'), ('Stages[].Name', '`Source`'),
+                ('Stages[].Actions[].Name', '`SourceAction`'), ('Variables[].Name', '`release`'),
+            ]),
+            'glue': ('Glue.Job', [('Name', '`invalid_root_name`'), ('Command.Name', '`script`')]),
+        }
+        for service, (kind, rows) in specifications.items():
+            values = {f'desired.service.{service}.serviceId': service,
+                      f'desired.resource.001.resourceType': kind,
+                      f'desired.resource.001.logicalId': 'Resource',
+                      f'desired.resource.001.anchor': service + '-resource'}
+            for number, (prop, value) in enumerate(rows, 1):
+                key = f'{number:03d}'
+                values.update({f'desired.row.001-{key}.property': kind + '.' + prop,
+                               f'desired.row.001-{key}.value': value,
+                               f'desired.row.001-{key}.comment': 'fixture name'})
+            write(root / f'model/dev/123456789012/{service}.properties',
+                  '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
+        comparison = Comparison(root, 'dev', '123456789012', list(specifications))
+        material, _ = naming_materials(comparison)
+        selected = {(item['resourceType'], item['property'], item['value']) for item in material['names']}
+        for kind in ('CodeBuild.Project', 'CodePipeline.Pipeline', 'Glue.Job'):
+            assert (kind, 'Name', '`invalid_root_name`') in selected, kind
+        nested = {(kind, prop) for kind, prop, _ in selected if prop.endswith('.Name') or '[]' in prop and prop.endswith('Name')}
+        assert not nested, nested
+        assert all((('CodeBuild.Project' if service == 'codebuild' else 'CodePipeline.Pipeline' if service == 'codepipeline' else 'Glue.Job'), prop) in {
+            (item['resourceType'], item['property']) for item in material['names']
+        } for service, (_, rows) in specifications.items() for prop, _ in rows if prop == 'Name')
+        targets = {kind: naming_targets(root, kind.partition('.')[0]).get(kind, set()) for kind, _ in specifications.values()}
+        before_root = sum(1 for kind, rows in specifications.values() for prop, _ in rows
+                          if prop == 'Name' and (prop in resource_name_fields(kind) or prop.rsplit('.', 1)[-1] in targets[kind]))
+        after_root = sum(1 for kind, rows in specifications.values() for prop, _ in rows
+                         if prop == 'Name' and (prop in resource_name_fields(kind) or naming_target_matches(prop, targets[kind], kind)))
+        before_nested = sum(1 for kind, rows in specifications.values() for prop, _ in rows
+                            if prop.rsplit('.', 1)[-1] in targets[kind] and '.' in prop)
+        after_nested = sum(1 for kind, rows in specifications.values() for prop, _ in rows
+                           if prop in targets[kind] or naming_target_matches(prop, targets[kind], kind)
+                           if '.' in prop)
+        assert before_root == after_root == 3, (before_root, after_root)
+        assert before_nested == 8, before_nested
+        assert after_nested == 0, after_nested
+    print('Naming Target issue candidates: PASS (root candidates 3→3; nested false positives 8→0)')
 
 
 def compare(root, services):
@@ -916,6 +973,7 @@ def main():
         root = Path(directory) / 'project'
         values, template = fixture(root, stacks=3, parts=True)
         checks(root, values, template)
+        naming_target_scope_cases()
         resource_cases(root)
         extended_cases(root, template)
         concurrency(root)

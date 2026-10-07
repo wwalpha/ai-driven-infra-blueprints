@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from model_design import naming_rule_files, naming_targets, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
+from model_design import naming_rule_files, naming_targets, naming_target_matches, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
 from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
 from model_design import row_table, design_naming_errors, catalog_display_rows, resource_rows
 from design_layout import catalog_order_errors
@@ -956,6 +956,25 @@ def check_naming_exclusions():
     print("Naming exclusions: PASS (11 properties; design, generation, value/schema checks and coverage boundaries)")
 
 
+def check_naming_target_paths():
+    targets = naming_targets(ROOT, "CodeBuild")["CodeBuild.Project"]
+    assert naming_target_matches("Name", targets, "CodeBuild.Project")
+    assert not naming_target_matches("Environment.EnvironmentVariables[].Name", targets, "CodeBuild.Project")
+    assert not naming_target_matches("Artifacts.Name", targets, "CodeBuild.Project")
+    pipeline = naming_targets(ROOT, "CodePipeline")["CodePipeline.Pipeline"]
+    assert naming_target_matches("Name", pipeline, "CodePipeline.Pipeline")
+    for field in ("Stages[].Name", "Stages[].Actions[].Name", "Variables[].Name"):
+        assert not naming_target_matches(field, pipeline, "CodePipeline.Pipeline"), field
+    glue = naming_targets(ROOT, "Glue")["Glue.Job"]
+    assert naming_target_matches("Name", glue, "Glue.Job")
+    assert not naming_target_matches("Command.Name", glue, "Glue.Job")
+    # An explicitly declared nested target remains exact and valid.
+    s3 = naming_targets(ROOT, "S3")["S3.Bucket"]
+    assert naming_target_matches("LifecycleConfiguration.Rules[].Id", s3, "S3.Bucket")
+    assert not naming_target_matches("Other.Rules[].Id", s3, "S3.Bucket")
+    print("Naming Target paths: PASS (root-only implicit match, exact nested target)")
+
+
 def check_service_scoped_naming():
     datazone_targets = naming_targets(ROOT, "DataZone")
     for kind in ("DataZone.Domain", "DataZone.Project", "DataZone.DataSource"):
@@ -1614,6 +1633,7 @@ def main():
     check_stack_mapping_roundtrip()
     check_security_naming()
     check_service_scoped_naming()
+    check_naming_target_paths()
     check_design_naming_preflight()
     check_security_group_and_glue_catalog_naming()
     check_naming_exclusions()
