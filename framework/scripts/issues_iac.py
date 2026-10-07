@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import sys
 
-from cloudformation_inputs import Blocked, condition_active, load_target, resolve_value, output_value
+from cloudformation_inputs import Blocked, condition_active, load_target, load_template_inputs, resolve_value, output_value
 from cloudformation_observed import resource_index, mapped_resource
 from design_catalog import DesignSchemaCatalog
 from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
@@ -191,6 +191,7 @@ class Comparison:
         return self._index
 
     def symbol(self, stack, logical, attribute=None):
+        attribute = str(attribute) if isinstance(attribute, str) else attribute
         cachekey = stack, logical, attribute
         if cachekey in self.symbols:
             return self.symbols[cachekey]
@@ -230,6 +231,8 @@ class Comparison:
         if len(value) == 1:
             key, arg = next(iter(value.items()))
             if key == 'Ref' and arg not in parameters | pseudo:
+                if arg.startswith('AWS::'):
+                    raise Blocked(f'unresolved pseudo parameter: {arg}')
                 return self.symbol(stack, arg)
             if key == 'Fn::GetAtt':
                 logical, attribute = arg.split('.', 1) if isinstance(arg, str) else arg
@@ -259,6 +262,12 @@ class Comparison:
                     raise Blocked('unresolved FindInMap') from error
             if key == 'Fn::ImportValue':
                 raise Blocked('ImportValue handoff cannot be established locally')
+            if key == 'Fn::Sub' and isinstance(arg, list):
+                if len(arg) != 2 or not isinstance(arg[0], str) or not isinstance(arg[1], dict):
+                    raise ValueError('invalid Fn::Sub')
+                variables = {key: self.evaluate(stack, child) for key, child in arg[1].items()}
+                variables = {key: str(child) if type(child) in (int, float) else child for key, child in variables.items()}
+                value = {'Fn::Sub': [arg[0], variables]}
             if key == 'Ref' or key.startswith('Fn::') or key == 'Condition':
                 return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
         return {key: item for key, item in ((key, self.evaluate(stack, child)) for key, child in value.items()) if item != {'$noValue': True}}
@@ -270,7 +279,7 @@ class Comparison:
         elif LINK.fullmatch(raw):
             prop = row['property'].removeprefix(kind + '.')
             # A schema-typed ARN property selects the referenced Arn, never a current ARN.
-            attribute = 'Arn' if prop.lower().endswith(('arn', 'arns')) else None
+            attribute = 'Arn' if row['property'] == 'CodeBuild.Project.ServiceRole' or prop.lower().endswith(('arn', 'arns')) else None
             symbol = self.reference(service, raw, attribute)
             node = self.catalog.property_schema(kind, prop)
             return [symbol] if node.get('type') == 'array' else symbol
@@ -312,6 +321,9 @@ class Comparison:
         self.track(parameters_path)
         if name in self.stack_inputs:
             return template, self.stack_inputs[name]
+        for path in (template, parameters_path):
+            if not path.is_file():
+                raise Blocked(f'stack input missing: {path.relative_to(self.root).as_posix()}')
         if template not in self.documents:
             from cfnlint.decode import decode
             document, errors = decode(str(template))
@@ -320,37 +332,20 @@ class Comparison:
                 raise ValueError(f'invalid template: {template}')
             self.documents[template] = document
         document = self.documents[template]
-        parameters = strict_json(parameters_path.read_text(encoding='utf-8'))
-        if not isinstance(parameters, list) or not all(isinstance(item, dict) and set(item) == {'ParameterKey', 'ParameterValue'}
-                and isinstance(item['ParameterKey'], str) and isinstance(item['ParameterValue'], str) for item in parameters):
-            raise ValueError('invalid explicit stack parameters')
-        if len({item['ParameterKey'] for item in parameters}) != len(parameters):
-            raise ValueError('duplicate stack parameter')
+        _, values = load_template_inputs(template, parameters_path, strict_parameters=True, document=document)
         definitions = document.get('Parameters', {})
-        supplied = {item['ParameterKey']: item['ParameterValue'] for item in parameters}
-        if supplied.keys() - definitions.keys():
-            raise ValueError('undeclared stack parameter')
-        values = {}
         for key, definition in definitions.items():
-            if key not in supplied and 'Default' not in definition:
-                raise ValueError(f'required parameter missing: {key}')
-            raw = supplied.get(key, definition.get('Default'))
             if definition.get('NoEcho') or re.search(r'password|secret|token|credential', key, re.I):
-                self.sensitive_values.add(str(raw))
-            kind = definition.get('Type')
-            if kind == 'Number':
-                value = strict_json(str(raw))
-                if type(value) not in (int, float):
-                    raise ValueError(f'invalid Number parameter: {key}')
-            elif kind == 'CommaDelimitedList' or (kind or '').startswith('List<'):
-                value = [item.strip() for item in raw.split(',')] if isinstance(raw, str) else raw
-            elif kind and kind.startswith('AWS::SSM::Parameter::'):
-                raise Blocked(f'SSM parameter requires external resolution: {key}')
-            else:
-                value = str(raw)
-            values[key] = value
+                value = values[key]
+                self.sensitive_values.update(str(item) for item in (value if isinstance(value, list) else [value]))
         pseudo = {'AWS::StackName': name, 'AWS::AccountId': self.target.get('awsExecutionAccountId', self.target['awsAccountId']),
                   'AWS::Region': self.target['awsRegion'], 'AWS::NoValue': {'$noValue': True}}
+        if not hasattr(self, 'partition'):
+            from botocore.loaders import Loader
+            self.partition = next((part['partition'] for part in Loader().load_data('endpoints')['partitions']
+                                   if self.target['awsRegion'] in part['regions']), None)
+        if self.partition is not None:
+            pseudo['AWS::Partition'] = self.partition
         self.stack_inputs[name] = document, values, pseudo
         self.metrics['stack_evaluations'] += 1
         return template, self.stack_inputs[name]
@@ -390,19 +385,26 @@ class Comparison:
                         if len(direct.get((name, logical), [])) != 1:
                             raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
                     else:
-                        candidates = []
+                        candidates, unresolved = [], []
                         for name, unit in stacks.items():
-                            template, (document, parameters, pseudo) = self.stack(unit)
+                            try:
+                                template, (document, parameters, pseudo) = self.stack(unit)
+                            except Blocked as error:
+                                unresolved.append(f'{name}: {error}')
+                                continue
                             direct, legacy = self.index()
                             for logical, definition in document.get('Resources', {}).items():
                                 if definition.get('Type') != cfn_type:
                                     continue
                                 try:
                                     entry = mapped_resource(direct, legacy, name, logical, cfn_type, any(n == name for n, _ in direct))
-                                except ValueError:
+                                except ValueError as error:
+                                    unresolved.append(f'{name}/{logical}: {error}')
                                     continue
                                 if entry[0].stem == service and entry[1] == identity:
                                     candidates.append((name, template, document, parameters, pseudo, logical, definition))
+                        if unresolved:
+                            raise Blocked('incomplete legacy candidate search; ' + '; '.join(unresolved))
                         if len(candidates) != 1:
                             raise Blocked(f'legacy correspondence matches={len(candidates)}; explicit cfn-logicalId required')
                         name, template, document, parameters, pseudo, logical, definition = candidates[0]

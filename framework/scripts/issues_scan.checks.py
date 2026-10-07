@@ -505,6 +505,121 @@ def extended_cases(root, template):
     mutate_template(root, template)
 
 
+def comparison_repair_cases():
+    from cloudformation_inputs import load_template_inputs
+    with tempfile.TemporaryDirectory(prefix='comparison-repair-') as directory:
+        root = Path(directory) / 'project'
+        _, template = fixture(root, services=['cloudwatch-logs'])
+        name = 'cfn-stack-app-dev-data1'
+        role = {'desired.service.iam.serviceId': 'iam', 'desired.resource.001.resourceType': 'IAM.Role',
+                'desired.resource.001.cfn-logicalId': name + '-Role', 'desired.resource.001.anchor': 'iam-role',
+                'desired.row.001-001.property': 'IAM.Role.RoleName', 'desired.row.001-001.value': '`BuildRole`'}
+        project = {'desired.service.codebuild.serviceId': 'codebuild', 'desired.resource.001.resourceType': 'CodeBuild.Project',
+                   'desired.resource.001.cfn-logicalId': name + '-Build', 'desired.row.001-001.property': 'CodeBuild.Project.ServiceRole',
+                   'desired.row.001-001.value': '[PENDING_DEPLOY](iam.md#iam-role)'}
+        for service, model in [('iam', role), ('codebuild', project)]:
+            write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
+        template['Resources']['Role'] = {'Type': 'AWS::IAM::Role', 'Properties': {'RoleName': 'BuildRole'}}
+        template['Resources']['Build'] = {'Type': 'AWS::CodeBuild::Project', 'Properties': {'ServiceRole': {'Fn::GetAtt': ['Role', 'Arn']}}}
+        template['Mappings'] = {'Table': {'one': {'text': 'resolved', 'number': 7}}}
+        mutate_template(root, template)
+        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            comparison, records = compare(root, ['codebuild'])
+            assert len(records) == 1 and records[0]['category'] == 'matched', records
+            # Other role properties still use the default RoleName attribute.
+            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': '[role](iam.md#iam-role)'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
+            for field, expected in [('text', 'resolved'), ('number', '7')]:
+                assert comparison.evaluate(name, {'Fn::Sub': ['${X}-${AWS::Region}-${!literal}',
+                       {'X': {'Fn::FindInMap': ['Table', 'one', field]}}]}) == expected + '-ap-northeast-1-${literal}'
+            expect_error(lambda: comparison.evaluate(name, {'Fn::Sub': ['${X}', {'X': {'Fn::ImportValue': 'unknown'}}]}), 'handoff')
+            for region, partition in [('ap-northeast-1', 'aws'), ('cn-north-1', 'aws-cn'), ('us-gov-west-1', 'aws-us-gov'),
+                                      ('us-iso-east-1', 'aws-iso'), ('eusc-de-east-1', 'aws-eusc'), ('ap-fake-1', None)]:
+                candidate = Comparison(root, 'dev', '123456789012', ['cloudwatch-logs'])
+                candidate.target['awsRegion'] = region
+                candidate.stack(candidate.templates()[0][1])
+                if partition is None:
+                    expect_error(lambda: candidate.evaluate(name, {'Ref': 'AWS::Partition'}), 'pseudo parameter')
+                else:
+                    assert candidate.evaluate(name, {'Ref': 'AWS::Partition'}) == partition
+
+        parameter = root / 'infra/cloudformation/parameters/dev/123456789012/stack-1.json'
+        template_path = root / 'infra/cloudformation/templates/shared.yaml'
+        original_parameters = parameter.read_text()
+        definitions = template['Parameters']
+        # Validate supplied values and Defaults with the same opt-in loader used by comparison.
+        for kind, default, expected in [('String', 'abc', 'abc'), ('Number', '7', 7),
+                                         ('Number', '9007199254740993', 9007199254740993),
+                                         ('Number', '0.5', 0.5), ('CommaDelimitedList', 'a, b', ['a', 'b']),
+                                         ('List<Number>', '1, 2.5', [1, 2.5])]:
+            definitions['Extra'] = {'Type': kind, 'Default': default}
+            mutate_template(root, template)
+            assert load_template_inputs(template_path, parameter, strict_parameters=True)[1]['Extra'] == expected
+        cases = [({'Type': 'String', 'Default': 'bad', 'AllowedValues': ['dev', 'stg']}, 'AllowedValues'),
+                 ({'Type': 'String', 'Default': 'prefix-good-suffix', 'AllowedPattern': 'good'}, 'AllowedPattern'),
+                 ({'Type': 'String', 'Default': 'a', 'MinLength': 2}, 'MinLength'),
+                 ({'Type': 'String', 'Default': 'abcd', 'MaxLength': 3}, 'MaxLength'),
+                 ({'Type': 'Number', 'Default': '1', 'MinValue': 2}, 'MinValue'),
+                 ({'Type': 'Number', 'Default': '3', 'MaxValue': 2}, 'MaxValue'),
+                 ({'Type': 'Number', 'Default': 'NaN'}, 'Number'),
+                 ({'Type': 'Number', 'Default': True}, 'Number'),
+                 ({'Type': 'String', 'Default': []}, 'String'),
+                 ({'Type': 'String'}, 'required parameter'),
+                 ({'Type': 'CommaDelimitedList', 'Default': 'a,bad', 'AllowedValues': ['a']}, 'AllowedValues'),
+                 ({'Type': 'CommaDelimitedList', 'Default': 'a,1', 'AllowedPattern': '[a-z]+'}, 'AllowedPattern')]
+        for definition, reason in cases:
+            definitions['Extra'] = definition
+            mutate_template(root, template)
+            _, records = compare(root, ['cloudwatch-logs'])
+            assert len(records) == 1 and records[0]['category'] == 'error' and reason in records[0]['reason'], records
+        # Existing deploy/observed callers keep their permissive, string-valued behavior.
+        assert load_template_inputs(template_path, parameter)[1]['Extra'] == 'a,1'
+        definitions.pop('Extra')
+        mutate_template(root, template)
+        for text, reason in [('[]', 'required parameter'),
+                             ('[{"ParameterKey":"Unknown","ParameterValue":"x"}]', 'undeclared'),
+                             ('[{"ParameterKey":"Name","ParameterValue":7}]', 'explicit'),
+                             ('[{"ParameterKey":"Name","ParameterValue":"a"},{"ParameterKey":"Name","ParameterValue":"b"}]', 'duplicate'),
+                             ('[{"ParameterKey":"Name","ParameterValue":"a","ParameterValue":"b"}]', 'duplicate')]:
+            write(parameter, text)
+            _, records = compare(root, ['cloudwatch-logs'])
+            assert len(records) == 1 and records[0]['category'] == 'error' and reason in records[0]['reason'], records
+        write(parameter, original_parameters)
+
+        # A unique usable legacy candidate cannot establish uniqueness with unread/malformed/ambiguous inputs.
+        modelpath = root / 'model/dev/123456789012/cloudwatch-logs.properties'
+        modeltext = modelpath.read_text()
+        write(modelpath, modeltext.replace('desired.resource.001.cfn-logicalId=' + name + '-Log\n', '').replace('logicalId=Log1', 'logicalId=Log'))
+        stackpath = root / 'model/dev/123456789012/cloudformation-stacks.properties'
+        stacktext = stackpath.read_text()
+        write(stackpath, stacktext + 'desired.stack.002.name=second-stack\ndesired.stack.002.template=second.yaml\ndesired.stack.002.parameters=second.json\ndesired.stack.002.deployOrder=2\ndisplay.stack.002.comment=候補\n')
+        second_template = template_path.with_name('second.yaml')
+        second_parameter = parameter.with_name('second.json')
+        for available in ['none', 'template', 'both']:
+            if available != 'none':
+                write(second_template, 'Resources: {}\n')
+            if available == 'both':
+                write(second_parameter, '[]\n')
+            candidate, records = compare(root, ['cloudwatch-logs'])
+            if available == 'both':
+                assert all(item['category'] == 'matched' for item in records), records
+            else:
+                assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'input missing' in records[0]['reason'], records
+                assert candidate.metrics['template_decodes'] == 1
+        write(second_template, 'Resources: {Unknown: {Type: "AWS::Logs::LogGroup"}}\n')
+        _, records = compare(root, ['cloudwatch-logs'])
+        assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'incomplete legacy' in records[0]['reason'], records
+        write(second_template, 'Resources: [\n')
+        _, records = compare(root, ['cloudwatch-logs'])
+        assert len(records) == 1 and records[0]['category'] == 'error', records
+        # Explicit IDs do not read unrelated candidate stacks; missing explicit CREATE still differs.
+        write(modelpath, modeltext)
+        _, records = compare(root, ['cloudwatch-logs'])
+        assert all(item['category'] == 'matched' for item in records), records
+        template_path.unlink()
+        _, records = compare(root, ['cloudwatch-logs'])
+        assert len(records) == 1 and records[0]['category'] == 'difference' and 'CREATE未実装' in records[0]['reason'], records
+
+
 def concurrency(root):
     # Different selected contracts may reserve the same report; writes must merge latest contents.
     commands = []
@@ -775,6 +890,7 @@ def main():
         resource_cases(root)
         extended_cases(root, template)
         concurrency(root)
+    comparison_repair_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')

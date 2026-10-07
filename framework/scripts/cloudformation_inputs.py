@@ -1,6 +1,8 @@
 """Shared local CloudFormation input decoding and intrinsic evaluation (no AWS calls)."""
 import json
+import math
 import re
+from decimal import Decimal, InvalidOperation
 
 
 class Blocked(RuntimeError):
@@ -64,20 +66,102 @@ def resolve_value(value, parameters, pseudo, exports=None, conditions=None):
     return resolve(value)
 
 
-def load_template_inputs(template, parameter_file):
+def checked_parameters(document, inputs):
+    """Validate and type explicit comparison inputs without retrieving AWS values."""
+    definitions = document.get("Parameters", {})
+    if not isinstance(definitions, dict):
+        raise ValueError("invalid parameter declarations")
+    if not all(set(item) == {"ParameterKey", "ParameterValue"} for item in inputs):
+        raise ValueError("invalid explicit stack parameters")
+    supplied = {item["ParameterKey"]: item["ParameterValue"] for item in inputs}
+    if supplied.keys() - definitions.keys():
+        raise ValueError("undeclared stack parameter")
+    values = {}
+    def number(raw, key):
+        if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+            raise ValueError(f"invalid Number parameter: {key}")
+        try:
+            value = Decimal(str(raw))
+        except InvalidOperation as error:
+            raise ValueError(f"invalid Number parameter: {key}") from error
+        if not value.is_finite():
+            raise ValueError(f"invalid Number parameter: {key}")
+        result = int(value) if value == value.to_integral_value() else float(value)
+        if isinstance(result, float) and not math.isfinite(result):
+            raise ValueError(f"invalid Number parameter: {key}")
+        return result
+    for key, definition in definitions.items():
+        if not isinstance(definition, dict) or not isinstance(definition.get("Type"), str):
+            raise ValueError(f"invalid parameter declaration: {key}")
+        if key not in supplied and "Default" not in definition:
+            raise ValueError(f"required parameter missing: {key}")
+        raw = supplied.get(key, definition.get("Default"))
+        kind = definition["Type"]
+        if kind.startswith("AWS::SSM::Parameter::"):
+            raise Blocked(f"SSM parameter requires external resolution: {key}")
+        is_list = kind == "CommaDelimitedList" or kind.startswith("List<")
+        if is_list:
+            if not isinstance(raw, str):
+                raise ValueError(f"invalid list parameter: {key}")
+            items = [item.strip() for item in raw.split(",")]
+        else:
+            items = [raw]
+        if kind == "Number" or kind == "List<Number>":
+            items = [number(item, key) for item in items]
+        elif kind in {"String", "CommaDelimitedList"} or kind.startswith(("AWS::", "List<AWS::")):
+            if any(isinstance(item, bool) or not isinstance(item, (str, int, float)) for item in items):
+                raise ValueError(f"invalid String parameter: {key}")
+            items = [str(item) for item in items]
+        else:
+            raise ValueError(f"unsupported parameter type: {key}")
+        if "AllowedValues" in definition:
+            allowed = definition["AllowedValues"]
+            if not isinstance(allowed, list):
+                raise ValueError(f"invalid AllowedValues: {key}")
+            allowed = [number(item, key) for item in allowed] if kind in {"Number", "List<Number>"} else [str(item) for item in allowed]
+            if any(item not in allowed for item in items):
+                raise ValueError(f"parameter violates AllowedValues: {key}")
+        for item in items:
+            if "AllowedPattern" in definition:
+                try:
+                    valid = isinstance(item, str) and re.fullmatch(definition["AllowedPattern"], item) is not None
+                except re.error as error:
+                    raise Blocked(f"AllowedPattern cannot be evaluated locally: {key}") from error
+                if not valid:
+                    raise ValueError(f"parameter violates AllowedPattern: {key}")
+            for constraint, measured, minimum in (("MinLength", len(item) if isinstance(item, str) else None, True),
+                                                   ("MaxLength", len(item) if isinstance(item, str) else None, False),
+                                                   ("MinValue", item if type(item) in (int, float) else None, True),
+                                                   ("MaxValue", item if type(item) in (int, float) else None, False)):
+                if constraint in definition:
+                    limit = number(definition[constraint], key)
+                    if measured is None or (measured < limit if minimum else measured > limit):
+                        raise ValueError(f"parameter violates {constraint}: {key}")
+        values[key] = items if is_list else items[0]
+    return values
+
+
+def load_template_inputs(template, parameter_file, *, strict_parameters=False, document=None):
     try:
         from cfnlint.decode import decode
     except ImportError as error:
         raise Blocked("cfn-lint Python runtime is required for template decoding") from error
-    document, errors = decode(str(template))
-    if errors or not isinstance(document, dict) or document.get("Transform"):
-        raise Blocked("invalid/transform template; inputs must be resolvable locally")
-    inputs = json.loads(parameter_file.read_text(encoding="utf-8"))
+    if document is None:
+        document, errors = decode(str(template))
+        if errors or not isinstance(document, dict) or document.get("Transform"):
+            raise Blocked("invalid/transform template; inputs must be resolvable locally")
+    if strict_parameters:
+        from policy_tables import unique_object, invalid_constant
+        inputs = json.loads(parameter_file.read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+    else:
+        inputs = json.loads(parameter_file.read_text(encoding="utf-8"))
     if not isinstance(inputs, list) or not all(isinstance(item, dict) and isinstance(item.get("ParameterKey"), str)
                                              and isinstance(item.get("ParameterValue"), str) for item in inputs):
-        raise Blocked("parameter file must contain explicit stack-specific ParameterKey/ParameterValue entries")
+        raise (ValueError if strict_parameters else Blocked)("parameter file must contain explicit stack-specific ParameterKey/ParameterValue entries")
     if len({item["ParameterKey"] for item in inputs}) != len(inputs):
-        raise Blocked("duplicate parameter key")
+        raise (ValueError if strict_parameters else Blocked)("duplicate parameter key")
+    if strict_parameters:
+        return document, checked_parameters(document, inputs)
     defaults = {key: str(value["Default"]) for key, value in document.get("Parameters", {}).items() if "Default" in value}
     return document, defaults | {item["ParameterKey"]: item["ParameterValue"] for item in inputs}
 
