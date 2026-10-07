@@ -55,6 +55,47 @@ def module(name, path):
     return loaded
 
 
+def task_deployment_input_paths(root):
+    """Resolve deploy/update IaC offline through the controller's authoritative readers."""
+    from task_contract import task_path, section
+    from cloudformation_inputs import Blocked, load_target
+    path = task_path(root)
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    lines = section(text, "## Task contract")
+    if "- Task type: `infrastructure`" not in lines or not any(
+            f"- Infrastructure phase: `{phase}`" in lines for phase in ("deploy", "update")):
+        return None
+
+    def value(name, optional=False):
+        entries = [line for line in lines if line.startswith(f"- {name}:")]
+        if optional and not entries:
+            return None
+        if len(entries) != 1 or not (match := re.fullmatch(rf"- {re.escape(name)}: `([^`]+)`", entries[0])):
+            raise ValueError(f"task must specify exactly one {name}")
+        return match.group(1)
+
+    environment = value("Target environment")
+    account, alias = value("Target AWS account"), value("Target alias", optional=True)
+    try:
+        target = load_target(root, environment, alias or account)
+        if target["awsAccountId"] != account:
+            raise ValueError("task AWS account does not match project target")
+        if target["iacEngine"] != "cloudformation":
+            return None
+        controller = module("validation_deploy_controller", Path(__file__).with_name("cloudformation-deploy.py"))
+        scopes = [line for line in lines if line.startswith("- Deployment scope:")]
+        if len(scopes) != 1:
+            raise ValueError("task must specify an exact Deployment scope")
+        stacks = re.findall(r"`([^`]+)`", scopes[0])
+        _, units = controller.load_units(root, environment, alias or account, stacks)
+        backend = controller.AwsBackend(root, environment, alias or account, target)
+        return set(backend.deployment_input_paths(units))
+    except Blocked as error:
+        raise ValueError(str(error)) from error
+
+
 def environment(root):
     """Report all missing dependencies together, without probing another interpreter."""
     versions, errors = {}, []
@@ -229,8 +270,7 @@ def prepare(root, args, run, timing):
         if errors:
             raise ValueError("\n".join(errors))
         backend = controller.AwsBackend(root, args.environment, directory, target, args.profile)
-        execution_inputs = {path for unit in units for path in backend.paths(unit)}
-        execution_inputs.update(backend.source_path(artifact) for unit in units for artifact in unit.get("artifacts", []))
+        execution_inputs = set(backend.deployment_input_paths(units))
         sources.update(execution_inputs)
         if generated_views & execution_inputs:
             raise ValueError('generated view conflicts with execution/required input')

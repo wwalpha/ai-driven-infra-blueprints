@@ -1730,7 +1730,99 @@ def check_rule_reading_contract() -> None:
         assert not validator.errors, validator.errors
 
 
+def check_deployment_iac_scope():
+    from deploy_preparation import task_deployment_input_paths
+    from model_design import markdown_for
+    import task_contract as tasks
+    import os
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (root / "framework/rules").mkdir(parents=True)
+        (root / "framework/rules/aws-resource-naming.md").write_text(
+            "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "alias": "shared", "iacEngine": "cloudformation"}
+        (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [
+            {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")
+        template = root / "infra/cloudformation/templates/shared/a.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text("Resources: {}\n")
+        parameters = {}
+        for env, phase in (("dev", "deploy"), ("stg", "update")):
+            model = root / f"model/{env}/shared/cloudformation-stacks.properties"
+            design = root / f"docs/designs/{env}/shared/cloudformation-stacks.md"
+            model.parent.mkdir(parents=True)
+            design.parent.mkdir(parents=True)
+            values = {"desired.deployment.maxConcurrentStacks": "1", "desired.stack.001.name": "A",
+                      "desired.stack.001.template": "a.yaml", "desired.stack.001.parameters": "a.json",
+                      "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "配置するstack"}
+            model.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+            design.write_text(markdown_for(design, values, root))
+            parameters[env] = root / f"infra/cloudformation/parameters/{env}/shared/a.json"
+            parameters[env].parent.mkdir(parents=True)
+            parameters[env].write_text("[]\n")
+            name = f"tasks/{env}.md"
+            relative = parameters[env].relative_to(root).as_posix()
+            text = f"""# Task
+## Task contract
+- Task type: `infrastructure`
+- Task status: `running`
+- Infrastructure phase: `{phase}`
+- Target environment: `{env}`
+- Target alias: `shared`
+- Target AWS account: `123456789012`
+- Deployment scope: `A`
+## Validation scope
+- `{env}/shared/cloudformation-stacks`
+## Required changes
+- [R1] 対象stackを検証する。
+## Acceptance checks
+- [R1] `exists:{relative}`
+## Modified files
+- `{name}`
+- `{relative}`
+## Allowed paths
+- `{name}`
+- `{relative}`
+"""
+            tasks.start(root, name, text)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
+        parameters["stg"].write_text("invalid JSON\n")
+        for env in ("dev", "stg"):
+            with patch.dict(os.environ, {tasks.SELECTOR: f"tasks/{env}.md"}):
+                paths = task_deployment_input_paths(root)
+                assert paths == {template, parameters[env]}, paths
+                validator = MODULE.Validator(root, {(env, "shared", "cloudformation-stacks")}, iac_paths=paths, task_iac_paths=paths)
+                validator.check_task_scope()
+                validator.accounts = {(env, "shared"): {"alias": "shared"}}
+                validator.check_validation_scope()
+                validator.check_cloudformation_yaml_rules()
+                validator.check_cloudformation_environment_parameters()
+                if env == "dev":
+                    assert not validator.errors, validator.errors
+                    assert not validator.changed_paths  # Other running task owns the invalid bytes.
+                else:
+                    assert any("invalid CloudFormation parameter JSON" in error for error in validator.errors), validator.errors
+        # The current task cannot hide its own out-of-deployment IaC behind the content filter.
+        with patch.dict(os.environ, {tasks.SELECTOR: "tasks/dev.md"}):
+            paths = task_deployment_input_paths(root)
+            validator = MODULE.Validator(root, set(), iac_paths=paths, task_iac_paths=paths)
+            validator.changed_paths = {parameters["stg"].relative_to(root).as_posix()}
+            validator.check_validation_scope()
+            assert any("outside Deployment scope" in error for error in validator.errors)
+            template.write_text("Resources:\n  Item: &InvalidAnchor {}\n")
+            validator = MODULE.Validator(root, iac_paths=paths)
+            validator.check_cloudformation_yaml_rules()
+            assert any("anchor/alias/merge" in error for error in validator.errors)
+        validator = MODULE.Validator(root)
+        validator.check_cloudformation_environment_parameters()
+        assert any("invalid CloudFormation parameter JSON" in error for error in validator.errors)
+    print("Deployment IaC scope: PASS (A/B dev ignores other-task invalid stg; stg/full fail; shared template and own out-of-scope IaC fail)")
+
+
 def main() -> None:
+    check_deployment_iac_scope()
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
     inline_name = ["1", "Policies[].PolicyName", "`VPCFlowLogsToCloudWatchLogs`", "ポリシー名"]

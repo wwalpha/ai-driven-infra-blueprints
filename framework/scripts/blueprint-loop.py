@@ -322,7 +322,8 @@ def main() -> int:
             if selected.is_file():
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
-        changed = changed_paths(root) if not args.staged else set()
+        repository_changed = changed_paths(root) if not args.staged else set()
+        changed = repository_changed
         if not args.staged:
             selected = task_path(root)
             if selected.is_file():
@@ -331,9 +332,9 @@ def main() -> int:
         suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
         parser.error(str(error))
     full_validation = scope is None
-    regression = (args.mode == "full" or args.all or framework_changed(changed)
+    regression = (args.mode == "full" or args.all or framework_changed(repository_changed)
                   or (args.mode == "local" and scope is None))
-    checks, reason = select_checks(root, changed, args.affected) if regression else ([], "shared framework unchanged")
+    checks, reason = select_checks(root, repository_changed, args.affected) if regression else ([], "shared framework unchanged")
     if not args.staged:
         print(f"Validation: {'all' if full_validation else 'active scope'}; "
               f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}", flush=True)
@@ -358,6 +359,13 @@ def main() -> int:
         parser.error("--log-dir must be outside the repository")
     log_parent.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="blueprint-loop-", dir=log_parent))
+    diff_scope = []
+    if not regression and not full_validation and selected_name:
+        contract = (root / selected_name).read_text(encoding="utf-8").splitlines()
+        if "- Task type: `infrastructure`" in contract and any(
+                f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
+            # Ownership was checked by task_changes above, including every unreserved change.
+            diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]
     commands = [
         [
             sys.executable,
@@ -367,14 +375,15 @@ def main() -> int:
             "--jobs", str(args.validation_jobs),
             *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
             *(["--all"] if full_validation else []),
+            *(["--repository-wide-iac"] if regression else []),
             *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
         ],
         *(
             [sys.executable, str(path)]
             for path in checks
         ),
-        ["git", "diff", "--check"],
-        ["git", "diff", "--cached", "--check"],
+        ["git", "diff", "--check", *diff_scope],
+        ["git", "diff", "--cached", "--check", *diff_scope],
     ]
     environment = utf8_environment()
     if args.profile:

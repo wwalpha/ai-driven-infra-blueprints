@@ -1084,9 +1084,10 @@ def check_session_cli():
     """Exercise entrypoint, preflight, persisted groups, approvals and immutable inputs."""
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
-        root = base / "repo"
+        root = (base / "repo").resolve()
         (root / "framework/scripts").mkdir(parents=True)
         shutil.copy(ROOT / "framework/scripts/check-deploy-context.py", root / "framework/scripts/check-deploy-context.py")
+        shutil.copytree(ROOT / "framework/materials/cloudformation-schema", root / "framework/materials/cloudformation-schema")
         (root / "framework/rules").mkdir()
         (root / "framework/rules/aws-resource-naming.md").write_text(
             "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
@@ -1114,6 +1115,13 @@ def check_session_cli():
         params.mkdir(parents=True)
         for name in ("a", "b"):
             (params / (name + ".json")).write_text("[]\n")
+        consumer = source.with_name("consumer.properties")
+        reference = root / "model/stg/123456789012/reference.properties"
+        reference.parent.mkdir(parents=True)
+        reference.write_text("desired.row.001.value=approved\n")
+        consumer.write_text("desired.row.001.property=Logs.LogGroup.LogGroupName\n"
+                            "desired.row.001.value=[reference](../../stg/123456789012/reference.md#reference)\n"
+                            "desired.row.001.comment=参照する名前\n")
         state_file = base / "session.json"
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file), "--timing-log", str(base / "timing.jsonl")]
         backends, validation_calls = [], []
@@ -1135,8 +1143,12 @@ def check_session_cli():
             return backend
         session_runner = M.run_session
         execution_limits = []
+        mutation = [None]
         def run_session(*args):
             execution_limits.append(args[1])
+            if mutation[0]:
+                mutation[0]()
+            args[3].guard()
             return session_runner(*args, sleep=lambda _: None)
         def invoke(options=()):
             def subprocess_result(command, **kwargs):
@@ -1172,7 +1184,7 @@ def check_session_cli():
         assert not validation_calls and not backends[-1].calls and not execution_limits
         assert invoke(["--resume"]) == 2
         session = json.loads(state_file.read_text())
-        assert "validationErrors" not in session and "validationError" not in session
+        assert "validationErrors" not in session and "validationError" not in session, session
         assert not any("preflightErrors" in state for state in session["states"].values())
         assert session["states"]["A"]["status"] == "BLOCKED", session
         assert session["states"]["B"]["status"] == "NOT_STARTED"
@@ -1188,6 +1200,81 @@ def check_session_cli():
         assert session["metrics"]["validationCount"] == 1
         assert validation_calls == ["A", "B"]
         assert not backends[-1].calls  # Completed run never redeploys successful stacks.
+        # A/B: unrelated environment bytes (even invalid JSON) are absent from guards/resume.
+        unrelated = root / "infra/cloudformation/parameters/stg/123456789012/other.json"
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_text("invalid JSON\n")
+        assert invoke(["--resume"]) == 0
+        assert set(json.loads(state_file.read_text())["infraManifest"]) == {
+            p.relative_to(root).as_posix() for p in backends[-1].deployment_input_paths(units(10, 20))}
+        # Older broad manifests are narrowed on resume without changing unit digests.
+        legacy = json.loads(state_file.read_text())
+        legacy["infraManifest"][unrelated.relative_to(root).as_posix()] = "old unrelated digest"
+        state_file.write_text(json.dumps(legacy))
+        assert invoke(["--resume"]) == 0
+        mutation[0] = lambda: unrelated.write_text("other invalid JSON\n")
+        assert invoke(["--resume"]) == 0
+        mutation[0] = None
+        # C/D/E/H/I and model/contract guards run after validation, immediately before mutation.
+        stg_source = root / "model/stg/123456789012/cloudformation-stacks.properties"
+        stg_source.parent.mkdir(parents=True, exist_ok=True)
+        stg_source.write_text(source.read_text())
+        stg_design = root / "docs/designs/stg/123456789012/cloudformation-stacks.md"
+        stg_design.parent.mkdir(parents=True)
+        stg_design.write_text(markdown_for(stg_design, values, root))
+        assert M.load_units(root, "stg", "123456789012", ["A"])[1][0]["template"] == "app.yaml"
+        for path, text in ((params / "a.json", '[{"ParameterKey":"Name","ParameterValue":"changed"}]'),
+                           (template, "Resources: {}\n# shared dev/stg template changed\n"),
+                           (source, source.read_text() + "display.deployment.comment=changed\n"),
+                           (consumer, consumer.read_text() + "desired.row.002.value=changed\n"),
+                           (reference, "desired.row.001.value=changed\n"),
+                           (contract, contract.read_text() + "\n# contract changed\n"),
+                           (root / "framework/scripts/check-deploy-context.py", "# controller dependency changed\n"),
+                           (root / "framework/rules/aws-resource-naming.md", "# rule dependency changed\n")):
+            before = path.read_bytes()
+            mutation[0] = lambda path=path, text=text: path.write_text(text)
+            assert invoke(["--resume"]) == 2, path
+            path.write_bytes(before)
+            mutation[0] = None
+            assert invoke(["--resume"]) == 0
+        project = root / "project.json"
+        before = project.read_bytes()
+        for key, value in (("awsAccountId", "999999999999"), ("awsRegion", "us-east-1"),
+                           ("awsProfile", "other-profile"), ("iacEngine", "terraform")):
+            changed = json.loads(before)
+            changed["targets"][0][key] = value
+            mutation[0] = lambda changed=changed: project.write_text(json.dumps(changed))
+            assert invoke(["--resume"]) == 2, key
+            mutation[0] = None
+            project.write_bytes(before)
+        assert invoke(["--resume"]) == 0
+        # Declared artifact bytes join the same controller manifest and mutation guard.
+        saved_source, saved_design = source.read_bytes(), design.read_bytes()
+        saved_state, saved_argv = state_file, argv[:]
+        artifact_source = root / "infra/cloudformation/artifacts/job.py"
+        artifact_source.parent.mkdir(parents=True)
+        artifact_source.write_text("print('approved')\n")
+        bucket_model = source.with_name("s3.properties")
+        bucket_model.write_text("desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.anchor=s3-assets\n"
+                                "desired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\n")
+        artifact = {"stack": "A", "resource": "Job", "property": "Command.ScriptLocation",
+                    "source": artifact_source.relative_to(root).as_posix(), "bucket": "[assets](s3.md#s3-assets)", "keyPrefix": "jobs/"}
+        with_artifact = values | {"desired.artifact.001." + key: value for key, value in artifact.items()}
+        source.write_text("\n".join(f"{key}={value}" for key, value in with_artifact.items()))
+        design.write_text(markdown_for(design, with_artifact, root))
+        state_file = base / "artifact.json"
+        argv[argv.index("--state") + 1] = str(state_file)
+        assert invoke() == 2  # Exact replacement approval still blocks the stub change set.
+        assert artifact_source.relative_to(root).as_posix() in json.loads(state_file.read_text())["infraManifest"]
+        mutation[0] = lambda: artifact_source.write_text("print('changed')\n")
+        assert invoke(["--resume"]) == 2
+        mutation[0] = None
+        assert invoke(["--resume"]) == 2  # Resume also rejects changed target artifact bytes.
+        source.write_bytes(saved_source)
+        design.write_bytes(saved_design)
+        bucket_model.unlink()
+        state_file, argv = saved_state, saved_argv
+        print("Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; H framework; I target account/region/profile/engine; target/reference model/contract guards)")
         assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
         template.write_text("Resources: {Changed: {}}\n")
         assert invoke(["--resume"]) == 2
@@ -1933,7 +2020,7 @@ def check_controlled_repair():
             backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
             session = {'states': states(scoped), 'metrics': {'observedSyncSeconds': 0},
                        'repository': str(root), 'taskFile': 'tasks/active.md', 'taskDigest': task_digest(contract),
-                       'infraManifest': {p.relative_to(root).as_posix(): backend.file_digest(p) for p in (root / 'infra').rglob('*') if p.is_file()},
+                       'infraManifest': {p.relative_to(root).as_posix(): backend.file_digest(p) for p in backend.deployment_input_paths(scoped)},
                        'unitDigests': {u['name']: backend.input_digest(u) for u in scoped}}
             backend.session, backend.states = session, session['states']
             backend.expected_digests = session['unitDigests']
@@ -1986,7 +2073,7 @@ def check_controlled_repair():
                 return {}
             backend.aws = aws
             def guard():
-                manifest = {p.relative_to(root).as_posix(): backend.file_digest(p) for p in (root / 'infra').rglob('*') if p.is_file()}
+                manifest = {p.relative_to(root).as_posix(): backend.file_digest(p) for p in backend.deployment_input_paths(scoped)}
                 if manifest != session['infraManifest']:
                     raise M.Blocked('unauthorized IaC change outside controlled repair')
                 if any(backend.input_digest(u) != session['unitDigests'][u['name']] for u in scoped):

@@ -165,8 +165,9 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None) -> None:
         self.iac_paths = iac_paths
+        self.task_iac_paths = task_iac_paths
         self.workers = workers
         self.model_check = model_check
         self.cache = PassCache(root, fresh) if cache else None
@@ -671,6 +672,11 @@ class Validator:
         self.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
     def check_validation_scope(self) -> None:
+        if self.task_iac_paths is not None:
+            for changed in sorted(self.changed_paths):
+                if changed.startswith("infra/"):
+                    self.check(self.root / changed in self.task_iac_paths,
+                               f"changed IaC path is outside Deployment scope: {changed}")
         scope = self.contract_scope if self.contract_scope is not None else self.scope
         if scope is None:
             return
@@ -2661,6 +2667,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
     parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
+    parser.add_argument("--repository-wide-iac", action="store_true", help="Retain whole-IaC checks for full/framework regression")
     parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
     parser.add_argument("--fresh", action="store_true", help="Revalidate instead of reusing successful content-addressed checks")
     parser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4, help="Service validation workers")
@@ -2676,9 +2683,13 @@ def main() -> int:
         print(f"repository root is invalid: {root}", file=sys.stderr)
         return 2
     try:
+        from deploy_preparation import task_deployment_input_paths
+        deployment_paths = task_deployment_input_paths(root)
         validator = Validator(root, active_scope(root, args.all),
                               active_scope(root) if args.contract_scope else None,
-                              cache=True, fresh=args.fresh or args.all, workers=args.jobs)
+                              cache=True, fresh=args.fresh or args.all, workers=args.jobs,
+                              iac_paths=None if args.all or args.repository_wide_iac else deployment_paths,
+                              task_iac_paths=deployment_paths)
         if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
             import cProfile
             import pstats

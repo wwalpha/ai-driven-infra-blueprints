@@ -264,7 +264,28 @@ def check_validator_isolation():
         blocked(lambda: module.Validator(root).check_task_scope(), "no task reservation")
 
 
+def check_deploy_update_ownership():
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+        root = Path(directory)
+        dev, stg = "tasks/dev-deploy.md", "tasks/stg-update.md"
+        dev_path = "infra/cloudformation/parameters/dev/cde/a.json"
+        stg_path = "infra/cloudformation/parameters/stg/cde/other.json"
+        for name, path, phase, scope in ((dev, dev_path, "deploy", "dev/cde/ec2"),
+                                         (stg, stg_path, "update", "stg/cde/ec2")):
+            text = contract(name, [path], kind="infrastructure", scope=scope)
+            text = text.replace("- Task type: `infrastructure`", f"- Task type: `infrastructure`\n- Infrastructure phase: `{phase}`")
+            tasks.start(root, name, text)
+        changed = {dev, stg, dev_path, stg_path}
+        assert tasks.task_changes(root, changed, dev) == {dev, dev_path}
+        assert tasks.task_changes(root, changed, stg) == {stg, stg_path}
+        blocked(lambda: tasks.task_changes(root, changed | {"infra/unowned.json"}, dev), "no task reservation")
+        (root / stg).write_text((root / stg).read_text().replace(stg_path, dev_path))
+        blocked(lambda: tasks.task_changes(root, changed, dev), "task file conflict")
+    print("Deploy/update ownership: PASS (F isolation, unowned changes and reservation conflicts blocked)")
+
+
 if __name__ == "__main__":
+    check_deploy_update_ownership()
     check_admission_selection()
     check_completed_legacy_and_paths()
     check_shared_issue_files()

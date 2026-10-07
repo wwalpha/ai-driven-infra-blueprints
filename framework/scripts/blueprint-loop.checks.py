@@ -96,6 +96,124 @@ def make_framework_fixture(source, root):
     (root / "docs/system-overview.md").write_text("# Fixture\n", encoding="utf-8")
 
 
+def check_deploy_scope_isolation():
+    """Exercise the real task loop, validator and ownership with two environments."""
+    from model_design import markdown_for
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "repository"
+        make_framework_fixture(SCRIPT.parents[2], root)
+        scripts = root / "framework/scripts"
+        # Full-mode assertions must not recursively launch this regression script.
+        for path in scripts.glob("*.checks.py"):
+            path.unlink()
+        (scripts / "scope.checks.py").write_text("assert True\n")
+        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [
+            {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")
+        template = root / "infra/cloudformation/templates/shared.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text("Resources: {}\n")
+        parameters, models, designs, stack_values = {}, {}, {}, {}
+        for env in ("dev", "stg"):
+            models[env] = root / f"model/{env}/123456789012/cloudformation-stacks.properties"
+            designs[env] = root / f"docs/designs/{env}/123456789012/cloudformation-stacks.md"
+            parameters[env] = root / f"infra/cloudformation/parameters/{env}/123456789012/a.json"
+            for path in (models[env], designs[env], parameters[env]):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            values = {"desired.deployment.maxConcurrentStacks": "1", "desired.stack.001.name": f"cfn-stack-app-{env}-a",
+                      "desired.stack.001.template": "shared.yaml", "desired.stack.001.parameters": "a.json",
+                      "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "アプリケーションを配置するstack"}
+            stack_values[env] = values
+            models[env].write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+            designs[env].write_text(markdown_for(designs[env], values, root))
+            parameters[env].write_text("[]\n")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
+        for env, phase in (("dev", "deploy"), ("stg", "update")):
+            name = f"tasks/{env}.md"
+            files = [name, parameters[env].relative_to(root).as_posix()]
+            files += [template.relative_to(root).as_posix()] if env == "dev" else [
+                models[env].relative_to(root).as_posix(), designs[env].relative_to(root).as_posix()]
+            listed = "\n".join(f"- `{path}`" for path in files)
+            tasks.start(root, name, f"""# Task
+## Task contract
+- Task type: `infrastructure`
+- Task status: `running`
+- Infrastructure phase: `{phase}`
+- Target environment: `{env}`
+- Target AWS account: `123456789012`
+- Deployment scope: `cfn-stack-app-{env}-a`
+## Validation scope
+- `{env}/123456789012/cloudformation-stacks`
+## Required changes
+- [R1] 対象stackを検証する。
+## Acceptance checks
+- [R1] `exists:{parameters[env].relative_to(root).as_posix()}`
+## Modified files
+{listed}
+## Allowed paths
+{listed}
+""")
+        values = stack_values["stg"] | {"display.stack.001.comment": "更新対象のstack"}
+        models["stg"].write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+        designs["stg"].write_text(markdown_for(designs["stg"], values, root))
+        environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
+
+        def run(env="dev", mode="task", options=()):
+            name = f"tasks/{env}.md"
+            if tasks.status((root / name).read_text()) == "suspend":
+                tasks.resume(root, name)
+            return subprocess.run([sys.executable, str(scripts / SCRIPT.name), "--mode", mode,
+                                   "--task-file", name, "--log-dir", str(Path(temporary) / "logs"), *options],
+                                  cwd=root, env=environment, capture_output=True, encoding="utf-8")
+
+        parameters["stg"].write_text("invalid JSON\n")
+        result = run()
+        assert result.returncode == 0, result.stdout + result.stderr
+        result = run("stg")
+        assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
+        # G: valid JSON containing a whitespace error is checked only by its owner.
+        parameters["stg"].write_text("[]  \n")
+        for staged in (False, True):
+            if staged:
+                subprocess.run(["git", "add", str(parameters["stg"])], cwd=root, check=True)
+            result = run()
+            assert result.returncode == 0, result.stdout + result.stderr
+            result = run("stg")
+            assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
+            result = run(mode="full")
+            assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
+        result = run(options=("--all",))
+        assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
+        # H: another task owns a shared framework change; it still forces repository-wide checks.
+        rule = "framework/rules/deployment-scope-fixture.md"
+        name = "tasks/framework.md"
+        listed = f"- `{name}`\n- `{rule}`"
+        tasks.start(root, name, f"""# Task
+## Task contract
+- Task type: `governance`
+- Task status: `running`
+## Validation scope
+- `framework`
+## Required changes
+- [R1] 共通ruleを更新する。
+## Acceptance checks
+- [R1] `changed:{rule}`
+## Modified files
+{listed}
+## Allowed paths
+{listed}
+""")
+        (root / rule).write_text("# Shared framework dependency\n")
+        result = run()
+        assert result.returncode != 0 and "START scope.checks.py" in result.stdout and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
+        parameters["stg"].write_text("invalid JSON\n")
+        result = run()
+        assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
+        print("Task deployment isolation: PASS (A/B/F dev PASS, stg invalid FAIL; G staged/unstaged owner/full/all whitespace FAIL; H other-task framework forces regression)")
+
+
 def check_task_service_validation():
     """Use the real validator/generator, with no framework changes in the fixture."""
     with tempfile.TemporaryDirectory() as temporary:
@@ -527,6 +645,7 @@ def check_failure_suspension():
 
 
 def main() -> None:
+    check_deploy_scope_isolation()
     check_failure_suspension()
     check_regression_authorization()
     check_parallel_and_selection()

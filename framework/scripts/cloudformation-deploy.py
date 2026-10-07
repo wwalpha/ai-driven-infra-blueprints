@@ -395,9 +395,12 @@ class AwsBackend:
             self.hashes[path] = (*identity, digest)
         return self.hashes[path][4]
 
+    def deployment_input_paths(self, units):
+        return [path for unit in units
+                for path in [*self.paths(unit), *[self.source_path(a) for a in unit.get("artifacts", [])]]]
+
     def input_digest(self, unit, fresh=False):
-        paths = [*self.paths(unit), *[self.source_path(a) for a in unit.get("artifacts", [])]]
-        return fingerprint([self.file_digest(path, fresh) for path in paths])
+        return fingerprint([self.file_digest(path, fresh) for path in self.deployment_input_paths([unit])])
 
     def validate(self, unit):
         template, parameters = self.paths(unit)
@@ -1083,7 +1086,7 @@ class AwsBackend:
             candidate_path.write_text(text, encoding='utf-8')
             entry['candidatePath'] = str(candidate_path)
             entry['newDigest'] = fingerprint([candidate if p == path else self.file_digest(p, fresh=True)
-                for p in [*self.paths(unit), *[self.source_path(a) for a in unit.get('artifacts', [])]]])
+                for p in self.deployment_input_paths([unit])])
             history.append(entry)
             state['failureClassification'] = 'AUTO_REPAIRABLE'
             self.save()  # Persist authorized exact bytes before modifying IaC.
@@ -1304,7 +1307,7 @@ def controller_main(argv=None, root=None, timing=None):
         unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
         def infra_manifest():
             return {path.relative_to(root).as_posix(): backend.file_digest(path)
-                    for path in sorted((root / "infra").rglob("*")) if path.is_file()}
+                    for path in sorted(set(backend.deployment_input_paths(units)))}
         current_infra = infra_manifest()
         if args.resume:
             session = json.loads(state_path.read_text(encoding="utf-8"))
@@ -1323,12 +1326,14 @@ def controller_main(argv=None, root=None, timing=None):
                     entry['stage'] = 'VALIDATING'  # Resume repeats affected validation, never assumes interrupted PASS.
                 elif current_infra.get(relative) != entry['oldFileDigest'] or backend.input_digest(unit) != entry['oldDigest']:
                     raise Blocked('pending repair bytes/digest changed outside authorized transaction')
-            previous_infra = session.get('infraManifest', current_infra)
+            # Older sessions watched all infra; retain only current execution inputs.
+            previous_infra = {path: digest for path, digest in session.get('infraManifest', current_infra).items()
+                              if path in current_infra}
             changed_infra = {path for path in previous_infra.keys() | current_infra.keys()
                              if previous_infra.get(path) != current_infra.get(path)}
             handoff = {path.relative_to(root).as_posix() for unit in units
                        if phase == 'update' and session['states'][unit['name']]['status'] == 'NOT_STARTED'
-                       for path in [*backend.paths(unit), *[backend.source_path(a) for a in unit.get('artifacts', [])]]}
+                       for path in backend.deployment_input_paths([unit])}
             if changed_infra - handoff:
                 raise Blocked('unauthorized IaC change outside recorded repair; cannot resume')
             session['infraManifest'] = current_infra
@@ -1415,7 +1420,8 @@ def controller_main(argv=None, root=None, timing=None):
             spec = importlib.util.spec_from_file_location('repair_validator', root / 'framework/scripts/validate-blueprint.py')
             validator_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(validator_module)
-            validator = validator_module.Validator(root, affected, validation_scope(root), cache=True, iac_paths=set(backend.paths(unit)))
+            validator = validator_module.Validator(root, affected, validation_scope(root), cache=True,
+                                                   iac_paths=set(backend.deployment_input_paths([unit])))
             if validator.run():
                 raise Blocked('affected repair repository validation failed')
             backend.validate(unit)
