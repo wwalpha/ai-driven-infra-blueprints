@@ -149,12 +149,14 @@ class Comparison:
             return [self.redacted(item, prop) for item in value]
         return value
 
-    def record(self, category, service, identity, prop, reason, desired=None, actual=None, stack=None, source=None, template=None):
+    def record(self, category, service, identity, prop, reason, desired=None, actual=None, stack=None, source=None, template=None, cause=None):
         self.results.append({'category': category, 'service': service, 'resource': identity,
                              'property': prop, 'reason': reason, 'desired': self.redacted(desired, prop),
                              'actual': self.redacted(actual, prop), 'stack': stack,
                              'model': source or self.source(service, f'desired.resource.{identity}.resourceType'),
                              'iac': template})
+        if cause:
+            self.results[-1]['cause'] = self.redacted(cause)
 
     def reference(self, service, value, expected_attribute=None):
         link = LINK.fullmatch(value)
@@ -277,7 +279,10 @@ class Comparison:
                             raise Blocked('Export name is not a local string')
                         exports.setdefault(export, []).append((unit['name'], output.get('Value')))
             except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
-                raise Blocked(f'ImportValue handoff search incomplete: {error}') from error
+                blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
+                if getattr(error, 'iac_cause', None):
+                    blocked.iac_cause = dict(error.iac_cause, relationship='export-search-incomplete', consumer_stack=stack)
+                raise blocked from error
             self.exports = exports
         candidates = self.exports.get(name, [])
         if len(candidates) != 1 or candidates[0][0] == stack:
@@ -425,7 +430,11 @@ class Comparison:
             return template, self.stack_inputs[name]
         for path in (template, parameters_path):
             if not path.is_file():
-                raise Blocked(f'stack input missing: {path.relative_to(self.root).as_posix()}')
+                blocked = Blocked(f'stack input missing: {path.relative_to(self.root).as_posix()}')
+                blocked.iac_cause = {'kind': 'template-missing' if path == template else 'parameters-missing',
+                                     'path': path.relative_to(self.root).as_posix(), 'stack': name,
+                                     'relationship': 'stack-input'}
+                raise blocked
         if template not in self.documents:
             from cfnlint.decode import decode
             document, errors = decode(str(template))
@@ -480,7 +489,9 @@ class Comparison:
                         template = self.root / 'infra/cloudformation/templates' / self.target.get('alias', '') / unit['template']
                         self.inputs.add(template)
                         if not template.is_file():
-                            self.record('difference', service, identity, '*', 'モデルに対応するtemplateが存在しない（CREATE未実装）', desired={'resourceType': kind, 'logical': logical}, stack=name, template={'path': template.relative_to(self.root).as_posix()})
+                            self.record('difference', service, identity, '*', 'モデルに対応するtemplateが存在しない（CREATE未実装）', desired={'resourceType': kind, 'logical': logical}, stack=name, template={'path': template.relative_to(self.root).as_posix()},
+                                        cause={'kind': 'template-missing', 'path': template.relative_to(self.root).as_posix(),
+                                               'stack': name, 'relationship': 'direct'})
                             continue
                         template, (document, parameters, pseudo) = self.stack(unit)
                         definition = document.get('Resources', {}).get(logical)
@@ -489,12 +500,13 @@ class Comparison:
                         if len(direct.get((name, logical), [])) != 1:
                             raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
                     else:
-                        candidates, unresolved = [], []
+                        candidates, unresolved, causes = [], [], []
                         for name, unit in stacks.items():
                             try:
                                 template, (document, parameters, pseudo) = self.stack(unit)
                             except Blocked as error:
                                 unresolved.append(f'{name}: {error}')
+                                causes.append(getattr(error, 'iac_cause', None))
                                 continue
                             direct, legacy = self.index()
                             for logical, definition in document.get('Resources', {}).items():
@@ -504,11 +516,15 @@ class Comparison:
                                     entry = mapped_resource(direct, legacy, name, logical, cfn_type, any(n == name for n, _ in direct))
                                 except ValueError as error:
                                     unresolved.append(f'{name}/{logical}: {error}')
+                                    causes.append(None)
                                     continue
                                 if entry[0].stem == service and entry[1] == identity:
                                     candidates.append((name, template, document, parameters, pseudo, logical, definition))
                         if unresolved:
-                            raise Blocked('incomplete legacy candidate search; ' + '; '.join(unresolved))
+                            blocked = Blocked('incomplete legacy candidate search; ' + '; '.join(unresolved))
+                            if all(causes) and len({(cause['kind'], cause['path']) for cause in causes}) == 1:
+                                blocked.iac_cause = dict(causes[0], relationship='legacy-search-incomplete')
+                            raise blocked
                         if len(candidates) != 1:
                             raise Blocked(f'legacy correspondence matches={len(candidates)}; explicit cfn-logicalId required')
                         name, template, document, parameters, pseudo, logical, definition = candidates[0]
@@ -525,7 +541,7 @@ class Comparison:
                         continue
                     self.compare_rows(service, identity, resource, name, logical, template, definition, document)
                 except (Blocked, KeyError) as error:
-                    self.record('uncompared', service, identity, '*', str(error))
+                    self.record('uncompared', service, identity, '*', str(error), cause=getattr(error, 'iac_cause', None))
                 except (OSError, ValueError, ImportError, TypeError) as error:
                     self.record('error', service, identity, '*', str(error))
         return self.results
@@ -620,10 +636,10 @@ class Comparison:
                 try:
                     actual = self.evaluate(name, actual)
                 except (Blocked, KeyError) as error:
-                    self.record('uncompared', service, identity, prop, str(error), source=sources[key][0], template=iac_source)
+                    self.record('uncompared', service, identity, prop, str(error), source=sources[key][0], template=iac_source, cause=getattr(error, 'iac_cause', None))
                     continue
                 except (ValueError, TypeError, IndexError) as error:
-                    self.record('error', service, identity, prop, str(error), source=sources[key][0], template=iac_source)
+                    self.record('error', service, identity, prop, str(error), source=sources[key][0], template=iac_source, cause=getattr(error, 'iac_cause', None))
                     continue
                 if actual == {'$noValue': True}:
                     self.record('difference', service, identity, prop, 'property omitted by AWS::NoValue', value, None, name, sources[key][0], iac_source)

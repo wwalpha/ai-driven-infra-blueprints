@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import statistics
@@ -20,7 +21,7 @@ from unittest.mock import patch
 
 from issues_iac import Comparison, same, selected_same, strict_json, module
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload
-from issues_reports import save, blocks, numbered, identifier, iac_merge
+from issues_reports import save, blocks, numbered, identifier, iac_merge, iac_state
 from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
 from design_layout import resource_name_fields
 from model_files import load_model, read_model, model_file_contents, resource_row_index
@@ -339,14 +340,17 @@ def checks(root, values, template):
         record = dict(next(item for item in records if item['category'] == 'matched'), category='difference', reason='fixture difference', desired='old', actual='new')
         save(root, 'dev', '123456789012', services, iac=[record])
         report = paths[1]
-        write(report, report.read_text().replace('<!-- issue-service: s3 -->', '<!-- issue-service: s3 -->\n\nhuman確認: IaC側の既存例外。'))
+        marker = f'<!-- issue-service: {record["service"]} -->'
+        write(report, report.read_text().replace(marker, marker + '\n\nhuman確認: IaC側の既存例外。'))
         uncertain = dict(record, category='uncompared', reason='fixture no longer comparable', desired=None, actual=None)
         save(root, 'dev', '123456789012', services, iac=[uncertain])
         partial = report.read_text()
-        assert 'human確認: IaC側の既存例外。' in partial and 'model="old"; IaC="new"' in partial
+        assert 'human確認: IaC側の既存例外。' in partial
+        retained_entries = iac_state(partial, 'dev', '123456789012')[0]
+        assert any(entry['retained'] and entry['record'].get('desired') == 'old' and entry['record'].get('actual') == 'new' for entry in retained_entries)
         assert '保持未確認: 1件' in partial and '未比較 1件' in partial
         save(root, 'dev', '123456789012', services, iac=[uncertain])
-        assert report.read_text().count('fixture no longer comparable') == 1
+        assert sum(entry['record']['reason'] == 'fixture no longer comparable' for entry in iac_state(report.read_text(), 'dev', '123456789012')[0]) == 1
         save(root, 'dev', '123456789012', services, iac=[])
         assert '未確認（今回の比較では解消を確定していない）' in paths[1].read_text()
         write(paths[1], 'invalid iac report\n')
@@ -1036,6 +1040,163 @@ def benchmark(logdir, repeats=5):
     print(json.dumps({'benchmark': str(logdir / 'benchmark.json'), 'fixtures': {key: value['medians'] for key, value in output['fixtures'].items()}}, ensure_ascii=False))
 
 
+def action_report_cases():
+    from issues_reports import iac_key, iac_state, iac_actions
+    with tempfile.TemporaryDirectory(prefix='iac-actions-') as directory:
+        root = Path(directory)
+        path = root / 'issues/dev/cde/iac-issues.md'
+        missing = 'infra/cloudformation/templates/cde/datazone.yaml'
+        direct = [dict(category='difference', service='datazone', resource=f'{i:03d}', property='*',
+                       reason='モデルに対応するtemplateが存在しない（CREATE未実装）', stack='datazone-stack',
+                       iac={'path': missing}, model=None,
+                       cause={'kind': 'template-missing', 'path': missing, 'stack': 'datazone-stack', 'relationship': 'direct'})
+                  for i in range(6)]
+        cascade = [dict(category='uncompared', service=['athena', 's3', 'iam'][i % 3], resource=f'{i:04d}',
+                        property='Setting', reason='ImportValue handoff search incomplete: stack input missing: ' + missing,
+                        stack=None, model=None, iac={'path': f'infra/cloudformation/templates/cde/consumer-{i % 3}.yaml'},
+                        cause={'kind': 'template-missing', 'path': missing, 'stack': 'datazone-stack',
+                               'consumer_stack': f'consumer-{i % 3}', 'relationship': 'export-search-incomplete'})
+                   for i in range(1236)]
+        # Trace the real failure path: only exception provenance may join the cascade.
+        fixture_root = root / 'comparison'
+        _, template = fixture(fixture_root, stacks=2, services=['s3'])
+        stack_model_path = fixture_root / 'model/dev/123456789012/cloudformation-stacks.properties'
+        write(stack_model_path, stack_model_path.read_text().replace('desired.stack.002.template=shared.yaml', 'desired.stack.002.template=datazone.yaml'))
+        template['Resources']['Bucket']['Properties']['BucketName'] = {'Fn::ImportValue': 'export-unknown'}
+        mutate_template(fixture_root, template)
+        _, traced = compare(fixture_root, ['s3'])
+        missing_record = next(item for item in traced if item['category'] == 'difference' and item.get('cause'))
+        cascade_record = next(item for item in traced if item['category'] == 'uncompared' and item.get('cause'))
+        assert cascade_record['cause']['relationship'] == 'export-search-incomplete'
+        assert missing_record['cause']['path'] == cascade_record['cause']['path']
+        assert cascade_record['stack'] is None  # Legacy diagnostic identity is unchanged.
+        assert cascade_record['reason'] == 'ImportValue handoff search incomplete: stack input missing: infra/cloudformation/templates/datazone.yaml'
+        traced_entries = [{'id': iac_key(item), 'record': item, 'retained': False} for item in traced]
+        joined = [group for group in iac_actions(traced_entries, 'dev', '123456789012') if group['target'] == cascade_record['cause']['path']]
+        assert len(joined) == 1 and len(joined[0]['members']) == 2
+        from cloudformation_inputs import Blocked
+        legacy_comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
+        legacy_comparison.resources['s3']['001'].pop('cfn-logicalId')
+        # One known missing candidate input proves a comparison cascade.
+        legacy_results = legacy_comparison.run()
+        legacy_record = next(item for item in legacy_results if item['resource'] == '001')
+        assert legacy_record['cause']['relationship'] == 'legacy-search-incomplete'
+        assert legacy_record['cause']['path'] == missing_record['cause']['path']
+        # A second unknown failure (or a different missing path) prevents a single-cause claim.
+        for second_error in (Blocked('unknown failure'), Blocked('another input missing')):
+            if str(second_error).startswith('another'):
+                second_error.iac_cause = {'kind': 'template-missing', 'path': 'another.yaml', 'relationship': 'stack-input'}
+            ambiguous = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
+            ambiguous.resources['s3']['001'].pop('cfn-logicalId')
+            missing_error = Blocked('stack input missing')
+            missing_error.iac_cause = dict(missing_record['cause'])
+            def fail_stack(unit):
+                raise missing_error if unit['name'].endswith('data1') else second_error
+            with patch.object(ambiguous, 'stack', side_effect=fail_stack):
+                ambiguous_results = ambiguous.run()
+            assert not next(item for item in ambiguous_results if item['resource'] == '001').get('cause')
+        records = direct + cascade
+        original = json.loads(json.dumps(records))
+        services = ['datazone', 'athena', 's3', 'iam']
+        report = iac_merge(root, path, 'dev', 'cde', services, records)
+        entries, notes = iac_state(report, 'dev', 'cde')
+        groups = iac_actions(entries, 'dev', 'cde')
+        assert len(groups) == 1 and len(groups[0]['members']) == 1242
+        assert '- 独立Issue数: 1\n' in report and '直接差分 6リソース' in report
+        assert '未比較 1236件' in report and '未比較 1236項目' in report
+        assert '直接Import依存は未確定' in report and 'model=null; IaC=null' not in report
+        assert Counter(json.dumps(entry['record'], sort_keys=True) for entry in entries) == Counter(json.dumps(item, sort_keys=True) for item in records)
+        assert records == original and not notes
+        assert Counter(item['category'] for item in records) == Counter(entry['record']['category'] for entry in entries)
+        assert {entry['id'] for entry in entries} == {iac_key(item) for item in records}
+        # Timestamp is the only input-independent rendering change.
+        reversed_report = iac_merge(root, path, 'dev', 'cde', services[::-1], records[::-1])
+        assert re.sub(r'更新日時:.*', '', report) == re.sub(r'更新日時:.*', '', reversed_report)
+        assert groups[0]['id'] != iac_actions(entries, 'stg', 'cde')[0]['id']
+        # Identical prose cannot prove the same cause; different repair paths stay separate.
+        other = dict(cascade[0], resource='other', cause=dict(cascade[0]['cause'], path='infra/cloudformation/templates/cde/other.yaml'))
+        unknown = dict(cascade[0], resource='unknown')
+        unknown.pop('cause')
+        parameter = dict(cascade[1], resource='parameter', cause=dict(cascade[1]['cause'], kind='parameters-missing'))
+        extra = [other, unknown, parameter, dict(unknown, resource='unknown2')]
+        separated = iac_state(iac_merge(root, path, 'dev', 'cde', services, records + extra), 'dev', 'cde')[0]
+        assert len(iac_actions(separated, 'dev', 'cde')) == 5
+        # Value differences never merge different stacks/resources/properties/targets/actions.
+        difference = dict(category='difference', service='s3', resource='001', property='S3.Bucket.BucketName',
+                          stack='stack1', iac={'path': 'infra/cloudformation/templates/cde/shared.yaml'},
+                          reason='value mismatch', desired='a', actual='b')
+        differences = [difference, dict(difference, stack='stack2'), dict(difference, resource='002'),
+                       dict(difference, property='S3.Bucket.Tags'), dict(difference, reason='property missing'),
+                       dict(difference, iac={'path': 'infra/cloudformation/templates/cde/other.yaml'})]
+        diff_report = iac_merge(root, path, 'dev', 'cde', ['s3'], differences)
+        assert 'IaC側の候補。Model側も根拠から確認して決める' in diff_report
+        diff_entries = iac_state(diff_report, 'dev', 'cde')[0]
+        assert len(iac_actions(diff_entries, 'dev', 'cde')) == 6
+        write(path, report)
+        # Scoped saves keep other services; metadata joins still point to every diagnostic.
+        partial = iac_merge(root, path, 'dev', 'cde', ['s3'], [item for item in cascade if item['service'] == 's3'])
+        partial_entries = iac_state(partial, 'dev', 'cde')[0]
+        assert len(partial_entries) == len(records) and len(iac_actions(partial_entries, 'dev', 'cde')) == 1
+        assert not issue_errors(root, {('dev', 'cde', service) for service in services})
+        uncertain = dict(direct[0], category='uncompared', reason='unknown resolution')
+        uncertain.pop('cause')
+        second = iac_merge(root, path, 'dev', 'cde', services, [uncertain])
+        write(path, second)
+        third = iac_merge(root, path, 'dev', 'cde', services, [uncertain])
+        second_entries = iac_state(second, 'dev', 'cde')[0]
+        third_entries = iac_state(third, 'dev', 'cde')[0]
+        assert second_entries == third_entries
+        assert sum(entry['retained'] for entry in third_entries) == len(records)
+        write(path, third)
+        matched = dict(direct[0], category='matched')
+        preserved = iac_state(iac_merge(root, path, 'dev', 'cde', services, [matched]), 'dev', 'cde')[0]
+        assert any(entry['retained'] and entry['id'] == iac_key(direct[0]) and entry['record']['category'] == 'difference' for entry in preserved)
+        # Migrate legacy IDs/content/prose verbatim, conservatively without causal guessing.
+        legacy_item = f'差分: 001 / S3.Bucket.BucketName / stack1: value mismatch; model="a"; IaC="b" <!-- iac-id: {iac_key(difference)} -->'
+        legacy = '# model → IaC比較の非阻害結果\n\nhuman確認: 旧例外\n\n### s3\n\n<!-- issue-service: s3 -->\n\n1. ' + legacy_item + '\n'
+        write(path, legacy)
+        migrated = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
+        migrated_entries, annotations = iac_state(migrated, 'dev', 'cde')
+        assert len(migrated_entries) == 1 and migrated_entries[0]['legacy'] == legacy_item and migrated_entries[0]['retained']
+        assert 'human確認: 旧例外' in annotations and '要調査' in migrated
+        expect_error(lambda: iac_state(migrated, 'stg', 'cde'), 'scope')
+        write(path, migrated.replace('<!-- issue-service: s3 -->', '<!-- issue-service: s3 -->\n\nhuman確認: 新しい注記'))
+        annotated = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
+        assert any('ISSUE-' in note and 'human確認: 新しい注記' in note for note in iac_state(annotated, 'dev', 'cde')[1])
+        # Data cannot terminate the HTML comment or introduce a visible fake report.
+        dangerous = dict(unknown, reason='--> <script>bad</script> <!--')
+        write(path, '')
+        escaped = iac_merge(root, path, 'dev', 'cde', services, [dangerous])
+        assert len(re.findall(r'<!-- iac-report-data:', escaped)) == 1
+        assert iac_state(escaped, 'dev', 'cde')[0][0]['record'] == dangerous
+        # Hidden lossless storage must not bypass existing report redaction.
+        secret = dict(difference, property='SecretsManager.Secret.SecretString', desired='secret-data', actual='other-secret')
+        secret_report = iac_merge(root, path, 'dev', 'cde', ['s3'], [secret])
+        assert 'secret-data' not in secret_report and 'other-secret' not in secret_report
+        # Old source locations may disappear; retention never fabricates a current link.
+        source = root / 'model/dev/cde/s3.properties'
+        write(source, 'line1\nline2\n')
+        located = dict(difference, model={'path': 'model/dev/cde/s3.properties', 'line': 2})
+        write(path, iac_merge(root, path, 'dev', 'cde', ['s3'], [located]))
+        write(source, 'line1\n')
+        stale_report = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
+        assert '保存済み根拠・今回未再確認' in stale_report
+        assert any(entry['retained'] for entry in iac_state(stale_report, 'dev', 'cde')[0])
+        # Equal diagnostics remain two original records, also after repeated retention.
+        write(path, '')
+        duplicates = iac_merge(root, path, 'dev', 'cde', ['s3'], [difference, difference])
+        duplicate_entries = iac_state(duplicates, 'dev', 'cde')[0]
+        assert len(duplicate_entries) == 2
+        assert len(iac_actions(duplicate_entries, 'dev', 'cde')) == 1
+        write(path, duplicates)
+        retained_duplicates = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
+        write(path, retained_duplicates)
+        again = iac_state(iac_merge(root, path, 'dev', 'cde', ['s3'], []), 'dev', 'cde')[0]
+        assert len(again) == 2 and all(entry['retained'] for entry in again)
+        assert again == iac_state(retained_duplicates, 'dev', 'cde')[0]
+    print('IaC action reports: PASS (1236 cascading + 6 direct records → 1 Issue; lossless IDs/scope/retention/gates)')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--benchmark', action='store_true')
@@ -1065,6 +1226,7 @@ def main():
         resource_cases(root)
         extended_cases(root, template)
         concurrency(root)
+    action_report_cases()
     comparison_repair_cases()
     local_reference_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout

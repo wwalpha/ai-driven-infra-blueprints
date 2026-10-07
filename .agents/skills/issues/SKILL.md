@@ -53,13 +53,21 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 ## Output
 
 - Do not record work/completion reports or execution history such as “調査しました”, “保存しました”, or “検証PASS” in issue-list Markdown; report them only in chat. Also remove existing work reports from the scope being updated. Retain update time, confirmed/unverified scope, and diagnostics necessary as problem evidence.
-- Use `環境／alias` as H2 and service names as H3, followed by numbered lists. Without an alias, use `環境／AWS account ID` as H2.
+- For ordinary `issues.md`, use `環境／alias` as H2 and service names as H3, followed by numbered lists. Without an alias, use `環境／AWS account ID` as H2.
 - If the service name differs from the model service ID, place `<!-- issue-service: <service-id> -->` so the issue gate can determine ownership.
 - Start numbering at 1 for each service block and state one problem per item. Do not create empty blocks.
 - Briefly and specifically state the target resource/property and what is inconsistent/missing/unconfirmed for each problem. Attach its undecided point only when necessary judgments can be confirmed.
-- Combine repeated diagnostics with the same cause within the same environment/target/service, stating counts and targets. Do not confuse diagnostic counts, resource counts, and derived errors.
+- For ordinary `issues.md`, combine repeated diagnostics with the same cause within the same environment/target/service, stating counts and targets. Do not confuse diagnostic counts, resource counts, and derived errors.
 - Use paths relative to the saved file for issue evidence links. Put line numbers in display text, such as `[athena.md:20](../../../docs/designs/dev/cde/athena.md)`, rather than in link targets. Confirm target file existence and line numbers; do not save absolute paths. Enclose link targets in `<...>` if paths contain spaces.
 - Add remedies/priorities when requested; limit output to the list when only an issue list is requested.
+
+### IaC action report
+
+- Python formats `iac-issues.md` by response action: same proven root cause × repair target × action in the same environment/target. Do not use message equality, filenames in prose, or service alone as causal evidence. Missing-template results and Export-search/legacy-candidate-search interruption carry structured cause metadata from their detection point; search interruption is a comparison cascade, not proof of a direct Import dependency. Other value/missing-setting differences stay separate by template/Stack/resource/property/difference kind. Unknown cause/repair target remains `要調査`.
+- Start with independent Issue counts, action-needed/judgment-needed/incomplete Issue counts, original difference/uncompared/error record counts, and retained-unconfirmed counts. Record counts and Issue counts are distinct. Saved out-of-scope service results are preserved and explicitly not reconfirmed.
+- Each `## ISSUE-<stable hash>: <problem>` includes state, classification, environment, cause, evidence-based response, repair target (candidates when human judgment is needed, or explicitly unknown), impact count/services/stacks, and at most three representative diagnostics/evidence locations. Missing files are paths, not fictitious links. Do not flood the visible report with null values or complete diagnostic dumps.
+- Preserve every original comparison record and existing `iac-id` in the same Markdown's `iac-report-data` HTML comment, together with deterministic Issue-to-record index membership. No sidecar file is required. This necessary machine-readable data is hidden in rendered Markdown; inspect it only for requested details. Comparison-input fingerprint generation/verification and ordinary Issue IDs retain their existing rules.
+- Legacy service/numbered IaC reports migrate conservatively with original text/IDs/annotations preserved. Legacy prose alone cannot establish a causal link. Absent/uncertain results remain retained-unconfirmed under existing rules; neither aggregation nor a matched result alone authorizes deleting an old issue. Save uses existing scope/reservations/lock/atomic publication, without another comparison or per-record file reads. Ordinary Issue Gate and CREATE/IMPORT rules are unchanged.
 
 Output example (`issues/dev/cde/issues.md`):
 

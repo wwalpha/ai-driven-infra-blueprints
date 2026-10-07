@@ -175,63 +175,216 @@ def iac_key(item):
     return identifier([item['service'], item['resource'], item['property'], item.get('stack')])
 
 
+IAC_DATA = r'<!-- iac-report-data: (.+) -->'
+IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
+
+
+def iac_state(text, environment, directory):
+    """Read lossless data from this report; migrate old items without inferring causes."""
+    found = re.findall(IAC_DATA, text)
+    if found:
+        if len(found) != 1:
+            raise ValueError('malformed IaC report data')
+        data = json.loads(found[0])
+        if data.get('version') != 1 or data.get('scope') != [environment, directory]:
+            raise ValueError('malformed IaC report scope/version')
+        for entry in data['entries']:
+            record = entry['record']
+            if entry['id'] != iac_key(record) or type(entry['retained']) is not bool:
+                raise ValueError('malformed IaC record identity/state')
+        # Keep additions anywhere in the human-facing report, including action blocks.
+        generated = set(data['generated_line_ids'])
+        annotations, context = [], ''
+        for line in re.sub(IAC_DATA, '', text).splitlines():
+            if line.startswith('## ISSUE-'):
+                context = line.partition(':')[0].removeprefix('## ')
+            elif line.startswith('## '):
+                context = ''
+            if line.strip() and identifier(line) not in generated:
+                annotations.append(f'【{context}】 {line}' if context else line)
+        return data['entries'], list(dict.fromkeys([*data['annotations'], *annotations]))
+    preamble, existing = blocks(text)
+    if text.strip() and (not existing or any(service is None for service, _ in existing)
+                         or len({service for service, _ in existing}) != len(existing)):
+        raise ValueError('malformed existing IaC service blocks')
+    generated = ('# model → IaC比較の非阻害結果', '通常issue gateの停止対象外。', '更新日時:',
+                 '今回確認した範囲:', '今回の判定:', '未比較範囲はservice block', '保持未確認:')
+    annotations = [line for line in preamble.splitlines() if line.strip() and not line.startswith(generated)]
+    result = []
+    for service, body in existing:
+        annotation, items = numbered(body)
+        annotation = re.sub(r'^### .*\n|^<!-- issue-service: .*? -->\n?', '', annotation, flags=re.M)
+        annotations.extend(f'【{service}】 {line}' for line in annotation.splitlines() if line.strip() and line != '今回の差分・未比較なし。')
+        for item in items:
+            marker = re.search(r'<!-- iac-id: ([a-f0-9]{20}) -->', item)
+            if not marker:
+                raise ValueError('malformed IaC item: missing stable identity')
+            content = re.sub(r'^未確認（今回の比較では解消を確定していない）: ', '', item)
+            match = re.match(r'(差分|未比較|処理error): (.+?) / (.+?) / (.+?): (.*)', content, re.S)
+            if not match:
+                raise ValueError('malformed legacy IaC diagnostic')
+            category, resource, prop, stack, reason = match.groups()
+            record = {'service': service, 'resource': resource, 'property': prop,
+                      'stack': None if stack == '未確定stack' else stack,
+                      'category': {'差分': 'difference', '未比較': 'uncompared', '処理error': 'error'}[category],
+                      'reason': reason.split('; model=', 1)[0]}
+            if iac_key(record) != marker[1]:
+                raise ValueError('malformed legacy IaC identity')
+            result.append({'id': marker[1], 'record': record, 'legacy': content,
+                           'retained': content != item})
+    return result, list(dict.fromkeys(annotations))
+
+
+def iac_actions(entries, environment, directory):
+    """O(N) grouping by proven cause/repair target/action; unknowns remain separate."""
+    groups = {}
+    for index, entry in enumerate(entries):
+        item = entry['record']
+        if item['category'] not in IAC_CATEGORIES:
+            continue
+        cause = item.get('cause', {})
+        path = cause.get('path')
+        known_missing = (cause.get('kind') in {'template-missing', 'parameters-missing'} and path
+                         and cause.get('relationship') in {'direct', 'stack-input', 'export-search-incomplete', 'legacy-search-incomplete'})
+        if known_missing:
+            action = 'confirm-create-template' if cause['kind'] == 'template-missing' else 'confirm-stack-parameters'
+            key = [environment, directory, cause['kind'], path, action]
+            title = Path(path).name + (' のテンプレート未作成' if cause['kind'] == 'template-missing' else ' の入力ファイル欠落')
+            classification = 'IaC未実装' if cause['kind'] == 'template-missing' else '設定不一致'
+            description = f'{path} が存在しない。'
+            remedy = ('CREATE対象と実装要否を確認し、未実装ならModelに従ってテンプレートを作成する。意図的な未実装なら状態を明示して管理する。'
+                      if cause['kind'] == 'template-missing' else 'Stack設計のparameters指定と配置先を確認し、必要な入力ファイルを作成・配置する。')
+            target, status = path, '要対応'
+        elif item['category'] == 'difference' and item.get('iac') and item.get('stack') and item['reason'] in {
+                'value mismatch', 'property missing', 'resource missing', 'inline CREATE child missing', 'property omitted by AWS::NoValue'}:
+            target = item['iac']['path']
+            key = [environment, directory, target, item['stack'], item['service'], item['resource'], item['property'], item['reason'], 'sync-model-iac']
+            title = f'{item["service"]} / {item["resource"]} / {item["property"]} の' + ('値の不一致' if item['reason'] == 'value mismatch' else '未実装・設定欠落')
+            classification, status = 'Model/IaC差分', '要判断'
+            description = {'value mismatch': 'ModelとIaCの設定値が一致しない。', 'property missing': 'Modelにある設定がIaCに存在しない。',
+                           'resource missing': 'Modelに対応するCREATEリソースがIaCに存在しない。',
+                           'inline CREATE child missing': 'Modelに対応する子リソースがIaCに存在しない。',
+                           'property omitted by AWS::NoValue': '設定がAWS::NoValueにより省略される。'}[item['reason']]
+            remedy = '該当ModelとIaC・適用条件の正しい設定を確認して同期する。修正先の選択には人間の判断が必要。'
+        else:
+            target = None
+            key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), entry.get('legacy')]
+            title = f'{item["service"]} / {item["resource"]} / {item["property"]} の確認が必要'
+            classification, status = ('処理エラー' if item['category'] == 'error' else '原因未確定'), '要調査'
+            description = '原因または対応先を確定できない。'
+            remedy = ('Export/Importの参照関係・宣言・有効条件と探索の完了を確認する。直接依存は未確定。'
+                      if 'ImportValue' in item['reason'] else '記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。')
+        group_id = 'ISSUE-' + identifier(key)
+        group = groups.setdefault(group_id, {'id': group_id, 'title': title, 'classification': classification,
+                                             'description': description, 'remedy': remedy, 'target': target,
+                                             'status': status, 'members': []})
+        group['members'].append(index)
+    return sorted(groups.values(), key=lambda group: (group['status'] != '要対応', group['classification'], group['id']))
+
+
+@input_scope
 def iac_merge(root, path, environment, directory, services, records):
     old = path.read_text(encoding='utf-8') if path.exists() else ''
     if old.strip() and not old.startswith('# model → IaC比較の非阻害結果\n'):
         raise ValueError('malformed existing IaC report')
-    preamble, existing = blocks(old)
-    if old.strip() and (not existing or any(service is None for service, _ in existing) or len({service for service, _ in existing}) != len(existing)):
-        raise ValueError('malformed existing IaC service blocks')
+    previous, annotations = iac_state(old, environment, directory)
+    # Keep report storage subject to the existing value/message redaction policy too.
+    records = [dict(safe_value(item), reason=safe_text(item['reason']), **{
+        key: safe_value(item[key], item.get('property', '')) for key in ('desired', 'actual') if key in item})
+        for item in records]
+    scoped = set(services)
+    if any(item['service'] not in scoped for item in records):
+        raise ValueError('IaC record outside selected services')
+    active, uncertain = set(), set()
+    for item in records:
+        if item['category'] in IAC_CATEGORIES:
+            active.add(iac_key(item))
+        if item['category'] in {'uncompared', 'error'}:
+            uncertain.add(iac_key(item))
+    entries = []
+    for entry in previous:
+        item = entry['record']
+        if item['service'] not in scoped:
+            entries.append(entry)
+        elif item['category'] in IAC_CATEGORIES and (entry['id'] not in active or
+                entry['id'] in uncertain and item['category'] == 'difference'):
+            entries.append(dict(entry, retained=True))
+    entries.extend({'id': iac_key(item), 'record': item, 'retained': False} for item in records)
+    # Canonical order keeps IDs/membership/order independent of service and record input order.
+    entries.sort(key=lambda entry: (entry['record']['service'], entry['id'], entry['retained'], identifier(entry)))
+    actions = iac_actions(entries, environment, directory)
+    current = [entry['record'] for entry in entries if not entry['retained']]
+    counts = {category: sum(item['category'] == category for item in current) for category in ('difference', 'uncompared', 'error')}
+    retained = sum(entry['retained'] for entry in entries)
+    status = 'error' if counts['error'] else 'partial' if counts['uncompared'] or retained else 'differences' if counts['difference'] else 'complete match'
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S Asia/Tokyo')
-    prefix = ('# model → IaC比較の非阻害結果\n\n通常issue gateの停止対象外。\n\n' +
-              f'更新日時: {stamp}\n今回確認した範囲: {environment}／{directory}／{", ".join(services)}\n')
-    counts = {category: sum(item['category'] == category for item in records) for category in ('difference', 'uncompared', 'error')}
-    status = 'error' if counts['error'] else 'partial' if counts['uncompared'] else 'differences' if counts['difference'] else 'complete match'
-    prefix += f'今回の判定: {status}; 差分 {counts["difference"]}件; 未比較 {counts["uncompared"]}件; 処理error {counts["error"]}件\n未比較範囲はservice blockの未比較項目に記載。\n\n'
-    pending = {service: [item for item in records if item['service'] == service] for service in services}
-    output, retained = [], 0
-    for service, body in existing:
-        if service not in pending:
-            output.append(body)
-            continue
-        annotation, olditems = numbered(body)
-        annotation = re.sub(r'^### .*\n|^<!-- issue-service: .*? -->\n?', '', annotation, flags=re.M).strip()
-        annotation = annotation.replace('今回の差分・未比較なし。', '').strip()
-        current = pending[service]
-        activekeys = {iac_key(item) for item in current if item['category'] in {'difference', 'uncompared', 'error'}}
-        uncertainkeys = {iac_key(item) for item in current if item['category'] in {'uncompared', 'error'}}
-        kept = []
-        for item in olditems:
-            match = re.search(r'<!-- iac-id: ([a-f0-9]{20}) -->', item)
-            if not match:
-                raise ValueError('malformed IaC item: missing stable identity')
-            original_item = re.sub(r'^未確認（今回の比較では解消を確定していない）: ', '', item)
-            if match.group(1) not in activekeys or (match.group(1) in uncertainkeys and original_item.startswith('差分:')):
-                # Keep old differences until explicit repair/revalidation; comparison loss is not resolution.
-                kept.append('未確認（今回の比較では解消を確定していない）: ' + original_item)
-                retained += 1
-        pending[service] = (current, kept, annotation)
-    for service, content in pending.items():
-        records_for_service, kept, annotation = content if isinstance(content, tuple) else (content, [], '')
-        items = kept[:]
-        for item in records_for_service:
-            if item['category'] not in {'difference', 'uncompared', 'error'}:
-                continue
-            category = {'difference': '差分', 'uncompared': '未比較', 'error': '処理error'}[item['category']]
-            values = f"model={json.dumps(item.get('desired'), ensure_ascii=False)}; IaC={json.dumps(item.get('actual'), ensure_ascii=False)}"
-            links = '; '.join(filter(None, [*(evidence(root, path, source) for source in item.get('model_sources', [item.get('model')])), evidence(root, path, item.get('iac'))]))
-            message = safe_text(f'{category}: {item["resource"]} / {item["property"]} / {item.get("stack") or "未確定stack"}: {item["reason"]}; {values}').replace(str(root) + '/', '')
-            items.append(message + (f' 根拠: {links}' if links else '') + f' <!-- iac-id: {iac_key(item)} -->')
-        output.append(f'### {service}\n\n<!-- issue-service: {service} -->\n\n' +
-                      (annotation + '\n\n' if annotation else '') +
-                      ('\n\n'.join(f'{i}. {item}' for i, item in enumerate(items, 1)) if items else '今回の差分・未比較なし。') + '\n\n')
-    if retained:
-        prefix = prefix.replace(f'今回の判定: {status}', '今回の判定: partial (保持未確認あり)')
-        prefix += f'保持未確認: {retained}件（今回差分件数とは別）。\n\n'
-    # Preserve human prose if a report has acquired annotations outside generated sections.
-    generated = ('# model → IaC比較の非阻害結果', '通常issue gateの停止対象外。', '更新日時:', '今回確認した範囲:', '今回の判定:', '未比較範囲はservice block', '保持未確認:')
-    extras = [line for line in preamble.splitlines() if line.strip() and not line.startswith(generated)]
-    return prefix + ''.join(line + '\n' for line in extras) + ''.join(output)
+    lines = ['# model → IaC比較の非阻害結果', '', '通常issue gateの停止対象外。', '',
+             f'更新日時: {stamp}', f'今回確認した範囲: {environment}／{directory}／{", ".join(sorted(scoped))}',
+             f'今回の判定: {status}; 差分 {counts["difference"]}件; 未比較 {counts["uncompared"]}件; 処理error {counts["error"]}件', '',
+             '## サマリー', '', f'- 独立Issue数: {len(actions)}',
+             f'- 対応が必要なIssue数: {sum(group["status"] == "要対応" for group in actions)}',
+             f'- 人間の判断が必要なIssue数: {sum(group["status"] in {"要判断", "要調査"} for group in actions)}',
+             f'- 比較未完了のIssue数: {sum(any(entries[i]["record"]["category"] in {"uncompared", "error"} or entries[i]["retained"] for i in group["members"]) for group in actions)}',
+             f'- 元レコード数: 差分 {counts["difference"]} / 未比較 {counts["uncompared"]} / 処理エラー {counts["error"]}',
+             f'- 保持未確認: {retained}件（今回差分件数とは別）', '',
+             '件数は保存済み全Serviceの現行結果。今回確認した範囲外の結果は再確認していない。',
+             '元レコード・既存iac-id・各Issueとの対応は末尾の機械読取用データに全件保持。', '']
+    for group in actions:
+        members = [entries[i] for i in group['members']]
+        diagnostic = [entry['record'] for entry in members]
+        sources = set()
+        representatives = {}
+        for entry in members:
+            item = entry['record']
+            role = item['category'], item.get('cause', {}).get('relationship', '')
+            if role not in representatives or representatives[role]['retained'] and not entry['retained']:
+                representatives[role] = entry
+        examples = sorted(representatives.values(), key=lambda entry: (entry['record'].get('cause', {}).get('relationship') != 'direct', entry['retained'], entry['id']))[:3]
+        for entry in examples:
+            item = entry['record']
+            for source in [*item.get('model_sources', [item.get('model')])[:3], item.get('iac')]:
+                if source:
+                    if entry['retained'] or item['service'] not in scoped:
+                        sources.add(f'`{source["path"]}`（保存済み根拠・今回未再確認）')
+                    else:
+                        sources.add(evidence(root, path, source))
+        service_names = sorted({item['service'] for item in diagnostic})
+        stacks = sorted({item.get('stack') or item.get('cause', {}).get('consumer_stack') or item.get('cause', {}).get('stack') for item in diagnostic} - {None})
+        direct = {(item['service'], item['resource'], item.get('stack')) for item in diagnostic if item['category'] == 'difference'}
+        cascading = sum(item.get('cause', {}).get('relationship') == 'export-search-incomplete' for item in diagnostic)
+        legacy_cascading = sum(item.get('cause', {}).get('relationship') == 'legacy-search-incomplete' for item in diagnostic)
+        lines.extend([f'## {group["id"]}: {safe_text(group["title"])}', '',
+                      *(f'<!-- issue-service: {service} -->' for service in service_names), '',
+                      f'- 状態: {"保持未確認（今回の比較では解消を確定していない） / " if any(entry["retained"] for entry in members) else ""}{group["status"]}',
+                      f'- 分類: {group["classification"]}', f'- 環境: {environment}/{directory}',
+                      f'- 原因: {safe_text(group["description"])}', f'- 必要な対応: {group["remedy"]}',
+                      f'- 修正対象: {"`" + group["target"] + "`" if group["target"] else "未確定（調査して決める）"}' + ("（IaC側の候補。Model側も根拠から確認して決める）" if group["status"] == "要判断" else ""),
+                      f'- 影響: 元レコード {len(members)}件 / 直接差分 {len(direct)}リソース / 比較未完了 {sum(item["category"] in {"uncompared", "error"} for item in diagnostic)}項目',
+                      f'- 影響Service: {", ".join(service_names)}',
+                      f'- 影響Stack: {", ".join(stacks[:5]) or "未確定"}' + (f' ほか{len(stacks)-5}件' if len(stacks) > 5 else '')])
+        if cascading or legacy_cascading:
+            lines.append(f'- 連鎖影響: 全Export探索の中断に関連する未比較 {cascading}項目 / 旧識別方式の候補探索中断 {legacy_cascading}項目。欠落Stackへの直接Import依存は未確定。')
+        if sources:
+            lines.append('- 根拠（代表例）: ' + '; '.join(sorted(sources)))
+        for entry in examples:
+            item = entry['record']
+            reason = safe_text(item['reason']).replace(str(root) + '/', '')
+            lines.append(f'- 代表的な検出: {item["service"]} / {item["resource"]} / {item["property"]}: {reason}')
+            if item['category'] == 'difference' and (item.get('desired') is not None or item.get('actual') is not None):
+                values = safe_text(f'model={json.dumps(item.get("desired"), ensure_ascii=False)}; IaC={json.dumps(item.get("actual"), ensure_ascii=False)}')
+                lines.append('- 値（代表例）: ' + (values[:240] + '…（全体は元レコード）' if len(values) > 240 else values))
+        lines.append('')
+    if not actions:
+        lines.extend(['今回の差分・未比較なし。', ''])
+    data = {'version': 1, 'scope': [environment, directory], 'entries': entries,
+            'actions': [{'id': group['id'], 'members': group['members']} for group in actions],
+            'annotations': annotations, 'generated_line_ids': sorted({identifier(line) for line in lines if line.strip()})}
+    if annotations:
+        lines.extend(['## 保持した注記', '', *annotations, ''])
+        data['generated_line_ids'].append(identifier('## 保持した注記'))
+    # Necessary persistence only: no duplicated full diagnostic values in visible Markdown.
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e')
+    return '\n'.join(lines) + f'\n<!-- iac-report-data: {payload} -->\n'
 
 
 def save_authority(root, environment, directory, services, filenames, check_write=True):
