@@ -241,6 +241,10 @@ def check_required_property_parents() -> None:
 
 
 def main() -> None:
+    spec = importlib.util.spec_from_file_location("design_document_checks", SCRIPT.with_name("design_document.checks.py"))
+    checks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checks)
+    checks.check_projection(MODULE)
     check_failure_counts()
     check_required_preflight()
     check_required_property_parents()

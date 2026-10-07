@@ -57,10 +57,11 @@ def scoped_files(root: Path, base: str, suffix: str, scope) -> list[Path]:
                   if (path := directory / environment / target / f"{service}{suffix}").is_file())
 
 
-def reference_lines(path: Path, fragments: set[str]) -> list[str]:
+def reference_lines(path: Path, fragments: set[str], *, lines: list[str] | None = None) -> list[str]:
     """Read only referenced resource blocks, including their enclosing grouped parent."""
     from design_layout import RESOURCE, ANCHOR, resource_heading_lines
-    lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
+    if lines is None:
+        lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
     starts = []
     for index, line in enumerate(lines):
         if RESOURCE.fullmatch(line):

@@ -18,10 +18,11 @@ import tempfile
 from pathlib import Path
 
 from design_catalog import DesignSchemaCatalog, design_material_files
-from validation_scope import active_scope, reference_lines, scoped_files
+from validation_scope import active_scope, scoped_files
+from design_document import DesignIndex
 from task_contract import task_path, require_writable, reserved_batches, DeferredExhausted
 from issue_gate import require_no_issues
-from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, ROTATION_SCHEDULE, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_logical_ids, resource_display_name, stack_design, stack_deployment_policy
+from design_layout import CODEBUILD_FORMAL_VARIABLE, HIDDEN_PROPERTIES, ROTATION_SCHEDULE, RESOURCE, STACK_DESIGN, GROUPED, expanded_design, resource_display_name, stack_design, stack_deployment_policy
 from policy_tables import without_policy_tables, rendered_design, resources_in, unique_object, invalid_constant
 from model_design import properties, entries, markdown_for, resource_rows, resource_display_rows, validate_required_properties, validate_kms_policy_accounts, design_target
 from model_files import read_model, model_parts, model_file_contents
@@ -59,7 +60,7 @@ def identifier_outputs(root: Path) -> dict[str, set[str]]:
     return outputs
 
 
-def linked_resource(path: Path, value: str) -> tuple[str, str] | None:
+def linked_resource(path: Path, value: str, *, design_index: DesignIndex | None = None) -> tuple[str, str] | None:
     match = RESOURCE_LINK.fullmatch(value)
     if not match:
         return None
@@ -68,9 +69,9 @@ def linked_resource(path: Path, value: str) -> tuple[str, str] | None:
     if not target.is_file():
         return None
     pending_anchor = ""
-    source = reference_lines(target, {fragment})
-    identities = resource_logical_ids(source)
-    lines, _ = expanded_design(source)
+    view = (design_index or DesignIndex()).get(target).view(frozenset({fragment}))
+    identities = view.logical_ids
+    lines, _ = view.expanded
     for line in lines:
         if anchor := ANCHOR.fullmatch(line):
             pending_anchor = anchor.group(1)
@@ -95,7 +96,8 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
     return matches[0]
 
 
-def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None, import_cfn_ids: bool = False) -> str:
+def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None, import_cfn_ids: bool = False,
+              design_index: DesignIndex | None = None) -> str:
     """Read-only projection for verification and explicit migration; never save it by default."""
     if path.name == STACK_DESIGN:
         from design_layout import stack_delivery
@@ -112,7 +114,9 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
             ))
         return "\n".join(output) + "\n"
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
-    lines = path.read_text(encoding="utf-8").splitlines()
+    design_index = design_index or DesignIndex()
+    document = design_index.get(path)
+    lines = document.lines
     if source is None and root is not None and not import_cfn_ids:
         source = design_model_values(path, root)
     modes = resource_modes(lines, source)
@@ -123,9 +127,9 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
     if source is not None:
         for identity, row in entries(source, "desired.row."):
             row_numbers[(identity.split("-", 1)[0], row["property"])].append(identity)
-    lines = [line for line in lines if not line.startswith(("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))]
-    identities = resource_logical_ids(lines)
-    lines, children = expanded_design(without_policy_tables(lines))
+    identities = document.projection_source.logical_ids
+    view = document.view(projection=True)
+    lines, children = view.expanded
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
         re.findall(
@@ -204,7 +208,7 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                     if not candidates:
                         raise ValueError(f"resource row is absent from authoritative model: {current_anchor}: {cells[1]}")
                     key = candidates.popleft()
-                linked = linked_resource(path, cells[2])
+                linked = linked_resource(path, cells[2], design_index=design_index)
                 is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
                 is_identifier_reference = bool(
                     linked and catalog_outputs.get(linked[0])
@@ -481,12 +485,13 @@ def sync(
         # A rejected view falls back to its saved state; recheck dependent services.
         def validate(path):
             try:
-                validate_views(stage, root, [stage / path.relative_to(root)], destinations)
+                validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=design_index)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 return path, f"{path.relative_to(root)}: {error}"
             return path, None
 
         while generated:
+            design_index = DesignIndex()  # A new snapshot after each restore_view phase.
             rejected = []
             # All candidate views are fixed during this read-only phase.
             with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
@@ -538,10 +543,11 @@ def sync(
             save_failed = True  # Validate saved references against retained Deferred outputs, too.
         # Filesystem failures can invalidate newly saved references, too.
         while write and save_failed and saved:
+            design_index = DesignIndex()  # Publication/rollback changed the saved views.
             rejected = []
             for path in saved:
                 try:
-                    validate_views(root, root, [path], destinations)
+                    validate_views(root, root, [path], destinations, design_index=design_index)
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     failures.append(f"{path.relative_to(root)}: {error}")
                     rejected.append(path)
@@ -609,11 +615,13 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
 
 
 @input_scope
-def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]]) -> None:
+def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
+                   design_index: DesignIndex | None = None) -> None:
     """Use the existing parsers/schema validator before touching any saved view."""
+    design_index = design_index or DesignIndex()
     for path in paths:
         source = sources[root / path.relative_to(stage)]
-        actual = properties(model_for(path, root, source=source))
+        actual = properties(model_for(path, root, source=source, design_index=design_index))
         # CFn identity is model-only and has no Markdown projection.
         formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
@@ -645,7 +653,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     validator.check_resource_names(metadata, services)
     validator.check_design_tables(metadata, types, owners, outputs, services)
     validator.check_design_overviews(services)
-    validator.check_design_links(outputs, services)
+    validator.check_design_links(outputs, services, design_index=design_index)
     validator.check_design_artifacts(services)
     validator.check_observed_values([(stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties") for path in paths])
     if validator.errors:

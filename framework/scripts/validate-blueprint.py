@@ -63,7 +63,8 @@ from design_layout import (
 from security_group_tables import security_group_table_lines
 from model_design import entries, naming_errors, properties
 from model_files import MAX_LINES, read_model, model_parts, service_model_path
-from validation_scope import active_scope, reference_lines, scoped_files
+from validation_scope import active_scope, scoped_files
+from design_document import DesignIndex
 from issue_gate import require_no_issues
 from task_contract import task_path, task_changes, contracts, reservations, TASK_NAME, SELECTOR
 
@@ -1983,11 +1984,13 @@ class Validator:
                 f"resource overview must list every detail resource exactly once: {self.relative(path)}",
             )
 
-    def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None) -> None:
+    def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
+                           design_index: DesignIndex | None = None) -> None:
+        design_index = design_index or DesignIndex()
         sources = self.design_files() if paths is None else paths
         references = {path.resolve() for path in sources}
         fragments = {}
-        visible_text = {source: re.sub(r"<!--.*?-->", "", source.read_text(encoding="utf-8"), flags=re.DOTALL) for source in sources}
+        visible_text = {source: design_index.get(source).visible_text for source in sources}
         for source in sources:
             for raw in LINK_PATTERN.findall(visible_text[source]):
                 target, separator, fragment = raw.partition("#")
@@ -1997,7 +2000,7 @@ class Validator:
                         references.add(linked)
                         fragments.setdefault(linked, set()).add(fragment)
         anchors = {
-            path: set(ANCHOR_PATTERN.findall(path.read_text(encoding="utf-8")))
+            path: design_index.get(path).anchors
             for path in references
         }
         resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
@@ -2009,9 +2012,11 @@ class Validator:
         name_properties.update(kind + "." + field for kind, field in RESOURCE_REFERENCE_PROPERTIES.values())
         source_paths = {path.resolve() for path in sources}
         for path in sorted(references):
-            source_lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines()) if path in source_paths else reference_lines(path, fragments.get(path, set()))
+            document = design_index.get(path)
+            view = document.headings if path in source_paths else document.view(frozenset(fragments.get(path, set())))
+            source_lines = view.lines
             try:
-                identities = resource_logical_ids(source_lines)
+                identities = view.logical_ids
             except ValueError:
                 identities = {}
             pending_anchor = ""
@@ -2029,7 +2034,7 @@ class Validator:
             current: tuple[Path, str] | None = None
             lines = source_lines
             try:
-                lines, children = expanded_design(lines)
+                lines, children = view.expanded
                 for anchor, child in children.items():
                     identity = GROUPED[child["resourceType"]]["identityProperty"]
                     if identity != "Id":
@@ -2086,7 +2091,8 @@ class Validator:
                 self.check(target.is_file(), f"broken design link: {self.relative(source)}: {raw}")
                 if separator and target.is_file():
                     self.check(fragment in anchors.get(target, set()), f"missing design anchor: {self.relative(source)}: {raw}")
-            source_lines = source.read_text(encoding="utf-8").splitlines()
+            document = design_index.get(source)
+            source_lines = document.lines
             pipeline_rows = []
             pipeline_id = ""
             providers = {}
@@ -2128,7 +2134,7 @@ class Validator:
                         f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {self.relative(source)}: {value}",
                     )
             list_resource_type = ""
-            for line in resource_heading_lines(source_lines):
+            for line in document.headings.lines:
                 if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     list_resource_type = heading.group(1)
                 elif line.startswith("#"):
@@ -2156,7 +2162,7 @@ class Validator:
                     f"{('CloudTrail DataResources' if cloudtrail else 'Subnet/Security Group list')} must link to a {expected} in the same target: {self.relative(source)}: {cells[2]}",
                 )
             try:
-                source_lines = expanded_display_rows(security_group_table_lines(source_lines))
+                source_lines = document.raw.display_lines
             except ValueError as error:
                 self.check(False, f"invalid Security Group tables: {self.relative(source)}: {error}")
             variable_type = ""

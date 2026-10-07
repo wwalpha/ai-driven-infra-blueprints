@@ -961,13 +961,14 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
     return result
 
 
-def expanded_design(lines: list[str], *, normalized: bool = False) -> tuple[list[str], dict[str, dict]]:
+def expanded_design(lines: list[str], *, normalized: bool = False,
+                    logical_ids: dict[tuple[str, str], str] | None = None) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
     Child anchors and logical IDs live in the first row's comment. Visible tables
     stay grouped; this in-memory expansion never rewrites the source Markdown.
     """
-    identities = resource_logical_ids(lines)
+    identities = resource_logical_ids(lines) if logical_ids is None else logical_ids
     lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
         lines = security_group_table_lines(lines)

@@ -1822,6 +1822,10 @@ def check_deployment_iac_scope():
 
 
 def main() -> None:
+    spec = importlib.util.spec_from_file_location("design_document_checks", SCRIPT.with_name("design_document.checks.py"))
+    checks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checks)
+    checks.check_links(MODULE)
     check_deployment_iac_scope()
     trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
     old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
