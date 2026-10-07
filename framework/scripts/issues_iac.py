@@ -89,6 +89,8 @@ class Comparison:
         self.models, self.rows, self.resources = {}, {}, {}
         self.documents, self.stack_inputs = {}, {}
         self._index, self.symbols = None, {}
+        self.local_comparison, self.reference_models_loaded = False, False
+        self.exports = None
         self.read_hashes, self.sensitive_values = {}, set()
         self.load_errors = []
         self.inputs = {root / 'project.json'}
@@ -199,8 +201,19 @@ class Comparison:
         definition = document.get('Resources', {}).get(logical)
         if not definition or not condition_active(document, parameters, pseudo, definition):
             raise Blocked(f'local resource reference missing/inactive: {stack}/{logical}')
+        if self.local_comparison and not self.reference_models_loaded:
+            # Same-target model identities establish uniqueness, never physical values.
+            for path in sorted((self.root / 'model' / self.environment / self.directory).glob('*.properties')):
+                if path.stem != 'cloudformation-stacks':
+                    self.model(path.stem)
+            self.reference_models_loaded = True
         direct, legacy = self.index()
-        entry = mapped_resource(direct, legacy, stack, logical, definition['Type'], any(name == stack for name, _ in direct))
+        try:
+            entry = mapped_resource(direct, legacy, stack, logical, definition['Type'], any(name == stack for name, _ in direct))
+        except ValueError as error:
+            if self.local_comparison:
+                raise Blocked(f'unproven resource correspondence: {stack}/{logical}: {error}') from error
+            raise
         path, identity, resource, _ = entry
         if attribute is None:
             primary = self.catalog.schema(resource['resourceType']).get('primaryIdentifier', [])
@@ -208,15 +221,74 @@ class Comparison:
                 raise Blocked('Ref attribute is ambiguous')
             attribute = primary[0].removeprefix('/properties/').replace('/', '.')
         else:
-            self.catalog.property_schema(resource['resourceType'], attribute)
+            try:
+                self.catalog.property_schema(resource['resourceType'], attribute)
+            except ValueError as error:
+                if self.local_comparison:
+                    raise Blocked(f'unproven resource attribute: {logical}.{attribute}') from error
+                raise
         result = {'$resource': [path.stem, identity], '$attribute': attribute}
         self.symbols[cachekey] = result
         return result
 
-    def evaluate(self, stack, value):
+    def substitution(self, stack, value, seen):
+        if isinstance(value, dict) and set(value) == {'$resource', '$attribute'}:
+            service, identity = value['$resource']
+            attribute = value['$attribute']
+            resource = self.resources[service][identity]
+            if not resource.get('cfn-logicalId'):
+                raise Blocked('resource substitution requires explicit cfn-logicalId')
+            name, logical = cfn_resource_identity(resource['cfn-logicalId'])
+            token = ('resource', name, logical, attribute)
+            if token in seen:
+                raise Blocked(f'cyclic resource substitution: {name}/{logical}.{attribute}')
+            document, _, _ = self.stack_inputs[name]
+            if document.get('Transform'):
+                raise Blocked('Transform requires external evaluation')
+            properties = document['Resources'][logical].get('Properties', {})
+            if attribute not in properties:
+                raise Blocked(f'resource substitution has no explicit property: {logical}.{attribute}')
+            return self.substitution(name, self.evaluate(name, properties[attribute], seen | {token}), seen | {token})
+        if type(value) in (int, float):
+            return str(value)
+        if not isinstance(value, str):
+            raise Blocked('Sub variable is not a proven local string')
+        return value
+
+    def import_value(self, stack, argument, seen):
+        name = self.evaluate(stack, argument, seen)
+        if not isinstance(name, str):
+            raise Blocked('ImportValue name is not a local string')
+        token = ('import', stack, name)
+        if token in seen:
+            raise Blocked(f'cyclic ImportValue: {name}')
+        if self.exports is None:
+            exports = {}
+            try:
+                for _, unit in self.templates():
+                    _, (document, parameters, pseudo) = self.stack(unit)
+                    if document.get('Transform'):
+                        raise Blocked('Transform requires external evaluation')
+                    for output in document.get('Outputs', {}).values():
+                        if 'Export' not in output or not condition_active(document, parameters, pseudo, output):
+                            continue
+                        export = self.evaluate(unit['name'], output['Export']['Name'], frozenset({('export-name',)}))
+                        if not isinstance(export, str):
+                            raise Blocked('Export name is not a local string')
+                        exports.setdefault(export, []).append((unit['name'], output.get('Value')))
+            except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                raise Blocked(f'ImportValue handoff search incomplete: {error}') from error
+            self.exports = exports
+        candidates = self.exports.get(name, [])
+        if len(candidates) != 1 or candidates[0][0] == stack:
+            raise Blocked(f'ImportValue handoff matches={len(candidates)} or same-stack export: {name}')
+        producer, value = candidates[0]
+        return self.evaluate(producer, value, seen | {token})
+
+    def evaluate(self, stack, value, seen=frozenset()):
         document, parameters, pseudo = self.stack_inputs[stack]
         if isinstance(value, list):
-            return [item for item in (self.evaluate(stack, child) for child in value) if item != {'$noValue': True}]
+            return [item for item in (self.evaluate(stack, child, seen) for child in value) if item != {'$noValue': True}]
         if not isinstance(value, dict):
             # cfn-lint attaches source marks using scalar subclasses; preserve JSON type.
             if isinstance(value, str):
@@ -230,6 +302,8 @@ class Comparison:
             return value
         if len(value) == 1:
             key, arg = next(iter(value.items()))
+            if ('export-name',) in seen and (key in {'Fn::GetAtt', 'Fn::ImportValue'} or key == 'Ref' and arg not in parameters | pseudo):
+                raise Blocked('Export name depends on a resource/import')
             if key == 'Ref' and arg not in parameters | pseudo:
                 if arg.startswith('AWS::'):
                     raise Blocked(f'unresolved pseudo parameter: {arg}')
@@ -241,36 +315,60 @@ class Comparison:
                 if not isinstance(arg, list) or len(arg) != 3:
                     raise ValueError('invalid Fn::If')
                 condition = resolve_value({'Condition': arg[0]}, parameters, pseudo, conditions=document.get('Conditions', {}))
-                return self.evaluate(stack, arg[1 if condition else 2])
+                return self.evaluate(stack, arg[1 if condition else 2], seen)
             if key == 'Fn::Select' and isinstance(arg, list) and len(arg) == 2:
-                index, items = self.evaluate(stack, arg)
+                index, items = self.evaluate(stack, arg, seen)
                 if isinstance(index, str) and index.isdigit():
                     index = int(index)
                 if type(index) is not int or not isinstance(items, list) or not 0 <= index < len(items):
                     raise ValueError('invalid Select operands')
                 return items[index]
             if key == 'Fn::Split' and isinstance(arg, list) and len(arg) == 2:
-                delimiter, text = self.evaluate(stack, arg)
+                delimiter, text = self.evaluate(stack, arg, seen)
                 if not isinstance(delimiter, str) or not delimiter or not isinstance(text, str):
                     raise ValueError('invalid Split operands')
                 return text.split(delimiter)
             if key == 'Fn::FindInMap' and isinstance(arg, list) and len(arg) == 3:
-                mapping, first, second = self.evaluate(stack, arg)
+                mapping, first, second = self.evaluate(stack, arg, seen)
                 try:
-                    return self.evaluate(stack, document['Mappings'][mapping][first][second])
+                    return self.evaluate(stack, document['Mappings'][mapping][first][second], seen)
                 except (KeyError, TypeError) as error:
                     raise Blocked('unresolved FindInMap') from error
             if key == 'Fn::ImportValue':
+                if self.local_comparison:
+                    return self.import_value(stack, arg, seen)
                 raise Blocked('ImportValue handoff cannot be established locally')
+            if key == 'Fn::Sub' and self.local_comparison:
+                text, variables = (arg, {}) if isinstance(arg, str) else arg if isinstance(arg, list) and len(arg) == 2 else (None, None)
+                if not isinstance(text, str) or not isinstance(variables, dict):
+                    raise ValueError('invalid Fn::Sub')
+                substitutions = parameters | pseudo | {key: self.evaluate(stack, child, seen) for key, child in variables.items()}
+                def replace(match):
+                    key = match.group(1)
+                    if key.startswith('!'):
+                        return '${' + key[1:] + '}'
+                    if key in substitutions:
+                        child = substitutions[key]
+                    else:
+                        child = self.evaluate(stack, {'Fn::GetAtt': key} if '.' in key else {'Ref': key}, seen)
+                    return self.substitution(stack, child, seen)
+                return re.sub(r'\$\{([^}]+)\}', replace, text)
+            if key == 'Fn::Join' and self.local_comparison:
+                if not isinstance(arg, list) or len(arg) != 2:
+                    raise ValueError('invalid Fn::Join')
+                delimiter, parts = self.evaluate(stack, arg, seen)
+                if not isinstance(delimiter, str) or not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
+                    raise Blocked('Join operands are not proven local strings')
+                return delimiter.join(parts)
             if key == 'Fn::Sub' and isinstance(arg, list):
                 if len(arg) != 2 or not isinstance(arg[0], str) or not isinstance(arg[1], dict):
                     raise ValueError('invalid Fn::Sub')
-                variables = {key: self.evaluate(stack, child) for key, child in arg[1].items()}
+                variables = {key: self.evaluate(stack, child, seen) for key, child in arg[1].items()}
                 variables = {key: str(child) if type(child) in (int, float) else child for key, child in variables.items()}
                 value = {'Fn::Sub': [arg[0], variables]}
             if key == 'Ref' or key.startswith('Fn::') or key == 'Condition':
                 return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
-        return {key: item for key, item in ((key, self.evaluate(stack, child)) for key, child in value.items()) if item != {'$noValue': True}}
+        return {key: item for key, item in ((key, self.evaluate(stack, child, seen)) for key, child in value.items()) if item != {'$noValue': True}}
 
     def desired_value(self, service, row, kind):
         raw = row.get('document', row['value'])
@@ -301,6 +399,10 @@ class Comparison:
             if isinstance(item, list):
                 return [references(child, field) for child in item]
             if isinstance(item, dict):
+                if self.local_comparison:
+                    intrinsic = next((key for key in item if key == 'Ref' or key.startswith('Fn::')), None)
+                    if intrinsic:
+                        raise Blocked(f'unproven model intrinsic reference: {intrinsic} {item[intrinsic]}; no confirmed template/target binding')
                 return {key: references(child, key) for key, child in item.items()}
             return item
         return references(value)
@@ -351,6 +453,8 @@ class Comparison:
         return template, self.stack_inputs[name]
 
     def run(self):
+        self.local_comparison = True
+        self.symbols.clear()
         for service, error in self.load_errors:
             self.record('error', service, '*', '*', error)
         if self.target['iacEngine'] != 'cloudformation':

@@ -677,6 +677,94 @@ def comparison_repair_cases():
         assert len(records) == 1 and records[0]['category'] == 'difference' and 'CREATE未実装' in records[0]['reason'], records
 
 
+def local_reference_cases():
+    from cloudformation_inputs import Blocked
+    with tempfile.TemporaryDirectory(prefix='local-references-') as directory:
+        root = Path(directory) / 'project'
+        _, template = fixture(root, stacks=2, services=['s3'])
+        consumer, producer = 'cfn-stack-app-dev-data1', 'cfn-stack-app-dev-data2'
+        template['Outputs'] = {'BucketArn': {'Value': {'Fn::GetAtt': ['Bucket', 'Arn']},
+                                          'Export': {'Name': {'Fn::Sub': '${Name}-BucketArn'}}}}
+        mutate_template(root, template)
+        def candidate():
+            comparison, _ = compare(root, ['s3'])
+            return comparison
+        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            comparison = candidate()
+            assert comparison.evaluate(consumer, {'Fn::Sub': '${Bucket}/*'}) == 'bucket-app-dev-data1/*'
+            assert comparison.evaluate(producer, {'Fn::Sub': '${Bucket}'}) == 'bucket-app-dev-data2'
+            assert comparison.evaluate(consumer, {'Fn::Sub': ['${Bucket}-${Name}-${AWS::Region}-${!Bucket}',
+                   {'Bucket': 'override', 'Name': 'mapped', 'AWS::Region': 'override-region'}]}) == 'override-mapped-override-region-${Bucket}'
+            assert comparison.evaluate(consumer, {'Fn::Sub': ['${X}', {'X': {'Ref': 'Bucket'}}]}) == 'bucket-app-dev-data1'
+            for value in ({'Fn::Sub': '${Missing}'}, {'Fn::Sub': '${Bucket.Arn}'},
+                          {'Fn::Sub': ['${X}', {'X': ['not', 'a string']}]}):
+                try:
+                    comparison.evaluate(consumer, value)
+                except Blocked:
+                    pass
+                else:
+                    raise AssertionError('unproven Sub must be blocked')
+            imported = {'Fn::ImportValue': {'Fn::Join': ['', ['app-dev-data2', '-BucketArn']]}}
+            assert comparison.evaluate(consumer, imported) == {'$resource': ['s3', '002'], '$attribute': 'Arn'}
+            expect_error(lambda: comparison.evaluate(consumer, {'Fn::ImportValue': 'missing'}), 'matches=0')
+            # Generated identifiers remain symbolic; missing and ambiguous ownership never infer a value.
+            document = comparison.stack_inputs[producer][0]
+            document['Resources']['Bucket']['Condition'] = 'Inactive'
+            document['Conditions']['Inactive'] = {'Fn::Equals': ['yes', 'no']}
+            comparison.symbols.clear()
+            expect_error(lambda: comparison.evaluate(consumer, imported), 'inactive')
+            mutate_template(root, template)
+            template['Outputs']['Duplicate'] = dict(template['Outputs']['BucketArn'])
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'matches=2')
+            del template['Outputs']['Duplicate']
+            template['Conditions']['Inactive'] = {'Fn::Equals': ['yes', 'no']}
+            template['Outputs']['BucketArn']['Condition'] = 'Inactive'
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'matches=0')
+            del template['Outputs']['BucketArn']['Condition']
+            template['Resources']['Bucket']['Properties']['BucketName'] = {'Fn::Sub': '${Bucket}'}
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, {'Fn::Sub': '${Bucket}'}), 'cyclic')
+            template['Resources']['Bucket']['Properties']['BucketName'] = {'Ref': 'Bucket'}
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, {'Fn::Sub': '${Bucket}'}), 'cyclic')
+            template['Resources']['Bucket']['Properties']['BucketName'] = {'Fn::Sub': 'bucket-${Name}'}
+            # Cross-stack import cycles also remain uncompared.
+            template['Outputs']['BucketArn']['Value'] = {'Fn::ImportValue': {'Fn::If': ['First', 'app-dev-data2-BucketArn', 'app-dev-data1-BucketArn']}}
+            template['Conditions']['First'] = {'Fn::Equals': [{'Ref': 'Name'}, 'app-dev-data1']}
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'cyclic')
+            template['Outputs']['BucketArn']['Value'] = {'Fn::GetAtt': ['Bucket', 'Arn']}
+            template['Outputs']['BucketArn']['Export']['Name'] = {'Fn::Sub': '${Bucket}'}
+            mutate_template(root, template)
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'resource/import')
+            template['Outputs']['BucketArn']['Export']['Name'] = {'Fn::Sub': '${Name}-BucketArn'}
+            mutate_template(root, template)
+            # Duplicate correspondence blocks even an otherwise evaluable export.
+            model = root / 'model/dev/123456789012/s3.properties'
+            original = model.read_text(encoding='utf-8')
+            write(model, original + 'desired.resource.003.resourceType=S3.Bucket\ndesired.resource.003.cfn-logicalId=' + producer + '-Bucket\n')
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'correspondence')
+            write(model, original)
+            comparison = candidate()
+            policy = {'Statement': [{'Condition': {'Bool': {'aws:SecureTransport': 'false'}},
+                                     'Resource': {'Fn::GetAtt': ['AppKey', 'Arn']}}]}
+            row = {'property': 'S3.BucketPolicy.PolicyDocument', 'value': 'policy.json', 'document': json.dumps(policy)}
+            expect_error(lambda: comparison.desired_value('s3', row, 'S3.BucketPolicy'), 'AppKey')
+            del policy['Statement'][0]['Resource']
+            assert comparison.desired_value('s3', dict(row, document=json.dumps(policy)), 'S3.BucketPolicy') == policy
+            # Shared deploy repair callers never run Comparison.run(): retain their original behavior.
+            deploy = Comparison(root, 'dev', '123456789012', ['s3'])
+            deploy.stack(deploy.templates()[0][1])
+            expect_error(lambda: deploy.evaluate(consumer, {'Fn::Sub': '${Bucket}'}), 'variable')
+            expect_error(lambda: deploy.evaluate(consumer, imported), 'handoff')
+            assert deploy.desired_value('s3', row, 'S3.BucketPolicy')['Statement'][0]['Resource'] == {'Fn::GetAtt': ['AppKey', 'Arn']}
+            # A missing declared stack prevents proof of export uniqueness.
+            (root / 'infra/cloudformation/parameters/dev/123456789012/stack-2.json').unlink()
+            expect_error(lambda: candidate().evaluate(consumer, imported), 'search incomplete')
+
+
 def concurrency(root):
     # Same-worktree report writes wait for file acquisition, then merge latest contents.
     from task_contract import refresh, complete, reservations, contracts, status
@@ -978,6 +1066,7 @@ def main():
         extended_cases(root, template)
         concurrency(root)
     comparison_repair_cases()
+    local_reference_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
