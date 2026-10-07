@@ -2491,6 +2491,46 @@ class Validator:
                 )
 
     def check_cloudformation_environment_parameters(self) -> None:
+        def uses_environment(value) -> bool:
+            if isinstance(value, list):
+                return any(uses_environment(item) for item in value)
+            if not isinstance(value, dict):
+                return False
+            if value.get("Ref") == "Environment":
+                return True
+            if "Fn::Sub" in value:
+                argument = value["Fn::Sub"]
+                text, variables = (argument, {}) if isinstance(argument, str) else (
+                    argument if isinstance(argument, list) and len(argument) == 2 else ("", {}))
+                if isinstance(text, str) and isinstance(variables, dict):
+                    return any(uses_environment(variables[name]) if name in variables else name == "Environment"
+                               for name in re.findall(r"\$\{([^}]+)\}", text) if not name.startswith("!"))
+            return any(uses_environment(item) for item in value.values())
+
+        def selection_paths(value, location=""):
+            if isinstance(value, list):
+                for index, item in enumerate(value):
+                    yield from selection_paths(item, f"{location}[{index}]")
+            elif isinstance(value, dict):
+                for key, argument in value.items():
+                    child = f"{location}.{key}" if location else key
+                    if key == "Conditions" and not location and isinstance(argument, dict):
+                        for name, expression in argument.items():
+                            if uses_environment(expression):
+                                yield f"{child}.{name}"
+                        continue
+                    selectors = []
+                    if isinstance(argument, list):
+                        if key == "Fn::FindInMap":
+                            selectors = argument[:3]
+                        elif key == "Fn::If" or key == "Fn::Select":
+                            selectors = argument[:1]
+                        elif isinstance(key, str) and key.startswith("Fn::ForEach::"):
+                            selectors = argument[1:2]
+                    if any(uses_environment(selector) for selector in selectors):
+                        yield child
+                    yield from selection_paths(argument, child)
+
         templates = self.root / "infra" / "cloudformation" / "templates"
         parameters = self.root / "infra" / "cloudformation" / "parameters"
         stack_parameters: dict[Path, Path] = {}
@@ -2513,24 +2553,28 @@ class Validator:
         for path in sorted(templates.rglob("*")):
             if self.iac_paths is not None and path not in self.iac_paths:
                 continue
-            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
                 continue
-            section = ""
-            parameter_keys: dict[int, set[str]] = {}
-            used = False
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if re.match(r"^[A-Za-z][A-Za-z0-9]*:\s*(?:#.*)?$", line):
-                    section = line.split(":", 1)[0]
-                    continue
-                if section == "Parameters":
-                    key = re.match(r"^( +)([A-Za-z][A-Za-z0-9]*):", line)
-                    if key:
-                        parameter_keys.setdefault(len(key.group(1)), set()).add(key.group(2))
-                if section == "Resources" and not line.lstrip().startswith("#"):
-                    used |= bool(re.search(r"!Ref\s+Environment\b|\$\{Environment\}", line))
-            if used:
+            try:
+                from cfnlint.decode import decode
+            except ImportError:
+                self.check(False, "cfn-lint Python runtime is required for CloudFormation Environment validation")
+                return
+            document, decode_errors = decode(str(path))
+            if decode_errors or not isinstance(document, dict):
+                detail = decode_errors[0] if decode_errors else "expected a template object"
+                self.check_file(False, path, f"invalid CloudFormation template for Environment validation: {self.relative(path)}: {detail}")
+                continue
+            for location in selection_paths(document):
+                self.check_file(False, path,
+                                f"CloudFormation must not branch on Environment: {self.relative(path)}: {location}. "
+                                "Environment may be used for naming/tags/value composition, but must not control "
+                                "Conditions or environment-specific value selection. "
+                                "Pass the differing value explicitly through deployment parameters instead.")
+            if uses_environment(document):
                 environment_templates.add(path)
-                declared = bool(parameter_keys) and "Environment" in parameter_keys[min(parameter_keys)]
+                definitions = document.get("Parameters", {})
+                declared = isinstance(definitions, dict) and "Environment" in definitions
                 self.check_file(declared, path, f"CloudFormation resource uses Environment without Parameters.Environment: {self.relative(path)}")
 
         for path in sorted(parameters.rglob("*.json")):
@@ -2542,8 +2586,8 @@ class Validator:
             environment, target_directory = parts[:2]
             candidates = [
                 templates / target_directory / f"{path.stem}{suffix}"
-                for suffix in (".yaml", ".yml")
-            ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml")]
+                for suffix in (".yaml", ".yml", ".json")
+            ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml", ".json")]
             matching_template = stack_parameters.get(path) or next((candidate for candidate in candidates if candidate.is_file()), None)
             self.check_file(
                 (environment, target_directory) not in designed_targets or path in stack_parameters,

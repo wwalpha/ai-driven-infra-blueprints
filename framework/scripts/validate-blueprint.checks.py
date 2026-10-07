@@ -1590,6 +1590,90 @@ Resources:
             valid_template, [valid_values[0], {**valid_values[1], "ParameterValue": "device"}]
         )
 
+        # Decode real short/long YAML intrinsics; names cannot hide Environment control-flow.
+        conditions = [
+            ("IsDev: !Equals [!Ref Environment, dev]", "IsDev"),
+            ("UseSmall: !Equals [!Ref Environment, dev]", "UseSmall"),
+            ("IsNonProd: !Not [!Equals [!Ref Environment, prod]]", "IsNonProd"),
+            ("NestedAnd:\n    Fn::And:\n      - Fn::Equals: [{Ref: Environment}, dev]\n      - Fn::Equals: [{Ref: EnableFeature}, 'true']", "NestedAnd"),
+            ("NestedOr: !Or [!Equals [!Ref Environment, dev], !Equals [!Ref EnableFeature, 'true']]", "NestedOr"),
+            ("Composed: !Equals [!Join ['-', [app, !Ref Environment]], app-dev]", "Composed"),
+            ("Substituted: !Equals [!Sub '${Environment}', dev]", "Substituted"),
+            ("Alias: !Equals [!Sub ['${Stage}', {Stage: !Ref Environment}], dev]", "Alias"),
+            ("Base: !Equals [!Ref Environment, dev]\n  Indirect: !Condition Base", "Base"),
+        ]
+        for expression, name in conditions:
+            yaml = valid_template + "Conditions:\n  " + expression + "\n"
+            failures = errors(yaml, valid_values)
+            assert any("must not branch on Environment" in failure and f"Conditions.{name}" in failure
+                       and "role.yaml" in failure and "deployment parameters" in failure
+                       for failure in failures), (expression, failures)
+        # Resource, property and Output existence/values all share the checked Conditions.
+        yaml = valid_template.replace("    Properties:", "    Condition: UseSmall\n    Properties:")
+        yaml += "Conditions:\n  UseSmall: !Equals [!Ref Environment, dev]\nOutputs:\n  Name:\n    Condition: UseSmall\n    Value: !If [UseSmall, small, large]\n"
+        assert any("Conditions.UseSmall" in failure for failure in errors(yaml, valid_values))
+
+        value_path = "Resources.Role.Properties.RoleName"
+        name_expression = "!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'"
+        selectors = [
+            ("!FindInMap [EnvironmentConfig, !Ref Environment, InstanceType]", "Fn::FindInMap"),
+            ("!FindInMap [EnvironmentConfig, dev, !Ref Environment]", "Fn::FindInMap"),
+            ("!FindInMap [!Sub '${Environment}Config', dev, InstanceType]", "Fn::FindInMap"),
+            ("!FindInMap [EnvironmentConfig, !Join ['', [!Ref Environment]], InstanceType]", "Fn::FindInMap"),
+            ("!FindInMap [EnvironmentConfig, !Sub ['${Stage}', {Stage: !Ref Environment}], InstanceType]", "Fn::FindInMap"),
+            ("!Select [!Ref Environment, [small, large]]", "Fn::Select"),
+            ("!Select [!FindInMap [EnvironmentConfig, !Ref Environment, Index], [small, large]]", "Fn::Select[0].Fn::FindInMap"),
+            ("!If [!Ref Environment, small, large]", "Fn::If"),
+        ]
+        for expression, intrinsic in selectors:
+            failures = errors(valid_template.replace(name_expression, expression), valid_values)
+            assert any(f"{value_path}.{intrinsic}" in failure for failure in failures), (expression, failures)
+        loop = "\n  Fn::ForEach::Loop:\n    - Item\n    - !Split [',', !Ref Environment]\n    - Bucket${Item}:\n        Type: AWS::S3::Bucket\n"
+        assert any("Resources.Fn::ForEach::Loop" in failure for failure in errors(valid_template + loop, valid_values))
+
+        permitted = [
+            valid_template,
+            valid_template.replace(name_expression, "!Join ['-', [app, !Ref Environment, role]]"),
+            valid_template + "      Tags:\n        - Key: Environment\n          Value: !Ref Environment\n",
+            valid_template + "Outputs:\n  Name:\n    Value: !Ref Role\n    Export:\n      Name: !Sub 'App${Environment}Role'\n",
+            valid_template + "Conditions:\n  HasSuffix: !Not [!Equals [!Ref Suffix, '']]\n",
+            valid_template + "Conditions:\n  UseFeature: !Equals [!Ref EnableFeature, 'true']\n",
+            valid_template.replace(name_expression, "!If [UseFeature, !Sub 'app-${Environment}-role', !Join ['-', [app, !Ref Environment]]]")
+                + "Conditions:\n  UseFeature: !Equals [!Ref EnableFeature, 'true']\n",
+            valid_template + "Conditions:\n  IsDev: !Equals [!Ref EnableFeature, 'true']\n",
+            valid_template + "Conditions:\n  Environment: !Equals [!Ref EnableFeature, 'true']\n  Indirect: !Condition Environment\n",
+            valid_template + "Conditions:\n  Literal: !Equals [Environment, dev]\n",
+            valid_template + "Conditions:\n  Escaped: !Equals [!Sub '${!Environment}', dev]\n",
+            valid_template + "Conditions:\n  Overridden: !Equals [!Sub ['${Environment}', {Environment: literal}], dev]\n",
+            valid_template + "Conditions:\n  Unused: !Equals [!Sub ['literal', {Stage: !Ref Environment}], dev]\n",
+            valid_template.replace(name_expression, "!Select [0, [!Ref Environment, other]]"),
+            valid_template.replace(name_expression, "!FindInMap [Config, Feature, Name, {DefaultValue: !Ref Environment}]"),
+            valid_template + "# IsDev: !Equals [!Ref Environment, dev]\n",
+            valid_template + "Mappings:\n  Config:\n    dev:\n      0: [small, large]\n",
+        ]
+        for yaml in permitted:
+            assert not errors(yaml, valid_values), (yaml, errors(yaml, valid_values))
+
+        # JSON templates and long-form intrinsics use the same AST and file gate.
+        template.unlink()
+        template = template.with_suffix(".json")
+        document = {"Parameters": {"Environment": {"Type": "String"}},
+                    "Resources": {"Bucket": {"Type": "AWS::S3::Bucket", "Properties": {
+                        "BucketName": {"Fn::Sub": "app-${Environment}-bucket"}}}}}
+        assert not errors(json.dumps(document), valid_values)
+        document["Conditions"] = {"Renamed": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]}}
+        failures = errors(json.dumps(document), valid_values)
+        assert any("role.json: Conditions.Renamed" in failure for failure in failures), failures
+        validator = MODULE.Validator(root, set())
+        validator.file_gate_paths = set()
+        validator.check_cloudformation_environment_parameters()
+        assert not validator.errors and any("must not branch" in failure for failure in validator.non_blocking_findings)
+        validator.file_gate_paths.add(template.relative_to(root).as_posix())
+        validator.check_cloudformation_environment_parameters()
+        assert any("must not branch" in failure for failure in validator.errors)
+        assert any("invalid CloudFormation template" in failure for failure in errors("Resources: [", valid_values))
+    print("CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON, file gating)")
+
 def check_cloudformation_stack_design() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -1871,7 +1955,7 @@ def check_task_file_gating() -> None:
         for name, count in names.items():
             path = primary / "infra/cloudformation/templates" / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("Metadata:\n" + "  Fn::Sub: invalid\n" * count, encoding="utf-8")
+            path.write_text("Metadata:\n  Entries:\n" + "    - Fn::Sub: invalid\n" * count, encoding="utf-8")
         wt.git(primary, "add", ".")
         wt.git(primary, "commit", "-qm", "baseline")
         state = wt.create(primary, "file-gate")
