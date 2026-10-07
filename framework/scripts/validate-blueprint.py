@@ -166,7 +166,9 @@ YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
 
 
 class Validator:
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, repository_wide_gate=False) -> None:
+        self.repository_wide_gate = repository_wide_gate or scope is None
+        self.file_gate_paths: set[str] | None = None
         self.iac_paths = iac_paths
         self.task_iac_paths = task_iac_paths
         self.workers = workers
@@ -179,6 +181,7 @@ class Validator:
         self.generated_models_checked = False
         self.root = root
         self.errors: list[str] = []
+        self.non_blocking_findings: list[str] = []
         self.checks = 0
         self.changed_paths: set[str] = set()
         self.task_type = ""
@@ -201,6 +204,14 @@ class Validator:
         if not condition:
             self.errors.append(message)
 
+    def check_file(self, condition: bool, path: Path, message: str) -> None:
+        self.checks += 1
+        if not condition:
+            # Unresolved authority fails closed; global checks always use check().
+            blocking = (self.repository_wide_gate or self.file_gate_paths is None
+                        or self.relative(path) in self.file_gate_paths)
+            (self.errors if blocking else self.non_blocking_findings).append(message)
+
     def relative(self, path: Path) -> str:
         if path not in self.relative_paths:
             self.relative_paths[path] = path.resolve().relative_to(self.canonical_root).as_posix()
@@ -218,7 +229,8 @@ class Validator:
         self.check_validation_scope()
         self.check_model_files()
         self.check_issue_gate()
-        self.check_task_type_requirements()
+        if self.changed_paths:
+            self.check_task_type_requirements()
         self.check_initialized_paths()
         self.check_catalog()
         self.check_resource_layout()
@@ -244,6 +256,7 @@ class Validator:
             print(f"Blueprint repository validation: FAIL ({len(self.errors)} errors)")
             for error in self.errors:
                 print(f"- {error}")
+            self.report_findings()
             return 1
 
         result = "DEFERRED (Active checks passed; task remains running)" if self.deferred_files else "PASS"
@@ -259,7 +272,15 @@ class Validator:
             print(f"- deferred acceptance: {', '.join(self.deferred_acceptance)}")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
         print(f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}")
+        self.report_findings()
         return 0
+
+    def report_findings(self) -> None:
+        print(f"Checks: {self.checks}")
+        print(f"Blocking errors: {len(self.errors)}")
+        print(f"Non-blocking findings: {len(self.non_blocking_findings)}")
+        for finding in self.non_blocking_findings:
+            print(f"- non-blocking: {finding}")
 
     def check_structure(self) -> None:
         for filename in (
@@ -317,8 +338,20 @@ class Validator:
             | self.git_paths(["diff", "--cached", "--no-renames", "--name-only", "-z"])
             | self.git_paths(["ls-files", "--others", "--exclude-standard", "-z"])
         ) - {".lock"}  # Per-repository password configuration is not a task artifact.
-        if not self.changed_paths:
-            return
+        if not self.changed_paths and (not prompt.is_file() or
+                "- Task type:" not in prompt.read_text(encoding="utf-8")):
+            return  # Preserve the unchanged legacy idle state.
+        if prompt.is_file():
+            records = contracts(self.root)
+            entry = reservations(self.root, records)[self.relative(prompt)]
+            from worktree_task import committed_task_paths
+            committed = committed_task_paths(self.root, self.relative(prompt))
+            if committed is not None:
+                # Attribution uses the existing local grants, excluding other tasks/Deferred files.
+                self.changed_paths |= committed & (entry.active or set())
+            else:
+                # Exact acquired Modified files are the stable legacy task contract authority.
+                self.file_gate_paths = entry.active
         if not prompt.is_file():
             if contracts(self.root, include_foreign=True):
                 self.changed_paths = task_changes(self.root, self.changed_paths)
@@ -330,10 +363,9 @@ class Validator:
             return
 
         self.changed_paths = task_changes(self.root, self.changed_paths, self.relative(prompt))
-        self.deferred_files = set(reservations(self.root, contracts(self.root))[self.relative(prompt)].deferred)
-        if not self.changed_paths:
-            return
-
+        if committed is not None:
+            self.file_gate_paths = self.changed_paths
+        self.deferred_files = set(entry.deferred)
         lines = prompt.read_text(encoding="utf-8").splitlines()
         contract: list[str] = []
         in_contract = False
@@ -2364,7 +2396,7 @@ class Validator:
                     scalar_indent = None
                 code = self.unquoted_yaml(line)
                 if YAML_REUSE.search(code):
-                    self.check(False, f"CloudFormation YAML anchor/alias/merge is forbidden: {self.relative(path)}:{index + 1}")
+                    self.check_file(False, path, f"CloudFormation YAML anchor/alias/merge is forbidden: {self.relative(path)}:{index + 1}")
                 quoted_long = any(
                     match.group("prefix") == code[match.start("prefix"):match.end("prefix")]
                     for match in QUOTED_LONG_CF_KEY.finditer(line)
@@ -2374,7 +2406,7 @@ class Validator:
                     if code[match.start():].startswith("!ImportValue"):
                         code = code[:match.start()] + code[match.start():match.end()].replace("Fn::Join:", " " * 9) + code[match.end():]
                 if LONG_CF_KEY.search(code) or quoted_long:
-                    self.check(False, f"CloudFormation intrinsic must use YAML short form: {self.relative(path)}:{index + 1}")
+                    self.check_file(False, path, f"CloudFormation intrinsic must use YAML short form: {self.relative(path)}:{index + 1}")
 
                 tag = re.search(r"![A-Za-z][A-Za-z0-9]*\s*$", code)
                 if tag and re.fullmatch(r"![A-Za-z][A-Za-z0-9]*\s*(?:#.*)?", line[tag.start():]):
@@ -2382,7 +2414,7 @@ class Validator:
                         if not later.strip() or later.lstrip().startswith("#"):
                             continue
                         if len(later) - len(later.lstrip(" ")) > indent and later.lstrip().startswith("- "):
-                            self.check(False, f"CloudFormation intrinsic array must use YAML flow form: {self.relative(path)}:{index + 1}")
+                            self.check_file(False, path, f"CloudFormation intrinsic array must use YAML flow form: {self.relative(path)}:{index + 1}")
                         break
 
                 if re.search(r":\s*(?:![A-Za-z][A-Za-z0-9]*\s*)?[>|][+-]?\s*$", code):
@@ -2413,7 +2445,7 @@ class Validator:
                 resource = re.fullmatch(r"( +)[A-Za-z0-9]+:\s*", code)
                 if resource and (resource_indent is None or indent <= resource_indent):
                     if seen_resource:
-                        self.check(not lines[index - 1].strip(), f"CloudFormation resources must be separated by a blank line: {self.relative(path)}:{index + 1}")
+                        self.check_file(not lines[index - 1].strip(), path, f"CloudFormation resources must be separated by a blank line: {self.relative(path)}:{index + 1}")
                     seen_resource = True
                     resource_indent, property_indent = indent, None
                     continue
@@ -2443,17 +2475,18 @@ class Validator:
                 "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress",
             }
             if role_only:
-                self.check(standalone_marker, f"Role-only template requires Metadata.RolePlacement: standalone: {self.relative(path)}")
+                self.check_file(standalone_marker, path, f"Role-only template requires Metadata.RolePlacement: standalone: {self.relative(path)}")
             elif standalone_marker:
-                self.check(False, f"Metadata.RolePlacement: standalone requires a Role-only template: {self.relative(path)}")
+                self.check_file(False, path, f"Metadata.RolePlacement: standalone requires a Role-only template: {self.relative(path)}")
             if requires_consumer and not role_only and not rules_only:
-                self.check(
+                self.check_file(
                     any(
                         not kind.startswith("AWS::Logs::")
                         and kind not in support_types
                         and not is_security_group(kind)
                         for kind in resource_types
                     ),
+                    path,
                     f"CloudWatch Logs, IAM Role, and Security Group must share the consuming resource template: {self.relative(path)}",
                 )
 
@@ -2498,7 +2531,7 @@ class Validator:
             if used:
                 environment_templates.add(path)
                 declared = bool(parameter_keys) and "Environment" in parameter_keys[min(parameter_keys)]
-                self.check(declared, f"CloudFormation resource uses Environment without Parameters.Environment: {self.relative(path)}")
+                self.check_file(declared, path, f"CloudFormation resource uses Environment without Parameters.Environment: {self.relative(path)}")
 
         for path in sorted(parameters.rglob("*.json")):
             if self.iac_paths is not None and path not in self.iac_paths:
@@ -2512,31 +2545,34 @@ class Validator:
                 for suffix in (".yaml", ".yml")
             ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml")]
             matching_template = stack_parameters.get(path) or next((candidate for candidate in candidates if candidate.is_file()), None)
-            self.check(
+            self.check_file(
                 (environment, target_directory) not in designed_targets or path in stack_parameters,
+                path,
                 f"parameter file is absent from stack design: {self.relative(path)}",
             )
             requires_environment = matching_template in environment_templates
             try:
                 entries = json.loads(path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as error:
-                self.check(False, f"invalid CloudFormation parameter JSON: {self.relative(path)}: {error}")
+                self.check_file(False, path, f"invalid CloudFormation parameter JSON: {self.relative(path)}: {error}")
                 continue
             if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
-                self.check(False, f"CloudFormation parameter file must be a parameter array: {self.relative(path)}")
+                self.check_file(False, path, f"CloudFormation parameter file must be a parameter array: {self.relative(path)}")
                 continue
             environment_values = [entry.get("ParameterValue") for entry in entries if entry.get("ParameterKey") == "Environment"]
             if requires_environment or environment_values:
-                self.check(
+                self.check_file(
                     environment_values == [environment],
+                    path,
                     f"CloudFormation Environment parameter must equal target environment: {self.relative(path)}",
                 )
             component = re.compile(rf"(?<![a-z0-9]){re.escape(environment)}(?![a-z0-9])", re.IGNORECASE)
             for entry in entries:
                 value = entry.get("ParameterValue")
                 if entry.get("ParameterKey") != "Environment" and isinstance(value, str):
-                    self.check(
+                    self.check_file(
                         component.search(value) is None,
+                        path,
                         f"CloudFormation parameter value contains Environment component: {self.relative(path)}: {entry.get('ParameterKey')}",
                     )
 
@@ -2705,7 +2741,8 @@ def main() -> int:
                               active_scope(root) if args.contract_scope else None,
                               cache=True, fresh=args.fresh or args.all, workers=args.jobs,
                               iac_paths=None if args.all or args.repository_wide_iac else deployment_paths,
-                              task_iac_paths=deployment_paths)
+                              task_iac_paths=deployment_paths,
+                              repository_wide_gate=args.all or args.repository_wide_iac)
         if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
             import cProfile
             import pstats

@@ -137,6 +137,22 @@ def load(where, task_id):
     return primary, common, path, state
 
 
+def committed_task_paths(root, task_file):
+    """Reuse the managed worktree's pinned start; never read another checkout's diff."""
+    common = Path(output(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    path = state_path(common, Path(task_file).stem)
+    if not path.exists():
+        return None  # Legacy/non-managed contracts retain their acquired file scope.
+    _, _, _, state = load(root, Path(task_file).stem)
+    if Path(state["worktree"]).resolve() != root.resolve():
+        return None  # A same-named task in another worktree supplies no authority here.
+    if state["identity"] != tasks.worktree_identity(root):
+        raise Blocked("task lifecycle worktree identity mismatch")
+    if git(root, "merge-base", "--is-ancestor", state["start"], "HEAD", check=False).returncode:
+        raise Blocked("task lifecycle start is not an ancestor of HEAD")
+    return paths(root, "diff", "--no-renames", "--name-only", "-z", state["start"], "HEAD")
+
+
 def idle_git(root):
     for name in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"):
         path = Path(output(root, "rev-parse", "--path-format=absolute", "--git-path", name))
