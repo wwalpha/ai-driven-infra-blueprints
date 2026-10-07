@@ -2397,11 +2397,31 @@ class Validator:
                 code = self.unquoted_yaml(line)
                 if YAML_REUSE.search(code):
                     self.check_file(False, path, f"CloudFormation YAML anchor/alias/merge is forbidden: {self.relative(path)}:{index + 1}")
+                # ImportValue must use its full name when its value is a short Sub tag.
+                sub_import = re.search(r"(?P<prefix>^|[{,]|-\s)\s*(?P<key>Fn::ImportValue|'Fn::ImportValue'|\"Fn::ImportValue\")\s*:\s*(?P<value>.*)$", line)
+                if sub_import and sub_import.group("prefix") == code[sub_import.start("prefix"):sub_import.end("prefix")]:
+                    value = self.unquoted_yaml(sub_import.group("value")).strip()
+                    if not value:
+                        for later in lines[index + 1:]:
+                            value = self.unquoted_yaml(later).strip()
+                            if value:
+                                if len(later) - len(later.lstrip(" ")) <= indent:
+                                    value = ""
+                                break
+                    if re.match(r"!Sub(?:\s|$)", value):
+                        start, end = sub_import.span("key")
+                        line = line[:start] + " " * (end - start) + line[end:]
+                        code = self.unquoted_yaml(line)
+                for match in re.finditer(r"!ImportValue\s*\{\s*(?P<key>Fn::Sub|'Fn::Sub'|\"Fn::Sub\")\s*:", line):
+                    if code[match.start():].startswith("!ImportValue"):
+                        start, end = match.span("key")
+                        line = line[:start] + " " * (end - start) + line[end:]
+                        code = self.unquoted_yaml(line)
                 quoted_long = any(
                     match.group("prefix") == code[match.start("prefix"):match.end("prefix")]
                     for match in QUOTED_LONG_CF_KEY.finditer(line)
                 )
-                # YAML cannot stack short tags; allow only the parameterized export suffix join.
+                # YAML cannot stack short tags; also allow the parameterized export suffix join.
                 for match in re.finditer(r"!ImportValue\s*\{Fn::Join:\s*\[(?:''|\"\"),\s*\['[A-Z][A-Za-z0-9]*',\s*!Ref [A-Za-z][A-Za-z0-9]*\]\]\}", line):
                     if code[match.start():].startswith("!ImportValue"):
                         code = code[:match.start()] + code[match.start():match.end()].replace("Fn::Join:", " " * 9) + code[match.end():]

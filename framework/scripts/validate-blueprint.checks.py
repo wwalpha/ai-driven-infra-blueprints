@@ -1450,6 +1450,20 @@ def check_cloudformation_yaml_rules() -> None:
             assert not errors(parameter_import), errors(parameter_import)
         assert any("must use YAML short form" in error for error in errors(suffix_import.replace("!Ref Suffix", "!Ref Invalid_Name")))
         assert any("must use YAML short form" in error for error in errors(suffix_import.replace("['',", "['-',")))
+        for imported in (
+            "Imported:\n        Fn::ImportValue: !Sub 'VpcId${Suffix}'",
+            'Imported:\n        Fn::ImportValue: !Sub "SubnetId${OtherSuffix}"',
+            "Imported:\n        Fn::ImportValue:\n          # Import name\n          !Sub 'VpcId${NamePart}'",
+            "Imported:\n        'Fn::ImportValue': !Sub 'VpcId${Suffix}'",
+            'Imported: {"Fn::ImportValue": !Sub "VpcId${Suffix}"}',
+            "Imported: !ImportValue {Fn::Sub: 'VpcId${Suffix}'}",
+            'Imported: !ImportValue {Fn::Sub: "SubnetId${OtherSuffix}"}',
+            "Imported: !ImportValue {'Fn::Sub': 'VpcId${NamePart}'}",
+            'Imported: !ImportValue {"Fn::Sub": "VpcId${Suffix}"}',
+            "Imported: !ImportValue {Fn::Sub: ['VpcId${Part}', {Part: !Ref Suffix}]}",
+        ):
+            sub_import = valid.replace("Imported: !ImportValue fixed-export", imported)
+            assert not errors(sub_import), errors(sub_import)
         assert any(
             "resources must be separated by a blank line" in error
             for error in errors(valid.replace("\n  RoleB:", "  RoleB:", 1))
@@ -1461,8 +1475,15 @@ def check_cloudformation_yaml_rules() -> None:
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Join: ['-', [a, b]]}"),
             valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Sub: '${AWS::Region}'}"),
             valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue: fixed-export"),
-            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue:\n          !Sub '${NetworkStack}-SubnetID'"),
-            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        'Fn::ImportValue': !Sub '${NetworkStack}-SubnetID'"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue: {Fn::Sub: 'VpcId${Suffix}'}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue:\n        Description: !Sub 'VpcId${Suffix}'"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported:\n        Fn::ImportValue:\n          Ref: Suffix"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue fixed-export # Fn::ImportValue: !Sub 'text'\n      ExtraImport: {Fn::Sub: text}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: 'Fn::ImportValue: !Sub text'\n      ExtraImport: {Fn::Sub: text}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue {Fn::Sub: ['VpcId${Part}', {Part: {Ref: Suffix}}]}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue {Fn::Sub: 'VpcId${Suffix}'}\n      ExtraImport: {Fn::Sub: text}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: '!ImportValue {Fn::Sub: text}'\n      ExtraImport: {Fn::Sub: text}"),
+            valid.replace("Imported: !ImportValue fixed-export", "Imported: !ImportValue fixed-export # !ImportValue {Fn::Sub: text}\n      ExtraImport: {Fn::Sub: text}"),
         ):
             assert any("must use YAML short form" in error for error in errors(bad)), errors(bad)
 
