@@ -61,10 +61,11 @@ def fixture(branch="main"):
         yield root
 
 
-def cli(root, command, task_id="example", success=True):
+def cli(root, command, task_id="example", success=True, approval=None):
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     result = subprocess.run([sys.executable, "-B", str(SCRIPT), command,
-                             "--repository-root", str(root), "--task-id", task_id],
+                             "--repository-root", str(root), "--task-id", task_id,
+                             *(["--human-approved-validation-failure", approval] if approval is not None else [])],
                             cwd=root, env=environment, capture_output=True, encoding="utf-8")
     data = json.loads(result.stdout)
     assert result.returncode == (0 if success else 1), result.stdout + result.stderr
@@ -323,6 +324,45 @@ def check_merge_retry_and_commit_failure():
     print("Failed merge retries, zero-change rebase, altered commit rejection: PASS")
 
 
+def check_human_approved_validation_failure():
+    approval = "Human approves commit and merge despite file.txt trailing whitespace validation failure"
+    for mode in ("accepted", "running", "deferred", "outside", "git-conflict", "blank"):
+        with fixture() as root:
+            target, state = start(root)
+            (target / "file.txt").write_text("task  \n")
+            before = git(root, "rev-parse", "HEAD")
+            if mode != "running":
+                tasks.suspend(target, state["task_file"], "Local loop failed: file.txt trailing whitespace")
+            if mode == "deferred":
+                path = target / state["task_file"]
+                text = path.read_text().replace("## Active files\n\n- `file.txt`\n", "## Active files\n\n")
+                path.write_text(text.replace("## Deferred files\n", "## Deferred files\n\n- `file.txt`\n"))
+            elif mode == "outside":
+                (target / "outside.txt").write_text("unrelated\n")
+            elif mode == "git-conflict":
+                (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
+            if mode != "accepted":
+                cli(root, "finalize", success=False, approval=" " if mode == "blank" else approval)
+                retained(root, target, state, before)
+                assert git(target, "rev-parse", "HEAD") == state["start"], mode
+                continue
+            cli(root, "finalize", success=False)  # No approval still blocks before commit.
+            assert git(target, "rev-parse", "HEAD") == state["start"]
+            (target / "secret.bin").write_bytes(b"keep suspended contract for inspection")
+            result = cli(root, "finalize", success=False, approval=approval)
+            assert "ignored files" in result["error"] and result["merged"]
+            assert result["validation_failure_approval"] == approval
+            text = (target / state["task_file"]).read_text()
+            assert tasks.status(text) == "suspend" and "Local loop failed" in text
+            assert git(root, "log", "-1", "--format=%s") == "task(example): human-approved validation failure"
+            assert approval in git(root, "log", "-1", "--format=%b")
+            assert (root / "file.txt").read_text() == "task  \n"
+            (target / "secret.bin").unlink()
+            assert cli(root, "cleanup")["cleaned"]  # Stored approval survives cleanup retry.
+            assert not target.exists() and not wt.branch_exists(root, state["branch"])
+    print("Explicit human approval, retained FAIL/suspend, scope/Deferred/Git guards and cleanup retry: PASS")
+
+
 def check_real_loop_integration():
     # Reuse the existing minimal framework fixture, not a new completion engine.
     spec = importlib.util.spec_from_file_location("loop_checks", SCRIPT.with_name("blueprint-loop.checks.py"))
@@ -360,7 +400,10 @@ def check_real_loop_integration():
         cli(root, "finalize", "failed-loop", success=False)
         retained(root, target, state, before)
         assert git(target, "rev-parse", "HEAD") == state["start"]
-    print("Real Task Contract + child local loop success/failure integration: PASS")
+        result = cli(root, "finalize", "failed-loop", approval="Human approves commit and merge despite trailing whitespace loop failure")
+        assert result["cleaned"] and result["validation_failure_approval"]
+        assert (root / "docs/system-overview.md").read_text() == "# Trailing whitespace  \n"
+    print("Real Task Contract + child local loop success/failure/approved failure integration: PASS")
 
 
 def main():
@@ -368,7 +411,7 @@ def main():
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_cleanup_failure_and_retry,
                   check_merge_retry_and_commit_failure,
-                  check_real_loop_integration):
+                  check_human_approved_validation_failure, check_real_loop_integration):
         check()
     print("worktree-task: PASS (isolated lifecycle and failure retention)")
 

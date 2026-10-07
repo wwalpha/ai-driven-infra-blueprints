@@ -179,15 +179,19 @@ def task_worktree(root, state):
     return target
 
 
-def completed(target, state):
-    # Completion belongs to Task Contract/child skill, including loop and approvals.
+def integration_task(target, state, approval=None):
+    # A human-approved Git integration does not turn failed validation into completion.
     records = tasks.contracts(target, include_foreign=True)
     tasks.selected_text(target, records, state["task_file"])
     entry = tasks.reservations(target, records)[state["task_file"]]
-    if entry.state != "completed":
-        raise Blocked(f"task must be completed by its existing workflow; current status: {entry.state}")
+    approval = approval or state.get("validation_failure_approval")
+    expected = "suspend" if approval else "completed"
+    if entry.state != expected:
+        raise Blocked(f"task must be {expected} for integration; current status: {entry.state}")
     if entry.files is None:
         raise Blocked("exact Modified files are required")
+    if entry.files - entry.active:
+        raise Blocked("unfinished Deferred files; integration refused")
     return entry
 
 
@@ -214,7 +218,7 @@ def cleanup_state(root, path, state):
     target = Path(state["worktree"])
     if target.exists() or any(Path(e["worktree"]).resolve() == target for e in worktrees(root)):
         target = task_worktree(root, state)
-        completed(target, state)
+        integration_task(target, state)
         if output(target, "rev-parse", "HEAD") != state["tip"]:
             raise Blocked("task HEAD changed since merge; cleanup refused")
         if changed_paths(target):
@@ -242,13 +246,16 @@ def cleanup(where, task_id):
         return cleanup_state(root, path, state)
 
 
-def finalize(where, task_id):
+def finalize(where, task_id, human_approved_validation_failure=None):
+    if human_approved_validation_failure is not None and not human_approved_validation_failure.strip():
+        raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
     with lifecycle_lock(common):
         if state["merged"]:
             return cleanup_state(root, path, state)
         target = task_worktree(root, state)
-        entry = completed(target, state)
+        approval = human_approved_validation_failure or state.get("validation_failure_approval")
+        entry = integration_task(target, state, approval)
         changed = changed_paths(target)
         if tasks.task_changes(target, changed, state["task_file"]) != changed or changed - entry.active:
             raise Blocked("changes outside this task; nothing committed")
@@ -261,16 +268,20 @@ def finalize(where, task_id):
             raise Blocked("task commit verification failed; review required before any retry")
         if state["commit"] and changed:
             raise Blocked("task changed after commit; rerun its workflow before integration")
+        if approval:
+            state["validation_failure_approval"] = approval
         if changed:
-            git(target, "diff", "--check")
-            git(target, "diff", "--cached", "--check")
+            git(target, "diff", "--check", check=not approval)
+            git(target, "diff", "--cached", "--check", check=not approval)
             literal = [f":(top,literal){p}" for p in sorted(changed)]
             git(target, "add", "--", *literal)
             # Staged edits canceled by working-tree edits are an effective zero-change task.
             changed = paths(target, "diff", "--cached", "--no-renames", "--name-only", "-z")
         if changed:
             tree = output(target, "write-tree")
-            git(target, "commit", "-m", f"task({task_id}): completed task")
+            message = (f"task({task_id}): human-approved validation failure" if approval
+                       else f"task({task_id}): completed task")
+            git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
             state["commit"] = output(target, "rev-parse", "HEAD")
             state["tip"] = state["commit"]
             save(path, state)  # Preserve the task commit before touching the latest base.
@@ -313,12 +324,17 @@ def main():
     parser.add_argument("command", choices=("create", "finalize", "cleanup"))
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--task-id", required=True)
+    parser.add_argument("--human-approved-validation-failure", metavar="APPROVAL",
+                        help="Finalize a suspended task only after explicit human approval of named validation failures")
     args = parser.parse_args()
+    if args.human_approved_validation_failure is not None and args.command != "finalize":
+        parser.error("--human-approved-validation-failure is only valid with finalize")
     where = args.repository_root
     try:
         if args.command != "create":
             where = load(where, args.task_id)[0]  # Keep diagnostics usable after task checkout removal.
-        state = globals()[args.command](where, args.task_id)
+        state = (finalize(where, args.task_id, args.human_approved_validation_failure)
+                 if args.command == "finalize" else globals()[args.command](where, args.task_id))
         print(json.dumps({"status": "ok", **state}, ensure_ascii=False))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:

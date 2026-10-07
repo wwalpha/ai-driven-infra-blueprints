@@ -27,14 +27,22 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Complete and integrate
 
-Finish all requested Active/Deferred work and all required inputs/approvals under the child's existing workflow. Only after its successful local loop and all other mandatory completion conditions:
+Finish all requested Active/Deferred work and all required inputs/approvals under the child's existing workflow. Normally, proceed only after its successful local loop and all other mandatory completion conditions:
 
 ```console
 python3 -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
 python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
 ```
 
-`finalize` reads the existing completed status/reservations, rejects outside-task changes, unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Commit messages use `task(<task-id>): completed task`; zero changes create no empty commit.
+If validation/local loop fails, report the concrete failures and stop by default. If the human explicitly approves commit and merge despite those failures, keep the contract `suspend` with its Suspension reason; do not run `--complete` or report validation PASS. With all requested work and inputs otherwise finished, use:
+
+```console
+python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --human-approved-validation-failure "<human approval identifying the accepted failures>"
+```
+
+Use this option only after actual human approval of this task's failures; a general request to run the task or this skill is not approval. The helper records the approval in lifecycle metadata and the commit message; Git integration success remains separate from validation FAIL. The approval permits only commit/rebase/merge/cleanup, without resuming the task or authorizing AWS operations. Missing inputs, unfinished work/Deferred files, outside-task changes, and Git safety blocks still stop integration. A retained committed task may retry with its recorded approval; changed work needs renewed review and approval.
+
+`finalize` reads the existing completed status/reservations (or the explicitly approved suspended status), rejects outside-task changes, unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
 
 It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the worktree/branch without force. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through one common-directory lifecycle mutex; file reservations and AWS locks remain separate. No remote push or PR is created.
 
@@ -42,7 +50,7 @@ It then checks a clean worktree holding the local base, rebases the task onto it
 
 Exit 0 and JSON `status: ok` indicate success; exit 1 and `status: blocked` give the reason and retained branch/worktree/commit/merge state when available (invalid CLI arguments exit 2). Do not parse long Git stdout or construct ad hoc recovery shells.
 
-For failed validation/loop, suspended, unfinished Deferred, missing input, approval waits or conflicts, stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Finalize itself never completes or resumes a task. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
+For failed validation/loop, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, unfinished Deferred, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Finalize itself never completes or resumes a task. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
 
 Cleanup runs only after verified merge. Dirty worktrees, unmerged/changed branches, locked/stale entries and ignored user artifacts are retained. If cleanup fails, report the merged commit and remaining worktree/branch; do not roll back the merge. From a surviving repository root, retry only the helper:
 
