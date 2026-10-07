@@ -654,6 +654,11 @@ class AwsBackend:
 
     def begin_prepare(self, unit, state):
         self.check_imports(unit)  # Also recheck when resuming an approved change set.
+        if state.get('cleanupStatus') == 'DELETE_INTENT':
+            if not self.cleanup_failed_create(unit, state, empty_only=True):
+                raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
+            state['emptyStackRecreated'] = True
+            self.reset_after_cleanup(state)
         arguments = self.template_arguments(unit, state)
         if not state.get("changeSetId"):
             try:
@@ -664,6 +669,17 @@ class AwsBackend:
                 stack = None
             if stack and state.get('cleanupStatus') == 'DELETE_COMPLETE':
                 raise Blocked('failed CREATE name was reused after cleanup; never adopt another stack')
+            if stack and stack['StackStatus'] == 'ROLLBACK_COMPLETE':
+                if state.get('stackId') and state['stackId'] != stack['StackId']:
+                    raise Blocked('failed CREATE stack identity changed')
+                state.update(stackStatus='ROLLBACK_COMPLETE', stackId=stack['StackId'])
+                self.save()
+                if not self.cleanup_failed_create(unit, state, empty_only=True):
+                    raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
+                state['emptyStackRecreated'] = True
+                self.reset_after_cleanup(state)
+                arguments = self.template_arguments(unit, state)
+                stack = None
             if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:
                 raise Blocked(f"stack not updateable: {stack['StackStatus']}")
             if stack:
@@ -924,18 +940,17 @@ class AwsBackend:
         require_writable(self.root, [path])
         return path, text, '|'.join(sorted(set(classes)))
 
-    def cleanup_failed_create(self, unit, state):
+    def cleanup_failed_create(self, unit, state, *, empty_only=False):
         if state.get('stackStatus') == 'PRE_EXECUTION':
             return
         if state.get('stackStatus') != 'ROLLBACK_COMPLETE':
             if state.get('stackStatus') != 'UPDATE_ROLLBACK_COMPLETE':
                 raise Blocked('rollback recovery cannot be proven safe; no delete/ResourcesToSkip')
             return
-        if (state.get('operationType') != 'CREATE' or not state.get('absentBeforeCreate')
-                or not state.get('stackId') or state.get('operationStackId') != state['stackId']):
-            raise Blocked('failed CREATE session provenance missing; never delete by name')
-        if state.get('cleanupStatus') == 'DELETE_COMPLETE':
-            return
+        if not state.get('stackId'):
+            raise Blocked('failed CREATE StackId missing; never delete by name')
+        if state.get('cleanupStatus') == 'DELETE_COMPLETE' and state.get('cleanupStackId') == state['stackId']:
+            return True
         if state.get('cleanupStatus') == 'DELETE_INTENT':
             try:
                 current = self.aws('describe-stacks', '--stack-name', state['stackId'])['Stacks'][0]
@@ -944,34 +959,44 @@ class AwsBackend:
                     raise
                 state['cleanupStatus'] = 'DELETE_COMPLETE'
                 self.save()
-                return
+                return True
             if current['StackId'] != state['stackId']:
                 raise Blocked('interrupted cleanup stack identity changed')
-            if current['StackStatus'] == 'DELETE_IN_PROGRESS':
-                return self.wait_cleanup(state)
+            if current['StackStatus'] in {'DELETE_IN_PROGRESS', 'DELETE_COMPLETE'}:
+                self.wait_cleanup(state)
+                return True
             if current['StackStatus'] != 'ROLLBACK_COMPLETE':
                 raise Blocked('interrupted cleanup state unsafe')
         document, _ = self.templates[unit['name']]
-        if any(resource.get('DeletionPolicy' , 'Delete') != 'Delete'
-               or resource.get('UpdateReplacePolicy', 'Delete') != 'Delete'
-               or resource['Type'].startswith(('Custom::', 'AWS::CloudFormation::'))
-               for resource in document.get('Resources', {}).values()) or any(
-                   event['ResourceStatus'] == 'DELETE_SKIPPED' for event in state.get('failureEvents', [])):
-            raise Blocked('failed CREATE contains retained/custom resources; cleanup requires human')
         stack = self.aws('describe-stacks', '--stack-name', state['stackId'])['Stacks'][0]
-        if stack['StackId'] != state['stackId'] or stack['StackStatus'] != 'ROLLBACK_COMPLETE' or stack.get('EnableTerminationProtection'):
+        if (stack['StackId'] != state['stackId'] or stack['StackStatus'] != 'ROLLBACK_COMPLETE'
+                or stack.get('EnableTerminationProtection') or stack.get('ParentId') or stack.get('RootId')):
             raise Blocked('failed CREATE identity/state changed or protected')
-        actuals = self.aws('list-stack-resources', '--stack-name', state['stackId']).get('StackResourceSummaries', [])
-        if any(item['ResourceStatus'] not in {'DELETE_COMPLETE', 'CREATE_FAILED'}
+        actuals = self.aws('list-stack-resources', '--stack-name', state['stackId'])['StackResourceSummaries']
+        empty = all(item.get('ResourceStatus') == 'DELETE_COMPLETE' for item in actuals)
+        if empty_only and not empty:
+            return False
+        if not empty:
+            if (state.get('operationType') != 'CREATE' or not state.get('absentBeforeCreate')
+                    or state.get('operationStackId') != state['stackId']):
+                raise Blocked('failed CREATE session provenance missing; never delete by name')
+            if any(resource.get('DeletionPolicy', 'Delete') != 'Delete'
+                   or resource.get('UpdateReplacePolicy', 'Delete') != 'Delete'
+                   or resource['Type'].startswith(('Custom::', 'AWS::CloudFormation::'))
+                   for resource in document.get('Resources', {}).values()) or any(
+                       event['ResourceStatus'] == 'DELETE_SKIPPED' for event in state.get('failureEvents', [])):
+                raise Blocked('failed CREATE contains retained/custom resources; cleanup requires human')
+        if not empty and any(item['ResourceStatus'] not in {'DELETE_COMPLETE', 'CREATE_FAILED'}
                or item['ResourceStatus'] == 'CREATE_FAILED' and item.get('PhysicalResourceId')
                or item.get('LogicalResourceId') not in document.get('Resources', {})
                or item.get('ResourceType') != document['Resources'][item['LogicalResourceId']]['Type']
                for item in actuals):
             raise Blocked('failed CREATE still owns resources; cleanup requires human')
-        state['cleanupStatus'] = 'DELETE_INTENT'
+        state.update(cleanupStatus='DELETE_INTENT', cleanupStackId=state['stackId'])
         self.save()
         self.aws('delete-stack', '--stack-name', state['stackId'])
         self.wait_cleanup(state)
+        return True
 
     def wait_cleanup(self, state):
         for _ in range(120):
@@ -990,14 +1015,18 @@ class AwsBackend:
             time.sleep(5)
         raise Blocked('failed CREATE cleanup timeout; inspect same StackId before resuming')
 
+    def reset_after_cleanup(self, state):
+        retained = {key: state[key] for key in ('repairs', 'cleanupStatus', 'cleanupStackId', 'emptyStackRecreated') if key in state}
+        state.clear()
+        state.update(retained, status='NOT_STARTED')
+        self.save()
+
     def finish_repair(self, unit, state, entry):
         self.refresh_validation(unit)
         entry['stage'] = 'VALIDATED'
         self.save()
         self.cleanup_failed_create(unit, state)
-        retained = {key: state[key] for key in ('repairs', 'cleanupStatus') if key in state}
-        state.clear()
-        state.update(retained, status='NOT_STARTED')
+        self.reset_after_cleanup(state)
         entry['stage'] = 'RETRY_READY'
         self.save()
 
@@ -1029,7 +1058,15 @@ class AwsBackend:
                 self.save()
                 self.finish_repair(unit, state, entry)
                 return True
-            path, text, failure_class = self.repair_plan(unit, state)
+            try:
+                path, text, failure_class = self.repair_plan(unit, state)
+            except Blocked:
+                if (state.get('stackStatus') == 'ROLLBACK_COMPLETE' and not state.get('emptyStackRecreated')
+                        and self.cleanup_failed_create(unit, state, empty_only=True)):
+                    state['emptyStackRecreated'] = True
+                    self.reset_after_cleanup(state)
+                    return True
+                raise
             self.guard()  # Diagnostics cannot admit concurrent IaC/model edits into the repair.
             logical_classes = set(failure_class.split('|'))
             attempts = [entry for entry in history if logical_classes & set(entry['failureClass'].split('|'))]

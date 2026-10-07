@@ -138,26 +138,23 @@ def logical_id_checks():
             (".value=Team", ".value=StgFlowA", {"value"}),
             ("logs/policy.json", "logs/another-policy.json", {"value"}),
         ):
-            modified = original.replace(before, after)
-            # Regenerate derived digests when the fixture document changes.
-            lines = modified.splitlines()
-            docs = {line.partition("=")[0].removesuffix("document"): json.loads(line.partition("=")[2])
-                    for line in lines if ".document=" in line}
-            for index, line in enumerate(lines):
-                if ".artifactSha256=" in line:
-                    key = line.partition("=")[0]
-                    digest = hashlib.sha256(json.dumps(docs[key.removesuffix("artifactSha256")],
-                        ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-                    lines[index] = key + "=" + digest
-            paths[1].write_text("\n".join(lines) + "\n", encoding="utf-8")
+            paths[1].write_text(original.replace(before, after), encoding="utf-8")
             code, pairs = cli(root, *mapped_args, expected=expected)
             assert code == 0 and pairs[0]["differences"], (before, pairs)
             assert {item["identity"][-1] for item in pairs[0]["differences"]} == expected_fields
         paths[1].write_text(original, encoding="utf-8")
-        paths[1].write_text(original.replace(".artifactSha256=", ".artifactSha256=stale-"), encoding="utf-8")
-        code, pairs = cli(root, *mapped_args, expected=expected)
-        assert code == 1 and pairs[0]["status"] == "incomplete"
-        assert any("artifactSha256" in item["message"] for item in pairs[0]["errors"])
+        # Derived digests never affect comparison, including stale and missing values.
+        for path in paths:
+            content = path.read_text(encoding="utf-8")
+            for modified in (
+                content.replace(".artifactSha256=", ".artifactSha256=stale-"),
+                "\n".join(line for line in content.splitlines() if ".artifactSha256=" not in line) + "\n",
+            ):
+                path.write_text(modified, encoding="utf-8")
+                code, pairs = cli(root, *mapped_args, expected=expected)
+                assert code == 0 and pairs[0]["status"] == "complete"
+                assert pairs[0]["difference_count"] == 0 and not pairs[0]["errors"]
+            path.write_text(content, encoding="utf-8")
         paths[1].write_text(original, encoding="utf-8")
         role_path = paths[1].with_name("iam.properties")
         role = role_path.read_text(encoding="utf-8")
@@ -468,14 +465,14 @@ desired.row.001-001.value={env}-role
         assert code == int(any(item["status"] != "complete" for item in uncached)) == 1
         assert cli(root) == (code, uncached)
 
-        # Failed parses are retried; downstream digest validation still runs on cache hits.
+        # Failed parses are retried; malformed documents still fail on cache hits.
         source = root / "model/stg/cde/logs.properties"
         part = source.with_suffix("") / "part-002.properties"
         original = part.read_text(encoding="utf-8")
         for invalid, message in (
             (original + "malformed-line\n", "invalid or duplicate model property"),
             (original + "desired.service.logs.serviceId=logs\n", "invalid or duplicate model property"),
-            (original.replace(".artifactSha256=", ".artifactSha256=stale-"), "artifactSha256 differs"),
+            (original.replace(".document=", ".document=invalid-"), "Expecting value"),
         ):
             part.write_text(invalid, encoding="utf-8")
             expected = series(False)

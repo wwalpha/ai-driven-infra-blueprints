@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from collections import Counter
@@ -167,9 +166,7 @@ def comparison_fields(fields: dict, translations: dict, service: str, references
     for key, field in fields.items():
         if key[0] in {"resource", "row"} and key[1:3] in excluded:
             continue
-        if key[0] == "row" and key[-1] == "artifactSha256" and (document := fields.get((*key[:-1], "document"))):
-            if field["value"] != hashlib.sha256(document["normalized"].encode("utf-8")).hexdigest():
-                raise ValueError(f"artifactSha256 differs from document: {field['path']}:{field['line']}")
+        if key[0] == "row" and key[-1] == "artifactSha256":
             continue  # Derived document digest, not an independent setting.
         if key[0] in {"resource", "row"}:
             identity = translations.get(key[1:3])

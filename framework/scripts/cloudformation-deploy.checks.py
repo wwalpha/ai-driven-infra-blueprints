@@ -277,6 +277,119 @@ def check_aws_adapter():
     assert backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
 
 
+def check_empty_rollback_recreation():
+    class EmptyRollbackAws(StubAws):
+        def __init__(self, root):
+            super().__init__()
+            self.root = root
+            self.current = {'A': 'ROLLBACK_COMPLETE', 'B': 'ROLLBACK_COMPLETE'}
+            self.actuals = [{'ResourceStatus': 'DELETE_COMPLETE', 'LogicalResourceId': 'Old',
+                            'ResourceType': 'AWS::S3::Bucket', 'PhysicalResourceId': 'deleted-bucket'}]
+            self.extra, self.deletes = {}, []
+            self.templates = {name: ({'Resources': {'Item': {'Type': 'AWS::S3::Bucket',
+                                   'DeletionPolicy': 'Retain'}}}, {}) for name in self.current}
+
+        def aws(self, operation, *args):
+            if operation in {'describe-stacks', 'list-stack-resources', 'delete-stack'}:
+                self.calls.append((operation, args))
+                target = args[args.index('--stack-name') + 1]
+                name = target.removeprefix('old-')
+                if operation == 'describe-stacks':
+                    if self.current[name] is None:
+                        raise M.Blocked('stack does not exist')
+                    return {'Stacks': [{'StackId': 'old-' + name, 'StackStatus': self.current[name], **self.extra}]}
+                if operation == 'list-stack-resources':
+                    assert target == 'old-' + name
+                    return {'StackResourceSummaries': self.actuals}
+                assert target == 'old-' + name
+                self.deletes.append(target)
+                self.current[name] = None
+                return {}
+            return super().aws(operation, *args)
+
+        def poll(self, unit, state):
+            return 'CREATE_COMPLETE'
+
+    scoped = units(10, 10)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / 'tasks').mkdir()
+        (root / 'tasks/active.md').write_text('- Controlled repair: `allowed`\n', encoding='utf-8')
+        # Both existing shells are deleted by ID before CREATE, without approval or IaC repair.
+        backend = EmptyRollbackAws(root)
+        saved = states(scoped)
+        assert finish(scoped, 2, saved, backend) == 'COMPLETE'
+        assert backend.deletes == ['old-A', 'old-B']
+        for name in ('A', 'B'):
+            deletion = next(i for i, (op, args) in enumerate(backend.calls) if op == 'delete-stack' and args[1] == 'old-' + name)
+            creation = next(i for i, (op, args) in enumerate(backend.calls) if op == 'create-change-set' and args[1] == name)
+            assert deletion < creation and saved[name]['operationType'] == 'CREATE'
+            assert saved[name]['absentBeforeCreate'] and saved[name]['emptyStackRecreated']
+        # Resumed FAILED states also recover when no authoritative IaC correction exists.
+        backend = EmptyRollbackAws(root)
+        saved = {name: {'status': 'FAILED', 'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-' + name,
+                       'changeSetId': 'stale', 'clientToken': 'stale', 'delivery': {'stale': True}}
+                 for name in ('A', 'B')}
+        def no_repair(*args):
+            raise M.Blocked('no unique IaC repair')
+        backend.repair_plan = no_repair
+        session = {'states': saved, 'metrics': {'observedSyncSeconds': 0}}
+        def synced(_backend, items, entries):
+            for unit in items:
+                entries[unit['name']]['observedSynced'] = True
+        with patch.object(M, 'sync_successful', side_effect=synced):
+            assert M.run_session(scoped, 2, session, backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
+        assert backend.deletes == ['old-A', 'old-B']
+        assert all(entry['changeSetId'] != 'stale' and 'delivery' not in entry for entry in saved.values())
+        # The same failure cannot trigger an unbounded recreation loop.
+        saved['A'].update(status='FAILED', stackStatus='ROLLBACK_COMPLETE', stackId='old-A')
+        backend.current['A'] = 'ROLLBACK_COMPLETE'
+        assert not backend.repair(scoped[0], saved['A']) and backend.deletes == ['old-A', 'old-B']
+        assert saved['A']['failureClassification'] == 'HUMAN_REQUIRED'
+        for actuals in ([], [{'ResourceStatus': 'DELETE_COMPLETE'}]):
+            backend = EmptyRollbackAws(root)
+            backend.actuals = actuals
+            assert backend.begin_prepare(scoped[0], {}) == 'CHANGESET_CREATING'
+            assert backend.deletes == ['old-A']
+        for status in ('CREATE_COMPLETE', 'DELETE_SKIPPED', 'CREATE_FAILED', 'DELETE_FAILED', None):
+            backend = EmptyRollbackAws(root)
+            backend.actuals = [{'ResourceStatus': status}]
+            rejects(lambda: backend.begin_prepare(scoped[0], {}), 'not all deleted')
+            assert not backend.deletes
+        for extra in ({'EnableTerminationProtection': True}, {'ParentId': 'parent'}, {'StackId': 'other'}):
+            backend = EmptyRollbackAws(root)
+            backend.extra = extra
+            rejects(lambda: backend.cleanup_failed_create(scoped[0], {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A'}, empty_only=True), 'protected')
+            assert not backend.deletes
+        backend = EmptyRollbackAws(root)
+        read = backend.aws
+        backend.aws = lambda op, *args: {} if op == 'list-stack-resources' else read(op, *args)
+        try:
+            backend.begin_prepare(scoped[0], {})
+            raise AssertionError('missing resource response accepted')
+        except KeyError:
+            pass
+        assert not backend.deletes
+        # Interrupted deletion resumes the pinned ID, without a second deletion.
+        for interrupted_status in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE', None):
+            backend = EmptyRollbackAws(root)
+            backend.current['A'] = interrupted_status
+            state = {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A', 'cleanupStackId': 'old-A', 'cleanupStatus': 'DELETE_INTENT'}
+            def completed(entry):
+                backend.current['A'] = None
+                entry['cleanupStatus'] = 'DELETE_COMPLETE'
+            backend.wait_cleanup = completed
+            assert backend.begin_prepare(scoped[0], state) == 'CHANGESET_CREATING' and not backend.deletes
+        # A previous cleanup marker must not suppress deletion of a later failed StackId.
+        backend = EmptyRollbackAws(root)
+        state = {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A', 'cleanupStackId': 'previous-id', 'cleanupStatus': 'DELETE_COMPLETE'}
+        assert backend.cleanup_failed_create(scoped[0], state, empty_only=True) and backend.deletes == ['old-A']
+        backend = EmptyRollbackAws(root)
+        rejects(lambda: backend.begin_prepare(scoped[0], {'cleanupStatus': 'DELETE_COMPLETE', 'cleanupStackId': 'old-A'}), 'name was reused')
+        assert not backend.deletes
+    print('Empty ROLLBACK_COMPLETE recreation: PASS (two stacks, resume, pinned deletion, residual/protection/read guards, bounded retry)')
+
+
 def check_template_validation():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -2136,6 +2249,12 @@ def check_controlled_repair():
         state = session['states']['A']
         # Unknown provenance and retained resource conditions are checked before delete.
         state.update(stackStatus='ROLLBACK_COMPLETE', operationType='CREATE', absentBeforeCreate=True, stackId='id', operationStackId='other')
+        def failed_without_id(operation, *args):
+            if operation == 'describe-stacks':
+                return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
+            return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
+                                                'ResourceStatus': 'CREATE_FAILED'}]}
+        backend.aws = failed_without_id
         rejects(lambda: backend.cleanup_failed_create(unit, state), 'provenance')
         state['operationStackId'] = 'id'
         backend.templates['A'][0]['Resources']['Item']['DeletionPolicy'] = 'Retain'
@@ -2171,6 +2290,7 @@ check_api_timing()
 
 check_scheduler()
 check_aws_adapter()
+check_empty_rollback_recreation()
 check_template_validation()
 check_inputs()
 check_delivery()
