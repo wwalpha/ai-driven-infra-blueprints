@@ -24,7 +24,7 @@ from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, DeferredExhausted
 from issues_iac import Comparison, module, safe_value
-from issues_reports import save, identifier, blocks, owned_blocks, numbered, inventories, safe_text
+from issues_reports import save, identifier, blocks, owned_blocks, numbered, inventories, safe_text, iac_summary, iac_dataset, brief
 
 
 def outside(root, path):
@@ -279,13 +279,15 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     if digest_files(root, [root / path for path in before['paths']]) != before['digest'] or before['framework'] != after['framework']:
         raise ValueError('inputs changed during scan')
     artifact = {'version': 1, 'root': str(root), 'environment': environment, 'target': directory,
-                'services': sorted(set(services)), 'ordinary': ordinary, 'naming': naming, 'judgments': judgments,
+                'services': sorted(set(services)), 'executed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'ordinary': ordinary, 'naming': naming, 'judgments': judgments,
                 'human_confirmations': [safe_text(line) for line in human], 'iac': iac, 'fingerprint': after,
                 'iac_display': comparison.display_differences,
                 'machine_diagnostics': safe_text(diagnostics), 'checks': checks,
                 'service_keys': service_keys,
                 'metrics': comparison.metrics | {'mechanical_seconds': mechanical_seconds, 'iac_seconds': iac_seconds,
                                                   'wall_seconds': time.perf_counter() - started}}
+    entries, actions, _ = iac_dataset(iac, environment, directory, services, artifact['iac_display'])
+    artifact['iac_issues'] = [dict(group, members=[entries[i]['record_index'] for i in group['members']]) for group in actions]
     verify_service_keys(root, artifact)
     return artifact
 
@@ -316,40 +318,51 @@ def save_scan(root, artifact, review):
                 raise ValueError('diagnostic requires scoped service assignment')
             additions.append(dict(item, service=owner))
     paths = save(root, artifact['environment'], artifact['target'], artifact['services'], artifact['ordinary'], additions,
-                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'))
+                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'), stamp=artifact.get('executed_at'))
     return paths
 
 
 def review_payload(artifact, artifact_path):
-    naming = dict(artifact['naming'])
-    compact_rules = {}
-    for namespace, sources in naming['rules'].items():
-        records = []
-        for source in sources:
-            patterns = []
-            for line in source['text'].splitlines():
-                if line.startswith('|'):
-                    cells = [cell.strip() for cell in line.strip('|').split('|')]
-                    if len(cells) == 5 and cells[2].startswith('`'):
-                        patterns.append({'types': cells[2], 'target': cells[3], 'pattern': cells[4]})
-            records.append({'path': source['path'], 'patterns': patterns,
-                            'scope': 'apply required common scope/name-tag/component rules and applicable service constraints; read only missing sections'})
-        compact_rules[namespace] = records
-    naming['rules'] = compact_rules
-    judgments = []
-    for item in artifact['judgments']:
-        record = dict(item)
-        if item.get('kind') == 'existing-issue-correspondence':
-            material = dict(item['materials'])
-            message = material['message']
-            material['message'] = message[:240]
-            material['detail_required'] = len(message) > 240
-            record['materials'] = material
-        judgments.append(record)
-    return {'summary': summary(artifact), 'artifact': str(artifact_path), 'naming': naming,
-            'judgments': judgments, 'human_confirmations': artifact['human_confirmations'],
-            'diagnostics': [{'id': item['id'], 'service': item['service']} for item in artifact['ordinary']],
-            'uncompared': [{key: item.get(key) for key in ('service', 'resource', 'property', 'reason')} for item in artifact['iac'] if item['category'] in {'uncompared', 'error'}]}
+    return {'summary': summary(artifact), 'scope': {key: artifact[key] for key in ('environment', 'target', 'services')},
+            'executed_at': artifact.get('executed_at'), 'artifact': str(artifact_path),
+            'iac_summary': iac_summary(artifact['iac'], artifact['environment'], artifact['target'], artifact['services'], artifact.get('iac_display')),
+            'review_required': {'names': len(artifact['naming']['names']), 'judgments': len(artifact['judgments']),
+                'policy': 'naming/judgmentsの全ページ・全IDを確認する。代表例だけではsave不可。'},
+            'human_confirmations': {'total': len(artifact['human_confirmations']), 'items': [brief(line) for line in artifact['human_confirmations'][:3]],
+                                    'omitted': max(0, len(artifact['human_confirmations']) - 3)},
+            'detail': 'issues_scan.py detail --artifact <path> --section naming|judgments|ordinary|human_confirmations|iac_issues|iac --offset 0 --limit 50; IaC: --category <分類> / --issue-id ISSUE-<id>'}
+
+
+def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_id=None):
+    if offset < 0 or limit < 1:
+        raise ValueError('invalid detail range')
+    if (category or issue_id) and section not in {'iac', 'iac_issues'}:
+        raise ValueError('IaC filters require section iac or iac_issues')
+    context = {}
+    if section in {'iac', 'iac_issues'}:
+        actions = artifact.get('iac_issues')
+        if actions is None:
+            entries, groups, _ = iac_dataset(artifact['iac'], artifact['environment'], artifact['target'], artifact['services'], artifact.get('iac_display'))
+            actions = [dict(group, members=[entries[i]['record_index'] for i in group['members']]) for group in groups]
+        selected = [action for action in actions if (not category or action['category'] == category) and (not issue_id or action['id'] == issue_id)]
+        if issue_id and not selected:
+            raise ValueError('Issue ID not found in selected artifact/category')
+        if section == 'iac_issues':
+            content = selected
+        else:
+            membership = {index: action['id'] for action in selected for index in action['members']}
+            indices = sorted(membership) if category or issue_id else range(len(artifact['iac']))
+            content = [dict(artifact['iac'][i], record_index=i, issue_id=membership.get(i),
+                            value_differences=artifact.get('iac_display', {}).get(identifier(artifact['iac'][i]), [])) for i in indices]
+    elif section == 'naming':
+        content = artifact['naming']['names']
+        context = {key: value for key, value in artifact['naming'].items() if key != 'names'}
+    elif section == 'machine_diagnostics':
+        content = artifact[section].splitlines()
+    else:
+        content = artifact[section]
+    return {'total': len(content), 'offset': offset, 'items': content[offset:offset + limit],
+            'omitted': max(0, len(content) - len(content[offset:offset + limit])), **({'context': context} if context else {})}
 
 
 def main():
@@ -366,9 +379,11 @@ def main():
     scanparser.add_argument('--jobs', type=int, choices=(1, 2, 4), default=4)
     detail = commands.add_parser('detail')
     detail.add_argument('--artifact', type=Path, required=True)
-    detail.add_argument('--section', choices=('ordinary', 'naming', 'judgments', 'iac', 'machine_diagnostics'), required=True)
+    detail.add_argument('--section', choices=('ordinary', 'naming', 'judgments', 'human_confirmations', 'iac', 'iac_issues', 'machine_diagnostics'), required=True)
     detail.add_argument('--offset', type=int, default=0)
     detail.add_argument('--limit', type=int, default=50)
+    detail.add_argument('--category', choices=('要対応', '要判断', '比較未完了', '処理エラー', '原因未確定'), help='IaC classification filter; applied before pagination')
+    detail.add_argument('--issue-id', help='stable ISSUE-<id>; retrieve members from this artifact without comparison')
     saveparser = commands.add_parser('save')
     saveparser.add_argument('--artifact', type=Path, required=True)
     saveparser.add_argument('--review', type=Path, required=True)
@@ -391,13 +406,7 @@ def main():
             return 2 if any(item['category'] == 'error' for item in artifact['iac']) else 1 if artifact['ordinary'] or any('message' in item for item in artifact['judgments']) else 0
         if args.command == 'detail':
             artifact = json.loads(outside(root, args.artifact).read_text(encoding='utf-8'))
-            content = artifact[args.section]
-            if args.offset < 0 or args.limit < 1:
-                raise ValueError('invalid detail range')
-            if isinstance(content, list):
-                print(json.dumps({'total': len(content), 'offset': args.offset, 'items': content[args.offset:args.offset + args.limit]}, ensure_ascii=False))
-            else:
-                print(json.dumps(content, ensure_ascii=False))
+            print(json.dumps(detail_payload(artifact, args.section, args.offset, args.limit, args.category, args.issue_id), ensure_ascii=False))
             return 0
         if args.command == 'save':
             artifact = json.loads(outside(root, args.artifact).read_text(encoding='utf-8'))

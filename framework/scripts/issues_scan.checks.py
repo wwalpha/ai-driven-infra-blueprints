@@ -20,8 +20,8 @@ import time
 from unittest.mock import patch
 
 from issues_iac import Comparison, same, selected_same, strict_json, module
-from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload
-from issues_reports import save, blocks, numbered, identifier, iac_merge, iac_state, value_differences, IAC_DATA
+from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload, detail_payload
+from issues_reports import save, blocks, numbered, identifier, iac_report, iac_dataset, iac_summary, value_differences
 from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
 from design_layout import resource_name_fields
 from model_files import load_model, read_model, model_file_contents, resource_row_index
@@ -37,20 +37,13 @@ def write(path, text):
     path.write_text(text, encoding='utf-8')
 
 
-def write_report(path, markdown, state=None):
-    """Publish fixture pairs; explicit legacy/empty fixtures have no sidecar."""
-    from issues_reports import atomic_files
-    state_path = path.with_name('iac-issues.state.json')
-    if state is None:
-        state_path.unlink(missing_ok=True)
-        write(path, markdown)
-    else:
-        atomic_files({path: markdown, state_path: json.dumps(state, ensure_ascii=False)})
+def write_report(path, markdown):
+    write(path, markdown)
 
 
-def read_iac(result, environment, directory):
-    markdown, state = result
-    return iac_state(markdown, environment, directory, data=state)
+def render_iac(root, path, environment, directory, services, records, display=None):
+    entries, actions, fields = iac_dataset(records, environment, directory, services, display)
+    return iac_report(environment, directory, services, records, display), {'entries': entries, 'actions': actions, 'value_differences': fields}
 
 
 def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=False):
@@ -124,7 +117,7 @@ def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=Fal
 
 @contextmanager
 def task(root, services, name='save', allowed=None):
-    reports = ['issues/dev/123456789012/issues.md', 'issues/dev/123456789012/iac-issues.md', 'issues/dev/123456789012/iac-issues.state.json']
+    reports = ['issues/dev/123456789012/issues.md', 'issues/dev/123456789012/iac-issues.md']
     files = [f'tasks/{name}.md', *(allowed if allowed is not None else reports)]
     text = '# fixture task\n\n## Task contract\n\n- Task type: `migration`\n- Task status: `running`\n\n'
     text += '## Validation scope\n\n' + ''.join(f'- `dev/123456789012/{service}`\n' for service in services)
@@ -234,7 +227,7 @@ def checks(root, values, template):
         _, missing = compare(root, services)
         assert len(missing) == 9 and all(item['category'] == 'difference' for item in missing), missing
         assert all(item['reason'] == 'モデルに対応するtemplateが存在しない（CREATE未実装）' for item in missing)
-        report, report_state = iac_merge(root, root / 'issues/dev/123456789012/iac-issues.md', 'dev', '123456789012', services, missing)
+        report, report_state = render_iac(root, root / 'issues/dev/123456789012/iac-issues.md', 'dev', '123456789012', services, missing)
         assert '差分 9件; 未比較 0件; 処理error 0件' in report
         assert '`infra/cloudformation/templates/shared.yaml`（ファイルが存在しない）' in report
         assert '[infra/cloudformation/templates/shared.yaml]' not in report
@@ -356,19 +349,16 @@ def checks(root, values, template):
         record = dict(next(item for item in records if item['category'] == 'matched'), category='difference', reason='fixture difference', desired='old', actual='new')
         save(root, 'dev', '123456789012', services, iac=[record])
         report = paths[1]
-        marker = f'<!-- issue-service: {record["service"]} -->'
-        write(report, report.read_text().replace(marker, marker + '\n\nhuman確認: IaC側の既存例外。'))
+        write(report, report.read_text() + '\n## 人間注記\n\nhuman確認: IaC側の既存例外。\n')
         uncertain = dict(record, category='uncompared', reason='fixture no longer comparable', desired=None, actual=None)
         save(root, 'dev', '123456789012', services, iac=[uncertain])
         partial = report.read_text()
         assert 'human確認: IaC側の既存例外。' in partial
-        retained_entries = iac_state(partial, 'dev', '123456789012', data=json.loads(paths[2].read_text()))[0]
-        assert any(entry['retained'] and entry['record'].get('desired') == 'old' and entry['record'].get('actual') == 'new' for entry in retained_entries)
-        assert '保持未確認: 1件' in partial and '未比較 1件' in partial
+        assert '未比較 1件' in partial and 'fixture difference' not in partial
         save(root, 'dev', '123456789012', services, iac=[uncertain])
-        assert sum(entry['record']['reason'] == 'fixture no longer comparable' for entry in iac_state(report.read_text(), 'dev', '123456789012', data=json.loads(report.with_name("iac-issues.state.json").read_text()))[0]) == 1
+        assert '元レコード数: 1' in report.read_text()
         save(root, 'dev', '123456789012', services, iac=[])
-        assert '未確認（今回の比較では解消を確定していない）' in paths[1].read_text()
+        assert '元レコード数: 0' in report.read_text() and '旧結果の解消・再確認を意味しない' in report.read_text()
         write(paths[1], 'invalid iac report\n')
         expect_error(lambda: save(root, 'dev', '123456789012', services, iac=[]), 'malformed')
         paths[1].unlink()
@@ -975,34 +965,20 @@ def reference_identity_report_cases():
             template['Outputs']['Broken'] = {'Value': 'x', 'Export': {'Name': {'Ref': 'Key'}}}
             mutate_template(root, template)
             assert kms_result()[1]['category'] == 'matched'
-        # Partial revalidation preserves true differences; proven matches retire only their own Issue.
+        # Current-run partial reports preserve membership without restoring older records.
         path = root / 'issues/dev/123456789012/iac-issues.md'
         difference = dict(category='difference', service='cloudwatch-logs', resource='001', property='Logs.LogGroup.KmsKeyId',
                           stack=consumer, reason='value mismatch', iac={'path': 'infra/cloudformation/templates/shared.yaml'}, desired='a', actual='b')
         other = dict(difference, property='Logs.LogGroup.RetentionInDays', desired=7, actual=14)
-        write_report(path, *iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [difference, other]))
+        write_report(path, render_iac(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [difference, other])[0])
         uncertain = dict(difference, category='uncompared', reason='reference unproven')
-        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [uncertain, other])
-        retained = iac_state(report, 'dev', '123456789012', data=state)[0]
-        assert any(e['retained'] and e['id'] == iac_key(difference) and e['record']['category'] == 'difference' for e in retained)
-        assert any(not e['retained'] and e['id'] == iac_key(other) and e['record']['category'] == 'difference' for e in retained)
+        report, data = render_iac(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [uncertain, other])
+        assert len(data['entries']) == 2 and not any('retained' in entry for entry in data['entries'])
+        assert data['entries'][0]['id'] in {iac_key(uncertain), iac_key(other)}
         matched = dict(difference, category='matched', reason='reference expression equivalent')
-        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, other])
-        resolved = iac_state(report, 'dev', '123456789012', data=state)[0]
-        assert not any(e['record']['category'] == 'difference' and e['id'] == iac_key(difference) for e in resolved)
+        report, data = render_iac(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, other])
         assert '参照表現差分（意味的同一性を確認済み）: 1件' in report
-        write_report(path, report, state)
-        assert iac_state(path.read_text(), 'dev', '123456789012', data=json.loads(path.with_name('iac-issues.state.json').read_text()))[0] == resolved
-        # Older comparison errors omitted stack identity; a unique proof for the
-        # same Model resource/property also clears those legacy unresolved records.
-        legacy_pending = dict(difference, category='uncompared', stack=None, reason='ImportValue handoff search incomplete')
-        write_report(path, *iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [legacy_pending, other]))
-        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, other])
-        entries = iac_state(report, 'dev', '123456789012', data=state)[0]
-        assert not any(e['retained'] and e['id'] == iac_key(legacy_pending) for e in entries)
-        # Conflicting incomplete evidence cannot retire an earlier true difference.
-        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, uncertain, other])
-        assert any(e['retained'] and e['id'] == iac_key(legacy_pending) for e in iac_state(report, 'dev', '123456789012', data=state)[0])
+        assert [entry['record'] for entry in data['entries'] if entry['record']['category'] == 'difference'] == [other]
         # One unresolved import shared by many consumers is one investigation, not many repairs.
         pending = [dict(uncertain, resource=str(i), cause={'kind': 'import-unresolved', 'export': 'missing-export', 'relationship': 'import'}) for i in range(40)]
         entries = [{'id': iac_key(i), 'record': i, 'retained': False} for i in pending]
@@ -1012,7 +988,7 @@ def reference_identity_report_cases():
         missing = dict(pending[0], cause={'kind': 'template-missing', 'path': 'datazone.yaml', 'relationship': 'export-search-incomplete'})
         group = iac_actions([{'id': iac_key(missing), 'record': missing, 'retained': False}], 'dev', '123456789012')[0]
         assert group['classification'] == '比較未完了' and group['status'] == '要調査'
-    print('Reference identity/report regressions: PASS (KMS forms/identity, isolated cached exports, partial retention/resolution)')
+    print('Reference identity/report regressions: PASS (KMS forms/identity, isolated cached exports, current-run scope/membership)')
 
 
 def concurrency(root):
@@ -1288,7 +1264,7 @@ def benchmark(logdir, repeats=5):
 
 
 def action_report_cases():
-    from issues_reports import iac_key, iac_state, iac_actions
+    from issues_reports import iac_key, iac_actions
     with tempfile.TemporaryDirectory(prefix='iac-actions-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/cde/iac-issues.md'
@@ -1345,107 +1321,45 @@ def action_report_cases():
         records = direct + cascade
         original = json.loads(json.dumps(records))
         services = ['datazone', 'athena', 's3', 'iam']
-        report, report_state = iac_merge(root, path, 'dev', 'cde', services, records)
-        entries, notes = iac_state(report, 'dev', 'cde', data=report_state)
+        report, data = render_iac(root, path, 'dev', 'cde', services, records)
+        entries = data['entries']
         groups = iac_actions(entries, 'dev', 'cde')
         assert len(groups) == 1 and len(groups[0]['members']) == 1242
         assert '- 独立Issue数: 1\n' in report and '直接差分 6リソース' in report
-        assert 'iac-report-data' not in report and len(json.dumps(report_state)) > len(report) * 10
         assert '未比較 1236件' in report and '未比較 1236項目' in report
         assert '直接Import依存は未確定' in report and 'model=null; IaC=null' not in report
         assert Counter(json.dumps(entry['record'], sort_keys=True) for entry in entries) == Counter(json.dumps(item, sort_keys=True) for item in records)
-        assert records == original and not notes
-        assert Counter(item['category'] for item in records) == Counter(entry['record']['category'] for entry in entries)
+        assert records == original
         assert {entry['id'] for entry in entries} == {iac_key(item) for item in records}
-        # Timestamp is the only input-independent rendering change.
-        reversed_report, reversed_report_state = iac_merge(root, path, 'dev', 'cde', services[::-1], records[::-1])
+        reversed_report, reversed_data = render_iac(root, path, 'dev', 'cde', services[::-1], records[::-1])
         assert re.sub(r'更新日時:.*', '', report) == re.sub(r'更新日時:.*', '', reversed_report)
+        assert [entry['id'] for entry in reversed_data['entries']] == [entry['id'] for entry in entries]
         assert groups[0]['id'] != iac_actions(entries, 'stg', 'cde')[0]['id']
-        # Identical prose cannot prove the same cause; different repair paths stay separate.
-        other = dict(cascade[0], resource='other', cause=dict(cascade[0]['cause'], path='infra/cloudformation/templates/cde/other.yaml'))
-        unknown = dict(cascade[0], resource='unknown')
-        unknown.pop('cause')
+        other = dict(cascade[0], resource='other', cause=dict(cascade[0]['cause'], path='other.yaml'))
+        unknown = dict(cascade[0], resource='unknown'); unknown.pop('cause')
         parameter = dict(cascade[1], resource='parameter', cause=dict(cascade[1]['cause'], kind='parameters-missing'))
-        extra = [other, unknown, parameter, dict(unknown, resource='unknown2')]
-        separated = read_iac(iac_merge(root, path, 'dev', 'cde', services, records + extra), 'dev', 'cde')[0]
-        assert len(iac_actions(separated, 'dev', 'cde')) == 5
-        # Value differences never merge different stacks/resources/properties/targets/actions.
+        _, separated = render_iac(root, path, 'dev', 'cde', services, records + [other, unknown, parameter, dict(unknown, resource='unknown2')])
+        assert len(separated['actions']) == 5
         difference = dict(category='difference', service='s3', resource='001', property='S3.Bucket.BucketName',
-                          stack='stack1', iac={'path': 'infra/cloudformation/templates/cde/shared.yaml'},
-                          reason='value mismatch', desired='a', actual='b')
+                          stack='stack1', iac={'path': 'infra/shared.yaml'}, reason='value mismatch', desired='a', actual='b')
         differences = [difference, dict(difference, stack='stack2'), dict(difference, resource='002'),
                        dict(difference, property='S3.Bucket.Tags'), dict(difference, reason='property missing'),
-                       dict(difference, iac={'path': 'infra/cloudformation/templates/cde/other.yaml'})]
-        diff_report, diff_report_state = iac_merge(root, path, 'dev', 'cde', ['s3'], differences)
-        assert 'IaC側の候補。Model側も根拠から確認して決める' in diff_report
-        diff_entries = iac_state(diff_report, 'dev', 'cde', data=diff_report_state)[0]
-        assert len(iac_actions(diff_entries, 'dev', 'cde')) == 6
-        write_report(path, report, report_state)
-        # Scoped saves keep other services; metadata joins still point to every diagnostic.
-        partial, partial_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [item for item in cascade if item['service'] == 's3'])
-        partial_entries = iac_state(partial, 'dev', 'cde', data=partial_state)[0]
-        assert len(partial_entries) == len(records) and len(iac_actions(partial_entries, 'dev', 'cde')) == 1
+                       dict(difference, iac={'path': 'infra/other.yaml'})]
+        diff_report, diff_data = render_iac(root, path, 'dev', 'cde', ['s3'], differences)
+        assert len(diff_data['actions']) == 6 and '人間の判断が必要' in diff_report
+        write_report(path, report)
+        selected = [item for item in cascade if item['service'] == 's3']
+        partial, partial_data = render_iac(root, path, 'dev', 'cde', ['s3'], selected)
+        assert len(partial_data['entries']) == len(selected)
+        assert 'Scope外は未比較' in partial and 'datazone-stack' in partial
         assert not issue_errors(root, {('dev', 'cde', service) for service in services})
-        uncertain = dict(direct[0], category='uncompared', reason='unknown resolution')
-        uncertain.pop('cause')
-        second, second_state = iac_merge(root, path, 'dev', 'cde', services, [uncertain])
-        write_report(path, second, second_state)
-        third, third_state = iac_merge(root, path, 'dev', 'cde', services, [uncertain])
-        second_entries = iac_state(second, 'dev', 'cde', data=second_state)[0]
-        third_entries = iac_state(third, 'dev', 'cde', data=third_state)[0]
-        assert second_entries == third_entries
-        assert sum(entry['retained'] for entry in third_entries) == len(records)
-        write_report(path, third, third_state)
-        matched = dict(direct[0], category='matched')
-        preserved = read_iac(iac_merge(root, path, 'dev', 'cde', services, [matched]), 'dev', 'cde')[0]
-        # Explicit matched evidence retires this old Issue; absence still retains all others.
-        assert not any(entry['id'] == iac_key(direct[0]) and entry['record']['category'] == 'difference' for entry in preserved)
-        assert any(entry['retained'] and entry['id'] == iac_key(direct[1]) for entry in preserved)
-        # Migrate legacy IDs/content/prose verbatim, conservatively without causal guessing.
-        legacy_item = f'差分: 001 / S3.Bucket.BucketName / stack1: value mismatch; model="a"; IaC="b" <!-- iac-id: {iac_key(difference)} -->'
-        legacy = '# model → IaC比較の非阻害結果\n\nhuman確認: 旧例外\n\n### s3\n\n<!-- issue-service: s3 -->\n\n1. ' + legacy_item + '\n'
-        write_report(path, legacy)
-        migrated, migrated_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
-        migrated_entries, annotations = iac_state(migrated, 'dev', 'cde', data=migrated_state)
-        assert len(migrated_entries) == 1 and migrated_entries[0]['legacy'] == legacy_item and migrated_entries[0]['retained']
-        assert 'human確認: 旧例外' in annotations and '要調査' in migrated
-        expect_error(lambda: iac_state(migrated, 'stg', 'cde', data=migrated_state), 'scope')
-        write_report(path, migrated.replace('<!-- issue-service: s3 -->', '<!-- issue-service: s3 -->\n\nhuman確認: 新しい注記'), migrated_state)
-        annotated, annotated_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
-        assert any('ISSUE-' in note and 'human確認: 新しい注記' in note for note in iac_state(annotated, 'dev', 'cde', data=annotated_state)[1])
-        # Raw diagnostic text is retained in state without embedding machine data in Markdown.
-        dangerous = dict(unknown, reason='--> <script>bad</script> <!--')
-        write_report(path, '')
-        escaped, escaped_state = iac_merge(root, path, 'dev', 'cde', services, [dangerous])
-        assert '<!-- iac-report-data:' not in escaped
-        assert iac_state(escaped, 'dev', 'cde', data=escaped_state)[0][0]['record'] == dangerous
-        # Separate lossless storage must not bypass existing report redaction.
         secret = dict(difference, property='SecretsManager.Secret.SecretString', desired='secret-data', actual='other-secret')
-        secret_report, secret_report_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [secret])
-        assert 'secret-data' not in secret_report and 'other-secret' not in secret_report
-        assert 'secret-data' not in json.dumps(secret_report_state) and 'other-secret' not in json.dumps(secret_report_state)
-        # Old source locations may disappear; retention never fabricates a current link.
-        source = root / 'model/dev/cde/s3.properties'
-        write(source, 'line1\nline2\n')
-        located = dict(difference, reason='property missing', model={'path': 'model/dev/cde/s3.properties', 'line': 2})
-        write_report(path, *iac_merge(root, path, 'dev', 'cde', ['s3'], [located]))
-        write(source, 'line1\n')
-        stale_report, stale_report_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
-        assert '保存済み根拠・今回未再確認' in stale_report
-        assert any(entry['retained'] for entry in iac_state(stale_report, 'dev', 'cde', data=stale_report_state)[0])
-        # Equal diagnostics remain two original records, also after repeated retention.
-        write_report(path, '')
-        duplicates, duplicates_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [difference, difference])
-        duplicate_entries = iac_state(duplicates, 'dev', 'cde', data=duplicates_state)[0]
-        assert len(duplicate_entries) == 2
-        assert len(iac_actions(duplicate_entries, 'dev', 'cde')) == 1
-        write_report(path, duplicates, duplicates_state)
-        retained_duplicates, retained_duplicates_state = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
-        write_report(path, retained_duplicates, retained_duplicates_state)
-        again = read_iac(iac_merge(root, path, 'dev', 'cde', ['s3'], []), 'dev', 'cde')[0]
-        assert len(again) == 2 and all(entry['retained'] for entry in again)
-        assert again == iac_state(retained_duplicates, 'dev', 'cde', data=retained_duplicates_state)[0]
-    print('IaC action reports: PASS (1236 cascading + 6 direct records → 1 Issue; lossless IDs/scope/retention/gates)')
+        secret_report, secret_data = render_iac(root, path, 'dev', 'cde', ['s3'], [secret])
+        assert all(word not in secret_report + json.dumps(secret_data) for word in ('secret-data', 'other-secret'))
+        duplicate_report, duplicate_data = render_iac(root, path, 'dev', 'cde', ['s3'], [difference, difference])
+        assert len(duplicate_data['entries']) == 2 and len(duplicate_data['actions']) == 1
+        assert 'iac-report-data' not in duplicate_report
+    print('IaC action reports: PASS (causal grouping/cascades/independent IDs/current scope/duplicates/masks)')
 
 
 def mismatch_display_cases():
@@ -1507,42 +1421,30 @@ def mismatch_display_cases():
                    identifier(long_record): fields(long_record['desired'], long_record['actual'], 'Glue.Job.Config')}
         # No source/evidence reads, even when saved line numbers are invalid.
         with patch('issues_reports.evidence', side_effect=AssertionError('mismatch evidence read forbidden')):
-            report, report_state = iac_merge(root, path, 'dev', 'cde', ['glue'], records, display)
-        visible = re.sub(IAC_DATA, '', report)
-        assert '- 相違項目: $attribute\n  - Model: ` RoleName `\n  - IaC: ` Arn `' in visible
-        assert '$resource' not in visible and '修正対象:' not in visible and '根拠（代表例）:' not in visible
-        assert 'glue.properties' not in visible and 'shared.yaml' not in visible and ':999' not in visible
-        assert long_value + 'A' in visible and long_value + 'B' in visible and '240' not in visible
-        assert '不一致の検出結果を保持' in visible and 'first' not in report and 'second' not in report
-        entries, notes = iac_state(report, 'dev', 'cde', data=report_state)
+            report, report_state = render_iac(root, path, 'dev', 'cde', ['glue'], records, display)
+        assert '相違項目: $attribute\n    - Model: RoleName\n    - IaC: Arn' in report
+        assert '$resource' not in report and '修正対象:' not in report and '根拠（代表例）:' not in report
+        assert 'glue.properties' not in report and 'shared.yaml' not in report and ':999' not in report
+        assert long_value + 'A' not in report and '全文はartifact' in report
+        assert '不一致の検出結果を保持' in report and 'first' not in report and 'second' not in report
+        entries = report_state['entries']
         assert Counter(json.dumps(entry['record'], sort_keys=True) for entry in entries) == Counter(json.dumps(record, sort_keys=True) for record in original)
         assert {entry['id'] for entry in entries} == {iac_key(record) for record in original}
         expected_entries = [{'id': iac_key(record), 'record': record, 'retained': False} for record in records]
-        expected_entries.sort(key=lambda entry: (entry['record']['service'], entry['id'], entry['retained'], identifier(entry)))
-        expected_groups = iac_actions(expected_entries, 'dev', 'cde')
-        assert iac_actions(entries, 'dev', 'cde') == expected_groups and records == original and not notes
-        assert report_state['value_differences'] == display
+        expected_entries.sort(key=lambda entry: (entry['record']['service'], entry['id'], identifier(entry['record'])))
+        assert iac_actions(entries, 'dev', 'cde') == iac_actions(expected_entries, 'dev', 'cde')
+        assert records == original and report_state['value_differences'] == display
         unsafe_display = {identifier(secret): [{'path': 'Password', 'model': 'first', 'iac': 'second'}]}
-        masked_report, masked_report_state = iac_merge(root, path, 'dev', 'cde', ['glue'], [secret], unsafe_display)
+        masked_report, masked_data = render_iac(root, path, 'dev', 'cde', ['glue'], [secret], unsafe_display)
         assert 'first' not in masked_report and 'second' not in masked_report
-        expect_error(lambda: iac_merge(root, path, 'dev', 'cde', ['glue'], [base], {identifier(base): [{}]}), 'malformed')
+        expect_error(lambda: render_iac(root, path, 'dev', 'cde', ['glue'], [base], {identifier(base): [{}]}), 'malformed')
         duplicates = [dict(base, actual=dict(arn_role, **{'$attribute': f'Arn{i}'})) for i in range(5)]
         duplicate_display = {identifier(record): fields(record['desired'], record['actual']) for record in duplicates}
-        limited, limited_state = iac_merge(root, path, 'dev', 'cde', ['glue'], duplicates, duplicate_display)
-        assert re.sub(IAC_DATA, '', limited).count('- 不一致箇所:') == 1
-        assert len(iac_state(limited, 'dev', 'cde', data=limited_state)[0]) == 5
-        write_report(path, report.replace('- 分類: Model/IaC差分', '- 分類: Model/IaC差分\n\nhuman確認: 注記を保持', 1), report_state)
-        regenerated, regenerated_state = iac_merge(root, path, 'dev', 'cde', ['glue'], records, display)
-        assert iac_state(regenerated, 'dev', 'cde', data=regenerated_state)[0] == entries
-        assert any('注記を保持' in note for note in iac_state(regenerated, 'dev', 'cde', data=regenerated_state)[1])
-        write_report(path, regenerated, regenerated_state)
-        retained, retained_state = iac_merge(root, path, 'dev', 'cde', ['glue'], [])
-        assert all(entry['retained'] for entry in iac_state(retained, 'dev', 'cde', data=retained_state)[0])
-        assert retained_state['value_differences'] == display
-        assert '- 相違項目: $attribute' in retained
-        write_report(path, '')
-        legacy_masked, legacy_masked_state = iac_merge(root, path, 'dev', 'cde', ['glue'], [secret])
-        assert '特定不可（検出結果は不一致' in legacy_masked
+        limited, limited_data = render_iac(root, path, 'dev', 'cde', ['glue'], duplicates, duplicate_display)
+        assert limited.count('相違項目:') == 3 and len(limited_data['entries']) == 5
+        assert '省略代表例: 2レコード' in limited
+        no_fields, _ = render_iac(root, path, 'dev', 'cde', ['glue'], [secret])
+        assert 'マスク済み値から相違項目を復元できない' in no_fields
 
         # Real detection -> artifact JSON -> save: preserve original records and sensitive NoEcho redaction.
         fixture_root = root / 'pipeline'
@@ -1560,7 +1462,8 @@ def mismatch_display_cases():
         saved_report = next(file for file in saved if file.name == 'iac-issues.md').read_text()
         assert 'changed-bucket' in saved_report and 'bucket-app-dev-data1' in saved_report
         assert '<!-- iac-report-data:' not in saved_report
-        assert json.loads(next(file for file in saved if file.name == 'iac-issues.state.json').read_text())['value_differences'] == artifact['iac_display']
+        assert not (fixture_root / 'issues/dev/123456789012/iac-issues.state.json').exists()
+        assert detail_payload(artifact, 'iac', issue_id=next(group['id'] for group in artifact['iac_issues'] if group['category'] == '要判断'))['items'][0]['value_differences'] == artifact['iac_display'][identifier(mismatch)]
         # NoEcho masking survives the new display side-channel.
         comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
         comparison.sensitive_values.add('confidential')
@@ -1571,137 +1474,196 @@ def mismatch_display_cases():
 
 
 def state_report_cases():
-    from issues_reports import iac_key
+    from issues_reports import atomic_files
     from task_contract import refresh, complete, DeferredExhausted
-    with tempfile.TemporaryDirectory(prefix='iac-state-') as directory:
+    with tempfile.TemporaryDirectory(prefix='iac-retirement-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/123456789012/iac-issues.md'
-        state_path = path.with_name('iac-issues.state.json')
+        state = path.with_name('iac-issues.state.json')
         ordinary = path.with_name('issues.md')
         record = dict(category='difference', service='s3', resource='001', property='S3.Bucket.Setting',
-                      reason='value mismatch', stack='stack1', desired={'Settings': {'Timeout': 1}},
-                      actual={'Settings': {'Timeout': 2}}, iac={'path': 'infra/shared.yaml', 'line': 20})
-        other = dict(record, service='sqs', property='SQS.Queue.Setting')
-        records = [record, other, dict(record, resource='002', category='matched', reason='equal', desired=None, actual=None),
-                   dict(record, resource='003', category='excluded', reason='identifier output', desired=None, actual=None)]
-        s3_records = [item for item in records if item['service'] == 's3']
-        display = {identifier(item): value_differences(item['desired'], item['actual'], item['property']) for item in records}
-        markdown, original_state = iac_merge(root, path, 'dev', '123456789012', ['s3', 'sqs'], records, display)
-        old_data = dict(original_state)
-        old_data.pop('report_digest')
-        embedded = markdown + '\n<!-- iac-report-data: ' + json.dumps(old_data, ensure_ascii=False) + ' -->\n'
-        embedded = embedded.replace('- 状態:', 'human確認: 移行注記\n- 状態:', 1)
-        write_report(path, embedded)
-        outputs = [ordinary, path, state_path]
+                      reason='value mismatch', stack='stack1', desired=1, actual=2, iac={'path': 'infra/shared.yaml'})
+        display = {identifier(record): value_differences(1, 2, record['property'])}
+        old = '# model → IaC比較の非阻害結果\n\n## ISSUE-legacy: old\n- generated content\nhuman確認: 移行注記\n## 全体注記\nhuman確認: 全体の確認\n'
+        data = {'annotations': ['human確認: state内注記'], 'generated_line_ids': [identifier(line) for line in old.splitlines() if 'human確認:' not in line]}
+        outputs = [ordinary, path, state]
+        relative = [file.relative_to(root).as_posix() for file in outputs]
         def snapshot():
             return {file: file.read_bytes() if file.exists() else None for file in outputs}
-
-        with task(root, ['s3', 'sqs']):
-            # Migration failure at any publication position restores the entire batch,
-            # including the original embedded JSON and previously missing files.
-            for error_type, after_replace in ((OSError, False), (OSError, True),
-                                               (KeyboardInterrupt, False), (KeyboardInterrupt, True)):
+        def seed():
+            write_report(path, old); write(state, json.dumps(data, ensure_ascii=False))
+        seed()
+        with task(root, ['s3'], allowed=relative):
+            for error_type in (OSError, KeyboardInterrupt):
                 for failed_output in outputs:
-                    before = snapshot()
-                    replace = os.replace
-                    failed = False
-                    def fail_once(source, destination):
-                        nonlocal failed
-                        if Path(destination) == failed_output and not failed:
-                            failed = True
-                            if after_replace:
-                                replace(source, destination)
-                            raise error_type('fixture pair publication failure')
-                        return replace(source, destination)
-                    with patch('issues_reports.os.replace', side_effect=fail_once):
-                        try:
-                            save(root, 'dev', '123456789012', ['s3', 'sqs'], iac=records, display=display)
-                        except error_type:
-                            pass
-                        else:
-                            raise AssertionError('partial publication cannot succeed')
-                    assert failed and snapshot() == before
-                    assert set(path.parent.iterdir()) == {path}  # No leaked staging files.
+                    for after in (False, True):
+                        before = snapshot(); replace = os.replace; unlink = Path.unlink; failed = False
+                        def fail_replace(source, destination):
+                            nonlocal failed
+                            if Path(destination) == failed_output and not failed:
+                                failed = True
+                                if after: replace(source, destination)
+                                raise error_type('fixture publication failure')
+                            return replace(source, destination)
+                        def fail_unlink(file, *args, **kwargs):
+                            nonlocal failed
+                            if file == failed_output and not failed:
+                                failed = True
+                                if after: unlink(file, *args, **kwargs)
+                                raise error_type('fixture deletion failure')
+                            return unlink(file, *args, **kwargs)
+                        with patch('issues_reports.os.replace', side_effect=fail_replace), patch.object(Path, 'unlink', fail_unlink):
+                            try: save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
+                            except error_type: pass
+                            else: raise AssertionError('partial publication cannot succeed')
+                        assert failed and snapshot() == before
+                        assert set(path.parent.iterdir()) == {path, state}
             with patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
-                    patch('issues_iac.load_model', side_effect=AssertionError('save model parse forbidden')), \
-                    patch('socket.socket', side_effect=AssertionError('network forbidden')):
-                assert save(root, 'dev', '123456789012', ['s3', 'sqs'], iac=records, display=display) == outputs
-            migrated = path.read_text()
-            state = json.loads(state_path.read_text())
-            assert 'iac-report-data' not in migrated and 'generated_line_ids' not in migrated
-            assert '- 相違項目: Settings.Timeout\n  - Model: ` 1 `\n  - IaC: ` 2 `' in migrated
-            assert 'shared.yaml' not in migrated
-            assert '- 根拠（代表例）:' not in migrated and '- 修正対象:' not in migrated
-            assert state['entries'] == original_state['entries'] and state['actions'] == original_state['actions']
-            assert state['value_differences'] == display and any('移行注記' in note for note in state['annotations'])
-            assert {entry['id'] for entry in state['entries']} == {iac_key(item) for item in records}
-            # Reruns use state only and preserve all IDs, memberships and contextual notes.
-            save(root, 'dev', '123456789012', ['s3', 'sqs'], iac=records, display=display)
-            repeated = json.loads(state_path.read_text())
-            for key in ('entries', 'actions', 'annotations', 'value_differences'):
-                assert repeated[key] == state[key], key
-            # Human additions to Markdown survive subsequent partial saves.
-            write(path, path.read_text().replace('- 状態:', 'human確認: 追加注記\n- 状態:', 1))
-            save(root, 'dev', '123456789012', ['s3'], iac=s3_records, display=display)
-            partial = json.loads(state_path.read_text())
-            assert next(entry for entry in partial['entries'] if entry['record']['service'] == 'sqs') == next(
-                entry for entry in repeated['entries'] if entry['record']['service'] == 'sqs')
-            assert any('追加注記' in note for note in partial['annotations'])
-            assert len(partial['entries']) == 4 and len(partial['actions']) == 2
-            # A post-migration state write failure restores both existing files too.
-            before = snapshot()
-            failed = False
-            failed_output = state_path
-            error_type = OSError
-            with patch('issues_reports.os.replace', side_effect=fail_once):
-                expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[dict(record, actual='new')]))
-            assert snapshot() == before
-            # Missing/corrupt state and mismatched pairs stop saving without data loss.
-            valid_state = state_path.read_bytes()
-            valid_markdown = path.read_bytes()
-            for bad_state in (None, b'{bad', b'null', json.dumps(dict(partial, scope=['stg', 'wrong'])).encode()):
-                if bad_state is None:
-                    state_path.unlink()
-                else:
-                    state_path.write_bytes(bad_state)
-                before = snapshot()
-                expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]))
-                assert snapshot() == before
-                state_path.write_bytes(valid_state)
-            write(path, path.read_text().replace('Settings.Timeout', 'Settings.Changed'))
-            before = snapshot()
-            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]), 'inconsistent')
-            assert snapshot() == before
-            path.write_bytes(valid_markdown)
-            write(path, embedded)  # Embedded data plus sidecar is never silently discarded.
-            before = snapshot()
-            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]), 'inconsistent')
-            assert snapshot() == before
-            path.write_bytes(valid_markdown)
-
-        # Omitting the sidecar from the contract cannot publish Markdown alone.
-        relative = [file.relative_to(root).as_posix() for file in outputs]
-        with task(root, ['s3'], allowed=relative[:2]):
+                 patch('issues_iac.load_model', side_effect=AssertionError('save parse forbidden')), \
+                 patch('socket.socket', side_effect=AssertionError('network forbidden')):
+                saved = save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
+            assert saved == [ordinary, path] and not state.exists()
+            assert 'state内注記' in path.read_text() and '【ISSUE-legacy】 human確認: 移行注記' in path.read_text()
+            assert '\nhuman確認: 全体の確認\n' in path.read_text()
+            save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
+            assert not state.exists() and path.read_text().count('state内注記') == 1
+        # New saves reserve Markdown only, preserve notes, and never restore old records.
+        with task(root, ['s3']):
+            save(root, 'dev', '123456789012', ['s3'], iac=[])
+            assert not state.exists() and '元レコード数: 0' in path.read_text()
+            assert 'state内注記' in path.read_text() and '旧結果の解消・再確認を意味しない' in path.read_text()
+        seed()
+        with task(root, ['s3']):
             before = snapshot()
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]), 'Allowed paths')
+            assert before == snapshot()  # Unreserved cleanup cannot publish anything.
+        with task(root, ['s3'], allowed=relative):
+            for corrupt in ('{bad', 'null', '{}'):
+                write(state, corrupt); before = snapshot()
+                expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]))
+                assert snapshot() == before
+            seed()
+            write_report(path, old + '<!-- iac-report-data: ' + json.dumps(data) + ' -->\n')
+            before = snapshot()
+            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record]), 'ambiguous')
+            assert before == snapshot()
+        # Embedded metadata retirement preserves notes without creating state.
+        state.unlink()
+        write_report(path, old + '<!-- iac-report-data: ' + json.dumps(data) + ' -->\n')
+        with task(root, ['s3']):
+            save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
+            assert not state.exists() and 'iac-report-data' not in path.read_text() and '移行注記' in path.read_text()
+            write_report(path, '# model → IaC比較の非阻害結果\n\nhuman確認: opaque legacy\n')
+            before = snapshot()
+            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[]), 'inspect human annotations')
             assert snapshot() == before
-        # A reservation on only state defers the indivisible batch until acquired.
+        # State-only reservation defers the indivisible deletion/report batch.
+        seed()
         with task(root, ['s3'], name='state-owner', allowed=[relative[2]]):
             refresh(root, 'tasks/state-owner.md')
-            with task(root, ['s3'], name='state-writer'):
+            with task(root, ['s3'], name='state-writer', allowed=relative):
                 before = snapshot()
                 with patch('task_contract.time.sleep') as sleep:
-                    try:
-                        save(root, 'dev', '123456789012', ['s3'], iac=[record])
-                    except DeferredExhausted:
-                        pass
-                    else:
-                        raise AssertionError('reserved state must defer the whole publication')
+                    try: save(root, 'dev', '123456789012', ['s3'], iac=[record])
+                    except DeferredExhausted: pass
+                    else: raise AssertionError('reserved cleanup must defer whole batch')
                 assert sleep.call_count == 20 and snapshot() == before
                 complete(root, 'tasks/state-owner.md')
                 save(root, 'dev', '123456789012', ['s3'], iac=[record])
-                assert 'iac-report-data' not in path.read_text()
-    print('IaC sidecar state: PASS (migration/pair rollback/interruption/IDs/annotations/scope/reservations/integrity)')
+                assert not state.exists()
+    print('IaC state retirement: PASS (notes/atomic deletion/rollback/interruption/reservations/no restoration)')
+
+
+def summary_fixture():
+    from issues_reports import identifier
+    unknown = [dict(category='difference', service=['s3', 'iam', 'glue'][i % 3], resource=f'u{i:04d}',
+                    property='Setting', reason='cause and repair target unknown', stack=None, desired=None, actual=None) for i in range(1000)]
+    incomplete = [dict(category='uncompared', service='s3', resource=f'c{i:04d}', property='Role',
+                       reason='Export reference unresolved', stack='consumer', cause={'kind': 'import-unresolved', 'export': 'shared-export', 'relationship': 'import'}) for i in range(1000)]
+    differences = [dict(category='difference', service='glue', resource=f'v{i:04d}', property=f'Glue.Job.Settings{i % 20}',
+                        reason='value mismatch', stack=f'stack{i % 7}', iac={'path': 'infra/shared.yaml'},
+                        desired={f'field{j}': j for j in range(20)}, actual={f'field{j}': j + 1 for j in range(20)}) for i in range(100)]
+    errors = [dict(category='error', service='iam', resource=f'e{i:04d}', property='Role', reason='Ref attribute resolution failed', stack=None) for i in range(93)]
+    records = unknown + incomplete + differences + errors
+    display = {identifier(item): value_differences(item['desired'], item['actual'], item['property']) for item in differences}
+    names = [dict(id=identifier(['name', i]), service='s3', resource=f'{i:04d}', property='BucketName', value=f'bucket-app-dev-data{i}', resourceMode='CREATE', comment='human-confirmed application=app', pattern_review='required') for i in range(1000)]
+    judgments = [dict(id=identifier(['judgment', i]), kind='human-components/exceptions', service='s3', materials='Confirm application component and exception scope') for i in range(100)]
+    artifact = dict(version=1, environment='dev', target='cde', services=['glue', 'iam', 's3'], iac=records, iac_display=display,
+                    ordinary=[], naming=dict(names=names, rules={}, target_context={}, review_policy='review all'),
+                    judgments=judgments, human_confirmations=[], checks=1, executed_at='2026-10-08T00:00:00Z')
+    return artifact
+
+
+def summary_scale_cases():
+    from issues_reports import iac_key, MAX_GROUPS
+    artifact = summary_fixture()
+    records = artifact['iac']
+    original = json.dumps(artifact, sort_keys=True)
+    assert hashlib.sha256(original.encode()).hexdigest() == '8fdf987e881faec5843aeb876d30e769f3fd15eb206a5cafdd3fd6fd25ce47fb'
+    entries, actions, fields = iac_dataset(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
+    stats = iac_summary(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
+    signature = sorted((group['id'], sorted(identifier(entries[i]['record']) for i in group['members'])) for group in actions)
+    assert hashlib.sha256(json.dumps(signature, ensure_ascii=False).encode()).hexdigest() == '2c4ff24d8644f2244287b0b238c6f0c73a8445fd59d8e717a647ef5e97b70a0e'
+    assert len(entries) == 2193 and len(actions) == 1194
+    assert stats['categories'] == {'要対応': 0, '要判断': 100, '比較未完了': 1, '処理エラー': 93, '原因未確定': 1000}
+    assert stats['record_count'] == 2193 and stats['direct_resources'] == 1100 and stats['proven_causes'] == 1
+    assert stats['records'] == dict(difference=1100, uncompared=1000, error=93, matched=0, excluded=0)
+    assert len(stats['groups']) == MAX_GROUPS and stats['omitted_groups'] > 0
+    assert sum(len(action['members']) for action in actions) == len(records)
+    assert sorted(entries[i]['record_index'] for action in actions for i in action['members']) == list(range(len(records)))
+    assert {entry['id'] for entry in entries} == {iac_key(record) for record in records}
+    artifact['iac_issues'] = [dict(group, members=[entries[i]['record_index'] for i in group['members']]) for group in actions]
+    with patch.object(Comparison, 'run', side_effect=AssertionError('detail must not compare')), patch('issues_iac.load_model', side_effect=AssertionError('detail must not parse')):
+        for category, count in stats['categories'].items():
+            assert detail_payload(artifact, 'iac_issues', category=category)['total'] == count
+        pending = detail_payload(artifact, 'iac_issues', category='比較未完了')['items'][0]
+        assert detail_payload(artifact, 'iac', issue_id=pending['id'], offset=900, limit=100)['total'] == 1000
+        assert len(detail_payload(artifact, 'iac', issue_id=pending['id'], offset=900, limit=100)['items']) == 100
+        for section in ('naming', 'judgments'):
+            total = 1000 if section == 'naming' else 100
+            ids = [item['id'] for offset in range(0, total, 50) for item in detail_payload(artifact, section, offset, 50)['items']]
+            assert len(set(ids)) == total
+        expect_error(lambda: detail_payload(artifact, 'iac', issue_id='ISSUE-absent'), 'not found')
+        expect_error(lambda: detail_payload(artifact, 'naming', category='要判断'), 'IaC filters')
+        expect_error(lambda: detail_payload(artifact, 'iac', offset=-1), 'range')
+    report = iac_report('dev', 'cde', artifact['services'], records, artifact['iac_display'], stamp='fixed')
+    assert {group['category'] for group in stats['groups']} == {category for category, count in stats['categories'].items() if count}
+    stdout = json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)
+    # Measured on the exact same deterministic fixture with pre-change 7e10213 (1008v2-equivalent).
+    old_lines = 23829
+    old_chars = 358608
+    assert len(report.splitlines()) <= 300
+    assert len(report.splitlines()) <= old_lines * .1 and len(stdout) <= old_chars * .1
+    # Rendering/order and IDs are deterministic; source lists are never mutated.
+    reverse = iac_report('dev', 'cde', artifact['services'][::-1], records[::-1], artifact['iac_display'], stamp='fixed')
+    assert reverse == report
+    assert '2026-10-08 09:00:00 Asia/Tokyo' in iac_report('dev', 'cde', artifact['services'], [], stamp=artifact['executed_at'])
+    again_entries, again_actions, _ = iac_dataset(records[::-1], 'dev', 'cde', artifact['services'], artifact['iac_display'])
+    assert [group['id'] for group in again_actions] == [group['id'] for group in actions]
+    assert [[again_entries[i]['id'] for i in group['members']] for group in again_actions] == [[entries[i]['id'] for i in group['members']] for group in actions]
+    with tempfile.TemporaryDirectory(prefix='iac-detail-cli-') as temporary:
+        file = Path(temporary) / 'artifact.json'; write(file, json.dumps(artifact))
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'framework/scripts/issues_scan.py'), 'detail',
+            '--artifact', str(file), '--section', 'iac', '--issue-id', pending['id'], '--offset', '950', '--limit', '50'],
+            capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        cli = json.loads(result.stdout)
+        assert cli['total'] == 1000 and cli['offset'] == 950 and len(cli['items']) == 50
+    artifact.pop('iac_issues')
+    assert json.dumps(artifact, sort_keys=True) == original
+    # Matching/excluded records are preserved but never become independent Issues.
+    extra = [dict(records[0], category='matched'), dict(records[1], category='excluded')]
+    assert iac_summary(records + extra, 'dev', 'cde', artifact['services'])['record_count'] == 2195
+    assert iac_summary(records + extra, 'dev', 'cde', artifact['services'])['issue_count'] == 1194
+    # Full fields stay masked in artifact, even when summary truncates compound values.
+    secret = dict(records[2000], property='Glue.Job.Settings', desired={'Password': 'first', 'Role': 'arn:aws:iam::123456789012:role/a', 'Value': 'prefix-confidential-A'}, actual={'Password': 'second', 'Role': 'arn:aws:iam::123456789012:role/b', 'Value': 'prefix-confidential-B'})
+    safe = Comparison.__new__(Comparison); safe.sensitive_values = {'confidential'}
+    hidden = dict(secret, desired=safe.redacted(secret['desired']), actual=safe.redacted(secret['actual']))
+    hidden_fields = {identifier(hidden): value_differences(secret['desired'], secret['actual'], secret['property'], redact=safe.redacted)}
+    secret_artifact = dict(artifact, iac=[hidden], iac_display=hidden_fields)
+    for word in ('first', 'second', 'confidential', 'arn:aws:'):
+        assert word not in json.dumps(secret_artifact) + iac_report('dev', 'cde', artifact['services'], [hidden], hidden_fields) + json.dumps(detail_payload(secret_artifact, 'iac'))
+    print(f'IaC summary benchmark: PASS (Markdown {old_lines}→{len(report.splitlines())} lines; stdout {old_chars}→{len(stdout)} characters; 2193 records / 1194 independent Issues)')
 
 
 def main():
@@ -1736,12 +1698,13 @@ def main():
     action_report_cases()
     mismatch_display_cases()
     state_report_cases()
+    summary_scale_cases()
     comparison_repair_cases()
     local_reference_cases()
     reference_identity_report_cases()
     symbolic_string_cases()
-    assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
-    assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
+    assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issues_iac.py', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
+    assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issues_iac.py', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
 
 

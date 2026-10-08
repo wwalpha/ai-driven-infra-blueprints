@@ -79,7 +79,7 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
-        for name in ("issues.md", "iac-issues.md", "iac-issues.state.json", "diff.md"):
+        for name in ("issues.md", "iac-issues.md", "diff.md"):
             report = f"issues/dev/cde/{name}"
             investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
                 f"\n## Allowed paths\n\n- `tasks/active.md`\n- `{report}`\n")
@@ -109,6 +109,24 @@ def main():
                 instance.task_type, instance.changed_paths = task_type, {changed}
                 instance.check_issue_gate()
                 assert instance.errors, (task_type, allowed, changed)
+        # State is no longer a report output; only a real deletion receives the save-only exception.
+        legacy = "issues/dev/cde/iac-issues.state.json"
+        active.write_text(investigation + f"- `{legacy}`\n")
+        state = root / legacy
+        state.write_text("{}")
+        instance = validator.Validator(root)
+        instance.task_type, instance.changed_paths = "migration", {legacy}
+        instance.check_issue_gate()
+        assert instance.errors  # Existing/created state cannot bypass the ordinary gate.
+        state.unlink()
+        instance = validator.Validator(root)
+        instance.task_type, instance.changed_paths = "migration", {legacy}
+        instance.check_issue_gate()
+        assert not instance.errors  # Explicit old-state deletion preserves the report-only exception.
+        instance = validator.Validator(root)
+        instance.task_type, instance.changed_paths = "migration", {"issues/dev/cde/iac-issues.md"}
+        instance.check_issue_gate()
+        assert instance.errors  # A nonexistent, unchanged state path is not an output authorization.
         active.write_text(investigation)
         try:
             sync.sync(root, True, "dev", "cde", services=["ec2"])
