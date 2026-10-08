@@ -4,10 +4,11 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import model_projection
 import json
 
 from pathlib import Path
+from test_support.validator import load
 import subprocess
 import sys
 import tempfile
@@ -19,15 +20,8 @@ from policy_tables import IAM_END as END, IAM_START as START, policy_lines, rend
 SCRIPTS = Path(__file__).resolve().parent
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
 
 VALIDATOR = load("validate-blueprint")
-MODEL = load("sync-model")
 
 
 def main():
@@ -98,11 +92,11 @@ def main():
 | 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
 '''
         path.write_text(text, encoding="utf-8")
-        baseline_model = MODEL.model_for(path)
+        baseline_model = model_projection.model_for(path)
         rendered = rendered_design(path)
         path.write_text(rendered, encoding="utf-8")
         assert rendered_design(path) == rendered, "generation must be idempotent"
-        assert MODEL.model_for(path) == baseline_model, "views must not alter the model"
+        assert model_projection.model_for(path) == baseline_model, "views must not alter the model"
         assert "desired.note." not in baseline_model
         assert rendered.count("| Version |\n| --- |\n| `2012-10-17` |") == 2
         assert rendered.count(START) == 2
@@ -161,7 +155,7 @@ def main():
         assert "\n".join(without_policy_tables(indexed_rendered.splitlines())) + "\n" == indexed
         assert not errors(indexed_rendered), errors(indexed_rendered)
         assert rendered_design(path) == indexed_rendered, "indexed policy generation must be idempotent"
-        assert MODEL.model_for(path) == baseline_model, "array display and policy views must preserve the model"
+        assert model_projection.model_for(path) == baseline_model, "array display and policy views must preserve the model"
         path.write_text(rendered, encoding="utf-8")
 
         # JSON changes affect the existing hash and must invalidate the derived view.
@@ -170,10 +164,10 @@ def main():
         changed["Statement"][0]["Condition"]["StringEquals"]["aws:SourceAccount"] = "222222222222"
         artifact.write_text(json.dumps(changed), encoding="utf-8")
         assert errors(rendered)
-        assert MODEL.model_for(path) != baseline_model
+        assert model_projection.model_for(path) != baseline_model
         artifact.write_text(json.dumps(trust, indent=4, sort_keys=True), encoding="utf-8")
         assert not errors(rendered), "JSON formatting and object key order must not change views"
-        assert MODEL.model_for(path) == baseline_model
+        assert model_projection.model_for(path) == baseline_model
 
         # A single Statement object, different principals, array conditions and escaping.
         special = {"Statement": {"Effect": "Deny", "NotPrincipal": {"AWS": ["arn:aws:iam::123456789012:root"], "Federated": "example"},
@@ -300,11 +294,11 @@ def service_policy_checks():
                     original += f"| {number} | {key} | {value} | 設定の値 |\n"
                 original += "\n実装注記を維持する。\n\n"
             path.write_text(original, encoding="utf-8")
-            baseline_model = MODEL.model_for(path)
+            baseline_model = model_projection.model_for(path)
             rendered = rendered_design(path)
             path.write_text(rendered, encoding="utf-8")
             assert rendered_design(path) == rendered, prop
-            assert MODEL.model_for(path) == baseline_model, prop
+            assert model_projection.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
             suffix = "inline-access" if prop == "IAM.User.Policies[].PolicyDocument" else "policy-access"
             if owner_type == "S3.Bucket":
@@ -357,7 +351,7 @@ def service_policy_checks():
             path.write_text(rendered, encoding="utf-8")
             artifact.write_text(json.dumps(document, sort_keys=True, indent=4), encoding="utf-8")
             assert rendered_design(path) == rendered, "object order must not affect the view"
-            assert MODEL.model_for(path) == baseline_model
+            assert model_projection.model_for(path) == baseline_model
             artifact.write_text('{"Statement":{},"Statement":{}}', encoding="utf-8")
             assert errors(rendered), "duplicate JSON keys must fail in every format"
             artifact.write_text('{"value":NaN}', encoding="utf-8")
@@ -388,11 +382,11 @@ def grouping_and_settings_checks():
         artifact.write_text(json.dumps(document), encoding="utf-8")
         original = layout_fixture.KMS.replace('| 4 | KMS.Alias.AliasName', '| 5 | KMS.Alias.AliasName').replace('| 3 | KMS.Alias.AliasName', '| 3 | KeyPolicy | [Access](kms/access.json) | アクセス権限 |\n| 4 | KMS.Alias.AliasName')
         path.write_text(original, encoding="utf-8")
-        baseline_model = MODEL.model_for(path)
+        baseline_model = model_projection.model_for(path)
         rendered = rendered_design(path)
         path.write_text(rendered, encoding="utf-8")
         assert rendered_design(path) == rendered
-        assert MODEL.model_for(path) == baseline_model
+        assert model_projection.model_for(path) == baseline_model
         assert rendered.count(START) == 1
         assert '| 2 | [KeyTwo](#kms-keytwo) | データの暗号化に使うkey |' in rendered
         validator = VALIDATOR.Validator(root)
@@ -443,11 +437,11 @@ def grouping_and_settings_checks():
 | 3 | LifecyclePolicy | [Policy](ecr/lifecycle.json) | 保持するイメージの条件 |
 """
         path.write_text(original, encoding="utf-8")
-        baseline_model = MODEL.model_for(path)
+        baseline_model = model_projection.model_for(path)
         rendered = rendered_design(path)
         path.write_text(rendered, encoding="utf-8")
         assert rendered_design(path) == rendered
-        assert MODEL.model_for(path) == baseline_model
+        assert model_projection.model_for(path) == baseline_model
         assert 'id="ecr-example-policy-access"' in rendered and 'id="ecr-example-policy-lifecycle"' in rendered
         validator = VALIDATOR.Validator(root)
         validator.check_design_overviews()

@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from model_design import entries, properties, stack_model
+from model_core import entries, properties, stack_model
 from design_layout import resource_mode
 from model_files import model_parts, read_model
 from policy_tables import invalid_constant, unique_object

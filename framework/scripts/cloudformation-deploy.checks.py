@@ -3,6 +3,8 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import sync_views
+import model_projection
 import importlib.util
 import json
 import hashlib
@@ -16,15 +18,16 @@ import time
 from threading import Barrier, get_ident
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from test_support.validator import load
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from model_design import markdown_for, stack_model, deployment_settings, deployment_bucket, properties
+from model_design import markdown_for
+from model_references import deployment_bucket
+from model_core import stack_model, deployment_settings, properties
 from design_layout import stack_delivery
 
-SPEC = importlib.util.spec_from_file_location("controller", Path(__file__).with_name("cloudformation-deploy.py"))
-M = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(M)
+M = load('cloudformation-deploy')
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
 
@@ -540,7 +543,7 @@ class DeliveryAws(StubAws):
         path = self.root / 'model/dev/123456789012/s3.properties'
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = properties(path.read_text()) if path.exists() else {}
-        from model_design import entries
+        from model_core import entries
         identities = {r['logicalId']: i for i, r in entries(existing, 'desired.resource.')}
         identity = next((i.split('-')[0] for i, row in entries(existing, 'desired.row.')
                          if row.get('property') == 'S3.Bucket.BucketName' and row.get('value', '').strip('`') == bucket),
@@ -792,14 +795,14 @@ def check_delivery():
             assert sync.sync(root, True, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
             assert sync.sync(root, False, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
         assert model.read_bytes() == saved_model
-        assert deployment_settings(properties(sync.model_for(design, root)))[0] == deployment_settings(values)[0]
+        assert deployment_settings(properties(model_projection.model_for(design, root)))[0] == deployment_settings(values)[0]
         only_templates = {key: value for key, value in values.items() if not key.startswith("desired.artifact.")}
         template_view = markdown_for(design, only_templates, root)
         assert "## S3配置" not in template_view and "| Property | Value |" not in template_view
         design.write_text(template_view)
-        assert deployment_settings(properties(sync.model_for(design, root)))[0] == deployment_settings(values)[0]
+        assert deployment_settings(properties(model_projection.model_for(design, root)))[0] == deployment_settings(values)[0]
         design.write_text(template_view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: changed/ -->"))
-        rejects(lambda: sync.validate_views(root, root, [design], {design: only_templates}), "model/display projection mismatch")
+        rejects(lambda: sync_views.validate_views(root, root, [design], {design: only_templates}), "model/display projection mismatch")
         only_artifacts = {key: value for key, value in values.items() if not key.startswith("desired.deployment.template")}
         design.write_text(markdown_for(design, only_artifacts, root))
         assert "| Property | Value |" not in design.read_text()
@@ -813,7 +816,7 @@ def check_delivery():
                          'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                          'display.service.title': '# S3 詳細設計',
                          'desired.resource.001.deploymentEncryption': 'default'})
-        from model_design import entries
+        from model_core import entries
         for identity, resource in entries(approved, 'desired.resource.'):
             approved[f'desired.resource.{identity}.resourceMode'] = 'IMPORT'
             approved[f'display.resource.{identity}.comment'] = '配置先bucket'
@@ -821,7 +824,7 @@ def check_delivery():
             approved[f'desired.row.{identity}.comment'] = '承認済み設定'
         bucket_view = design.with_name('s3.md')
         bucket_view.write_text(markdown_for(bucket_view, approved, root))
-        reparsed = properties(sync.model_for(bucket_view, root, source=approved))
+        reparsed = properties(model_projection.model_for(bucket_view, root, source=approved))
         assert reparsed['desired.resource.001.deploymentEncryption'] == 'default'
         rejects(lambda: entries(approved | {'desired.resource.001.deploymentEncryption': 'guessed'}, 'desired.resource.'), 'only default')
         # A producer Export changing after packaging cannot redirect the preserved bucket expression.
@@ -1846,10 +1849,8 @@ def check_integrated_child_mapping():
 
 def check_secretsmanager_arn_identifiers():
     from cloudformation_observed import mappings, sync_successful
-    from model_design import catalog_outputs
-    spec = importlib.util.spec_from_file_location("rotation_fixture", Path(__file__).with_name("rotation_schedule.checks.py"))
-    rotation = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(rotation)
+    from model_references import catalog_outputs
+    rotation = load('rotation_schedule.checks')
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -1967,9 +1968,7 @@ def check_controlled_repair():
     """Ten requested failure cases use real projection/edit/repair/scheduler/approval code."""
     from deploy_preparation import repair_changes, task_digest
     from cloudformation_inputs import load_template_inputs
-    spec = importlib.util.spec_from_file_location('repair_models', Path(__file__).with_name('model_design.checks.py'))
-    helpers = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helpers)
+    helpers = load('model_design.checks')
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
         root = (base / 'repo').resolve()

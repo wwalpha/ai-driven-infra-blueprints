@@ -10,7 +10,7 @@ import tempfile
 
 from validation_cache import PassCache, digest_files, input_scope
 from design_catalog import design_material_files
-from model_design import entries
+from model_core import entries
 
 
 def main():

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import sync_files
 import argparse
 import fnmatch
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -57,7 +57,7 @@ class LoadedModel(NamedTuple):
 @memoized
 def load_model(path: Path) -> LoadedModel:
     """One validated parse with real part locations; immutable within input_scope."""
-    from model_design import properties
+    from model_core import properties
     entrance = path.read_bytes().decode("utf-8")
     parts = model_parts(path, text=entrance)
     contents, files, locations = [], {path: entrance}, {}
@@ -90,7 +90,7 @@ def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict
 
     Ambiguous overlapping legacy identities are rejected, never split at first '-'.
     """
-    from model_design import entries
+    from model_core import entries
     resources = dict(entries(values, "desired.resource."))
     index = {identity: [] for identity in resources}
     # A row's final segment is its row number; legacy resource IDs may contain '-'.
@@ -110,7 +110,7 @@ def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict
 
 
 def model_file_contents(path: Path, text: str) -> dict[Path, str]:
-    from model_design import properties
+    from model_core import properties
     properties(text)
     lines = text.splitlines(keepends=True)
     if len(lines) <= MAX_LINES:
@@ -138,7 +138,7 @@ def service_model_path(path: Path, base: Path) -> Path:
 
 def resource_keys(text: str, selector: str) -> set[str]:
     """Select one resource's display group and service-wide context without rewriting values."""
-    from model_design import LINK, entries, properties
+    from model_core import LINK, entries, properties
     values = properties(text)
     resources = dict(entries(values, "desired.resource."))
     matches = [identity for identity, resource in resources.items()
@@ -225,14 +225,11 @@ def main() -> int:
         if any(not any(fnmatch.fnmatchcase(file.relative_to(root).as_posix(), pattern) for pattern in patterns)
                for file in set(output) | obsolete):
             raise ValueError("split output is outside active task Allowed paths")
-        spec = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
         for _ in reserved_batches(root, {'split': set(output) | obsolete}):
             require_writable(root, set(output) | obsolete)
             if any(not part.is_file() or part.read_bytes() != original for part, original in original_inputs.items()):
                 raise ValueError("split model inputs changed before publication; rerun split")
-            module.save_files(output)
+            sync_files.save_files(output)
             for part in obsolete:
                 part.unlink()
         print(f"Service model split: PASS ({path}; {len(output)} files)")

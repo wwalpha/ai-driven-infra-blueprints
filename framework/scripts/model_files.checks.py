@@ -4,7 +4,7 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import sync_files
 import io
 import os
 import shutil
@@ -13,26 +13,22 @@ import sys
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from test_support.validator import load
 from unittest.mock import patch
 
 from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys
-from model_design import properties, markdown_for
+from model_design import markdown_for
+from model_core import properties
 from validation_scope import scoped_files
 from issue_gate import unresolved_services
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def module(name, filename):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
-    result = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(result)
-    return result
 
-
-SYNC = module("index_sync", "sync-model.py")
-VALIDATOR = module("index_validator", "validate-blueprint.py")
-DEPLOY = module("index_deploy", "cloudformation-deploy.py")
+SYNC = load('sync-model')
+VALIDATOR = load('validate-blueprint')
+DEPLOY = load('cloudformation-deploy')
 
 
 def check_resource_reading(root):
@@ -85,7 +81,7 @@ def check_resource_reading(root):
     # The single model fits in 600 lines; padding moves the selected rows across a part boundary.
     for content in (text, "# padding\n" * 540 + text):
         output = model_file_contents(source, content)
-        SYNC.save_files(output)
+        sync_files.save_files(output)
         snapshot = {path: path.read_bytes() for path in {source, *model_parts(source)}}
         for selector in ("001", "Resource1", "kms-resource-001", "Resource2", "003"):
             result = cli("--resource", selector)
@@ -131,6 +127,10 @@ def check_resource_reading(root):
 
 
 def main():
+    subprocess.run([sys.executable, "-B", "-c",
+                    "import sys, model_core, model_files; "
+                    "assert not {'model_design', 'design_layout', 'sync_runtime'} & sys.modules.keys()"],
+                   cwd=ROOT / "framework/scripts", check=True)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -142,7 +142,7 @@ def main():
             text = "".join(f"desired.note.{number:04d}.text=日本語の説明{number}\n" for number in range(count))
             old = set(model_parts(source)) if source.exists() else set()
             output = model_file_contents(source, text)
-            SYNC.save_files(output)
+            sync_files.save_files(output)
             for path in old - output.keys() - {source}:
                 path.unlink()
             assert read_model(source) == text
@@ -348,7 +348,7 @@ def main():
                                  f"desired.stack.{key}.deployOrder": "10", f"desired.stack.{key}.template": "app.yaml",
                                  f"desired.stack.{key}.parameters": f"app-{key}.json",
                                  f"display.stack.{key}.comment": "アプリケーションのstack"})
-        SYNC.save_files(model_file_contents(stack, "".join(f"{key}={value}\n" for key, value in stack_values.items())))
+        sync_files.save_files(model_file_contents(stack, "".join(f"{key}={value}\n" for key, value in stack_values.items())))
         stack_docs = docs.with_name("cloudformation-stacks.md")
         stack_docs.write_text(markdown_for(stack_docs, stack_values, root))
         limit, units = DEPLOY.load_units(root, "dev", "123456789012", [stack_values["desired.stack.001.name"]])

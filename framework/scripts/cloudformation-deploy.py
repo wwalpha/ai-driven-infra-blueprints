@@ -20,8 +20,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from model_design import (properties, stack_model, markdown_for, deployment_settings,
-                          deployment_bucket, ARTIFACT_PROPERTIES, LINK, cfn_resource_identity)
+from model_design import markdown_for, cfn_resource_identity
+from model_references import deployment_bucket
+from model_core import properties, stack_model, deployment_settings, ARTIFACT_PROPERTIES, LINK
 from model_files import read_model
 from s3_delivery import preflight as placement_preflight, read as placement_read, upload_options, verify_encryption
 from deploy_preparation import Timing
@@ -836,7 +837,7 @@ class AwsBackend:
             raise Blocked('no resource failure diagnostics tied to this execution')
         direct, legacy = comparison.index()
         from cloudformation_observed import mapped_resource
-        from model_design import catalog_outputs
+        from model_references import catalog_outputs
         edits, classes, export_snapshot, producer_snapshots = [], [], {}, {}
         for event in failed:
             logical = event['LogicalResourceId']

@@ -24,7 +24,8 @@ from script_loader import module
 from iac_values import same, selected_same, strict_json
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload, detail_payload
 from issues_reports import save, blocks, numbered, identifier, iac_report, iac_dataset, iac_summary, value_differences
-from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
+from model_design import markdown_for, naming_targets, naming_target_matches
+from model_core import properties, entries
 from design_layout import resource_name_fields
 from model_files import load_model, read_model, model_file_contents, resource_row_index
 from validation_cache import input_scope
@@ -264,8 +265,8 @@ def checks(root, values, template):
     expect_error(lambda: resource_row_index(legacy), 'ambiguous')
     @input_scope
     def shared_parse():
-        import model_design
-        with patch.object(model_design, 'properties', wraps=model_design.properties) as parse:
+        import model_core
+        with patch.object(model_core, 'properties', wraps=model_core.properties) as parse:
             path = root / 'model/dev/123456789012/s3.properties'
             one, two = load_model(path), load_model(path)
             assert one is two and read_model(path) == one.text
@@ -409,7 +410,7 @@ def resource_cases(root):
                    'desired.row.004-002.property': 'S3.Bucket.BucketName', 'desired.row.004-002.value': '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'desired.row.004-002.comment': '参照'})
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
-    _, stacks = __import__('model_design').stack_model(comparison.model('cloudformation-stacks').values)
+    _, stacks = __import__('model_core').stack_model(comparison.model('cloudformation-stacks').values)
     comparison.stack(stacks[0][1])
     assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
     assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
@@ -1104,10 +1105,10 @@ def worker(root, variant, services):
     process_count = 1
     original_read, original_bytes = Path.read_text, Path.read_bytes
     import importlib.util
-    original_properties, original_model_read = __import__('model_design').properties, __import__('model_files').read_model
+    original_properties, original_model_read = __import__('model_core').properties, __import__('model_files').read_model
     if variant in 'AB':
         modules = []
-        for name in ('model_design', 'model_files'):
+        for name in ('model_core', 'model_files'):
             spec = importlib.util.spec_from_file_location('baseline_' + name, root / 'framework/scripts' / (name + '.py'))
             loaded = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(loaded)
@@ -1115,7 +1116,7 @@ def worker(root, variant, services):
         original_parse = modules[0].properties
         __import__('model_files').read_model = modules[1].read_model
     else:
-        original_parse = __import__('model_design')._parse_properties
+        original_parse = __import__('model_core')._parse_properties
     original_run = subprocess.run
     def read(path, *args, **kwargs):
         if path.suffix == '.properties' and 'model' in path.parts:
@@ -1142,8 +1143,8 @@ from collections import Counter
 sys.dont_write_bytecode=True
 filename=sys.argv[1]; destination=Path(sys.argv[2]); sys.argv=[filename,*sys.argv[3:]]
 sys.path.insert(0,str(Path(filename).parent))
-import model_design
-counts=Counter(); old_read=Path.read_text; old_bytes=Path.read_bytes; parse_name='_parse_properties' if hasattr(model_design,'_parse_properties') else 'properties'; old_parse=getattr(model_design,parse_name)
+import model_core
+counts=Counter(); old_read=Path.read_text; old_bytes=Path.read_bytes; parse_name='_parse_properties' if hasattr(model_core,'_parse_properties') else 'properties'; old_parse=getattr(model_core,parse_name)
 base=Path(sys.argv[sys.argv.index('--repository-root')+1])/'model'
 def read(path,*args,**kwargs):
  if path.suffix=='.properties' and 'model' in path.parts: counts['model_reads']+=1; counts['model_text_reads']+=1
@@ -1154,7 +1155,7 @@ def read_bytes(path):
 def parse(text):
  counts['model_parses']+=1
  return old_parse(text)
-Path.read_text=read; Path.read_bytes=read_bytes; setattr(model_design,parse_name,parse)
+Path.read_text=read; Path.read_bytes=read_bytes; setattr(model_core,parse_name,parse)
 spec=importlib.util.spec_from_file_location('bench_sync',filename); loaded=importlib.util.module_from_spec(spec); spec.loader.exec_module(loaded)
 try: status=loaded.main()
 finally: destination.write_text(json.dumps(dict(counts)))
@@ -1168,7 +1169,7 @@ raise SystemExit(status)
             return result
         return original_run(*args, **kwargs)
     started = time.perf_counter()
-    with patch.object(Path, 'read_text', read), patch.object(Path, 'read_bytes', read_bytes), patch('model_design.properties' if variant in 'AB' else 'model_design._parse_properties', parse), patch.object(subprocess, 'run', run):
+    with patch.object(Path, 'read_text', read), patch.object(Path, 'read_bytes', read_bytes), patch('model_core.properties' if variant in 'AB' else 'model_core._parse_properties', parse), patch.object(subprocess, 'run', run):
         if variant == 'C':
             artifact = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
             llm = required_context(root, services) + json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)

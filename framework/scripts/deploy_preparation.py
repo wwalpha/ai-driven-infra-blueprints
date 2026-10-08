@@ -2,6 +2,7 @@
 """Prepare CloudFormation offline, register its contract, or explicitly launch one controller."""
 from __future__ import annotations
 
+import model_projection
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -193,7 +194,7 @@ def rule_readings(root, source, text, engine=None):
 
 def candidate(root, task, env, directory, target, stacks, services):
     from model_files import model_parts, read_model, model_file_contents
-    from model_design import properties, entries
+    from model_core import properties, entries
     from task_contract import safe_path
     sync = module("preparation_sync", root / "framework/scripts/sync-model.py")
     files, sources, generated_views = {task}, set(), set()
@@ -213,7 +214,7 @@ def candidate(root, task, env, directory, target, stacks, services):
                 key = f"observed.row.{rid}.{field}"
                 if key not in values:
                     additions.append(key + "=" + row[field])
-            if match := sync.JSON_LINK.fullmatch(row["value"]):
+            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
                 artifact = (design.parent / match.group(1)).resolve()
                 if not artifact.is_relative_to(design.parent / service):
                     raise ValueError(f"generated JSON must belong to selected service: {artifact}")

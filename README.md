@@ -51,6 +51,15 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/prompts/codex/05_update.md`: Instructions reflecting human-manually-edited uncommitted detailed design into IaC through deploy/apply
 - `framework/prompts/codex/06_scenario-test.md`: Instructions validating application behavior in a task separate from deploy
 - `framework/scripts/check-deploy-context.py`: Preflight confirming topology, credentials, deployment account, region, IaC engine, and required commands
+- `framework/scripts/sync_runtime.py`: Target selection, stage preparation and service publication orchestration
+- `framework/scripts/sync_views.py`: Read-only validation of fixed design snapshots
+- `framework/scripts/sync_files.py`: File save and best-effort rollback for one publication batch
+- `framework/scripts/model_projection.py`: Read-only Markdown projection and explicit migration inputs; never saves models
+- `framework/scripts/model_references.py`: Local authoritative input and desired/observed row resolution (reads files)
+- `framework/scripts/service_rows.py`: Paired Glue/CodeBuild/CodePipeline row display and restoration
+- `framework/scripts/model_display.py`: Catalog ordering and common display tables
+- `framework/scripts/model_core.py`: Model string parsing and resource/stack/deployment contracts, without Markdown or CLI dependencies
+- `framework/scripts/ec2_display.py`: EC2 Name tag and block-device row display/restoration, without file access or writes
 - `framework/scripts/sync-model.py`: Deterministically generates/validates Markdown/JSON artifacts from authoritative design-value model properties
 - `framework/scripts/model_files.py`: Reads only the target resource's authority, same display group, and common notes with positions using `<service.properties> --resource '<resource-number-or-logical-id-or-anchor>'`. `--find '<key-or-logical-id>'` searches target files/lines without displaying values. Physically split models exceeding 600 lines by executing `--split` in an explicit design/migration task
 - `docs/designs/<environment>/<target-directory>/cloudformation-stacks.md`: Detailed design recording managed stacks, template filenames, and individual parameter filenames for CloudFormation targets

@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """RotationSchedule identity, parent references and transactional service generation."""
-import importlib.util
+import sync_views
+import model_projection
 import json
 import shutil
 import tempfile
 from pathlib import Path
+from test_support.validator import load
 
 from design_layout import expanded_design, resource_anchor
-from model_design import markdown_for, properties
+from model_design import markdown_for
+from model_core import properties
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("model_checks", Path(__file__).with_name("model_design.checks.py"))
-HELPERS = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(HELPERS)
+HELPERS = load('model_design.checks')
 SYNC = HELPERS.SYNC
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
@@ -79,11 +80,11 @@ def main():
             output = HELPERS.roundtrip(path, values, root)
             _, children = expanded_design(output.splitlines())
             assert len(children) == count
-            assert properties(SYNC.imported_model(path, root)) == values
+            assert properties(model_projection.imported_model(path, root)) == values
             assert "### SecretsManager.RotationSchedule" not in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
-            SYNC.validate_views(root, root, [path], {path: values})
-            assert SYNC.linked_resource(path, "[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1_rotate)") == (ROTATION, "Secret1Rotation")
+            sync_views.validate_views(root, root, [path], {path: values})
+            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1_rotate)") == (ROTATION, "Secret1Rotation")
 
         comments = dict(values)
         comments["desired.row.002-001.comment"] = "属性：設定値"
@@ -103,8 +104,8 @@ def main():
         for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two"))):
             assert f"| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} | `{value}` |" in metadata_output
         assert "| SecretsManager.RotationSchedule.ExternalSecretRotationMetadata" not in metadata_output
-        assert properties(SYNC.imported_model(path, root)) == metadata
-        SYNC.validate_views(root, root, [path], {path: metadata})
+        assert properties(model_projection.imported_model(path, root)) == metadata
+        sync_views.validate_views(root, root, [path], {path: metadata})
         path.write_text(output)
 
         # Both desired metadata and the formal property are authoritative.
@@ -158,7 +159,7 @@ def main():
             rejects(lambda: markdown_for(path, legacy, root), "hidden property", kind + ".Id")
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
-        rejects(lambda: SYNC.validate_views(root, root, [path], {path: mismatch}), "model/display projection mismatch", "parentReference")
+        rejects(lambda: sync_views.validate_views(root, root, [path], {path: mismatch}), "model/display projection mismatch", "parentReference")
 
         # Real sync: simultaneous KMS and Secrets Manager updates and rollback.
         models = root / "model/dev/123456789012"

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
-import html
 import re
 from pathlib import Path
 from array_display import restored_rows
+from ec2_display import ec2_formal_rows
+from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored_glue_argument_rows,
+    CODEBUILD_VARIABLE, CODEBUILD_FORMAL_VARIABLE)
+from model_core import positive_integer
 
 from design_catalog import design_material_files
 from validation_cache import memoized
@@ -39,9 +42,6 @@ PERMISSION_METADATA = re.compile(r'^<!-- lambda-permission: (.+?) -->\s*')
 CHILD_NAME = re.compile(r'^([^<>|`\n：]+)：')
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
-CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
-CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
-CODEBUILD_VARIABLE_TYPE = re.compile(r"^<!-- codebuild-variable-type: (PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER) -->\s*")
 CODEBUILD_VPC_PROPERTIES = {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}
 SUBNET_LIST_PROPERTIES = {
     "ApiGatewayV2.VpcLink.SubnetIds[]",
@@ -90,10 +90,6 @@ HIDDEN_PROPERTIES = {
 }
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")
-CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
-CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-EC2_BLOCK_DEVICE = "EC2.Instance.BlockDeviceMappings[]."
-EC2_NAME_TAG = re.compile(r"^<!-- ec2-name-tag: (.+?) -->\s*")
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
@@ -175,7 +171,7 @@ def resource_mode(resource: dict[str, str]) -> str:
 def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
     """Read the authoritative service model, including indexed parts, if present."""
     from model_files import read_model
-    from model_design import properties
+    from model_core import properties
     try:
         relative = path.relative_to(root / "docs/designs")
     except ValueError:
@@ -187,7 +183,7 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
     """Use model modes for validation; read legacy comments only without a model."""
     if values is not None:
-        from model_design import entries
+        from model_core import entries
         return {resource["anchor"]: resource_mode(resource)
                 for _, resource in entries(values, "desired.resource.") if "resourceMode" in resource}
     modes = {}
@@ -272,12 +268,6 @@ def resource_display_name(resource_type: str, rows: list[list[str]], selected_la
     return None
 
 
-def positive_integer(value: str, label: str) -> int:
-    if not re.fullmatch(r"[0-9]+", value) or int(value) < 1:
-        raise ValueError(f"{label} must be an integer >= 1: {value}")
-    return int(value)
-
-
 def stack_deployment_policy(path: Path) -> int:
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
     if len(lines) < 2 or lines[0] != "# CloudFormation stack 詳細設計":
@@ -318,7 +308,7 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 
 def stack_delivery(path: Path) -> dict[str, str]:
     """Read hidden template settings and artifact tables, including old stack views."""
-    from model_design import ARTIFACT_FIELDS
+    from model_core import ARTIFACT_FIELDS
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
     result = {}
     for line in lines:
@@ -371,7 +361,7 @@ def stack_delivery(path: Path) -> dict[str, str]:
 def resource_identity_metadata(lines, *, values=None, import_cfn_ids=False):
     """Use model entry identities; legacy comments remain explicit-import input."""
     if values is not None:
-        from model_design import entries
+        from model_core import entries
         return ({resource["anchor"]: identity for identity, resource in entries(values, "desired.resource.")
                  if f"desired.resource.{identity}.logicalId" not in values}, {})
     anchors = set(ANCHOR.findall("\n".join(lines)))
@@ -527,86 +517,6 @@ def subnet_list_items(prop: str, value: str) -> list[str]:
     return [item if re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", item) else f"`{item}`" for item in items]
 
 
-def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
-    """Restore indexed stages/actions and key rows to the selected catalog fields."""
-    stages: dict[int, dict[int, bool]] = {}
-    configurations: dict[tuple[int, int], dict[str, str]] = {}
-    configuration_rows: dict[tuple[int, int], list[str]] = {}
-    fields: set[tuple[int, int, str]] = set()
-    result = []
-    previous_stage = previous_action = 0
-    previous_configuration = None
-    for row in rows:
-        display = row[1].removeprefix("CodePipeline.Pipeline.")
-        if not display.startswith("Stages"):
-            result.append(row)
-            previous_configuration = None
-            continue
-        match = CODEPIPELINE_STAGE.fullmatch(display)
-        if not match:
-            raise ValueError("CodePipeline stages must use Stages[N], starting at 1")
-        stage = int(match.group(1))
-        if stage != previous_stage:
-            if stage != len(stages) + 1:
-                raise ValueError("CodePipeline stage indexes must be sequential and contiguous")
-            stages[stage] = {}
-            previous_stage, previous_action = stage, 0
-        is_action = display.startswith(f"Stages[{stage}].Actions")
-        action = int(match.group(2) or 1) if is_action else 0
-        field = match.group(3)
-        if is_action and field.startswith("Actions"):
-            raise ValueError("CodePipeline actions must use Actions or Actions[N], without []")
-        identity_field = stage, action, field
-        if "[]" not in field and identity_field in fields:
-            raise ValueError(f"duplicate CodePipeline stage/action field: {display}")
-        fields.add(identity_field)
-        if is_action and action != previous_action:
-            if action != len(stages[stage]) + 1:
-                raise ValueError("CodePipeline action indexes must be sequential and contiguous per stage")
-            stages[stage][action] = bool(match.group(2))
-            previous_action = action
-        elif is_action and stages[stage][action] != bool(match.group(2)):
-            raise ValueError("CodePipeline action index spelling must be consistent")
-        row = row.copy()
-        row[1] = "CodePipeline.Pipeline.Stages[]." + ("Actions[]." if is_action else "") + field
-        if not is_action or not field.startswith("Configuration"):
-            result.append(row)
-            previous_configuration = None
-            continue
-        key = field.removeprefix("Configuration.")
-        if not field.startswith("Configuration.") or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
-            raise ValueError("CodePipeline Configuration must use Configuration.<Key> display rows")
-        identity = stage, action
-        if identity in configurations and previous_configuration != identity:
-            raise ValueError("CodePipeline Configuration key rows must be contiguous per action")
-        values = configurations.setdefault(identity, {})
-        if key in values:
-            raise ValueError(f"duplicate CodePipeline Configuration key: {key}")
-        value = row[2]
-        linked = re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", value)
-        if not linked:
-            if len(value) >= 2 and value[0] == value[-1] == "`":
-                value = value[1:-1]
-            if value.startswith(("{", "[", "!")) or "Fn::" in value or "](" in value or "\n" in value:
-                raise ValueError("CodePipeline Configuration value must be a literal or a resource link, without CFN intrinsics")
-        values[key] = value
-        if identity not in configuration_rows:
-            row[1] = CODEPIPELINE_CONFIGURATION
-            configuration_rows[identity] = row
-            result.append(row)
-            row[3] = f"{key}: {row[3]}"
-        else:
-            configuration_rows[identity][3] += f" / {key}: {row[3]}"
-        configuration_rows[identity][2] = "`" + json.dumps(values, ensure_ascii=False, separators=(",", ":")) + "`"
-        previous_configuration = identity
-    for actions in stages.values():
-        if len(actions) > 1 and not all(actions.values()):
-            raise ValueError("CodePipeline multiple actions must use Actions[N]")
-        if len(actions) == 1 and any(actions.values()):
-            raise ValueError("CodePipeline single action must use Actions without an index")
-    return result
-
-
 def permission_rows(rows: list[list[str]]) -> list[list[str]]:
     """Restore hidden permission rows before the shared grouped-child parser."""
     result = []
@@ -652,128 +562,6 @@ def permission_rows(rows: list[list[str]]) -> list[list[str]]:
         if visible != sorted(visible, key=lambda row: order[row[1]]):
             raise ValueError("Lambda Permission rows must follow catalog file order")
         result += sorted(block, key=lambda row: order[row[1]])
-    return result
-
-
-def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
-    """Number block devices and compact Instance/VPCEndpoint Name tags."""
-    result = []
-    device = 0
-    fields = set()
-    index = 0
-    while index < len(rows):
-        identity, prop, value, comment = rows[index]
-        if prop.startswith("BlockDeviceMappings[]."):
-            field = prop.removeprefix("BlockDeviceMappings[].")
-            if field == "DeviceName":
-                device += 1
-                fields = set()
-            if not device or field in fields:
-                raise ValueError("EC2 block device rows must start with DeviceName and contain unique fields")
-            fields.add(field)
-            prop = f"BlockDeviceMappings[{device}].{field}"
-        elif prop == "Tags[].Key" and value.strip("`\"") == "Name":
-            if index + 1 >= len(rows) or rows[index + 1][1] != "Tags[].Value":
-                raise ValueError("EC2 Name tag requires the corresponding Tags[].Value")
-            metadata = json.dumps([value, comment], ensure_ascii=True)
-            for char in "|<>":
-                metadata = metadata.replace(char, f"\\u{ord(char):04x}")
-            prop = "Name"
-            value, comment = rows[index + 1][2:]
-            comment = f"<!-- ec2-name-tag: {metadata} --> " + comment
-            index += 1
-        result.append([identity, prop, value, comment])
-        index += 1
-    return result
-
-
-def ec2_formal_rows(rows: list[list[str]], resource_type: str) -> list[list[str]]:
-    """Restore compact EC2 rows without losing tag values or source comments."""
-    result = []
-    device = 0
-    fields = set()
-    for identity, prop, value, comment in rows:
-        display = prop.removeprefix(resource_type + ".")
-        marker = EC2_NAME_TAG.match(comment)
-        if "<!-- ec2-name-tag:" in comment and (not marker or display != "Name"):
-            raise ValueError("EC2 Name tag source marker requires a Name display row")
-        if display == "Name":
-            if not marker:
-                raise ValueError("EC2 Name display requires its Name tag source marker")
-            source = json.loads(marker[1])
-            if not isinstance(source, list) or len(source) != 2 or any(not isinstance(item, str) for item in source) or source[0].strip("`\"") != "Name":
-                raise ValueError("invalid EC2 Name tag source marker")
-            result.append([identity, resource_type + ".Tags[].Key", *source])
-            result.append([identity, resource_type + ".Tags[].Value", value, comment[marker.end():]])
-            continue
-        if display.startswith("BlockDeviceMappings[") and not display.startswith("BlockDeviceMappings[]."):
-            match = re.fullmatch(r"BlockDeviceMappings\[([1-9]\d*)\]\.(.+)", display)
-            if not match:
-                raise ValueError("EC2 block devices must use BlockDeviceMappings[N], starting at 1")
-            number, field = int(match[1]), match[2]
-            if number != device:
-                if number != device + 1 or field != "DeviceName":
-                    raise ValueError("EC2 block device indexes must be sequential and start with DeviceName")
-                device, fields = number, set()
-            if field in fields:
-                raise ValueError("duplicate EC2 block device field")
-            fields.add(field)
-            prop = EC2_BLOCK_DEVICE + field
-        result.append([identity, prop, value, comment])
-    return result
-
-
-GLUE_ARGUMENTS = {"DefaultArguments", "NonOverridableArguments"}
-GLUE_ARGUMENT_SOURCE = re.compile(r"^<!-- glue-arguments-source: (.+?) --> ")
-
-
-def glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
-    from policy_tables import code, literal, unique_object, invalid_constant
-
-    result = []
-    for identity, prop, value, comment in rows:
-        if kind != "Glue.Job" or prop not in GLUE_ARGUMENTS:
-            result.append([identity, prop, value, comment])
-            continue
-        arguments = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
-        if not isinstance(arguments, dict) or any(not isinstance(item, str) for item in arguments.values()):
-            raise ValueError(f"Glue.Job.{prop} must be a string object")
-        if not arguments:
-            result.append([identity, prop, value, comment])
-            continue
-        source = json.dumps([prop, value, len(arguments)], ensure_ascii=True)
-        for char in "|<>":
-            source = source.replace(char, f"\\u{ord(char):04x}")
-        for offset, (key, item) in enumerate(arguments.items()):
-            field = html.escape(prop + "[" + json.dumps(key, ensure_ascii=False) + "]", quote=False)
-            field = field.replace("|", "&#124;").replace("`", "&#96;")
-            marker = f"<!-- glue-arguments-source: {source} --> " if offset == 0 else ""
-            result.append([identity, field, code(item), marker + comment])
-    return result
-
-
-def restored_glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
-    result, index = [], 0
-    while index < len(rows):
-        identity, prop, value, comment = rows[index]
-        marker = GLUE_ARGUMENT_SOURCE.match(comment)
-        if marker:
-            source = json.loads(marker[1])
-            if (kind != "Glue.Job" or not isinstance(source, list) or len(source) != 3 or
-                    not all(isinstance(item, str) for item in source[:2]) or source[0] not in GLUE_ARGUMENTS or
-                    type(source[2]) is not int or not 1 <= source[2] <= len(rows) - index):
-                raise ValueError("invalid Glue argument source row or count")
-            original = [identity, *source[:2], comment[marker.end():]]
-            expected = glue_argument_rows([original], kind)
-            if [row[1:] for row in expected] != [row[1:] for row in rows[index:index + source[2]]]:
-                raise ValueError("Glue argument keys, values or comments differ from their source row")
-            result.append(original)
-            index += source[2]
-        else:
-            if "<!-- glue-arguments-source:" in comment or (kind == "Glue.Job" and any(prop.startswith(field + "[") for field in GLUE_ARGUMENTS)):
-                raise ValueError("Glue argument display requires a valid source marker")
-            result.append(rows[index])
-            index += 1
     return result
 
 
@@ -852,28 +640,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
-                name = prop.removeprefix(CODEBUILD_VARIABLE)
-                if not re.fullmatch(r"[^.\s|]+", name) or name in codebuild_names:
-                    raise ValueError(f"invalid or duplicate CodeBuild environment variable name: {name}")
-                codebuild_names.add(name)
-                raw = cells[2]
-                if len(raw) >= 2 and raw[0] == raw[-1] == "`":
-                    raw = raw[1:-1]
-                marker = CODEBUILD_VARIABLE_TYPE.match(cells[3])
-                linked = re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2])
-                if cells[2].startswith("[") and "](" in cells[2] and not linked:
-                    raise ValueError(f"CodeBuild resource variable must use a single resource anchor link: {name}")
-                if "<!-- codebuild-variable-type:" in cells[3] and not marker:
-                    raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
-                if bool(marker) != bool(linked):
-                    raise ValueError(f"CodeBuild resource variable requires a link and Type marker: {name}")
-                if re.match(r"^(PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER):", raw):
-                    raise ValueError(f"CodeBuild environment variable must omit the Type prefix: {name}")
-                variable_type = marker.group(1) if marker else "PLAINTEXT"
-                comment = cells[3][marker.end():] if marker else cells[3]
-                value = cells[2] if linked else f"`{raw}`"
-                for field, field_value in (("Name", f"`{name}`"), ("Type", f"`{variable_type}`"), ("Value", value)):
-                    rows.append([cells[0], CODEBUILD_FORMAL_VARIABLE + field, field_value, comment])
+                rows.extend(codebuild_formal_rows(cells, codebuild_names))
             elif item := linked_list_property(display_property, resource_type):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1

@@ -6,22 +6,70 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import sync_views
+import sync_runtime
+import model_design
+import model_projection
 import io
 import json
 import shutil
 import tempfile
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from test_support.validator import load
 from unittest.mock import patch
 from design_catalog import property_paths_with_parents
 
 
 SCRIPT = Path(__file__).with_name("sync-model.py")
-SPEC = importlib.util.spec_from_file_location("sync_model", SCRIPT)
-assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+MODULE = load('sync-model')
+
+
+def check_file_rollback():
+    from sync_files import save_files
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        first, created, last = [root / name for name in ('first.md', 'new.json', 'last.md')]
+        originals = {first: b'first\r\n', last: b'last\r\n'}
+        write_text, write_bytes = Path.write_text, Path.write_bytes
+        for failed in (first, created, last):
+            for path, content in originals.items():
+                path.write_bytes(content)
+            calls = []
+            def fail_write(path, *args, **kwargs):
+                calls.append(path)
+                if path == failed:
+                    write_text(path, 'partially written', encoding='utf-8')
+                    raise OSError('injected publication failure')
+                return write_text(path, *args, **kwargs)
+            with patch.object(Path, 'write_text', fail_write):
+                try:
+                    save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+                except OSError as error:
+                    assert str(error) == 'injected publication failure'
+                else:
+                    raise AssertionError('publication failure was swallowed')
+            assert failed in calls
+            assert {path: path.read_bytes() for path in originals} == originals
+            assert not created.exists()
+        restores = []
+        def fail_restore(path, content):
+            restores.append(path)
+            raise OSError('injected restoration failure')
+        with patch.object(Path, 'write_text', fail_write), patch.object(Path, 'write_bytes', fail_restore):
+            try:
+                save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+            except OSError as error:
+                assert 'generated-file rollback failed:' in str(error)
+                assert all(f'{path}: injected restoration failure' in str(error) for path in (last, first))
+            else:
+                raise AssertionError('restoration failure was swallowed')
+        assert last in calls and restores == [last, first] and not created.exists()
+        for path, content in originals.items():
+            write_bytes(path, content)
+        with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
+            save_files({path: content.decode('utf-8') for path, content in originals.items()})
+    print('File rollback: PASS (first/middle/last partial write, new file removal, restoration error, no-op)')
 
 
 def check_failure_counts() -> None:
@@ -49,11 +97,11 @@ def check_failure_counts() -> None:
                 (docs / "orphan.md").write_text("saved Markdown\n")
             for write in (False, True):
                 warnings = io.StringIO()
-                with redirect_stderr(warnings), patch.object(MODULE, "validate_required_properties"), \
-                     patch.object(MODULE, "markdown_for", side_effect=render), \
-                     patch.object(MODULE, "rendered_design", return_value="generated\n"), \
-                     patch.object(MODULE, "validate_views"), \
-                     patch.object(MODULE, "broken_design_links", side_effect=[{}, broken, {}]), \
+                with redirect_stderr(warnings), patch.object(sync_runtime, "validate_required_properties"), \
+                     patch.object(sync_runtime, "markdown_for", side_effect=render), \
+                     patch.object(sync_runtime, "rendered_design", return_value="generated\n"), \
+                     patch.object(sync_views, "validate_views"), \
+                     patch.object(sync_views, "broken_design_links", side_effect=[{}, broken, {}]), \
                      redirect_stdout(io.StringIO()):
                     try:
                         MODULE.sync(root, write, "dev", "non-cde")
@@ -106,8 +154,8 @@ def check_required_preflight() -> None:
                 artifact.write_text("existing JSON\n")
             for write in (False, True):
                 # Neither the renderer nor artifact writer may run for this service.
-                with patch.object(MODULE, "markdown_for", side_effect=AssertionError("rendered before preflight")), \
-                     patch.object(MODULE, "save_files", side_effect=AssertionError("wrote before preflight")):
+                with patch.object(sync_runtime, "markdown_for", side_effect=AssertionError("rendered before preflight")), \
+                     patch.object(sync_runtime, "save_files", side_effect=AssertionError("wrote before preflight")):
                     try:
                         MODULE.sync(root, write, "dev", "123456789012")
                     except ValueError as error:
@@ -120,7 +168,7 @@ def check_required_preflight() -> None:
                     assert design.read_text() == "existing Markdown\n"
                     assert artifact.read_text() == "existing JSON\n"
         try:
-            MODULE.markdown_for(design, values, root)
+            model_design.markdown_for(design, values, root)
         except ValueError as error:
             assert "QuickSight.DataSource.Type" in str(error)
         else:
@@ -130,10 +178,10 @@ def check_required_preflight() -> None:
             "desired.row.001-003.value": "`ATHENA`",
             "desired.row.001-003.comment": "データソースの接続方式",
         }
-        MODULE.validate_required_properties(complete, root)
+        model_design.validate_required_properties(complete, root)
         for empty in ("", "``", '`""`', "`UNSET`"):
             try:
-                MODULE.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
+                model_design.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
             except ValueError as error:
                 assert "QuickSight.DataSource.Type" in str(error)
             else:
@@ -145,7 +193,7 @@ def check_required_preflight() -> None:
             "desired.row.001-002.value": "",
         }
         try:
-            MODULE.validate_required_properties(grouped, root)
+            model_design.validate_required_properties(grouped, root)
         except ValueError as error:
             assert "S3.BucketPolicy.PolicyDocument" in str(error)
             assert "S3.BucketPolicy.Bucket" not in str(error)
@@ -210,14 +258,14 @@ def check_required_property_parents() -> None:
         source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
         model.write_text(source)
         design = root / "docs/designs/dev/123456789012/glue.md"
-        MODULE.validate_required_properties(values, root)
+        model_design.validate_required_properties(values, root)
         assert MODULE.sync(root, True, "dev", "123456789012") == 0
         assert model.read_text() == source
         assert "| ConnectionInput |" not in design.read_text()  # Presence is inferred without inventing a row.
 
         def design_errors(content):
             design.write_text(content)
-            validator = MODULE.view_validator(root, root)
+            validator = sync_views.view_validator(root, root)
             validator.check_design_tables({design: ("glue", ("Glue.Connection",))}, *validator.catalog_design_properties())
             return validator.errors
 
@@ -228,7 +276,7 @@ def check_required_property_parents() -> None:
                        if key.endswith(".property") and (value == f"Glue.Connection.{missing}" or value.startswith(f"Glue.Connection.{missing}."))}
             incomplete = {key: value for key, value in values.items() if key.rsplit(".", 1)[0] not in removed}
             try:
-                MODULE.validate_required_properties(incomplete, root)
+                model_design.validate_required_properties(incomplete, root)
             except ValueError as error:
                 assert f"required provider schema property missing: Glue.Connection.{missing}" in str(error)
             else:
@@ -241,9 +289,8 @@ def check_required_property_parents() -> None:
 
 
 def main() -> None:
-    spec = importlib.util.spec_from_file_location("design_document_checks", SCRIPT.with_name("design_document.checks.py"))
-    checks = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(checks)
+    check_file_rollback()
+    checks = load('design_document.checks')
     checks.check_projection(MODULE)
     check_failure_counts()
     check_required_preflight()
@@ -312,7 +359,7 @@ def main() -> None:
 """,
             encoding="utf-8",
         )
-        model = MODULE.model_for(design, root)
+        model = model_projection.model_for(design, root)
         assert "desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet" in model
         assert "desired.resource.001.logicalId=vpc-app-dev" in model
         assert "desired.row.001-001.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
@@ -324,7 +371,7 @@ def main() -> None:
         assert "observed.row.002-001.value=PENDING_DEPLOY" in model
         assert "desired.row.002-002.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
         assert "desired.row.002-003.property=EC2.Subnet.Name" in model
-        assert model == MODULE.model_for(design, root)
+        assert model == model_projection.model_for(design, root)
 
         s3_design = design.with_name("s3.md")
         s3_artifact = s3_design.parent / "s3" / "app-data-bucket-policy.json"
@@ -383,7 +430,7 @@ def main() -> None:
 """,
             encoding="utf-8",
         )
-        s3_model = MODULE.model_for(s3_design, root)
+        s3_model = model_projection.model_for(s3_design, root)
         assert "desired.resource.001.resourceType=S3.Bucket" in s3_model
         assert "desired.resource.001.logicalId=app-dev-data-123456789012" in s3_model
         assert "desired.resource.002." not in s3_model
@@ -400,19 +447,19 @@ def main() -> None:
         assert "リソース一覧" not in s3_model
         assert "リソース詳細" not in s3_model
         assert "BucketName | Region" not in s3_model
-        original_digest = MODULE.json_sha256(artifact)
+        original_digest = model_projection.json_sha256(artifact)
         artifact.write_text(
             '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
             '  "Version": "2012-10-17"\r\n}',
             encoding="utf-8",
             newline="",
         )
-        assert MODULE.json_sha256(artifact) == original_digest
+        assert model_projection.json_sha256(artifact) == original_digest
         artifact.write_text(
             '{"Version":"2012-10-17","Action":["s3:PutObject"]}\n',
             encoding="utf-8",
         )
-        assert MODULE.json_sha256(artifact) != original_digest
+        assert model_projection.json_sha256(artifact) != original_digest
         artifact.write_text(
             '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
             encoding="utf-8",
@@ -424,7 +471,7 @@ def main() -> None:
             .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"),
             encoding="utf-8",
         )
-        deployed = MODULE.model_for(design, root)
+        deployed = model_projection.model_for(design, root)
         assert "observed.row.001-001.value=vpc-0123456789abcdef0" in deployed
         assert "observed.row.002-001.value=subnet-0123456789abcdef0" in deployed
         assert "observed.row.002-002.value=vpc-0123456789abcdef0" in deployed
@@ -459,8 +506,8 @@ def main() -> None:
             else:
                 raise AssertionError("missing model was silently imported")
         assert not (root / "model" / "dev" / "cde" / "vpc.properties").exists()
-        assert MODULE.selected(alias_design, root / "docs" / "designs", "dev", "cde")
-        assert not MODULE.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
+        assert sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "cde")
+        assert not sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
         stacks = design.with_name("cloudformation-stacks.md")
         stacks.write_text(
             """# CloudFormation stack 詳細設計
@@ -475,7 +522,7 @@ def main() -> None:
 """,
             encoding="utf-8",
         )
-        stack_model = MODULE.model_for(stacks, root)
+        stack_model = model_projection.model_for(stacks, root)
         assert "desired.stack.001.template=job.yaml" in stack_model
         assert "desired.stack.002.template=job.yaml" in stack_model
         assert "desired.stack.002.parameters=job-02.json" in stack_model

@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Lambda Permission grouping, hidden identity and lossless view checks."""
-import importlib.util
+import sync_views
+import model_projection
 import json
 import re
 import shutil
 import tempfile
 from pathlib import Path
+from test_support.validator import load
 
 from design_layout import expanded_design, formal_property, layout_errors, resource_anchor
-from model_design import markdown_for, properties
+from model_design import markdown_for
+from model_core import properties
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("model_checks", Path(__file__).with_name("model_design.checks.py"))
-HELPERS = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(HELPERS)
+HELPERS = load('model_design.checks')
 SYNC = HELPERS.SYNC
 FUNCTION, PERMISSION = "Lambda.Function", "Lambda.Permission"
 
@@ -96,8 +97,8 @@ def main():
         for parents, children, deployed in ((1, 0, False), (1, 1, False), (2, 2, False), (2, 2, True)):
             values = fixture(parents, children, deployed)
             output = HELPERS.roundtrip(path, values, root)
-            assert properties(SYNC.imported_model(path, root)) == values
-            SYNC.validate_views(root, root, [path], {path: values})
+            assert properties(model_projection.imported_model(path, root)) == values
+            sync_views.validate_views(root, root, [path], {path: values})
             _, grouped = expanded_design(output.splitlines())
             assert len(grouped) == parents * children
             assert "### Lambda.Permission" not in output
@@ -107,7 +108,7 @@ def main():
             assert "Permission.Principal" in visible or children == 0
             assert output.count("| No. | Property | Value | Source / Comment |") == parents
             if children:
-                assert SYNC.linked_resource(path, "[permission-1-1](#lambda-app-dev-invoke-1-1)") == (PERMISSION, "Invoke1_1")
+                assert model_projection.linked_resource(path, "[permission-1-1](#lambda-app-dev-invoke-1-1)") == (PERMISSION, "Invoke1_1")
 
         values = fixture(1, 2)
         output = HELPERS.roundtrip(path, values, root)

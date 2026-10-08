@@ -6,6 +6,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 import importlib.util
+import sync_runtime
 import io
 import json
 import os
@@ -20,7 +21,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import cloudformation_observed as observed
-from model_design import properties, markdown_for
+from model_design import markdown_for
+from model_core import properties
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("destroy", Path(__file__).with_name("cloudformation-destroy.py"))
@@ -446,16 +448,11 @@ def check_observed():
         states["A"].update(status="DELETE_COMPLETE", StackId=stack_id("A"), deleteObserved=True)
         states["B"]["status"] = "DELETE_FAILED"
         calls = []
-        destinations = observed.observed_destinations
-        def counted_destinations(*args, **kwargs):
-            output, views, sync = destinations(*args, **kwargs)
-            real_sync = sync.sync
-            def batch(*args, **kwargs):
-                calls.append(kwargs.get("services"))
-                return real_sync(*args, **kwargs)
-            sync.sync = batch
-            return output, views, sync
-        with patch.object(observed, "observed_destinations", side_effect=counted_destinations), redirect_stdout(io.StringIO()):
+        real_sync = sync_runtime.sync
+        def batch(*args, **kwargs):
+            calls.append(kwargs.get("services"))
+            return real_sync(*args, **kwargs)
+        with patch.object(sync_runtime, "sync", side_effect=batch), redirect_stdout(io.StringIO()):
             observed.sync_destroyed(backend, states, plan["observed"])
         after = properties(source.read_text())
         assert after["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
@@ -472,7 +469,7 @@ def check_observed():
         for name in ("A", "B"):
             batched[name].update(status="DELETE_COMPLETE", StackId=stack_id(name), deleteObserved=True)
         calls.clear()
-        with patch.object(observed, "observed_destinations", side_effect=counted_destinations), redirect_stdout(io.StringIO()):
+        with patch.object(sync_runtime, "sync", side_effect=batch), redirect_stdout(io.StringIO()):
             observed.sync_destroyed(backend, batched, plan["observed"])
         assert calls == [["ec2"]] and all(batched[name]["observedSynced"] for name in ("A", "B"))
         assert properties(source.read_text())["observed.row.002-002.value"] == "`PENDING_DEPLOY`"

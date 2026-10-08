@@ -1,6 +1,7 @@
 """Design references, grouped resources and resource overviews."""
 
 from __future__ import annotations
+import model_projection
 from test_support.validator import MODULE, SCRIPT, project, write, schema_validator, load
 
 
@@ -281,10 +282,10 @@ def check_subnet_association_overview() -> None:
             return validator.errors
 
         assert not errors(valid), errors(valid)
-        merged_model = model.model_for(design, SCRIPT.parents[2])
+        merged_model = model_projection.model_for(design, SCRIPT.parents[2])
         # An overview edit must not change resources, references, or observed IDs.
         write(design, metadata + legacy_overview + details)
-        assert model.model_for(design, SCRIPT.parents[2]) == merged_model
+        assert model_projection.model_for(design, SCRIPT.parents[2]) == merged_model
         assert "resourceType=EC2.SubnetRouteTableAssociation" not in merged_model
         assert "desired.row.001-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
         assert "desired.row.001-003.value=[route](#vpc-route)" in merged_model

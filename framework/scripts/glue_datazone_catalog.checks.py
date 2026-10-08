@@ -6,7 +6,7 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import model_projection
 import io
 import shutil
 import tempfile
@@ -17,15 +17,6 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def load_sync_model():
-    path = Path(__file__).with_name("sync-model.py")
-    spec = importlib.util.spec_from_file_location("sync_model", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def write_designs(root: Path) -> tuple[Path, Path]:
@@ -124,15 +115,15 @@ def main() -> None:
     assert catalog.literal_errors("DataZone.Domain", "DomainVersion", "V2") == []
     assert catalog.literal_errors("DataZone.DataSource", "Type", "GLUE") == []
 
-    model = load_sync_model()
+    import sync_runtime as model
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copytree(ROOT / "framework", root / "framework")
         glue, datazone = write_designs(root)
-        glue_model = model.model_for(glue, root)
-        datazone_model = model.model_for(datazone, root)
-        assert glue_model == model.model_for(glue, root)
-        assert datazone_model == model.model_for(datazone, root)
+        glue_model = model_projection.model_for(glue, root)
+        datazone_model = model_projection.model_for(datazone, root)
+        assert glue_model == model_projection.model_for(glue, root)
+        assert datazone_model == model_projection.model_for(datazone, root)
         assert "desired.resource.001.resourceType=Glue.Catalog" in glue_model
         assert "desired.row.001-001.value=[FederatedCatalog](#glue-federatedcatalog)" in glue_model
         assert "observed.row.001-001.value=PENDING_DEPLOY" in glue_model

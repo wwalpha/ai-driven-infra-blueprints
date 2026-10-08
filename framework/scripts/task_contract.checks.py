@@ -4,6 +4,7 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import sync_runtime
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import os
@@ -594,7 +595,7 @@ def check_automatic_retry():
             (root / output).parent.mkdir(parents=True)
             (root / output).write_text("owner's authoritative model")
             tasks.complete(root, owner)
-        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=create_model), patch.object(sync, "imported_model", return_value="desired.service.ec2.serviceId=ec2\n"):
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=create_model), patch.object(sync_runtime, "imported_model", return_value="desired.service.ec2.serviceId=ec2\n"):
             blocked(lambda: sync.sync(root, True, "dev", "cde", import_markdown=True, services=["ec2"]), "must not overwrite")
         assert (root / output).read_text() == "owner's authoritative model"
     print("Automatic Deferred retry: PASS (Active first, partial work, 30 sec x 20, clean exhaustion, restart, atomic groups, agent continuation)")

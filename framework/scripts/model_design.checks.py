@@ -4,9 +4,13 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import sync_views
+import sync_runtime
+import sync_files
+import model_design
+import model_projection
 from contextlib import redirect_stderr
 import io
-import importlib.util
 import json
 import os
 import shutil
@@ -14,20 +18,29 @@ import tempfile
 import subprocess
 import sys
 from pathlib import Path
+from test_support.validator import load
 from unittest.mock import patch
 
-from model_design import naming_rule_files, naming_targets, naming_target_matches, properties, markdown_for, naming_errors, stack_model, display_rows, validate_kms_policy_accounts
-from design_layout import stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER, ALIGNMENT, expanded_display_rows
-from model_design import row_table, design_naming_errors, catalog_display_rows, resource_rows
+from model_design import (
+    naming_rule_files, naming_targets, naming_target_matches, markdown_for, naming_errors,
+    validate_kms_policy_accounts,
+)
+from model_display import display_rows
+from model_core import properties, stack_model
+from design_layout import (
+    stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER,
+    ALIGNMENT, expanded_display_rows,
+)
+from model_design import design_naming_errors
+from model_references import resource_rows
+from model_display import row_table, catalog_display_rows
 from design_layout import catalog_order_errors
 from design_layout import resource_display_name, resource_anchor, resource_has_name_property
 from security_group_tables import COMMENTS, GROUP_COMMENTS
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("model_sync", Path(__file__).with_name("sync-model.py"))
-SYNC = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(SYNC)
+SYNC = load('sync-model')
 
 
 def model(service, kind, name, rows, logical_id=None, label=None):
@@ -58,7 +71,7 @@ def text(values):
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown_for(path, values, root), encoding="utf-8")
-    projected = properties(SYNC.model_for(path, root, source=values))
+    projected = properties(model_projection.model_for(path, root, source=values))
     expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
@@ -92,24 +105,24 @@ def check_catalog_display_order():
                          ("vpc-123", "vpc-456"), ('"first"', '"changed"')):
             path.write_text(output.replace(old, new), encoding="utf-8")
             try:
-                projected = properties(SYNC.model_for(path, ROOT, source=values))
+                projected = properties(model_projection.model_for(path, ROOT, source=values))
             except ValueError:
                 continue  # Array source verification rejects altered elements directly.
             assert projected != {key: value for key, value in values.items() if not key.startswith("display.")}
         path.write_text(output, encoding="utf-8")
-        imported = properties(SYNC.model_for(path, ROOT, import_cfn_ids=True))
+        imported = properties(model_projection.model_for(path, ROOT, import_cfn_ids=True))
         assert imported["desired.row.001-001.property"] == "EC2.VPC.Name"
         missing = "\n".join(line for line in output.splitlines() if " | CidrBlock | " not in line)
         path.write_text(missing, encoding="utf-8")
         try:
-            projected = properties(SYNC.model_for(path, ROOT, source=values))
+            projected = properties(model_projection.model_for(path, ROOT, source=values))
         except ValueError:
             pass  # Missing rows also leave invalid display numbering.
         else:
             assert "desired.row.001-007.property" not in projected
         path.write_text(output.replace(" | CidrBlock | ", " | UnknownField | "), encoding="utf-8")
         try:
-            SYNC.model_for(path, ROOT, source=values)
+            model_projection.model_for(path, ROOT, source=values)
         except ValueError as error:
             assert "absent from authoritative model" in str(error)
         else:
@@ -333,17 +346,17 @@ def check_config_typed_anchors():
             "desired.row.002-002.comment": "構成情報を保存するS3 bucketの名前",
         })
         output = roundtrip(path, values, root)
-        assert properties(SYNC.imported_model(path, root)) == values
+        assert properties(model_projection.imported_model(path, root)) == values
         for kind, anchor, logical_id in ((recorder, recorder_anchor, "Recorder"), (channel, channel_anchor, "Channel")):
             assert f"### {kind}: default" in output
             assert f"| 1 | [default](#{anchor}) |" in output
-            assert SYNC.linked_resource(path, f"[default](#{anchor})") == (kind, logical_id)
+            assert model_projection.linked_resource(path, f"[default](#{anchor})") == (kind, logical_id)
         metadata = {path: ("config", (recorder, channel))}
-        catalog = SYNC.view_validator(root, root).catalog_design_properties()
+        catalog = sync_views.view_validator(root, root).catalog_design_properties()
 
         def failures(markdown):
             path.write_text(markdown, encoding="utf-8")
-            validator = SYNC.view_validator(root, root)
+            validator = sync_views.view_validator(root, root)
             validator.check_resource_names(metadata, [path])
             validator.check_design_tables(metadata, *catalog, [path])
             validator.check_design_overviews([path])
@@ -384,7 +397,7 @@ def check_config_typed_anchors():
         hub["desired.note.001.text"] = f"記録先: [default](config.md#{recorder_anchor})"
         hub["desired.note.002.text"] = f"配信先: [default](config.md#{channel_anchor})"
         roundtrip(path.with_name("securityhub.md"), hub, root)
-        validator = SYNC.view_validator(root, root)
+        validator = sync_views.view_validator(root, root)
         validator.check_design_links(catalog[2])
         assert not validator.errors, validator.errors
         source = root / "model/dev/cde/config.properties"
@@ -426,15 +439,15 @@ def check_kms_alias_display():
         assert f"### KMS.Key: {name}" in output
         assert "`alias/venus-dev-log-cde`" in output
         assert "<!-- resource-logical-id: CdeLogKey -->" in output
-        assert properties(SYNC.imported_model(path, root)) == values
+        assert properties(model_projection.imported_model(path, root)) == values
         metadata = {path: ("kms", ("KMS.Key", "KMS.Alias"))}
-        validator = SYNC.view_validator(root, root)
+        validator = sync_views.view_validator(root, root)
         validator.check_resource_names(metadata, [path])
         validator.check_design_overviews([path])
         validator.check_design_links(validator.catalog_design_properties()[2], [path])
         assert not validator.errors, validator.errors
         path.write_text(output.replace(f"### KMS.Key: {name}", "### KMS.Key: CDE用ログキー（log）"), encoding="utf-8")
-        validator = SYNC.view_validator(root, root)
+        validator = sync_views.view_validator(root, root)
         validator.check_resource_names(metadata, [path])
         assert any("heading must display resource name" in error for error in validator.errors), validator.errors
 
@@ -451,7 +464,7 @@ def check_kms_alias_display():
                 raise AssertionError("ambiguous KMS alias was selected automatically")
         values["display.resource.001.label"] = name
         roundtrip(path, values, root)
-        assert properties(SYNC.imported_model(path, root)) == values
+        assert properties(model_projection.imported_model(path, root)) == values
         assert resource_display_name("KMS.Key", []) is None
         for alias in ("alias/", "venus-dev-log-cde"):
             try:
@@ -463,9 +476,7 @@ def check_kms_alias_display():
 
 
 def check_nameless_type_display():
-    spec = importlib.util.spec_from_file_location("nameless_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -482,10 +493,10 @@ def check_nameless_type_display():
         assert output.count(f"### {kind}\n") == 2  # Overview and detail.
         assert f"### {kind}:" not in output
         assert f"<!-- resource-logical-id: {logical_id} -->" in output
-        imported = properties(SYNC.imported_model(path, root))
+        imported = properties(model_projection.imported_model(path, root))
         assert "display.resource.001.label" not in imported
         assert imported == values
-        assert SYNC.linked_resource(path, f"[{kind}](#{anchor})") == (kind, logical_id)
+        assert model_projection.linked_resource(path, f"[{kind}](#{anchor})") == (kind, logical_id)
         metadata = {path: ("guardduty", (kind,))}
         catalog = validator_module.Validator(root).catalog_design_properties()
 
@@ -530,7 +541,7 @@ def check_nameless_type_display():
         labeled = {key: value.replace(anchor, "guardduty-primary-detector") for key, value in values.items()}
         labeled["display.resource.001.label"] = "primary-detector"
         assert f"### {kind}: primary-detector" in roundtrip(path, labeled, root)
-        assert properties(SYNC.imported_model(path, root))["display.resource.001.label"] == "primary-detector"
+        assert properties(model_projection.imported_model(path, root))["display.resource.001.label"] == "primary-detector"
         second = model("guardduty", kind, "secondary-detector", [("Id", "[SecondDetector](#guardduty-secondary-detector)", rows[0][2]), rows[1]], "SecondDetector", "secondary-detector")
         second.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2]})
         additional = {key.replace(".001", ".002", 1): value for key, value in second.items()
@@ -565,9 +576,7 @@ def check_nameless_type_display():
 
 
 def check_nameless_logical_id_label():
-    spec = importlib.util.spec_from_file_location("label_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -600,7 +609,7 @@ def check_nameless_logical_id_label():
             return validator.errors
 
         assert not failures(values), failures(values)
-        assert properties(SYNC.imported_model(path, root)) == values
+        assert properties(model_projection.imported_model(path, root)) == values
         for identity, label in (("001", "BuildProtectionPlan"), ("002", "QuarantineProtectionPlan")):
             assert f"<!-- resource-logical-id: {label} -->" in output
             assert f"[{label}](#guardduty-{label.lower()})" in output
@@ -635,9 +644,7 @@ def check_nameless_logical_id_label():
 
 
 def check_required_name_tag(kind):
-    spec = importlib.util.spec_from_file_location("endpoint_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     if kind == "EC2.VPCEndpoint":
         service, name, logical_id = "vpc", "vpce-app-dev-s3", "S3Endpoint"
         identifier, current_id, reference_property = "Id", "vpce-0123456789abcdef0", "VpcEndpointId"
@@ -672,7 +679,7 @@ def check_required_name_tag(kind):
         assert f"[{name}](#{service}-{name})" in output and "fallback-label" not in output
         assert f"<!-- resource-logical-id: {logical_id} -->" in output
         assert f"| 1 | {identifier} | `{current_id}` |" in output
-        assert kind + ".Name" not in properties(SYNC.model_for(path, root)).values()
+        assert kind + ".Name" not in properties(model_projection.model_for(path, root)).values()
         base = root / "model/dev/123456789012"
         base.mkdir(parents=True)
         source = base / f"{service}.properties"
@@ -705,7 +712,7 @@ def check_required_name_tag(kind):
         validator = validator_module.Validator(root)
         validator.check_design_links(outputs)
         assert not validator.errors, validator.errors
-        projected = properties(SYNC.model_for(reference, root))
+        projected = properties(model_projection.model_for(reference, root))
         assert projected["desired.row.001-001.value"] == f"[{logical_id}]({service}.md#{service}-{name})"
         assert projected["observed.row.001-001.value"] == current_id
         reference.unlink()
@@ -758,9 +765,7 @@ def check_required_name_tag(kind):
 
 
 def check_codebuild_required_name():
-    spec = importlib.util.spec_from_file_location("codebuild_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     kind, name = "CodeBuild.Project", "cbld-app-dev-build"
     name_row = ("Name", f"`{name}`", "projectの名前")
     rows = [("Id", f"[BuildProject](#codebuild-{name})", "projectを識別するID"),
@@ -822,9 +827,7 @@ def check_codebuild_required_name():
 
 
 def check_iam_role_name():
-    spec = importlib.util.spec_from_file_location("iam_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     kind, name, logical_id = "IAM.Role", "app-dev-worker-role", "WorkerRole"
     name_row = ("RoleName", f"`{name}`", "workerの実行権限を識別するロール名")
     trust_row = ("AssumeRolePolicyDocument", "[WorkerTrust](iam/worker-role-trust-policy.json)", "workerからの引受を許可する信頼ポリシー")
@@ -848,7 +851,7 @@ def check_iam_role_name():
         assert f"| 1 | [{name}](#iam-{name}) |" in output
         assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
         assert f"<!-- resource-logical-id: {logical_id} -->" in output
-        projected = properties(SYNC.model_for(path, root))
+        projected = properties(model_projection.model_for(path, root))
         assert projected["desired.resource.001.logicalId"] == logical_id
         assert projected["desired.row.001-001.value"] == f"`{name}`"
         assert source.read_text(encoding="utf-8") == text(values)
@@ -891,9 +894,7 @@ def check_iam_role_name():
 
 
 def check_naming_exclusions():
-    spec = importlib.util.spec_from_file_location("naming_validator", Path(__file__).with_name("validate-blueprint.py"))
-    validator_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(validator_module)
+    validator_module = load('validate-blueprint')
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
@@ -1209,7 +1210,7 @@ def check_stack_policy():
         assert [s["parameters"] for s in stacks] == ["network.json", "app-a.json", "app-b.json"]
         assert [s["comment"] for s in stacks] == ["networkを配置するstack", "app-aを配置するstack", "app-bを配置するstack"]
         assert stacks[1]["template"] == stacks[2]["template"]
-        projected = properties(SYNC.model_for(path, root))
+        projected = properties(model_projection.model_for(path, root))
         assert stack_model(projected)[0] == stack_model(values)[0]
         assert [s for _, s in stack_model(projected)[1]] == [s for _, s in stack_model(values)[1]]
         assert "dependsOn" not in projected
@@ -1263,7 +1264,7 @@ def check_stack_mapping_roundtrip():
         # Terraform needs neither a generic logicalId nor a CFn identity.
         rendered = roundtrip(path, values, root)
         assert "cfn-logical-id:" not in rendered
-        assert "desired.resource.001.logicalId" not in SYNC.model_for(path, root, source=values)
+        assert "desired.resource.001.logicalId" not in model_projection.model_for(path, root, source=values)
         project = root / "project.json"
         project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}) + "\n")
         roundtrip(path, values, root)
@@ -1290,7 +1291,7 @@ def check_stack_mapping_roundtrip():
         assert cfn_resource_identity(values["desired.resource.001.cfn-logicalId"]) == ("cfn-stack-app-dev-ism", "DepartmentVpc")
         assert "cfn-logical-id:" not in rendered
         assert "resource-entry:" not in rendered and "resource-mode:" not in rendered
-        SYNC.validate_views(root, root, [path], {path: values})
+        sync_views.validate_views(root, root, [path], {path: values})
         for invalid in ("", "invalid", "stack-resource", "stack-Bad_Id", "stack-Resource-With-Hyphens", " stack-Resource", "stack-Resource "):
             try:
                 cfn_resource_identity(invalid)
@@ -1303,22 +1304,22 @@ def check_stack_mapping_roundtrip():
                           rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
             path.write_text(candidate)
             try:
-                SYNC.validate_views(root, root, [path], {path: values})
+                sync_views.validate_views(root, root, [path], {path: values})
             except ValueError as error:
                 assert "projection mismatch" in str(error) or "absent from authoritative model" in str(error), error
             else:
                 raise AssertionError("anchor/property change silently accepted")
         path.write_text(rendered)
         try:
-            SYNC.imported_model(path, root)
+            model_projection.imported_model(path, root)
         except ValueError as error:
             assert "unavailable in Markdown" in str(error), error
         else:
             raise AssertionError("CFn identity lost during Markdown import")
         legacy = rendered + "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->\n<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->\n<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
         path.write_text(legacy)
-        assert not any(key.endswith(".cfn-logicalId") for key in properties(SYNC.model_for(path, root)))
-        assert properties(SYNC.imported_model(path, root)) == values
+        assert not any(key.endswith(".cfn-logicalId") for key in properties(model_projection.model_for(path, root)))
+        assert properties(model_projection.imported_model(path, root)) == values
         for marker in ("<!-- cfn-logical-id: absent stack-Resource -->",
                        "<!-- cfn-logical-id: ec2-vpc-app-dev-data invalid -->",
                        "<!-- cfn-logical-id: ec2-vpc-app-dev-data stack-Resource -->"):
@@ -1359,7 +1360,7 @@ def check_stack_mapping_roundtrip():
         grouped = roundtrip(kms_path, kms, root)
         assert "resource-entry:" not in grouped and "resource-mode:" not in grouped
         assert "cfn-logical-id:" not in grouped
-        SYNC.validate_views(root, root, [kms_path], {kms_path: kms})
+        sync_views.validate_views(root, root, [kms_path], {kms_path: kms})
         # The normal parser reads indexed models without renumbering grouped children.
         from model_files import INDEX_HEADER, PART_PREFIX
         kms_source = stack_source.with_name("kms.properties")
@@ -1368,7 +1369,7 @@ def check_stack_mapping_roundtrip():
         part.write_text(text(kms), encoding="utf-8")
         kms_source.write_text(INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n", encoding="utf-8")
         before = {file: file.read_bytes() for file in (kms_source, part, stack_source)}
-        assert properties(SYNC.model_for(kms_path, root)) == {key: value for key, value in kms.items()
+        assert properties(model_projection.model_for(kms_path, root)) == {key: value for key, value in kms.items()
                                                             if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
         assert SYNC.sync(root, True, "dev", "123456789012", services=["kms"]) == 0
         assert SYNC.sync(root, False, "dev", "123456789012", services=["kms"]) == 0
@@ -1900,7 +1901,7 @@ def main():
             assert all(path.read_bytes() == snapshot[path] for path in [docs / "iam.md", json_path])
             if len(sleeps) == 3:
                 tasks.complete(root, owner)
-        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=release), patch.object(SYNC, "markdown_for", wraps=SYNC.markdown_for) as generate:
+        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=release), patch.object(sync_runtime, "markdown_for", wraps=sync_runtime.markdown_for) as generate:
             assert SYNC.sync(root, True, "dev", "123456789012") == 0
             assert generate.call_count == 3, "retry must not regenerate services"
         assert sleeps == [30] * 3 and json.loads(json_path.read_text()) == document
@@ -1964,7 +1965,7 @@ def main():
             return original_write(path, *args, **kwargs)
         with patch.object(Path, "write_text", fail_last):
             try:
-                SYNC.save_files({first: "changed\n", last: "changed\n"})
+                sync_files.save_files({first: "changed\n", last: "changed\n"})
             except OSError:
                 pass
             else:

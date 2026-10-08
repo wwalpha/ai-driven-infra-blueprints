@@ -21,7 +21,9 @@ sys.modules.setdefault("model_aws_compare", sys.modules[__name__])
 
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
-from model_design import LINK, catalog_outputs, entries, pipeline_rows, properties
+from model_references import catalog_outputs
+from service_rows import pipeline_rows
+from model_core import LINK, entries, properties
 from model_files import model_parts, read_model
 from policy_tables import invalid_constant, literal, unique_object
 

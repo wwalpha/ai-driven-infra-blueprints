@@ -4,19 +4,19 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import sync_views
+import model_projection
 import json
 from pathlib import Path
 import shutil
 import tempfile
 
 from design_layout import resource_anchor, resource_mode, resource_modes
-from model_design import markdown_for, naming_errors, properties
+from model_design import markdown_for, naming_errors
+from model_core import properties
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("mode_sync", Path(__file__).with_name("sync-model.py"))
-SYNC = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(SYNC)
+import sync_runtime as SYNC
 
 
 def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
@@ -78,11 +78,11 @@ def main():
             source.write_text(original, encoding="utf-8")
             try:
                 path.write_text(markdown_for(path, values, root), encoding="utf-8")
-                SYNC.validate_views(root, root, [path], {path: values})
+                sync_views.validate_views(root, root, [path], {path: values})
             except (ValueError, KeyError) as error:
                 return str(error)
             assert source.read_text(encoding="utf-8") == original
-            projected = properties(SYNC.model_for(path, root))
+            projected = properties(model_projection.model_for(path, root))
             assert projected == {key: value for key, value in values.items() if not key.startswith("display.")}
             assert "resource-mode:" not in path.read_text(encoding="utf-8")
             assert "resource-entry:" not in path.read_text(encoding="utf-8")
@@ -104,7 +104,7 @@ def main():
         print("resourceMode: PASS (required cases 1–5, omitted-mode CREATE compatibility)")
 
         # All six mandatory-Name types retain CREATE checks; IMPORT can omit tags.
-        validator_module = SYNC.view_validator(root, root).__class__
+        validator_module = sync_views.view_validator(root, root).__class__
         for kind in ("EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"):
             for mode in ("CREATE", "IMPORT"):
                 for rows in ([], [["1", kind + ".Name", "PRIVATE_SUBNET_01", "Nameタグ"]]):
@@ -162,7 +162,7 @@ def main():
         stale = original + marker.replace("IMPORT", "CREATE") + "\n"
         assert resource_modes(stale.splitlines(), imported)["ec2-private_subnet_01"] == "IMPORT"
         path.write_text(stale, encoding="utf-8")
-        SYNC.validate_views(root, root, [path], {path: imported})
+        sync_views.validate_views(root, root, [path], {path: imported})
         try:
             SYNC.sync(root, False, "dev", "123456789012", services=["ec2"])
         except ValueError as error:
@@ -209,7 +209,7 @@ def main():
             "desired.row.002-001.comment": "鍵を識別するalias",
         }
         kms_path.write_text(markdown_for(kms_path, kms, root), encoding="utf-8")
-        assert properties(SYNC.model_for(kms_path, root, source=kms)) == {
+        assert properties(model_projection.model_for(kms_path, root, source=kms)) == {
             key: value for key, value in kms.items() if not key.startswith("display.")
         }
         assert "### KMS.Alias" not in kms_path.read_text(encoding="utf-8")

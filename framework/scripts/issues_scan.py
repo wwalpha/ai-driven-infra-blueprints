@@ -19,7 +19,9 @@ import time
 
 from design_layout import resource_mode, resource_name_fields, resource_has_name_property, REQUIRED_NAME_TAG_TYPES
 from design_catalog import selected_properties
-from model_design import entries, naming_rule_files, naming_targets, naming_target_matches, catalog_outputs, NAMING_EXEMPT_PROPERTIES
+from model_design import naming_rule_files, naming_targets, naming_target_matches, NAMING_EXEMPT_PROPERTIES
+from model_references import catalog_outputs
+from model_core import entries
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, DeferredExhausted
@@ -52,7 +54,7 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         for env, target, service in sorted(selected):
             groups.setdefault((env, target), []).append(service)
         errors = []
-        sync = module('sync-model.py', 'issues_sync')
+        import sync_runtime as sync
         for (env, target), services in groups.items():
             try:
                 sync.sync(root, False, env, target, services=services, jobs=jobs)

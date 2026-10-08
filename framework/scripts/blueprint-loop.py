@@ -176,12 +176,23 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
     mapping.update({f"framework/scripts/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
                     for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
-    mapping["framework/scripts/test_support/validator.py"] = {"validate-blueprint.checks.py", "blueprint-loop.checks.py", "issue_gate.checks.py"}
+    mapping["framework/scripts/test_support/validator.py"] = {check.name for check in checks}
+    mapping["framework/scripts/model_design.checks.py"] = {check.name for check in checks}
+    mapping["framework/scripts/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
     # check_links/check_projection dynamically load the reference fixture and its layout inputs.
     mapping["framework/scripts/design_document.checks.py"] = {
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
     mapping["framework/scripts/design_layout.checks.py"] = {
         *mapping["framework/scripts/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
+    # EC2 restoration is consumed through shared layout, projection and dynamic fixtures.
+    mapping["framework/scripts/ec2_display.py"] = {check.name for check in checks}
+    mapping["framework/scripts/model_core.py"] = {check.name for check in checks}
+    for name in ("service_rows", "model_display"):
+        mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
+    for name in ("model_projection", "model_references"):
+        mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
+    for name in ("sync_runtime", "sync_views", "sync_files"):
+        mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
     comparison = {"comparison_core.checks.py", "issues_scan.checks.py", "check-model-aws.checks.py",
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/comparison_rows.py"] = comparison

@@ -4,7 +4,8 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import sync_runtime
+import model_projection
 import json
 import os
 import shutil
@@ -12,8 +13,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from test_support.validator import load
 from array_display import indexed_rows
-from model_design import row_table
+from model_display import row_table
 
 from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text
 from design_catalog import MACIE_JOB, QUICKSIGHT_GROUP, DesignSchemaCatalog, api_snapshot_errors
@@ -23,15 +25,8 @@ from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
 
 VALIDATOR = load("validate-blueprint")
-MODEL = load("sync-model")
 VALUES = {
     "name": "daily-data-scan",
     "jobId": "PENDING_DEPLOY",
@@ -166,7 +161,7 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
         group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
-        group_model = MODEL.model_for(group_path, ROOT)
+        group_model = model_projection.model_for(group_path, ROOT)
         assert "resourceType=QuickSight.Group" in group_model
         assert "QuickSight.Group.PrincipalId" in group_model
         assert "observed.row." in group_model and "PENDING_DEPLOY" in group_model
@@ -193,7 +188,7 @@ def main():
             elif text is None and artifact.is_file():
                 artifact.unlink()
             design.write_text(text if text is not None else markdown(values), encoding="utf-8")
-            model.write_text(MODEL.imported_model(design, root), encoding="utf-8")
+            model.write_text(model_projection.imported_model(design, root), encoding="utf-8")
             validator = VALIDATOR.Validator(root)
             validator.schema_catalog = schema
             validator.accounts = {("dev", "123456789012"): {}}
@@ -279,7 +274,7 @@ def main():
         definition = {**VALUES["s3JobDefinition"], "bucketDefinitions": [{"accountId": "123456789012", "buckets": ["new-bucket"]}], "scoping": {}}
         lines = [doc_key + "=" + json.dumps(definition) if line.startswith(doc_key + "=") else line for line in authoritative.splitlines()]
         model.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        assert MODEL.sync(root, True, "dev", "123456789012") == 0
+        assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
         assert json.loads(artifact.read_text(encoding="utf-8"))["bucketDefinitions"][0]["buckets"] == ["new-bucket"]
         assert "scoping" in json.loads(artifact.read_text(encoding="utf-8"))
         assert "`new-bucket`" in design.read_text(encoding="utf-8")

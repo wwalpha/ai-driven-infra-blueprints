@@ -28,40 +28,19 @@ from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog, api_snapshot_errors, design_material_files, property_paths_with_parents
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
-    CLOUDTRAIL_DATA_RESOURCE,
-    CODEBUILD_FORMAL_VARIABLE,
-    LINKED_LIST_PROPERTIES,
-    SUBNET_LIST_PROPERTIES,
-    linked_list_property,
-    CODEPIPELINE_STAGE,
-    DETAILS_HEADING,
-    DISPLAY_PROPERTY_ALIASES,
-    GROUPED,
-    CHILD,
-    HIDDEN_PROPERTIES,
-    REQUIRED_NAME_TAG_TYPES,
-    RESOURCE_REFERENCE_PROPERTIES,
-    is_service_role_reference,
-    SECURITY_GROUP_TYPES,
-    GROUPED_RESOURCE_TYPES,
-    IMPLICIT_GROUPED_PROPERTIES,
-    RESOURCE as RESOURCE_HEADING_PATTERN,
-    expanded_display_rows,
-    expanded_design,
-    resource_anchor,
-    resource_display_name,
-    resource_heading_lines,
-    resource_has_name_property,
-    resource_logical_ids,
-    resource_modes,
-    STACK_DESIGN,
-    stack_design,
-    stack_deployment_policy,
-    layout_errors,
-    catalog_order_errors,
+    CLOUDTRAIL_DATA_RESOURCE, LINKED_LIST_PROPERTIES, SUBNET_LIST_PROPERTIES,
+    linked_list_property, DETAILS_HEADING, DISPLAY_PROPERTY_ALIASES, GROUPED, CHILD,
+    HIDDEN_PROPERTIES, REQUIRED_NAME_TAG_TYPES, RESOURCE_REFERENCE_PROPERTIES,
+    is_service_role_reference, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
+    IMPLICIT_GROUPED_PROPERTIES, RESOURCE as RESOURCE_HEADING_PATTERN, expanded_display_rows,
+    expanded_design, resource_anchor, resource_display_name, resource_heading_lines,
+    resource_has_name_property, resource_logical_ids, resource_modes, STACK_DESIGN, stack_design,
+    stack_deployment_policy, layout_errors, catalog_order_errors,
 )
+from service_rows import CODEBUILD_FORMAL_VARIABLE, CODEPIPELINE_STAGE
 from security_group_tables import security_group_table_lines
-from model_design import entries, naming_errors, properties
+from model_design import naming_errors
+from model_core import entries, properties
 from model_files import MAX_LINES, read_model, model_parts, service_model_path
 from validation_scope import active_scope, scoped_files
 from design_document import DesignIndex
@@ -1122,14 +1101,15 @@ class Validator:
             )
             try:
                 from design_layout import stack_delivery
-                from model_design import deployment_settings, deployment_bucket
+                from model_references import deployment_bucket
+                from model_core import deployment_settings
                 stack_deployment_policy(path)
                 stacks = stack_design(path)
                 from cloudformation_observed import validate_mapping_targets
                 source = (self.root / "model" / path.relative_to(self.root / "docs" / "designs")).with_suffix(".properties")
                 if source.is_file():
                     mapping_values = properties(read_model(source))
-                    from model_design import stack_model
+                    from model_core import stack_model
                     stack_model(mapping_values)
                     validate_mapping_targets(self.root, target[0], target[1], mapping_values)
                 values = stack_delivery(path) | {f"desired.stack.{number:03d}.name": stack["name"]

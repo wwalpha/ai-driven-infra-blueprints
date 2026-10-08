@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from cloudformation_inputs import Blocked
 from script_loader import module
 from iac_values import strict_json
-from model_design import LINK
+from model_core import LINK
 from policy_tables import literal
 
 ALGORITHM = 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm'

@@ -415,7 +415,6 @@ def check_parallel_and_selection():
         assert selected(f"framework/scripts/validation_checks/{name}.py") == validator, name
     leaf = "framework/scripts/validation_checks/task.py"
     assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
-    assert selected("framework/scripts/test_support/validator.py") == shared | {"issue_gate.checks.py"}
     comparison = {"comparison_core.checks.py", "issues_scan.checks.py", "check-model-aws.checks.py",
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     assert selected("framework/scripts/comparison_rows.py") == comparison
@@ -427,6 +426,13 @@ def check_parallel_and_selection():
         assert selected(leaf, unknown) == all_checks
     with patch.object(Path, "is_file", return_value=False):
         assert selected(leaf) == all_checks  # Known path removed/renamed without a resolvable source.
+    assert selected("framework/scripts/test_support/validator.py") == all_checks
+    assert selected("framework/scripts/model_design.checks.py") == all_checks
+    assert selected("framework/scripts/rotation_schedule.checks.py") == {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
+    for name in ("service_rows", "model_display", "model_projection", "model_references", "sync_runtime", "sync_views", "sync_files"):
+        assert selected(f"framework/scripts/{name}.py") == all_checks
+    assert selected("framework/scripts/model_core.py") == all_checks
+    assert selected("framework/scripts/ec2_display.py") == all_checks
     assert selected(leaf, affected=False) == all_checks
     assert selected("framework/scripts/design_layout.checks.py") == {
         "design_layout.checks.py", "design_document.checks.py", "validate-blueprint.checks.py",

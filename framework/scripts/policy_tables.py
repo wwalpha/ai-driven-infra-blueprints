@@ -12,6 +12,7 @@ import re
 import sys
 
 from iac_values import unique_object, invalid_constant
+from model_core import literal
 from array_display import restored_rows
 from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
 
@@ -102,10 +103,6 @@ def without_policy_tables(lines: list[str]) -> list[str]:
     if closing:
         raise ValueError("unclosed policy table marker")
     return result
-
-
-def literal(value: str) -> str:
-    return value[1:-1] if value.startswith("`") and value.endswith("`") else value
 
 
 def code(value: object) -> str:

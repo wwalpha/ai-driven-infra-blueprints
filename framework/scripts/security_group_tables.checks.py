@@ -4,9 +4,10 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
+import model_projection
 import tempfile
 from pathlib import Path
+from test_support.validator import load
 
 from design_layout import LAYOUTS, expanded_design, layout_errors
 from security_group_tables import COMMENTS, DIRECTIONS, port_properties, security_group_table_lines
@@ -15,15 +16,8 @@ from security_group_tables import COMMENTS, DIRECTIONS, port_properties, securit
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
 
 VALIDATOR = load("validate-blueprint")
-MODEL = load("sync-model")
 DESIGN = """# Security Group 詳細設計
 
 - Design service ID: `security-group`
@@ -133,7 +127,7 @@ def main():
 
         assert not errors(DESIGN), errors(DESIGN)
         original = path.read_bytes()
-        generated = MODEL.model_for(path, REPOSITORY)
+        generated = model_projection.model_for(path, REPOSITORY)
         assert path.read_bytes() == original
         validator = VALIDATOR.Validator(root)
         model_path = root / "model/dev/123456789012/security-group.properties"
@@ -155,7 +149,7 @@ def main():
             assert invalid.errors, (filename, service, kinds)
         short_design = DESIGN.replace("| EC2.SecurityGroup.", "| ")
         assert not errors(short_design), errors(short_design)
-        assert MODEL.model_for(path, REPOSITORY) == generated
+        assert model_projection.model_for(path, REPOSITORY) == generated
         assert not errors(DESIGN)
         assert "observed.row.002-001.comment=一意に識別するID\n" in generated
         assert "desired.row.001-004.comment=所属するVPCのID\n" in generated
@@ -182,7 +176,7 @@ def main():
         assert "observed.row.002-005.value=PENDING_DEPLOY" in generated
         assert "SecurityGroupRuleId" not in generated and "<!--" not in generated
         assert "desired.note." not in generated and "=—" not in generated
-        assert MODEL.linked_resource(path, "[sgr-00000001](#security-group-ingressone)") == ("EC2.SecurityGroupIngress", "IngressOne")
+        assert model_projection.linked_resource(path, "[sgr-00000001](#security-group-ingressone)") == ("EC2.SecurityGroupIngress", "IngressOne")
         assert VALIDATOR.rendered_policy_design(path) == DESIGN
 
         normalized, children = expanded_design(DESIGN.splitlines())
@@ -220,7 +214,7 @@ def main():
         for text in (no_rules, no_rules.replace(tag_line + "\n", "")):
             assert not errors(text), errors(text)
             source = path.read_bytes()
-            model = MODEL.model_for(path, REPOSITORY)
+            model = model_projection.model_for(path, REPOSITORY)
             assert path.read_bytes() == source
             assert model.count(".resourceType=EC2.SecurityGroup\n") == 2
             assert "desired.resource.002.anchor=security-group-grouptwo\n" in model
@@ -311,7 +305,7 @@ def main():
         for text in (DESIGN.replace('| Inbound |', '| invalid |', 1), DESIGN.replace(' | `tcp` |', ' | — |', 1), DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n"):
             path.write_text(text, encoding="utf-8")
             try:
-                MODEL.model_for(path, REPOSITORY)
+                model_projection.model_for(path, REPOSITORY)
             except ValueError:
                 pass
             else:

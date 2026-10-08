@@ -4,6 +4,9 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import model_design
+import model_core
+import model_projection
 import hashlib
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -91,28 +94,28 @@ def check_projection(sync):
         read_text = Path.read_text
         with patch.object(Path, "read_text", autospec=True, side_effect=read_text) as reads, \
              patch.object(documents, "expanded_design", wraps=documents.expanded_design) as expands:
-            projection = sync.model_for(source, Path(__file__).resolve().parents[2], design_index=index)
+            projection = model_projection.model_for(source, Path(__file__).resolve().parents[2], design_index=index)
             assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
             assert expands.call_count == 4  # Source, two parents, and empty unresolved view.
-            assert sync.linked_resource(source, "[alias/two](kms.md#kms-aliastwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
-            assert sync.linked_resource(source, "[key](kms.md#kms-keyone)", design_index=index) == ("KMS.Key", "KeyHidden")
-            assert sync.linked_resource(source, "[missing](kms.md#absent)", design_index=index) is None
-            assert sync.linked_resource(source, "[missing](absent.md#absent)", design_index=index) is None
-            assert sync.linked_resource(source, "literal", design_index=index) is None
+            assert model_projection.linked_resource(source, "[alias/two](kms.md#kms-aliastwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
+            assert model_projection.linked_resource(source, "[key](kms.md#kms-keyone)", design_index=index) == ("KMS.Key", "KeyHidden")
+            assert model_projection.linked_resource(source, "[missing](kms.md#absent)", design_index=index) is None
+            assert model_projection.linked_resource(source, "[missing](absent.md#absent)", design_index=index) is None
+            assert model_projection.linked_resource(source, "literal", design_index=index) is None
             assert expands.call_count == 4
         # Captured from the pre-index implementation, including unresolved-link fallbacks.
         assert hashlib.sha256(projection.encode()).hexdigest() == "4e56a48f9624ff229f0d6821d294924422d8c94cd6dc88d477e2c81c8fb7f1e9"
         assert index.get(source).headings.expanded is index.get(source).view(projection=True).expanded
         repository = Path(__file__).resolve().parents[2]
-        imported = sync.imported_model(source, repository)
+        imported = model_projection.imported_model(source, repository)
         assert hashlib.sha256(imported.encode()).hexdigest() == "bc1677174d702a4c7bb2780fda2979be471ee9974a6e43e11e63c02dad1ef3bd"
-        values = sync.properties(imported)
+        values = model_core.properties(imported)
         values["desired.resource.001.resourceMode"] = "IMPORT"
-        rendered = sync.markdown_for(source, values, repository)
+        rendered = model_design.markdown_for(source, values, repository)
         assert hashlib.sha256(rendered.encode()).hexdigest() == "f68a22524d5bbad245d31afe6f8c263035d80a223480574d9187a6db75f23bdd"
         for mode in ("CREATE", "IMPORT"):
             source.write_text(f"<!-- resource-mode: s3-app-data {mode} -->\n" + text, encoding="utf-8")
-            assert f"desired.resource.001.resourceMode={mode}\n" in sync.model_for(source)
+            assert f"desired.resource.001.resourceMode={mode}\n" in model_projection.model_for(source)
 
 
 def check_links(module):

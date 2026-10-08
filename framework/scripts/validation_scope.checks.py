@@ -5,11 +5,12 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import model_projection
 from contextlib import redirect_stdout
-import importlib.util
 import io
 import json
 from pathlib import Path
+from test_support.validator import load
 import shutil
 import subprocess
 import sys
@@ -25,15 +26,9 @@ from model_design import resource_anchor
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load(name, filename):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "framework/scripts" / filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
-
-VALIDATOR = load("scoped_validator", "validate-blueprint.py")
-SYNC = load("scoped_sync", "sync-model.py")
+VALIDATOR = load('validate-blueprint')
+SYNC = load('sync-model')
 
 
 def check_single_target_cache(root):
@@ -49,7 +44,7 @@ def check_single_target_cache(root):
                   "desired.row.001-001.property": f"{kind}.{prop}", "desired.row.001-001.value": f"`{name}`",
                   "desired.row.001-001.comment": "検証用の名前", "display.service.title": "# 詳細設計",
                   "display.resource.001.comment": "サービス単位の検証対象"}
-        for number, output in enumerate(sorted(SYNC.identifier_outputs(root).get(kind, set())), 2):
+        for number, output in enumerate(sorted(model_projection.identifier_outputs(root).get(kind, set())), 2):
             row = f"row.001-{number:03d}"
             values.update({f"desired.{row}.property": output,
                            f"desired.{row}.value": f"[FixtureResource](#{values['desired.resource.001.anchor']})",

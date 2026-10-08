@@ -1,16 +1,20 @@
 """Collect only unambiguously mapped CloudFormation identifiers, then use model sync."""
+import sync_files
+import model_projection
 from pathlib import Path
-import importlib.util
 import re
 
 from design_catalog import DesignSchemaCatalog
-from model_design import properties, entries, catalog_outputs, stack_model, cfn_resource_identity, LINK
+from model_design import cfn_resource_identity
+from model_references import catalog_outputs
+from model_core import properties, entries, stack_model, LINK
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
 from model_files import read_model, model_parts, model_file_contents, resource_row_index, MAX_LINES
 from task_contract import require_writable, task_path, paths_in, matches
 from validation_scope import active_scope
 from issue_gate import require_target_no_issues
-from design_layout import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
+from design_layout import GROUPED, HIDDEN_PROPERTIES
+from service_rows import CODEBUILD_FORMAL_VARIABLE
 
 
 def ambiguous(detail):
@@ -282,7 +286,7 @@ def sync_successful(backend, units, states):
             states[unit["name"]]["observedSynced"] = True
         return
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    sync.save_files(destinations)
+    sync_files.save_files(destinations)
     if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
         raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
     for unit in units:
@@ -354,15 +358,13 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
             if set(parts) - output.keys():
                 raise ValueError("task scope violation: observed update requires model part repartition")
             destinations.update(output)
-    spec = importlib.util.spec_from_file_location("observed_sync", Path(__file__).with_name("sync-model.py"))
-    sync = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sync)
+    import sync_runtime as sync
     views = set()
     for path in changes:
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         views.add(design)
         for _, row in entries(loaded[path], "desired.row."):
-            if match := sync.JSON_LINK.fullmatch(row["value"]):
+            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
                 views.add((design.parent / match.group(1)).resolve())
     if not check_scope:
         return destinations, views, sync
@@ -496,7 +498,7 @@ def sync_destroyed(backend, states, plan):
         destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
         if {path.relative_to(root).as_posix() for path in set(destinations) | views} - set(plan["paths"]):
             raise ValueError("destroy observed output differs from pre-mutation reservations")
-        sync.save_files(destinations)
+        sync_files.save_files(destinations)
         if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
             raise ValueError("destroy observed sync failed; resume same session")
     for name in completed:
