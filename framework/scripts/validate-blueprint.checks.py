@@ -5,10 +5,14 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 from test_support.validator import MODULE, load
-from validation_checks import task, design, references, cloudformation, scope, contracts
+from validation_checks import task, design, references, cloudformation, scope, contracts, scenario, runner
 
 
 def main() -> None:
+    runner.check_dispatch()
+    runner.check_boundaries()
+    runner.check_module_inputs()
+    scenario.check_records()
     load("design_document.checks").check_links(MODULE)
     scope.check_deployment_iac_scope()
     scope.check_task_file_gating()
@@ -41,7 +45,7 @@ def main() -> None:
     cloudformation.check_cloudformation_stack_design()
     cloudformation.check_stack_mapping_targets()
     contracts.check_design_handoff_prompt()
-    print("validate-blueprint: PASS (63 focused checks)")
+    print("validate-blueprint: PASS (63 existing focused checks + responsibility boundaries)")
 
 
 

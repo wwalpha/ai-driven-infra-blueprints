@@ -206,6 +206,11 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/script_loader.py"] = comparison - {"check-model-aws.checks.py"}
+    mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}
+                    for name in ("scenario", "cloudformation", "task", "framework_contracts", "project",
+                                 "design", "design_tables", "design_links", "findings")})
+    mapping["framework/scripts/validation_checks/scenario.py"] = {"validate-blueprint.checks.py"}
+    mapping["framework/scripts/validation_checks/runner.py"] = {"validate-blueprint.checks.py"}
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):

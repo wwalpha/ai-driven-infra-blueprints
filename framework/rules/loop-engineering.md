@@ -86,6 +86,16 @@ Validate multiple targets and multiple services within the same target with at m
 Framework-only governance/catalog-maintenance/migration may explicitly specify ``- `framework` ``. Validate actual designs for all services only with explicit `--all` or a sole ``- `all` `` Validation scope entry. If scope is missing, stop even in `full`; do not fall back to overall validation. Daily overall validation runs on a separately configured schedule. Do not add overall validation “just in case” after scoped validation.
 
 
+`framework/scripts/validate-blueprint.py` remains the CLI, ordered runner, cache/worker
+coordinator and compatibility entrypoint for selective callers. Its internal `validation/`
+modules separate Task/Acceptance state (`task.py`), framework contracts, Project topology/scope,
+Model/Design ownership/naming, table/schema checks, overview/link/artifact checks,
+CloudFormation/IaC inputs, and Scenario/Result records. Domains receive explicit inputs and
+the small `findings.py` collector, never the whole runner. The collector keeps ordered
+blocking/global and file-gated findings separate and reads the gate established by Task parsing.
+Scenario checks validate records without executing scenarios; a recorded FAIL remains valid.
+Shared internal modules conservatively select full regression under `--affected`.
+
 ## Validation cache
 
 Ordinary task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
