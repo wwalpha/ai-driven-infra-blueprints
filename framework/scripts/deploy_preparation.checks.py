@@ -30,6 +30,7 @@ def fixture(root):
     (root / "framework/scripts").mkdir(parents=True)
     for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "requirements-aws-compare.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
+    shutil.copytree(ROOT / "framework/scripts/deployment", root / "framework/scripts/deployment")
     shutil.copytree(ROOT / "framework/rules", root / "framework/rules")
     (root / "framework/prompts/codex").mkdir(parents=True)
     shutil.copy(ROOT / "framework/prompts/codex/04_deploy.md", root / "framework/prompts/codex/04_deploy.md")

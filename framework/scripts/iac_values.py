@@ -1,4 +1,5 @@
 """Symbolic IaC values, strict/selected comparison and display masking. No I/O."""
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -116,3 +117,7 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
     return desired == actual
 
 
+
+
+def fingerprint(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

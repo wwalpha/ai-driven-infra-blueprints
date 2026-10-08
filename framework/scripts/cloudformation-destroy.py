@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import os
@@ -14,6 +13,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from iac_values import fingerprint
 
 from cloudformation_inputs import Blocked
 from cloudformation_observed import destroy_plan, sync_destroyed
@@ -24,8 +24,6 @@ from task_contract import task_path, status, require_writable, paths_in, matches
 from validation_scope import active_scope
 
 
-def fingerprint(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def context_module():

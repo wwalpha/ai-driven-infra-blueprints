@@ -420,6 +420,8 @@ def check_parallel_and_selection():
     assert selected("framework/scripts/comparison_rows.py") == comparison
     for name in ("iac_evaluation", "script_loader", "issues_iac"):
         assert selected(f"framework/scripts/{name}.py") == comparison - {"check-model-aws.checks.py"}
+    for name in ("__init__", "scheduler", "aws_adapter", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):
+        assert selected(f"framework/scripts/deployment/{name}.py") == {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     all_checks = {p.name for p in SCRIPT.parent.glob("*.checks.py")}
     assert selected("framework/scripts/iac_values.py") == all_checks
     for unknown in ("framework/scripts/validation_checks/unknown.py", "framework/scripts/test_support/unknown.py"):

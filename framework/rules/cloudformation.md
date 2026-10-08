@@ -79,7 +79,7 @@ Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
 5. Proceed to execution only if the active prompt authorizes deploy/update, change scope matches it, and delete/replacement is preapproved or approved by the human after change set creation.
 6. Classify failures under Controlled deploy repair; repair/validate/retry AUTO_REPAIRABLE or RUNTIME_BOOTSTRAP only in the same session.
 
-`framework/scripts/cloudformation-deploy.py` enforces multi-stack queues, order, parallel limits, and failure stops. Process only Deployment scope StackNames in numeric DeployOrder ascending order and StackName order within groups. Only stacks in the same DeployOrder group may run concurrently; RUNNING count must be at most MaxConcurrentStacks. Reuse free slots for the same group's queue, not fixed batches. Proceed to the next group only after terminal success and observed value reflection of the entire group. Values need not be consecutive. Do not convert DeployOrder to CloudFormation resource `DependsOn` or add dependency fields to stack models.
+`framework/scripts/cloudformation-deploy.py` delegates multi-stack queues, order, parallel limits, and failure stops to `deployment/scheduler.py`. The scheduler only calls the injected backend; read workers own snapshots and the controller owns decisions and persistence. `deployment/aws_adapter.py` owns CLI transport and the existing immediate mutation guard, with explicit target/profile/timing inputs and no session access. Process only Deployment scope StackNames in numeric DeployOrder ascending order and StackName order within groups. Only stacks in the same DeployOrder group may run concurrently; RUNNING count must be at most MaxConcurrentStacks. Reuse free slots for the same group's queue, not fixed batches. Proceed to the next group only after terminal success and observed value reflection of the entire group. Values need not be consecutive. Do not convert DeployOrder to CloudFormation resource `DependsOn` or add dependency fields to stack models.
 
 Immediately before consumer change set creation, interpret `!ImportValue` with the existing cfn-lint decoder, resolve referenced Export names using stack-specific parameters/defaults and account/region, and confirm existence with target `list-exports`. Evaluate Conditions; scan only selected `!If` branches and active resources/Outputs. Stop for unresolved, cyclic, or non-boolean conditions; do not require ImportValue in unused branches. Unresolved expressions, absent Exports, and unsuccessful in-scope producers are BLOCKED. Explain incorrect DeployOrder and Import/Export contradictions; do not add out-of-scope producers, change order, or automatically repair IaC/intended design. Consumer-only deploy is permitted if out-of-scope producer Exports already exist. Stop for Transform-dynamically-generated imports that cannot be resolved in advance.
 
@@ -93,6 +93,8 @@ On failure/rollback, blockers, or unapproved delete/replacement, do not start ne
 4. Permit only target template uncommitted diffs generated in this phase for deploy.
 
 ## Controlled deploy repair
+
+`deployment/repair.py` separates model-derived evidence acquisition, exact candidate application/resume and pinned CREATE cleanup. These are I/O operations, not pure planners. The controller retains recovery classification and sequencing; Secret initialization stays separate in `deployment/secret_bootstrap.py`, with metadata-only acquisition, owner/schema proof and intent/token execution.
 
 Do not stop for Human input merely upon failure detection. Stop existing queues, drain RUNNING peers to terminal states, and synchronize successful peer observed values before controller diagnosis/classification. Retain events matching execution tokens in the session; do not retrieve the same diagnostics twice.
 
@@ -116,6 +118,8 @@ At most 3 repair iterations for the same logical failure class (logical ID + pro
 
 ## Delete and replacement confirmation
 
+`deployment/change_sets.py` owns preparation, content approval and immediate execution checks. The backend retains the observed mapping reconciliation before the guarded execute call; approval still identifies the saved Change Set and full content digest.
+
 - `Remove`, `Replacement: True`, and `Replacement: Conditional` require confirmation regardless of resource type. If `Action` or `Replacement` values cannot be determined, stop without treating changes as approvable.
 - Do not treat unapproved delete/replacement as deployment failure/task completion; wait for human confirmation without executing created change sets.
 - After human approval, retrieve the same change set ID again in the same task; execute it only if status is `CREATE_COMPLETE`, execution status is `AVAILABLE`, and approved logical IDs, actions, replacements, and `PolicyAction` match.
@@ -136,6 +140,8 @@ Follow [observed-values](observed-values.md) for identifier collection/synchroni
 
 ## S3 deployment artifacts
 
+`deployment/delivery.py` handles declared artifact inputs, execution copies and placement reuse. It receives only file/digest operations and the existing `s3_delivery` preflight interface; original IaC remains authoritative.
+
 - Target `cloudformation-stacks.properties` is authoritative for placement/local file mappings. `desired.deployment.templateBucket` is a BucketName display link to the same target's S3 design; `templateKeyPrefix` is a confirmed prefix. Specify both or omit both. Do not duplicate bucket names between project settings/models.
 - `desired.artifact.<id>` explicitly states every `stack`, `resource`, `property`, `source`, `bucket`, and `keyPrefix`. Stack is a designed StackName, resource a template logical ID, and bucket a link to the same target's S3 design. Sources are only repository-relative files under `infra/cloudformation/artifacts/**`; reject directories, external paths, or symlinks escaping outside. Do not infer resources from filenames. Multiple Lambdas may explicitly use the same source.
 - Lambda Function `Code` / LayerVersion `Content` handle built ZIPs, Glue Job `Command.ScriptLocation` scripts, and StepFunctions StateMachine `DefinitionS3Location` / ApiGateway RestApi `BodyS3Location` definition files. Do not infer support for container images, nested stacks, Transform, or unknown properties. Retain S3 references without declared artifacts as references to already placed files.
@@ -153,6 +159,8 @@ Follow [observed-values](observed-values.md) for identifier collection/synchroni
 - Do not automatically delete past artifacts during deploy because rollback needs them. Determine retention/lifecycle through explicit S3 design. Do not persist execution snapshots such as status, URLs, object versions, or checksums in models/Git.
 
 ## Controller sessions and execution timing
+
+`deployment/session.py` owns external state, immutable guards, target locks, validation reuse, recovery coordination and observed barriers. The CLI supplies its script directory and backend/unit constructors; no internal module imports the CLI, and state versions/paths remain unchanged.
 
 Ordinary deploy completes all DeployOrders in one controller launch. For sequential execution, pass all Deployment scope in the same launch and use `--sequential` to limit concurrency to 1. Do not change designed MaxConcurrentStacks; include execution limits in session immutable inputs. Do not bypass stop conditions by splitting scope/sessions per stack. After failure/blockers, do not start remaining stacks in outer loops; report unstarted stacks including dependent consumers as NOT_STARTED. Perform group-boundary observed updates/service generation inside controllers; save only successful barriers in sessions. `--pause-after-group` may be used only for explicit update producer/consumer IaC changes. Resume the same session for approval, failure, or interruption without rerunning successful stacks.
 

@@ -1,12 +1,11 @@
 """Model-approved S3 delivery conditions; read checks do not prove write permission."""
 import re
-import hashlib
 import json
 from types import SimpleNamespace
 
 from cloudformation_inputs import Blocked
 from script_loader import module
-from iac_values import strict_json
+from iac_values import strict_json, fingerprint
 from model_core import LINK
 from policy_tables import literal
 
@@ -256,7 +255,7 @@ def preflight(backend, bucket, prefix, keys):
         for key in keys:
             policy_conditions(policy, bucket, key, conditions)
         conditions['defaultEncryption'] = rules
-        conditions['policyDigest'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        conditions['policyDigest'] = fingerprint(policy)
         previous = backend.session.setdefault('placementConditions', {}).get(identity)
         if previous is not None and previous != conditions:
             fail('CHANGED', 'resolved placement conditions changed in this session; do not resume')

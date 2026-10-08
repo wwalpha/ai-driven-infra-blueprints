@@ -3,6 +3,8 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import copy
+from deployment import scheduler
 import sync_views
 import model_projection
 import importlib.util
@@ -71,7 +73,7 @@ class Fake:
         name = unit["name"]
         sequence = self.completions.get(name, ["CREATE_COMPLETE"])
         result = sequence.pop(0) if len(sequence) > 1 else sequence[0]
-        if result in M.SUCCESS | M.FAILED:
+        if result in scheduler.SUCCESS | scheduler.FAILED:
             self.running.remove(name)
         self.events.append(("poll", name, result))
         return result
@@ -83,7 +85,7 @@ def starts(fake):
 
 def finish(units, limit, state, fake):
     for _ in range(10):
-        outcome = M.run_group(units, limit, state, fake, sleep=lambda _: None)
+        outcome = scheduler.run_group(units, limit, state, fake, sleep=lambda _: None)
         if outcome != "GROUP_COMPLETE":
             return outcome
     raise AssertionError("groups did not complete")
@@ -99,7 +101,7 @@ def check_scheduler():
         assert fake.events.index(("poll", previous, "CREATE_COMPLETE")) < next(i for i, e in enumerate(fake.events) if e[:2] == ("start", following))
     scoped = units(10, 10, 20)
     state, fake = states(scoped), Fake({"B": ["CREATE_IN_PROGRESS"] * 3 + ["CREATE_COMPLETE"]})
-    assert M.run_group(scoped, 2, state, fake, sleep=lambda _: None) == "GROUP_COMPLETE"
+    assert scheduler.run_group(scoped, 2, state, fake, sleep=lambda _: None) == "GROUP_COMPLETE"
     assert starts(fake) == ["A", "B"]
     assert state["C"]["status"] == "NOT_STARTED"
     assert finish(scoped, 2, state, fake) == "COMPLETE"
@@ -121,7 +123,7 @@ def check_scheduler():
     assert finish(scoped, 2, state, fake) == "STOPPED"
     assert [s["status"] for s in state.values()] == ["FAILED", "SUCCESS", "NOT_STARTED", "NOT_STARTED"]
     assert starts(fake) == ["A", "B"] and not fake.running
-    assert M.run_group(scoped, 2, state, fake) == "STOPPED"
+    assert scheduler.run_group(scoped, 2, state, fake) == "STOPPED"
     # Restart after a failure was saved but another execution was still running.
     state = states(scoped)
     state["A"]["status"], state["B"]["status"] = "FAILED", "RUNNING"
@@ -145,6 +147,48 @@ def check_scheduler():
     fake.poll = transient
     assert finish(scoped, 2, state, fake) == "STOPPED"
     assert starts(fake) == ["A", "B"] and state["A"]["status"] == "SUCCESS"
+
+
+    # Intent persistence failure cannot reach execute; submission loss drains without retrying.
+    selected = units(10, 10)
+    for boundary in ('intent', 'submitted', 'response'):
+        state, fake, trace = states(selected), Fake(), []
+        execute = fake.execute
+        def save():
+            trace.append(('save', state['A']['status'], state['A'].get('clientToken')))
+            if state['A']['status'] == 'RUNNING' and (boundary == 'intent' or
+                    boundary == 'response' and starts(fake)):
+                raise OSError('injected persistence failure')
+        def submit(unit, snapshot):
+            assert trace[-1] == ('save', 'RUNNING', snapshot['clientToken'])
+            execute(unit, snapshot)
+            if boundary == 'submitted':
+                raise TimeoutError('injected uncertain submission')
+        fake.execute = submit
+        try:
+            result = scheduler.run_group(selected, 1, state, fake, save, sleep=lambda _: None)
+            assert boundary == 'submitted' and result == 'STOPPED'
+        except OSError:
+            assert boundary != 'submitted'
+        assert trace and state['A'].get('clientToken')
+        assert starts(fake) == ([] if boundary == 'intent' else ['A'])
+        assert state['B']['status'] == 'NOT_STARTED'
+        if boundary != 'intent':
+            token = state['A']['clientToken']
+            assert scheduler.run_group(selected, 1, state, fake, sleep=lambda _: None, drain_only=True) == 'STOPPED'
+            assert state['A']['status'] == 'SUCCESS' and state['A']['clientToken'] == token
+            assert starts(fake) == ['A']
+    # Worker writes are reflected only by the controller, including error snapshots.
+    from deployment.scheduler import read_parallel
+    state = states(selected)
+    def read(unit, snapshot):
+        snapshot['readEvidence'] = unit['name']
+        assert 'readEvidence' not in state[unit['name']]
+        raise M.Blocked('injected read loss')
+    results = read_parallel(selected, state, read, 2)
+    assert len(results) == 2 and all(error and snapshot['readEvidence'] == unit['name']
+                                  for unit, snapshot, _, error in results)
+    assert all('readEvidence' not in item for item in state.values())
 
 
 class StubAws(M.AwsBackend):
@@ -340,8 +384,8 @@ def check_empty_rollback_recreation():
         def synced(_backend, items, entries):
             for unit in items:
                 entries[unit['name']]['observedSynced'] = True
-        with patch.object(M, 'sync_successful', side_effect=synced):
-            assert M.run_session(scoped, 2, session, backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
+        with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
+            assert M.session_ops.run_session(scoped, 2, session, backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
         assert backend.deletes == ['old-A', 'old-B']
         assert all(entry['changeSetId'] != 'stale' and 'delivery' not in entry for entry in saved.values())
         # The same failure cannot trigger an unbounded recreation loop.
@@ -457,9 +501,9 @@ def check_inputs():
         (root / "tasks").mkdir()
         contract = root / "tasks/active.md"
         contract.write_text("- Task type: `governance`\n")
-        rejects(lambda: M.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]), "infrastructure")
-    assert M.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
-    rejects(lambda: M.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
+        rejects(lambda: M.session_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]), "infrastructure")
+    assert M.change_sets.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
+    rejects(lambda: M.change_sets.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
     conditional = {"Conditions": {
         "Dev": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]},
         "Stg": {"Fn::Not": [{"Condition": "Dev"}]},
@@ -469,24 +513,24 @@ def check_inputs():
                                                                      {"Fn::ImportValue": "StgBucketArn"}]}}},
             "StgOnly": {"Condition": "Stg", "Properties": {"Arn": {"Fn::ImportValue": "StgRoleArn"}}}},
         "Outputs": {"StgOnly": {"Condition": "Stg", "Value": {"Fn::ImportValue": "StgOutput"}}}}
-    assert M.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
-    assert M.import_names(conditional, {"Environment": "stg"}, {}) == {"StgBucketArn", "StgRoleArn", "StgOutput"}
+    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
+    assert M.change_sets.import_names(conditional, {"Environment": "stg"}, {}) == {"StgBucketArn", "StgRoleArn", "StgOutput"}
     backend = StubAws(["DevBucketArn"])
     backend.templates["A"] = (conditional, {"Environment": "dev"})
     assert backend.prepare(units(1)[0], {"clientToken": "dev-only"}) == "READY"
     backend.templates["A"] = (conditional, {"Environment": "stg"})
     rejects(lambda: backend.check_imports(units(1)[0]), "missing export")
     conditional["Conditions"]["Dev"] = {"Condition": "Dev"}
-    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "cyclic Condition")
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "cyclic Condition")
     conditional["Conditions"]["Dev"] = {"Condition": "Missing"}
-    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "unresolved")
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "unresolved")
     conditional["Conditions"]["Dev"] = "true"
-    rejects(lambda: M.import_names(conditional, {"Environment": "dev"}, {}), "non-boolean")
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "non-boolean")
     # Decoder scalars are subclasses; parameter values are plain strings.
     class MarkedString(str):
         pass
     conditional["Conditions"]["Dev"] = {"Fn::Equals": [{"Ref": "Environment"}, MarkedString("dev")]}
-    assert M.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
+    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
     # Standard CLI region/profile and full (automatic) pagination are retained.
     backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET, "test")
     with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Exports":[]}', stderr="")) as run:
@@ -866,7 +910,7 @@ def check_delivery():
             return "CREATE_COMPLETE"
         bootstrap.poll = complete
         session = states(scoped)
-        assert M.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
+        assert scheduler.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
         assert session["B"]["status"] == "NOT_STARTED" and not any(op == "put-object" for op, _ in bootstrap.calls)
         assert finish(scoped, 1, session, bootstrap) == "COMPLETE", session
         assert any(op == "put-object" for op, _ in bootstrap.calls)
@@ -1129,6 +1173,7 @@ def check_session_cli():
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--state", str(state_file), "--timing-log", str(base / "timing.jsonl")]
         backends, validation_calls = [], []
         destructive = [True]
+        runtime_resume, recovered = [False], []
         def backend_factory(root, environment, directory, target, profile, approvals):
             assert target["awsProfile"] == "dev-profile"
             backend = StubAws(destructive=destructive[0])
@@ -1142,9 +1187,15 @@ def check_session_cli():
             backend.validate = validate
             backend.load_inputs = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
             backend.poll = lambda *args: "CREATE_COMPLETE"
+            if runtime_resume[0]:
+                def repair(unit, state):
+                    recovered.append((unit['name'], state['repairs'][-1]['clientRequestToken']))
+                    state['repairs'][-1]['stage'] = 'RETRY_READY'
+                    return True
+                backend.repair = repair
             backends.append(backend)
             return backend
-        session_runner = M.run_session
+        session_runner = M.session_ops.run_session
         execution_limits = []
         mutation = [None]
         def run_session(*args):
@@ -1160,7 +1211,7 @@ def check_session_cli():
                     patch.object(M, "AwsBackend", side_effect=backend_factory), \
                     patch.object(shutil, "which", return_value="mock-command"), \
                     patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
-                    patch.object(M, "run_session", side_effect=run_session):
+                    patch.object(M.session_ops, "run_session", side_effect=run_session):
                 result = M.main(argv + list(options), root=root)
                 if run.called:
                     context_calls = [c for c in run.call_args_list if "get-caller-identity" in c.args[0]]
@@ -1175,7 +1226,7 @@ def check_session_cli():
         # Diagnose every mapping error before lint or AWS preparation, not 25 deployments.
         errors = {"A": ["A/MissingVpc: model resource matches=0", "A/MissingRole: model resource matches=0"],
                   "B": ["B/Repository: identifier row missing/ambiguous: RepositoryId"]}
-        with patch.object(M, "mappings", side_effect=M.MappingError(errors)):
+        with patch.object(M.session_ops, "mappings", side_effect=M.session_ops.MappingError(errors)):
             assert invoke() == 2
         stopped = json.loads(state_file.read_text())
         assert stopped["result"] == "STOPPED" and stopped["validationErrors"] == errors
@@ -1320,8 +1371,19 @@ def check_session_cli():
             assert invoke(["--resume"]) == 0 and not backends[-1].calls
             assert json.loads(state_file.read_text())["version"] == 2
 
+            # CLI resume dispatches the persisted bootstrap intent with the same token.
+            session = json.loads(state_file.read_text())
+            session['states']['A']['repairs'] = [{'classification': 'RUNTIME_BOOTSTRAP',
+                'stage': 'BOOTSTRAP_INTENT', 'clientRequestToken': 'stable-bootstrap-token'}]
+            state_file.write_text(json.dumps(session))
+            runtime_resume[0] = True
+            before = len(recovered)
+            assert invoke(['--resume']) == 0 and recovered[before:] == [('A', 'stable-bootstrap-token')]
+            assert not backends[-1].calls
+            runtime_resume[0] = False
             # Framework or validation dependency changes invalidate a prior PASS.
-            policy = root / "framework/rules/validation-input.md"
+            policy = root / "framework/scripts/deployment/session.py"
+            policy.parent.mkdir(parents=True, exist_ok=True)
             policy.write_text("validation input " + str(len(orders)))
             prior = json.loads(state_file.read_text())["metrics"]["validationCount"]
             assert invoke(["--resume"]) == 0 and not backends[-1].calls
@@ -1358,8 +1420,8 @@ def check_parallel_and_restart():
     scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
     sequential = Fake({"B": ["CREATE_FAILED"]})
     saved = {"states": states(scoped), "metrics": {"observedSyncSeconds": 0}}
-    with patch.object(M, "sync_successful"):
-        assert M.run_session(scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None) == "STOPPED"
+    with patch.object(M.session_ops, "sync_successful"):
+        assert M.session_ops.run_session(scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None) == "STOPPED"
     assert sequential.peak == 1 and starts(sequential) == ["A", "B"]
     assert all(saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[2:])
     state = states(scoped)
@@ -1377,8 +1439,8 @@ def check_parallel_and_restart():
         for unit in selected:
             saved[unit["name"]]["observedSynced"] = True
     session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
-    with patch.object(M, "sync_successful", side_effect=sync):
-        assert M.run_session(scoped, 4, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
+    with patch.object(M.session_ops, "sync_successful", side_effect=sync):
+        assert M.session_ops.run_session(scoped, 4, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
     assert backend.peak == 4 and synced == [["A", "B", "C", "D"], ["E", "F", "G", "H"]]
     assert session["metrics"]["deployOrderCount"] == 2
     assert starts(backend) == [u["name"] for u in scoped]
@@ -1407,7 +1469,7 @@ def check_parallel_and_restart():
         poll_barrier.wait()
         return "CREATE_COMPLETE"
     backend.poll = stack_poll
-    assert M.run_group(selected, 4, state, backend, sleep=lambda _: None) == "GROUP_COMPLETE"
+    assert scheduler.run_group(selected, 4, state, backend, sleep=lambda _: None) == "GROUP_COMPLETE"
     assert sum(op == "execute-change-set" for op, _ in backend.calls) == 4
 
     # Interruption after submitting one stack, while its peer is prepared but unexecuted.
@@ -1419,7 +1481,7 @@ def check_parallel_and_restart():
         raise KeyboardInterrupt()
     backend.execute = interrupted
     try:
-        M.run_group(selected, 2, state, backend, sleep=lambda _: None)
+        scheduler.run_group(selected, 2, state, backend, sleep=lambda _: None)
     except KeyboardInterrupt:
         pass
     else:
@@ -1434,8 +1496,8 @@ def check_parallel_and_restart():
     backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
     backend.running = {"B"}
     session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
-    with patch.object(M, "sync_successful", side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING")):
-        assert M.run_session(selected, 2, session, backend, lambda: None, sleep=lambda _: None) == "STOPPED"
+    with patch.object(M.session_ops, "sync_successful", side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING")):
+        assert M.session_ops.run_session(selected, 2, session, backend, lambda: None, sleep=lambda _: None) == "STOPPED"
     assert state["B"]["status"] == "SUCCESS" and not backend.running and not starts(backend)
     assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
 
@@ -1519,7 +1581,7 @@ def check_observed_collector():
         assert source.read_bytes() == before
         output[0] = physical[0]
         # Shared template identities cannot be assigned to one model row by guessing.
-        duplicate = M.copy.deepcopy(document)
+        duplicate = copy.deepcopy(document)
         duplicate["Resources"]["VpcTestDev"].pop("Condition")
         backend.templates["B"] = (duplicate, {})
         rejects(lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)), "also owned")
@@ -1672,7 +1734,7 @@ def check_shared_stack_mapping():
         check(actual | {"desired.resource.001.logicalId": "DepartmentVpc", "desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="legacy fallback forbidden")
         check(actual | {"desired.resource.001.cfn-logicalId": "absent-DepartmentVpc"}, message="undeclared stack")
         save(source, actual)
-        wrong_type = M.copy.deepcopy(document)
+        wrong_type = copy.deepcopy(document)
         wrong_type["Resources"]["DepartmentVpc"]["Type"] = "AWS::S3::Bucket"
         check(templates={u["name"]: (wrong_type, {"Enabled": "yes"}) for u in scoped}, message="formal CFn type mismatch")
         # False resources do not require model endpoints or identifier rows.
@@ -1687,7 +1749,7 @@ def check_shared_stack_mapping():
         del values["desired.resource.001.resourceMode"]
         save(source, values)
         for condition in ({"Ref": "Unknown"}, {"Condition": "Active"}, "yes"):
-            invalid = M.copy.deepcopy(document)
+            invalid = copy.deepcopy(document)
             invalid["Conditions"]["Active"] = condition
             rejects(lambda: mappings(root, "dev", "123456789012", {u["name"]: (invalid, {}) for u in scoped}, scoped), "Condition" if condition == "yes" or "Condition" in condition else "unsupported")
         # CodeCommit identifier rows and non-primary EIP Outputs are diagnosed together.
@@ -1703,7 +1765,7 @@ def check_shared_stack_mapping():
                         f"desired.row.004-{number:03d}.comment": "固定アドレスの識別子"})
         save(source, values | eip)
         save(stack_source, stack_values)
-        repo_doc = M.copy.deepcopy(document)
+        repo_doc = copy.deepcopy(document)
         repo_doc["Resources"]["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
         repo_doc["Resources"]["Eip"] = {"Type": "AWS::EC2::EIP"}
         repo_templates = dict(backend.templates)
@@ -1804,7 +1866,7 @@ def check_integrated_child_mapping():
             assert mapped[child][:2] == mapped[next(iter(parent.values()))["Ref"]][:2]
         assert not mapped["Repository"][4]
         def reject_change(logical, definition, message):
-            doc = M.copy.deepcopy(document)
+            doc = copy.deepcopy(document)
             doc["Resources"][logical] = definition
             rejects(lambda: mapping(doc), message)
         child = resources["ChildBucket1"]
@@ -1931,14 +1993,14 @@ def check_secretsmanager_arn_identifiers():
         assert before == {path: path.read_bytes() for path in before}
         # The real collector completes the barrier before the next DeployOrder starts.
         session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
-        assert M.run_session(selected, 1, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
+        assert M.session_ops.run_session(selected, 1, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
         assert session["metrics"]["deployOrderCount"] == 2 and starts(backend) == ["A", "B"]
         failed = Fake()
         for field in ("root", "environment", "directory", "target", "templates", "mapping_plan", "aws"):
             setattr(failed, field, getattr(backend, field))
         outputs[0]["OutputValue"] = "wrong-key"
         session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
-        assert M.run_session(selected, 1, session, failed, lambda: None, sleep=lambda _: None) == "STOPPED"
+        assert M.session_ops.run_session(selected, 1, session, failed, lambda: None, sleep=lambda _: None) == "STOPPED"
         assert starts(failed) == ["A"] and session["states"]["B"]["status"] == "NOT_STARTED"
         assert "disagree" in session["observedError"]
     print("Secrets Manager ARN identifiers: PASS (no required ARN Outputs/storage/propagation, logical parent, JSON, KMS guards, DeployOrder barrier)")
@@ -2094,8 +2156,8 @@ def check_controlled_repair():
                 def synced(_backend, items, saved):
                     for item in items:
                         saved[item['name']]['observedSynced'] = True
-                with patch.object(M, 'sync_successful', side_effect=synced):
-                    return M.run_session(scoped, 2, session, backend, save, sleep=lambda _: None)
+                with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
+                    return M.session_ops.run_session(scoped, 2, session, backend, save, sleep=lambda _: None)
             return backend, session, calls, executions, validations, run
         vpc = 'Resources:\n  Item:\n    Type: AWS::EC2::VPC\n    Properties:\n      EnableDnsSupport: true\n'
         # Case 1: an omitted typed model property is inserted, validated and retried.
@@ -2357,15 +2419,15 @@ def check_controlled_repair():
                                                 'ResourceStatus': 'CREATE_FAILED', 'PhysicalResourceId': 'vpc-existing'}]}
         backend.aws = partial_asset
         rejects(lambda: backend.cleanup_failed_create(unit, state), 'still owns resources')
-        assert M.merge_selected([{'Key': 'Name', 'Value': 'old'}, {'Key': 'Owner', 'Value': 'keep'}],
+        assert M.repair_ops.merge_selected([{'Key': 'Name', 'Value': 'old'}, {'Key': 'Owner', 'Value': 'keep'}],
                                 [{'Key': 'Name', 'Value': 'new'}], 'Tags') == [{'Key': 'Name', 'Value': 'new'}, {'Key': 'Owner', 'Value': 'keep'}]
         empty = 'Resources:\n  Item:\n    Type: AWS::EC2::VPC\n'
-        assert 'Properties:' in M.repair_template(empty, 'Item', 'CidrBlock', '10.0.0.0/16')
+        assert 'Properties:' in M.repair_ops.repair_template(empty, 'Item', 'CidrBlock', '10.0.0.0/16')
         flow = 'Resources: {Item: {Type: AWS::EC2::VPC, Properties: {CidrBlock: old, EnableDnsSupport: true}}}\n'
-        assert 'EnableDnsSupport: true' in M.repair_template(flow, 'Item', 'CidrBlock', '10.0.0.0/16')
+        assert 'EnableDnsSupport: true' in M.repair_ops.repair_template(flow, 'Item', 'CidrBlock', '10.0.0.0/16')
         # Source-span edits preserve sibling keys and comments across scalar/list/map values.
         sample = 'Resources:\n  Item:\n    Type: AWS::Glue::Database\n    Properties:\n      CatalogId: "old" # comment\n      DatabaseInput:\n        Name: db\n        Description: old\n      Tags: [one]\n'
-        updated = M.repair_template(sample, 'Item', 'DatabaseInput', {'Name': 'db', 'Description': 'new'})
+        updated = M.repair_ops.repair_template(sample, 'Item', 'DatabaseInput', {'Name': 'db', 'Description': 'new'})
         assert 'Tags: [one]' in updated and 'CatalogId: "old" # comment' in updated
     print('Controlled deploy repair: PASS (Cases 1-10, typed projection, static lint, session evidence, no guessed values, provenance/retention gates)')
 
@@ -2465,7 +2527,7 @@ def check_secret_runtime_bootstrap():
                             return {}
                         return {'ARN': arn, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
                     if operation == 'get-secret-value':
-                        assert '--query' in args and args[args.index('--query')+1] == M.SECRET_METADATA_QUERY
+                        assert '--query' in args and args[args.index('--query')+1] == M.aws_adapter.SECRET_METADATA_QUERY
                         if knobs['getError']:
                             raise M.Blocked(knobs['getError'])
                         current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
@@ -2549,8 +2611,8 @@ def check_secret_runtime_bootstrap():
                 for item in items:
                     syncs.append(item['name']); saved[item['name']]['observedSynced'] = True
             def run():
-                with patch.object(M, 'sync_successful', side_effect=synced):
-                    return M.run_session(active, 2, session, backend, backend.save, sleep=lambda _: None)
+                with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
+                    return M.session_ops.run_session(active, 2, session, backend, backend.save, sleep=lambda _: None)
             def failed():
                 state = session['states']['B']
                 statuses['B'] = 'ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE'
@@ -2722,7 +2784,7 @@ def check_secret_runtime_bootstrap():
             error = M.subprocess.TimeoutExpired(['aws', '--secret-string', 'DUMMY_DEPLOY_ONLY'], 60)
             with patch.object(M.subprocess, 'run', side_effect=error if failure == 'timeout' else None, return_value=result):
                 try:
-                    backend.aws('get-secret-value', '--secret-id', arn, '--version-stage', 'AWSCURRENT', '--query', M.SECRET_METADATA_QUERY, service='secretsmanager')
+                    backend.aws('get-secret-value', '--secret-id', arn, '--version-stage', 'AWSCURRENT', '--query', M.aws_adapter.SECRET_METADATA_QUERY, service='secretsmanager')
                 except M.Blocked as caught:
                     assert 'DUMMY_DEPLOY_ONLY' not in str(caught)
                     assert getattr(caught, 'current_missing', False) == (failure == 'missing')
