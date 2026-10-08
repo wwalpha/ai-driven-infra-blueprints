@@ -95,6 +95,7 @@ class Comparison:
         self.load_errors = []
         self.inputs = {root / 'project.json'}
         self.results = []
+        self.display_differences = {}
         self.metrics = {'model_loads': 0, 'model_parses': 0, 'template_decodes': 0, 'stack_evaluations': 0}
         for service in self.services:
             try:
@@ -647,5 +648,9 @@ class Comparison:
                 if not (same(value, actual) if key in exact else selected_same(value, actual, key)):
                     self.record('difference', service, identity, prop, 'value mismatch', value, actual, name, sources[key][0], iac_source)
                     self.results[-1]['model_sources'] = sources[key]
+                    # Preserve original records; capture display evidence before redaction loses it.
+                    from issues_reports import identifier, value_differences
+                    self.display_differences[identifier(self.results[-1])] = value_differences(
+                        value, actual, prop, exact=key in exact, redact=self.redacted)
                 else:
                     self.record('matched', service, identity, prop, 'equal', stack=name, source=sources[key][0], template=iac_source)

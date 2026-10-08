@@ -281,6 +281,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     artifact = {'version': 1, 'root': str(root), 'environment': environment, 'target': directory,
                 'services': sorted(set(services)), 'ordinary': ordinary, 'naming': naming, 'judgments': judgments,
                 'human_confirmations': [safe_text(line) for line in human], 'iac': iac, 'fingerprint': after,
+                'iac_display': comparison.display_differences,
                 'machine_diagnostics': safe_text(diagnostics), 'checks': checks,
                 'service_keys': service_keys,
                 'metrics': comparison.metrics | {'mechanical_seconds': mechanical_seconds, 'iac_seconds': iac_seconds,
@@ -315,7 +316,7 @@ def save_scan(root, artifact, review):
                 raise ValueError('diagnostic requires scoped service assignment')
             additions.append(dict(item, service=owner))
     paths = save(root, artifact['environment'], artifact['target'], artifact['services'], artifact['ordinary'], additions,
-                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact))
+                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'))
     return paths
 
 

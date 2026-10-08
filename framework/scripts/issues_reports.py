@@ -13,7 +13,7 @@ from issue_gate import unresolved_services
 from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section, reserved_batches
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
-from issues_iac import safe_value
+from issues_iac import safe_value, same, selected_same
 
 
 def identifier(value):
@@ -179,7 +179,93 @@ IAC_DATA = r'<!-- iac-report-data: (.+) -->'
 IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
 
 
-def iac_state(text, environment, directory):
+def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value):
+    """Display only: use the detector's predicate, then redact the differing leaves."""
+    missing = object()
+    differences = []
+    predicate = (lambda left, right, name: same(left, right)) if exact else selected_same
+
+    def formatted(value):
+        if value is missing:
+            return '欠落'
+        if isinstance(value, str) and re.fullmatch(r'[A-Za-z_$][\w ./$:-]*', value) and value not in {'null', 'true', 'false'}:
+            return value
+        return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+    def add(path, left, right):
+        differences.append({'path': safe_text(path or property_name),
+                            'model': formatted(left), 'iac': formatted(right)})
+
+    def child(value, key):
+        # A secret property can redact a whole container into one mask.
+        return value[key] if isinstance(value, (dict, list)) else value
+
+    def walk(left, right, shown_left, shown_right, path, name):
+        if left is missing or right is missing:
+            add(path, shown_left, shown_right)
+            return
+        if predicate(left, right, name):
+            return
+        if type(left) is not type(right):
+            add(path, shown_left, shown_right)
+        elif isinstance(left, dict):
+            for key in sorted(left.keys() | right.keys() if exact else left.keys()):
+                walk(left.get(key, missing), right.get(key, missing),
+                     child(shown_left, key) if key in left else missing,
+                     child(shown_right, key) if key in right else missing,
+                     f'{path}.{key}' if path else key, key)
+        elif isinstance(left, list):
+            if not exact and name in {'Tags', 'HostedZoneTags'} and all(isinstance(item, dict) and 'Key' in item for item in left):
+                model_keys, iac_keys = {}, {}
+                for i, item in enumerate(left):
+                    model_keys.setdefault(item['Key'], []).append(i)
+                for i, item in enumerate(right):
+                    if isinstance(item, dict) and item.get('Key') in model_keys:
+                        iac_keys.setdefault(item['Key'], []).append(i)
+                for key, model_indexes in model_keys.items():
+                    iac_indexes = iac_keys.get(key, [])
+                    field = f'{path}[Key={formatted(safe_value(key))}]'
+                    if len(model_indexes) != 1 or len(iac_indexes) > 1:
+                        add(field + '.要素数（キー重複）', len(model_indexes), len(iac_indexes))
+                    else:
+                        i = model_indexes[0]
+                        j = iac_indexes[0] if iac_indexes else None
+                        walk(left[i], right[j] if j is not None else missing,
+                             child(shown_left, i), child(shown_right, j) if j is not None else missing, field, '')
+            else:
+                for i in range(max(len(left), len(right))):
+                    walk(left[i] if i < len(left) else missing, right[i] if i < len(right) else missing,
+                         child(shown_left, i) if i < len(left) else missing,
+                         child(shown_right, i) if i < len(right) else missing, f'{path}[{i}]', name)
+        else:
+            add(path, shown_left, shown_right)
+
+    name = property_name.rsplit('.', 1)[-1]
+    walk(desired, actual, redact(desired, property_name), redact(actual, property_name), name if isinstance(desired, list) else '', name)
+    return differences
+
+
+def mismatch_lines(item, display):
+    lines = [f'- 不一致箇所: {item["service"]} / {item["resource"]} / {item["property"]}']
+    differences = display.get(identifier(item))
+    if differences is None:
+        differences = value_differences(item.get('desired'), item.get('actual'), item['property'])
+        # Legacy/masked records have no pre-redaction field evidence. Never infer equality.
+        lines.append('- 相違項目の確認範囲: 保存済みのマスク済み値のみ。秘匿項目・比較方式は特定できない。')
+    if not differences:
+        lines.append('- 相違項目: 特定不可（検出結果は不一致。保存済み値からは復元できない）')
+    for difference in differences:
+        lines.append('- 相違項目: ' + difference['path'])
+        for label, key in [('Model', 'model'), ('IaC', 'iac')]:
+            value = safe_text(difference[key])
+            fence = '`' * (max((len(run) for run in re.findall(r'`+', value)), default=0) + 1)
+            lines.append(f'  - {label}: {fence} {value} {fence}')
+        if difference['model'] == difference['iac']:
+            lines.append('  - 不一致の検出結果を保持（マスキングまたはキー重複により表示値だけでは判別不可）。')
+    return lines
+
+
+def iac_state(text, environment, directory, display=None):
     """Read lossless data from this report; migrate old items without inferring causes."""
     found = re.findall(IAC_DATA, text)
     if found:
@@ -192,6 +278,8 @@ def iac_state(text, environment, directory):
             record = entry['record']
             if entry['id'] != iac_key(record) or type(entry['retained']) is not bool:
                 raise ValueError('malformed IaC record identity/state')
+        if display is not None:
+            display.update(data.get('value_differences', {}))
         # Keep additions anywhere in the human-facing report, including action blocks.
         generated = set(data['generated_line_ids'])
         annotations, context = [], ''
@@ -283,11 +371,13 @@ def iac_actions(entries, environment, directory):
 
 
 @input_scope
-def iac_merge(root, path, environment, directory, services, records):
+def iac_merge(root, path, environment, directory, services, records, display=None):
     old = path.read_text(encoding='utf-8') if path.exists() else ''
     if old.strip() and not old.startswith('# model → IaC比較の非阻害結果\n'):
         raise ValueError('malformed existing IaC report')
-    previous, annotations = iac_state(old, environment, directory)
+    saved_display = {}
+    previous, annotations = iac_state(old, environment, directory, saved_display)
+    display = {**saved_display, **(display or {})}
     # Keep report storage subject to the existing value/message redaction policy too.
     records = [dict(safe_value(item), reason=safe_text(item['reason']), **{
         key: safe_value(item[key], item.get('property', '')) for key in ('desired', 'actual') if key in item})
@@ -312,6 +402,23 @@ def iac_merge(root, path, environment, directory, services, records):
     entries.extend({'id': iac_key(item), 'record': item, 'retained': False} for item in records)
     # Canonical order keeps IDs/membership/order independent of service and record input order.
     entries.sort(key=lambda entry: (entry['record']['service'], entry['id'], entry['retained'], identifier(entry)))
+    # Apply the publication mask to the display side-channel as well as original records.
+    for entry in entries:
+        key = identifier(entry['record'])
+        if key not in display:
+            continue
+        if not isinstance(display[key], list) or any(not isinstance(field, dict) or
+                any(not isinstance(field.get(name), str) for name in ('path', 'model', 'iac')) for field in display[key]):
+            raise ValueError('malformed IaC value difference display')
+        fields = []
+        for field in display[key]:
+            shown = {'path': safe_text(field['path'])}
+            for side in ('model', 'iac'):
+                value = field[side]
+                masked = safe_value(value, entry['record']['property'] + '.' + field['path'])
+                shown[side] = safe_text(json.dumps(masked) if masked != value else value)
+            fields.append(shown)
+        display[key] = fields
     actions = iac_actions(entries, environment, directory)
     current = [entry['record'] for entry in entries if not entry['retained']]
     counts = {category: sum(item['category'] == category for item in current) for category in ('difference', 'uncompared', 'error')}
@@ -332,6 +439,7 @@ def iac_merge(root, path, environment, directory, services, records):
     for group in actions:
         members = [entries[i] for i in group['members']]
         diagnostic = [entry['record'] for entry in members]
+        value_mismatch = all(item['category'] == 'difference' and item['reason'] == 'value mismatch' for item in diagnostic)
         sources = set()
         representatives = {}
         for entry in members:
@@ -342,6 +450,8 @@ def iac_merge(root, path, environment, directory, services, records):
         examples = sorted(representatives.values(), key=lambda entry: (entry['record'].get('cause', {}).get('relationship') != 'direct', entry['retained'], entry['id']))[:3]
         for entry in examples:
             item = entry['record']
+            if value_mismatch:
+                continue
             for source in [*item.get('model_sources', [item.get('model')])[:3], item.get('iac')]:
                 if source:
                     if entry['retained'] or item['service'] not in scoped:
@@ -358,7 +468,7 @@ def iac_merge(root, path, environment, directory, services, records):
                       f'- 状態: {"保持未確認（今回の比較では解消を確定していない） / " if any(entry["retained"] for entry in members) else ""}{group["status"]}',
                       f'- 分類: {group["classification"]}', f'- 環境: {environment}/{directory}',
                       f'- 原因: {safe_text(group["description"])}', f'- 必要な対応: {group["remedy"]}',
-                      f'- 修正対象: {"`" + group["target"] + "`" if group["target"] else "未確定（調査して決める）"}' + ("（IaC側の候補。Model側も根拠から確認して決める）" if group["status"] == "要判断" else ""),
+                      *([] if value_mismatch else [f'- 修正対象: {"`" + group["target"] + "`" if group["target"] else "未確定（調査して決める）"}' + ("（IaC側の候補。Model側も根拠から確認して決める）" if group["status"] == "要判断" else "")]),
                       f'- 影響: 元レコード {len(members)}件 / 直接差分 {len(direct)}リソース / 比較未完了 {sum(item["category"] in {"uncompared", "error"} for item in diagnostic)}項目',
                       f'- 影響Service: {", ".join(service_names)}',
                       f'- 影響Stack: {", ".join(stacks[:5]) or "未確定"}' + (f' ほか{len(stacks)-5}件' if len(stacks) > 5 else '')])
@@ -368,6 +478,9 @@ def iac_merge(root, path, environment, directory, services, records):
             lines.append('- 根拠（代表例）: ' + '; '.join(sorted(sources)))
         for entry in examples:
             item = entry['record']
+            if item['category'] == 'difference' and item['reason'] == 'value mismatch':
+                lines.extend(mismatch_lines(item, display))
+                continue
             reason = safe_text(item['reason']).replace(str(root) + '/', '')
             lines.append(f'- 代表的な検出: {item["service"]} / {item["resource"]} / {item["property"]}: {reason}')
             if item['category'] == 'difference' and (item.get('desired') is not None or item.get('actual') is not None):
@@ -379,6 +492,8 @@ def iac_merge(root, path, environment, directory, services, records):
     data = {'version': 1, 'scope': [environment, directory], 'entries': entries,
             'actions': [{'id': group['id'], 'members': group['members']} for group in actions],
             'annotations': annotations, 'generated_line_ids': sorted({identifier(line) for line in lines if line.strip()})}
+    data['value_differences'] = {identifier(entry['record']): display[identifier(entry['record'])]
+                               for entry in entries if identifier(entry['record']) in display}
     if annotations:
         lines.extend(['## 保持した注記', '', *annotations, ''])
         data['generated_line_ids'].append(identifier('## 保持した注記'))
@@ -437,7 +552,7 @@ def atomic_files(contents):
 
 
 @input_scope
-def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None):
+def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
     outputs = save_authority(root, environment, directory, services, names, check_write=False)
     for _ in reserved_batches(root, {'reports': outputs}):
@@ -447,7 +562,7 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
             paths = save_authority(root, environment, directory, services, names)
             contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
             if iac is not None:
-                contents[paths[1]] = iac_merge(root, paths[1], environment, directory, services, iac)
+                contents[paths[1]] = iac_merge(root, paths[1], environment, directory, services, iac, display)
             if guard:
                 guard()  # Check after formatting, immediately before publication; never repeat comparison.
             atomic_files(contents)

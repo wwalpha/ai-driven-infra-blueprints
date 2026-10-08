@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 from issues_iac import Comparison, same, selected_same, strict_json, module
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload
-from issues_reports import save, blocks, numbered, identifier, iac_merge, iac_state
+from issues_reports import save, blocks, numbered, identifier, iac_merge, iac_state, value_differences, IAC_DATA
 from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
 from design_layout import resource_name_fields
 from model_files import load_model, read_model, model_file_contents, resource_row_index
@@ -1176,7 +1176,7 @@ def action_report_cases():
         # Old source locations may disappear; retention never fabricates a current link.
         source = root / 'model/dev/cde/s3.properties'
         write(source, 'line1\nline2\n')
-        located = dict(difference, model={'path': 'model/dev/cde/s3.properties', 'line': 2})
+        located = dict(difference, reason='property missing', model={'path': 'model/dev/cde/s3.properties', 'line': 2})
         write(path, iac_merge(root, path, 'dev', 'cde', ['s3'], [located]))
         write(source, 'line1\n')
         stale_report = iac_merge(root, path, 'dev', 'cde', ['s3'], [])
@@ -1195,6 +1195,127 @@ def action_report_cases():
         assert len(again) == 2 and all(entry['retained'] for entry in again)
         assert again == iac_state(retained_duplicates, 'dev', 'cde')[0]
     print('IaC action reports: PASS (1236 cascading + 6 direct records → 1 Issue; lossless IDs/scope/retention/gates)')
+
+
+def mismatch_display_cases():
+    from issues_iac import safe_value
+    from issues_reports import iac_actions, iac_key
+
+    def fields(left, right, name='Setting', exact=False):
+        return value_differences(left, right, name, exact=exact)
+
+    role = {'$resource': ['iam', '089'], '$attribute': 'RoleName'}
+    arn_role = dict(role, **{'$attribute': 'Arn'})
+    assert fields(role, arn_role) == [{'path': '$attribute', 'model': 'RoleName', 'iac': 'Arn'}]
+    assert [item['path'] for item in fields({'a': 1, 'b': 2}, {'a': 3, 'b': 4})] == ['a', 'b']
+    assert fields({'Settings': {'Timeout': 1, 'Enabled': True}}, {'Settings': {'Timeout': 2, 'Enabled': True}}) == [
+        {'path': 'Settings.Timeout', 'model': '1', 'iac': '2'}]
+    assert fields({'a': 1}, {'a': 1, 'extra': 2}) == []
+    assert fields({'a': 1}, {'a': 1, 'extra': 2}, exact=True) == [{'path': 'extra', 'model': '欠落', 'iac': '2'}]
+    assert fields({'a': None}, {}) == [{'path': 'a', 'model': 'null', 'iac': '欠落'}]
+    for left, right, model, iac in [(None, False, 'null', 'false'), (True, 1, 'true', '1'),
+                                   (1, '1', '1', '"1"'), (False, 'false', 'false', '"false"')]:
+        assert fields(left, right)[0] == {'path': 'Setting', 'model': model, 'iac': iac}
+    assert fields([1, 2], [2, 1], 'Items') == [
+        {'path': 'Items[0]', 'model': '1', 'iac': '2'}, {'path': 'Items[1]', 'model': '2', 'iac': '1'}]
+    assert fields([None], [], 'Items') == [{'path': 'Items[0]', 'model': 'null', 'iac': '欠落'}]
+    assert fields([], [None], 'Items') == [{'path': 'Items[0]', 'model': '欠落', 'iac': 'null'}]
+    tags = [{'Key': 'Name', 'Value': 'one'}]
+    reordered = [{'Key': 'owner', 'Value': 'other'}, *tags]
+    assert fields(tags, reordered, 'Tags') == []
+    assert fields(tags, [{'Key': 'owner', 'Value': 'other'}, {'Key': 'Name', 'Value': 'two'}], 'Tags') == [
+        {'path': 'Tags[Key=Name].Value', 'model': 'one', 'iac': 'two'}]
+    assert fields(tags, [], 'HostedZoneTags')[0]['iac'] == '欠落'
+    assert fields(tags, tags * 2, 'Tags') == [{'path': 'Tags[Key=Name].要素数（キー重複）', 'model': '1', 'iac': '2'}]
+    assert fields(tags * 2, tags * 2, 'Tags')[0]['model'] == '2'
+    assert fields(tags, reordered, 'Tags', exact=True)  # Exact whole-property arrays retain order/membership.
+    long_value = 'x' * 1000
+    assert fields({'Config': long_value + 'A'}, {'Config': long_value + 'B'})[0]['model'].endswith('A')
+    secrets = fields({'Password': 'first', 'Same': 'unchanged'}, {'Password': 'second', 'Same': 'unchanged'})
+    assert secrets == [{'path': 'Password', 'model': '"<masked>"', 'iac': '"<masked>"'}]
+    assert 'first' not in json.dumps(secrets) and 'second' not in json.dumps(secrets)
+    assert fields(tags, [{'Key': 'Name', 'Value': 'one'}], 'Tags') == []
+    secret_tags = fields([{'Key': 'SECRET_TOKEN', 'Value': 'first'}], [{'Key': 'SECRET_TOKEN', 'Value': 'second'}], 'Tags')
+    assert secret_tags[0]['model'] == '"<masked>"' and secret_tags[0]['iac'] == '"<masked>"'
+    assert fields('arn:aws:iam::123456789012:role/a', 'arn:aws:iam::123456789012:role/b')[0]['model'] == '"<masked ARN/secret>"'
+    assert fields('{{resolve:secretsmanager:first}}', '{{resolve:secretsmanager:second}}')[0]['iac'] == '"<masked ARN/secret>"'
+
+    with tempfile.TemporaryDirectory(prefix='mismatch-display-') as directory:
+        root = Path(directory)
+        path = root / 'issues/dev/cde/iac-issues.md'
+        base = dict(category='difference', service='glue', resource='019', property='Glue.Job.Role',
+                    reason='value mismatch', stack='stack1', desired=role, actual=arn_role,
+                    model={'path': 'model/dev/cde/glue.properties', 'line': 999},
+                    model_sources=[{'path': 'model/dev/cde/glue.properties', 'line': 999, 'key': 'desired.row.019.value'}],
+                    iac={'path': 'infra/cloudformation/templates/shared.yaml', 'line': 999})
+        secret = dict(base, resource='020', property='Glue.Job.Password', desired='<masked>', actual='<masked>')
+        long_record = dict(base, resource='021', property='Glue.Job.Config', desired=long_value + 'A', actual=long_value + 'B')
+        records = [base, secret, long_record]
+        original = json.loads(json.dumps(records))
+        display = {identifier(base): fields(role, arn_role), identifier(secret): fields('first', 'second', 'Glue.Job.Password'),
+                   identifier(long_record): fields(long_record['desired'], long_record['actual'], 'Glue.Job.Config')}
+        # No source/evidence reads, even when saved line numbers are invalid.
+        with patch('issues_reports.evidence', side_effect=AssertionError('mismatch evidence read forbidden')):
+            report = iac_merge(root, path, 'dev', 'cde', ['glue'], records, display)
+        visible = re.sub(IAC_DATA, '', report)
+        assert '- 相違項目: $attribute\n  - Model: ` RoleName `\n  - IaC: ` Arn `' in visible
+        assert '$resource' not in visible and '修正対象:' not in visible and '根拠（代表例）:' not in visible
+        assert 'glue.properties' not in visible and 'shared.yaml' not in visible and ':999' not in visible
+        assert long_value + 'A' in visible and long_value + 'B' in visible and '240' not in visible
+        assert '不一致の検出結果を保持' in visible and 'first' not in report and 'second' not in report
+        entries, notes = iac_state(report, 'dev', 'cde')
+        assert Counter(json.dumps(entry['record'], sort_keys=True) for entry in entries) == Counter(json.dumps(record, sort_keys=True) for record in original)
+        assert {entry['id'] for entry in entries} == {iac_key(record) for record in original}
+        expected_entries = [{'id': iac_key(record), 'record': record, 'retained': False} for record in records]
+        expected_entries.sort(key=lambda entry: (entry['record']['service'], entry['id'], entry['retained'], identifier(entry)))
+        expected_groups = iac_actions(expected_entries, 'dev', 'cde')
+        assert iac_actions(entries, 'dev', 'cde') == expected_groups and records == original and not notes
+        assert json.loads(re.search(IAC_DATA, report)[1])['value_differences'] == display
+        unsafe_display = {identifier(secret): [{'path': 'Password', 'model': 'first', 'iac': 'second'}]}
+        masked_report = iac_merge(root, path, 'dev', 'cde', ['glue'], [secret], unsafe_display)
+        assert 'first' not in masked_report and 'second' not in masked_report
+        expect_error(lambda: iac_merge(root, path, 'dev', 'cde', ['glue'], [base], {identifier(base): [{}]}), 'malformed')
+        duplicates = [dict(base, actual=dict(arn_role, **{'$attribute': f'Arn{i}'})) for i in range(5)]
+        duplicate_display = {identifier(record): fields(record['desired'], record['actual']) for record in duplicates}
+        limited = iac_merge(root, path, 'dev', 'cde', ['glue'], duplicates, duplicate_display)
+        assert re.sub(IAC_DATA, '', limited).count('- 不一致箇所:') == 1
+        assert len(iac_state(limited, 'dev', 'cde')[0]) == 5
+        write(path, report.replace('- 分類: Model/IaC差分', '- 分類: Model/IaC差分\n\nhuman確認: 注記を保持', 1))
+        regenerated = iac_merge(root, path, 'dev', 'cde', ['glue'], records, display)
+        assert iac_state(regenerated, 'dev', 'cde')[0] == entries
+        assert any('注記を保持' in note for note in iac_state(regenerated, 'dev', 'cde')[1])
+        write(path, regenerated)
+        retained = iac_merge(root, path, 'dev', 'cde', ['glue'], [])
+        assert all(entry['retained'] for entry in iac_state(retained, 'dev', 'cde')[0])
+        assert json.loads(re.search(IAC_DATA, retained)[1])['value_differences'] == display
+        assert '- 相違項目: $attribute' in retained
+        write(path, '')
+        legacy_masked = iac_merge(root, path, 'dev', 'cde', ['glue'], [secret])
+        assert '特定不可（検出結果は不一致' in legacy_masked
+
+        # Real detection -> artifact JSON -> save: preserve original records and sensitive NoEcho redaction.
+        fixture_root = root / 'pipeline'
+        _, template = fixture(fixture_root, services=['s3'])
+        template['Resources']['Bucket']['Properties']['BucketName'] = 'changed-bucket'
+        mutate_template(fixture_root, template)
+        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            artifact = json.loads(json.dumps(scan(fixture_root, 'dev', '123456789012', ['s3'])))
+        mismatch = next(item for item in artifact['iac'] if item['reason'] == 'value mismatch')
+        assert identifier(mismatch) in artifact['iac_display']
+        with task(fixture_root, ['s3']):
+            saved = save_scan(fixture_root, artifact, {'issues': [], 'resolved': [],
+                'reviewed_names': [item['id'] for item in artifact['naming']['names']],
+                'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
+        saved_report = next(file for file in saved if file.name == 'iac-issues.md').read_text()
+        assert 'changed-bucket' in saved_report and 'bucket-app-dev-data1' in saved_report
+        assert json.loads(re.search(IAC_DATA, saved_report)[1])['value_differences'] == artifact['iac_display']
+        # NoEcho masking survives the new display side-channel.
+        comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
+        comparison.sensitive_values.add('confidential')
+        hidden = value_differences({'Value': 'prefix-confidential-A'}, {'Value': 'prefix-confidential-B'}, redact=comparison.redacted)
+        assert hidden[0]['model'] == '"<masked sensitive parameter>"'
+        assert 'confidential' not in json.dumps(hidden)
+    print('IaC mismatch display: PASS (fields/types/arrays/Tags/masks/long values/IDs/data/annotations/pipeline)')
 
 
 def main():
@@ -1227,6 +1348,7 @@ def main():
         extended_cases(root, template)
         concurrency(root)
     action_report_cases()
+    mismatch_display_cases()
     comparison_repair_cases()
     local_reference_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
