@@ -23,7 +23,9 @@ from model_design import entries, naming_rule_files, naming_targets, naming_targ
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, DeferredExhausted
-from issues_iac import Comparison, module, safe_value
+from issues_iac import Comparison
+from script_loader import module
+from iac_values import safe_value
 from issues_reports import save, identifier, blocks, owned_blocks, numbered, inventories, safe_text, iac_summary, iac_dataset, brief, comparison_status
 
 

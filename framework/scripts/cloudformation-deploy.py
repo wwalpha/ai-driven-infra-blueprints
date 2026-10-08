@@ -26,7 +26,9 @@ from model_files import read_model
 from s3_delivery import preflight as placement_preflight, read as placement_read, upload_options, verify_encryption
 from deploy_preparation import Timing
 from issue_gate import require_target_no_issues
-from issues_iac import Comparison, put_row, same
+from comparison_rows import put_row
+from issues_iac import Comparison
+from iac_values import same
 from task_contract import task_path, status, require_writable, paths_in
 from cloudformation_inputs import Blocked, resolve_value, load_template_inputs, condition_active, output_value
 from cloudformation_observed import MappingError, mappings, sync_successful, removed_resources

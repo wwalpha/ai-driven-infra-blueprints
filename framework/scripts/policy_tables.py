@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import sys
 
+from iac_values import unique_object, invalid_constant
 from array_display import restored_rows
 from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
 
@@ -209,19 +210,6 @@ def resources_in(lines: list[str]) -> list[Resource]:
     if len({resource.anchor for resource in resources}) != len(resources):
         raise ValueError("duplicate resource detail table or anchor")
     return resources
-
-
-def unique_object(pairs: list[tuple[str, object]]) -> dict:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate policy JSON key: {key}")
-        result[key] = value
-    return result
-
-
-def invalid_constant(value: str) -> None:
-    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def settings_rows(value: object, pointer: str = "") -> list[list[str]]:

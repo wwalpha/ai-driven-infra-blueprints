@@ -13,7 +13,7 @@ from issue_gate import unresolved_services
 from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section, reserved_batches
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
-from issues_iac import safe_value, same, selected_same
+from iac_values import safe_value, same, selected_same
 
 
 def identifier(value):

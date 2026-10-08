@@ -89,6 +89,8 @@ python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task
 
 Repeat `--service` for multiple services. Use `save-results` for already saved results alone without reinvestigation. Follow the linked document for all-name/remaining-judgment review, save-only contracts, partial/error handling, and supported/unsupported CloudFormation scope.
 
+Comparison code lives in `comparison_rows.py` (row construction/path selection), `iac_values.py` (symbolic values, comparison and masking), and `iac_evaluation.py` (expressions over supplied inputs/lookups). `issues_iac.py` owns tracked local input acquisition, reference/export indexes and result collection; `script_loader.py` retains named script loading for scan and S3 delivery. SDK response reconstruction and AWS normalization remain in `check-model-aws.py`.
+
 ## Context priority
 
 Execution entrypoints and reading rules are [AGENTS.md](AGENTS.md) and the skill/workflow Read section. README is a human guide, not a file to read in full on every task. Follow [project configuration](framework/rules/project-configuration.md) for target settings and [model information](framework/rules/model-information.md#model-authority) for design-value/generated-artifact relationships. Refer to background/external information only as needed.

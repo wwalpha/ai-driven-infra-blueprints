@@ -1,13 +1,9 @@
 """Target-batched, local desired → CloudFormation comparison. No AWS/provider calls."""
 from __future__ import annotations
 
-import importlib.util
-import json
 import hashlib
 from pathlib import Path
 import re
-import sys
-from dataclasses import dataclass
 
 from cloudformation_inputs import Blocked, condition_active, load_target, load_template_inputs, resolve_value, output_value
 from cloudformation_observed import resource_index, mapped_resource
@@ -15,20 +11,12 @@ from design_catalog import DesignSchemaCatalog
 from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
 from model_design import LINK, catalog_outputs, cfn_resource_identity, entries, stack_model
 from model_files import load_model, resource_row_index, MAX_LINES
-from policy_tables import literal, unique_object, invalid_constant
+from policy_tables import literal
 
 
-def module(filename, name):
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
-        loaded = importlib.util.module_from_spec(spec)
-        sys.modules[name] = loaded
-        spec.loader.exec_module(loaded)
-    return sys.modules[name]
-
-
-# Reuse only the SDK comparator's pure catalog-row projection; no Context/client is created.
-put_row = module('check-model-aws.py', 'issues_row_projection').put_row
+from iac_evaluation import Evaluation
+from comparison_rows import put_row
+from iac_values import ResourceReference, Expression, safe_value, same, selected_same, strict_json
 
 
 # Documented identifier formats absent from the provider schema's string pattern.
@@ -45,108 +33,6 @@ REFERENCE_FORMS = {
     'ECR.Repository.EncryptionConfiguration.KmsKey': {'KeyId', 'Arn', 'AliasName'},
     'S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': {'KeyId', 'Arn', 'AliasName'},
 }
-
-
-def strict_json(text):
-    return json.loads(text, object_pairs_hook=unique_object, parse_constant=invalid_constant)
-
-
-class ResourceReference(dict):
-    """A confirmed identity, distinct from a same-shaped JSON literal."""
-
-
-@dataclass(frozen=True, eq=False)
-class Expression:
-    """An evaluated intrinsic with unresolved operands; never a JSON literal."""
-    operation: str
-    operands: list
-
-    def __eq__(self, other):
-        return type(self) is type(other) and self.operation == other.operation and same(self.operands, other.operands)
-
-
-def symbolic(value):
-    if isinstance(value, Expression):
-        return True
-    if isinstance(value, dict):
-        return any(symbolic(item) for item in value.values())
-    if isinstance(value, list):
-        return any(symbolic(item) for item in value)
-    return False
-
-
-def safe_value(value, property_name=''):
-    """Do not publish secrets, dynamic secrets or current/generated ARN strings."""
-    if re.search(r'password|secretstring|secretbinary|token|credential|privatekey', property_name, re.I):
-        return '<masked>'
-    if isinstance(value, Expression):
-        return {'$expression': value.operation, '$operands': safe_value(value.operands, property_name)}
-    if isinstance(value, str):
-        if '{{resolve:' in value or re.search(r'arn:aws[a-z-]*:', value, re.I):
-            return '<masked ARN/secret>'
-        return value
-    if isinstance(value, list):
-        return [safe_value(item, property_name) for item in value]
-    if isinstance(value, dict):
-        selected_name = value.get('Name', value.get('Key', ''))
-        if isinstance(selected_name, str) and re.search(r'password|secret|token|credential|privatekey', selected_name, re.I) and 'Value' in value:
-            value = dict(value, Value='<masked>')
-        return {key: safe_value(item, key) for key, item in value.items()}
-    return value
-
-
-def comparison_result(values, *, any_match=False):
-    """A confirmed difference wins over uncertainty; a match must prove every leaf."""
-    decisive = True if any_match else False
-    uncertain = False
-    for value in values:
-        if value is decisive:
-            return decisive
-        uncertain |= value is None
-    return None if uncertain else not decisive
-
-
-def same(left, right, *, reference=None, path=''):
-    """Preserve types, array order, duplicates and object membership."""
-    if reference:
-        result = reference(left, right, path)
-        if result is not NotImplemented:
-            return result
-    if type(left) is not type(right):
-        return False
-    if isinstance(left, dict):
-        return left.keys() == right.keys() and comparison_result(
-            same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key) for key in left)
-    if isinstance(left, list):
-        return len(left) == len(right) and comparison_result(
-            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right))
-    return left == right
-
-
-def selected_same(desired, actual, property_name='', *, reference=None, path=''):
-    """Only selected nested settings constrain IaC. Tags have confirmed keyed semantics."""
-    if reference:
-        result = reference(desired, actual, path)
-        if result is not NotImplemented:
-            return result
-    if type(desired) is not type(actual):
-        return False
-    if isinstance(desired, dict):
-        return desired.keys() <= actual.keys() and comparison_result(
-            selected_same(item, actual[key], key, reference=reference, path=f'{path}.{key}' if path else key)
-            for key, item in desired.items())
-    if isinstance(desired, list):
-        if property_name in {'Tags', 'HostedZoneTags'} and all(isinstance(item, dict) and 'Key' in item for item in desired):
-            keys = [item['Key'] for item in desired]
-            selected = [item for item in actual if isinstance(item, dict) and item.get('Key') in keys]
-            if len(set(keys)) != len(keys) or len(selected) != len(keys):
-                return False
-            return comparison_result(comparison_result(
-                (selected_same(item, candidate, reference=reference, path=path + '[]') for candidate in selected), any_match=True)
-                for item in desired)
-        return len(desired) == len(actual) and comparison_result(
-            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual))
-    return desired == actual
 
 
 class Comparison:
@@ -305,49 +191,6 @@ class Comparison:
         self.symbols[cachekey] = result
         return result
 
-    def string_operand(self, value):
-        if isinstance(value, str):
-            return True
-        if isinstance(value, Expression):
-            return value.operation in {'Select', 'Join', 'Sub'}
-        if isinstance(value, ResourceReference):
-            service, identity = value['$resource']
-            kind = self.resources[service][identity]['resourceType']
-            node = self.catalog.property_schema(kind, value['$attribute'])
-            if 'type' not in node:
-                raise Blocked('reference string type is unproven')
-            return node['type'] == 'string'
-        return False
-
-
-    def substitution(self, stack, value, seen):
-        if isinstance(value, ResourceReference):
-            service, identity = value['$resource']
-            attribute = value['$attribute']
-            resource = self.resources[service][identity]
-            if not resource.get('cfn-logicalId'):
-                raise Blocked('resource substitution requires explicit cfn-logicalId')
-            name, logical = cfn_resource_identity(resource['cfn-logicalId'])
-            token = ('resource', name, logical, attribute)
-            if token in seen:
-                raise Blocked(f'cyclic resource substitution: {name}/{logical}.{attribute}')
-            document, _, _ = self.stack_inputs[name]
-            if document.get('Transform'):
-                raise Blocked('Transform requires external evaluation')
-            properties = document['Resources'][logical].get('Properties', {})
-            if attribute not in properties:
-                if self.string_operand(value):
-                    return value
-                raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')
-            return self.substitution(name, self.evaluate(name, properties[attribute], seen | {token}), seen | {token})
-        if isinstance(value, Expression) and self.string_operand(value):
-            return value
-        if type(value) in (int, float):
-            return str(value)
-        if not isinstance(value, str):
-            raise Blocked('Sub variable is not a proven local string')
-        return value
-
     def import_value(self, stack, argument, seen):
         name = self.evaluate(stack, argument, seen)
         if not isinstance(name, str):
@@ -400,118 +243,8 @@ class Comparison:
             raise
 
     def evaluate(self, stack, value, seen=frozenset()):
-        document, parameters, pseudo = self.stack_inputs[stack]
-        if isinstance(value, list):
-            return [item for item in (self.evaluate(stack, child, seen) for child in value) if item != {'$noValue': True}]
-        if not isinstance(value, dict):
-            # cfn-lint attaches source marks using scalar subclasses; preserve JSON type.
-            if isinstance(value, str):
-                return str(value)
-            if isinstance(value, bool):
-                return bool(value)
-            if isinstance(value, int):
-                return int(value)
-            if isinstance(value, float):
-                return float(value)
-            return value
-        if isinstance(value, ResourceReference):
-            return value
-        if len(value) == 1:
-            key, arg = next(iter(value.items()))
-            if ('export-name',) in seen and (key in {'Fn::GetAtt', 'Fn::ImportValue'} or key == 'Ref' and arg not in parameters | pseudo):
-                raise Blocked('Export name depends on a resource/import')
-            if key == 'Ref' and arg not in parameters | pseudo:
-                if arg.startswith('AWS::'):
-                    raise Blocked(f'unresolved pseudo parameter: {arg}')
-                return self.symbol(stack, arg)
-            if key == 'Fn::GetAtt':
-                logical, attribute = arg.split('.', 1) if isinstance(arg, str) else arg
-                return self.symbol(stack, logical, attribute)
-            if key == 'Fn::If':
-                if not isinstance(arg, list) or len(arg) != 3:
-                    raise ValueError('invalid Fn::If')
-                condition = resolve_value({'Condition': arg[0]}, parameters, pseudo, conditions=document.get('Conditions', {}))
-                return self.evaluate(stack, arg[1 if condition else 2], seen)
-            if key == 'Fn::Select':
-                if not isinstance(arg, list) or len(arg) != 2:
-                    raise ValueError('invalid Fn::Select')
-                index, items = self.evaluate(stack, arg, seen)
-                if isinstance(index, str) and index.isdigit():
-                    index = int(index)
-                if self.local_comparison and (isinstance(index, Expression) or isinstance(index, ResourceReference)):
-                    raise Blocked('Select index is unproven')
-                if type(index) is not int or index < 0:
-                    raise ValueError('invalid Select operands')
-                if isinstance(items, Expression) and items.operation == 'Split':
-                    # Split always has element zero; other bounds need a concrete string.
-                    if index != 0:
-                        raise Blocked('Select bounds are unproven for symbolic Split')
-                    return Expression('Select', [index, items])
-                if not isinstance(items, list) or index >= len(items) or items[index] is None:
-                    raise ValueError('invalid Select operands')
-                return items[index]
-            if key == 'Fn::Split':
-                if not isinstance(arg, list) or len(arg) != 2 or not isinstance(arg[0], str) or not arg[0]:
-                    raise ValueError('invalid Split operands')
-                delimiter, text = arg[0], self.evaluate(stack, arg[1], seen)
-                if isinstance(text, str):
-                    return text.split(delimiter)
-                if self.local_comparison and self.string_operand(text):
-                    return Expression('Split', [str(delimiter), text])
-                raise ValueError('invalid Split operands')
-            if key == 'Fn::FindInMap' and isinstance(arg, list) and len(arg) == 3:
-                mapping, first, second = self.evaluate(stack, arg, seen)
-                try:
-                    return self.evaluate(stack, document['Mappings'][mapping][first][second], seen)
-                except (KeyError, TypeError) as error:
-                    raise Blocked('unresolved FindInMap') from error
-            if key == 'Fn::ImportValue':
-                if self.local_comparison:
-                    return self.import_value(stack, arg, seen)
-                raise Blocked('ImportValue handoff cannot be established locally')
-            if key == 'Fn::Sub' and self.local_comparison:
-                text, variables = (arg, {}) if isinstance(arg, str) else arg if isinstance(arg, list) and len(arg) == 2 else (None, None)
-                if not isinstance(text, str) or not isinstance(variables, dict):
-                    raise ValueError('invalid Fn::Sub')
-                substitutions = parameters | pseudo | {key: self.evaluate(stack, child, seen) for key, child in variables.items()}
-                resolved = {}
-                def replace(match):
-                    key = match.group(1)
-                    if key.startswith('!'):
-                        return '${' + key[1:] + '}'
-                    if key in substitutions:
-                        child = substitutions[key]
-                    else:
-                        child = self.evaluate(stack, {'Fn::GetAtt': key} if '.' in key else {'Ref': key}, seen)
-                    child = self.substitution(stack, child, seen)
-                    resolved[key] = child
-                    return child if isinstance(child, str) else match.group(0)
-                concrete = re.sub(r'\$\{([^}]+)\}', replace, text)
-                if all(isinstance(child, str) for child in resolved.values()):
-                    return concrete
-                if re.fullmatch(r'\$\{([^}]+)\}', text) and len(resolved) == 1:
-                    return next(iter(resolved.values()))
-                return Expression('Sub', [str(text), resolved])
-            if key == 'Fn::Join' and self.local_comparison:
-                if not isinstance(arg, list) or len(arg) != 2 or not isinstance(arg[0], str):
-                    raise ValueError('invalid Fn::Join')
-                delimiter, parts = str(arg[0]), self.evaluate(stack, arg[1], seen)
-                if not isinstance(parts, list):
-                    raise ValueError('invalid Join operands')
-                if all(isinstance(part, str) for part in parts):
-                    return delimiter.join(parts)
-                if not all(self.string_operand(part) for part in parts):
-                    raise ValueError('invalid Join operands')
-                return Expression('Join', [delimiter, parts])
-            if key == 'Fn::Sub' and isinstance(arg, list):
-                if len(arg) != 2 or not isinstance(arg[0], str) or not isinstance(arg[1], dict):
-                    raise ValueError('invalid Fn::Sub')
-                variables = {key: self.evaluate(stack, child, seen) for key, child in arg[1].items()}
-                variables = {key: str(child) if type(child) in (int, float) else child for key, child in variables.items()}
-                value = {'Fn::Sub': [arg[0], variables]}
-            if key == 'Ref' or key.startswith('Fn::') or key == 'Condition':
-                return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
-        return {key: item for key, item in ((key, self.evaluate(stack, child, seen)) for key, child in value.items()) if item != {'$noValue': True}}
+        return Evaluation(self.stack_inputs, self.resources, self.catalog.property_schema,
+                          self.symbol, self.import_value, self.local_comparison).evaluate(stack, value, seen)
 
     def reference_forms(self, kind, path):
         key = kind + '.' + path

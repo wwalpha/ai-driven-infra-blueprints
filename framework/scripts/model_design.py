@@ -6,6 +6,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from iac_values import cfn_resource_identity
 from array_display import indexed_rows
 
 from design_layout import (
@@ -124,14 +125,6 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     if unknown:
         raise ValueError(f"unknown stack design fields: {unknown}")
     return limit, sorted(stacks, key=lambda entry: (int(entry[1]["deployOrder"]), entry[1]["name"]))
-
-
-def cfn_resource_identity(value):
-    """A hyphen cannot occur in a template resource ID, so the final one is unambiguous."""
-    stack, separator, logical = value.rpartition("-")
-    if not separator or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack) or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", logical):
-        raise ValueError(f"invalid cfn-logicalId (expected StackName-TemplateResourceId): {value!r}")
-    return stack, logical
 
 
 ARTIFACT_FIELDS = ("stack", "resource", "property", "source", "bucket", "keyPrefix")

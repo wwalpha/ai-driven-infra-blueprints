@@ -19,12 +19,12 @@ from urllib.parse import unquote
 
 sys.modules.setdefault("model_aws_compare", sys.modules[__name__])
 
+from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from model_design import LINK, catalog_outputs, entries, pipeline_rows, properties
 from model_files import model_parts, read_model
 from policy_tables import invalid_constant, literal, unique_object
 
-MISSING = {"absent": True}
 SERVICES = tuple("athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
                  "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
                  "macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
@@ -77,10 +77,6 @@ def metadata(reason):
     return Field(classification="local_metadata", reason=reason)
 
 
-class Unresolved(ValueError):
-    pass
-
-
 class AcquisitionError(Exception):
     def __init__(self, api, code, status="acquisition_failed", request=None):
         self.api, self.code, self.status, self.request = api, code, status, request
@@ -107,21 +103,6 @@ def one(items, api):
     return items[0]
 
 
-def select(value, path):
-    if not path:
-        return value
-    part, _, rest = path.partition(".")
-    array = part.endswith("[]")
-    child = value.get(part.removesuffix("[]"), MISSING) if isinstance(value, dict) else MISSING
-    if array:
-        if child == MISSING:
-            return MISSING
-        if not isinstance(child, list):
-            raise Unresolved("SDK response has an invalid array type")
-        return [select(item, rest) for item in child] if rest else child
-    return select(child, rest) if rest else child
-
-
 def project(tree, path, value):
     """Put an SDK leaf projection back into a tree without losing array membership."""
     part, _, rest = path.partition(".")
@@ -143,35 +124,6 @@ def project(tree, path, value):
                 project(item, rest, child)
     elif rest:
         project(tree.setdefault(part, {}), rest, value)
-    else:
-        tree[part] = value
-
-
-def put_row(tree, path, value):
-    """Catalog-ordered repeated rows: a repeated scalar starts a new array element."""
-    part, _, rest = path.partition(".")
-    indexed = re.fullmatch(r"(.+)\[(\d+)\]", part)
-    if indexed:
-        name, number = indexed.group(1), int(indexed.group(2)) - 1
-        array = tree.setdefault(name, [])
-        while len(array) <= number:
-            array.append({})
-        put_row(array[number], rest, value)
-    elif part.endswith("[]"):
-        name = part[:-2]
-        array = tree.setdefault(name, [])
-        if not rest:
-            array.extend(value if isinstance(value, list) else [value])
-        else:
-            if not array or ("[]" not in rest and select(array[-1], rest) != MISSING):
-                array.append({})
-            put_row(array[-1], rest, value)
-    elif rest:
-        put_row(tree.setdefault(part, {}), rest, value)
-    elif part in tree:
-        # Repeated list-valued rows are individual resource references.
-        old = tree[part]
-        tree[part] = (old if isinstance(old, list) else [old]) + (value if isinstance(value, list) else [value])
     else:
         tree[part] = value
 

@@ -182,6 +182,19 @@ def select_checks(root, paths, affected=False):
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
     mapping["framework/scripts/design_layout.checks.py"] = {
         *mapping["framework/scripts/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
+    comparison = {"comparison_core.checks.py", "issues_scan.checks.py", "check-model-aws.checks.py",
+                  "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
+    mapping["framework/scripts/comparison_rows.py"] = comparison
+    mapping["framework/scripts/check-model-aws.py"] = comparison
+    mapping["framework/scripts/issues_iac.py"] = comparison - {"check-model-aws.checks.py"}
+    mapping["framework/scripts/cloudformation-deploy.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
+    # JSON/identity helpers are also used by shared design/catalog processing.
+    mapping["framework/scripts/iac_values.py"] = {check.name for check in checks}
+    mapping["framework/scripts/issues_reports.py"] = {"issues_scan.checks.py", "comparison_core.checks.py"}
+    mapping["framework/scripts/issues_scan.py"] = {"issues_scan.checks.py"}
+    mapping["framework/scripts/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
+    mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
+    mapping["framework/scripts/script_loader.py"] = comparison - {"check-model-aws.checks.py"}
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):

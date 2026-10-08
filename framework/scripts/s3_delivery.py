@@ -5,7 +5,8 @@ import json
 from types import SimpleNamespace
 
 from cloudformation_inputs import Blocked
-from issues_iac import module, strict_json
+from script_loader import module
+from iac_values import strict_json
 from model_design import LINK
 from policy_tables import literal
 
@@ -87,7 +88,7 @@ def model_conditions(backend, bucket):
     ctx = SimpleNamespace()
     def model(path):
         if path not in models:
-            models[path] = module('check-model-aws.py', 'issues_row_projection').Model(ctx, path)
+            models[path] = module('check-model-aws.py', 'model_aws_compare').Model(ctx, path)
         return models[path]
     ctx.model = model
     path = backend.root / 'model' / backend.environment / backend.directory / 's3.properties'

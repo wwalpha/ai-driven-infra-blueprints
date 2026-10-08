@@ -19,7 +19,9 @@ import tempfile
 import time
 from unittest.mock import patch
 
-from issues_iac import Comparison, same, selected_same, strict_json, module
+from issues_iac import Comparison
+from script_loader import module
+from iac_values import same, selected_same, strict_json
 from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload, detail_payload
 from issues_reports import save, blocks, numbered, identifier, iac_report, iac_dataset, iac_summary, value_differences
 from model_design import properties, entries, markdown_for, naming_targets, naming_target_matches
@@ -240,7 +242,7 @@ def checks(root, values, template):
         assert categories['003']['category'] == 'difference'
     finally:
         mutate_template(root, template)
-    from issues_iac import safe_value
+    from iac_values import safe_value
     assert safe_value([{'Name': 'SECRET_TOKEN', 'Value': 'confidential'}])[0]['Value'] == '<masked>'
     assert same(1, True) is False and same('1', 1) is False
     assert not same([1, 2], [2, 1]) and not same([1, 1], [1])
@@ -779,7 +781,7 @@ def local_reference_cases():
 
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def symbolic_string_cases(_network):
-    from issues_iac import Expression
+    from iac_values import Expression
     with tempfile.TemporaryDirectory(prefix='symbolic-strings-') as directory:
         root = Path(directory) / 'project'
         _, template = fixture(root, stacks=2, services=['cloudwatch-logs'])
@@ -883,7 +885,7 @@ def symbolic_string_cases(_network):
 
 
 def reference_identity_report_cases():
-    from issues_iac import Expression
+    from iac_values import Expression
     from issues_reports import iac_key, iac_actions
     with tempfile.TemporaryDirectory(prefix='reference-identity-') as directory:
         root = Path(directory)
@@ -1363,7 +1365,7 @@ def action_report_cases():
 
 
 def mismatch_display_cases():
-    from issues_iac import safe_value
+    from iac_values import safe_value
     from issues_reports import iac_actions, iac_key
 
     def fields(left, right, name='Setting', exact=False):
@@ -1673,6 +1675,9 @@ def main():
     if args.benchmark:
         benchmark(args.log_dir or Path(tempfile.mkdtemp(prefix='issues-performance-')))
         return
+    protected = [ROOT / 'framework/scripts' / name for name in
+                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model_design.py', 'policy_tables.py')]
+    before = {path: path.read_bytes() if path.exists() else None for path in protected}
     with tempfile.TemporaryDirectory(prefix='issues-checks-') as directory:
         root = Path(directory) / 'project'
         values, template = fixture(root, stacks=3, parts=True)
@@ -1689,8 +1694,7 @@ def main():
     local_reference_cases()
     reference_identity_report_cases()
     symbolic_string_cases()
-    assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issues_iac.py', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
-    assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issues_iac.py', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
+    assert before == {path: path.read_bytes() if path.exists() else None for path in protected}, 'checks changed protected source'
     print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
 
 
