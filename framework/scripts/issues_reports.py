@@ -265,14 +265,18 @@ def mismatch_lines(item, display):
     return lines
 
 
-def iac_state(text, environment, directory, display=None):
-    """Read lossless data from this report; migrate old items without inferring causes."""
+def iac_state(text, environment, directory, display=None, data=None):
+    """Read sidecar state or migrate embedded/numbered reports without guessing causes."""
     found = re.findall(IAC_DATA, text)
-    if found:
-        if len(found) != 1:
+    sidecar = data is not None
+    if sidecar or found:
+        if sidecar and (found or not text.strip()):
+            raise ValueError('inconsistent IaC Markdown/state pair')
+        if not sidecar and len(found) != 1:
             raise ValueError('malformed IaC report data')
-        data = json.loads(found[0])
-        if data.get('version') != 1 or data.get('scope') != [environment, directory]:
+        if not sidecar:
+            data = json.loads(found[0])
+        if not isinstance(data, dict) or data.get('version') != 1 or data.get('scope') != [environment, directory]:
             raise ValueError('malformed IaC report scope/version')
         for entry in data['entries']:
             record = entry['record']
@@ -282,6 +286,9 @@ def iac_state(text, environment, directory, display=None):
             display.update(data.get('value_differences', {}))
         # Keep additions anywhere in the human-facing report, including action blocks.
         generated = set(data['generated_line_ids'])
+        if sidecar and data.get('report_digest') != identifier([
+                line_id for line_id in map(identifier, text.splitlines()) if line_id in generated]):
+            raise ValueError('inconsistent IaC Markdown/state pair')
         annotations, context = [], ''
         for line in re.sub(IAC_DATA, '', text).splitlines():
             if line.startswith('## ISSUE-'):
@@ -372,11 +379,18 @@ def iac_actions(entries, environment, directory):
 
 @input_scope
 def iac_merge(root, path, environment, directory, services, records, display=None):
+    """Return human-readable Markdown and sidecar state without publishing either."""
     old = path.read_text(encoding='utf-8') if path.exists() else ''
     if old.strip() and not old.startswith('# model → IaC比較の非阻害結果\n'):
         raise ValueError('malformed existing IaC report')
     saved_display = {}
-    previous, annotations = iac_state(old, environment, directory, saved_display)
+    state_path = path.with_name('iac-issues.state.json')
+    state = None
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding='utf-8'))
+        if not isinstance(state, dict):
+            raise ValueError('malformed IaC state')
+    previous, annotations = iac_state(old, environment, directory, saved_display, state)
     display = {**saved_display, **(display or {})}
     # Keep report storage subject to the existing value/message redaction policy too.
     records = [dict(safe_value(item), reason=safe_text(item['reason']), **{
@@ -435,7 +449,7 @@ def iac_merge(root, path, environment, directory, services, records, display=Non
              f'- 元レコード数: 差分 {counts["difference"]} / 未比較 {counts["uncompared"]} / 処理エラー {counts["error"]}',
              f'- 保持未確認: {retained}件（今回差分件数とは別）', '',
              '件数は保存済み全Serviceの現行結果。今回確認した範囲外の結果は再確認していない。',
-             '元レコード・既存iac-id・各Issueとの対応は末尾の機械読取用データに全件保持。', '']
+             '']
     for group in actions:
         members = [entries[i] for i in group['members']]
         diagnostic = [entry['record'] for entry in members]
@@ -497,9 +511,9 @@ def iac_merge(root, path, environment, directory, services, records, display=Non
     if annotations:
         lines.extend(['## 保持した注記', '', *annotations, ''])
         data['generated_line_ids'].append(identifier('## 保持した注記'))
-    # Necessary persistence only: no duplicated full diagnostic values in visible Markdown.
-    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e')
-    return '\n'.join(lines) + f'\n<!-- iac-report-data: {payload} -->\n'
+    generated = set(data['generated_line_ids'])
+    data['report_digest'] = identifier([line_id for line_id in map(identifier, lines) if line_id in generated])
+    return '\n'.join(lines), data
 
 
 def save_authority(root, environment, directory, services, filenames, check_write=True):
@@ -509,7 +523,7 @@ def save_authority(root, environment, directory, services, filenames, check_writ
     selected = {(environment, directory, service) for service in services}
     if not scope or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract'):
         raise ValueError('report save requires a running report-only migration with explicit service scope')
-    reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md', 'diff.md')}
+    reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md', 'iac-issues.state.json', 'diff.md')}
     allowed = paths_in(text, '## Allowed paths')
     permitted = reports | {prompt.relative_to(root).as_posix()}
     if not allowed & reports or not allowed <= permitted or not paths_in(text, '## Modified files') <= permitted:
@@ -534,10 +548,12 @@ def atomic_files(contents):
                 stream.flush()
                 os.fsync(stream.fileno())
         for path, temporary in staged.items():
-            os.replace(temporary, path)
             published.append(path)
-    except OSError:
+            os.replace(temporary, path)
+    except BaseException:
         for path in reversed(published):
+            if staged[path].exists():  # Rename did not consume the staged file.
+                continue
             if originals[path] is None:
                 path.unlink(missing_ok=True)
             else:
@@ -553,7 +569,7 @@ def atomic_files(contents):
 
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None):
-    names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
+    names = ['issues.md'] + (['iac-issues.md', 'iac-issues.state.json'] if iac is not None else [])
     outputs = save_authority(root, environment, directory, services, names, check_write=False)
     for _ in reserved_batches(root, {'reports': outputs}):
         # Merge the latest saved service blocks only after acquisition. Keep the
@@ -562,7 +578,8 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
             paths = save_authority(root, environment, directory, services, names)
             contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
             if iac is not None:
-                contents[paths[1]] = iac_merge(root, paths[1], environment, directory, services, iac, display)
+                contents[paths[1]], state = iac_merge(root, paths[1], environment, directory, services, iac, display)
+                contents[paths[2]] = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n'
             if guard:
                 guard()  # Check after formatting, immediately before publication; never repeat comparison.
             atomic_files(contents)
