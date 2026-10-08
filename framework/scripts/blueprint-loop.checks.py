@@ -406,8 +406,40 @@ def check_parallel_and_selection():
         MODULE.utf8_preflight(logs, MODULE.utf8_environment())
         assert not (logs / "utf8.txt").exists()
 
+    root = SCRIPT.parents[2]
+    def selected(*paths, affected=True):
+        return {p.name for p in MODULE.select_checks(root, set(paths), affected)[0]}
+    validator = {"validate-blueprint.checks.py"}
+    shared = validator | {"blueprint-loop.checks.py"}
+    for name in ("task", "design", "references", "cloudformation", "scope", "contracts"):
+        assert selected(f"framework/scripts/validation_checks/{name}.py") == validator, name
+    leaf = "framework/scripts/validation_checks/task.py"
+    assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
+    assert selected("framework/scripts/test_support/validator.py") == shared
+    all_checks = {p.name for p in SCRIPT.parent.glob("*.checks.py")}
+    for unknown in ("framework/scripts/validation_checks/unknown.py", "framework/scripts/test_support/unknown.py"):
+        assert selected(leaf, unknown) == all_checks
+    with patch.object(Path, "is_file", return_value=False):
+        assert selected(leaf) == all_checks  # Known path removed/renamed without a resolvable source.
+    assert selected(leaf, affected=False) == all_checks
+    assert selected("framework/scripts/design_layout.checks.py") == {
+        "design_layout.checks.py", "design_document.checks.py", "validate-blueprint.checks.py",
+        "sync-model.checks.py", "policy_tables.checks.py"}
+
 
 def check_fixture_independence():
+    from test_support.validator import MODULE as validator, project, schema_validator, write
+    before = dict(os.environ), Path.cwd()
+    with project() as first, project() as second:
+        assert first != second
+        write(first / "日本語.txt", "独立fixture")
+        assert not (second / "日本語.txt").exists()
+        a, b = schema_validator(first), schema_validator(second)
+        assert type(a) is type(b) is validator.Validator
+        a.errors.append("local state")
+        assert not b.errors and a.schema_catalog is not b.schema_catalog
+    assert not first.exists() and not second.exists()
+    assert before == (dict(os.environ), Path.cwd())
     with tempfile.TemporaryDirectory() as temporary:
         source, target = Path(temporary) / "source", Path(temporary) / "target"
         (source / "framework").mkdir(parents=True)

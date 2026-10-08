@@ -171,14 +171,22 @@ def select_checks(root, paths, affected=False):
     checks = sorted((root / "framework/scripts").glob("*.checks.py"))
     if not affected:
         return checks, "all requested"
-    # Only leaf test edits and the standalone runner have a proven narrow dependency set.
+    # Exact paths only: unknown siblings and unresolved deletions stay full regression.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
+    mapping.update({f"framework/scripts/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
+                    for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
+    mapping["framework/scripts/test_support/validator.py"] = {"validate-blueprint.checks.py", "blueprint-loop.checks.py"}
+    # check_links/check_projection dynamically load the reference fixture and its layout inputs.
+    mapping["framework/scripts/design_document.checks.py"] = {
+        "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
+    mapping["framework/scripts/design_layout.checks.py"] = {
+        *mapping["framework/scripts/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):
             continue
-        if path not in mapping or not mapping[path] <= {check.name for check in checks}:
+        if path not in mapping or not (root / path).is_file() or not mapping[path] <= {check.name for check in checks}:
             return checks, f"all: shared or unknown dependency: {path}"
         selected.update(mapping[path])
     return [path for path in checks if path.name in selected], "affected: explicit leaf/runner mapping"
