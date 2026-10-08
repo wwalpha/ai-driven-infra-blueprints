@@ -891,6 +891,130 @@ def symbolic_string_cases(_network):
     print('Symbolic string evaluation: PASS (GetAtt/Split/Select/Join/Sub, typed equality and classifications)')
 
 
+def reference_identity_report_cases():
+    from issues_iac import Expression
+    from issues_reports import iac_key, iac_actions
+    with tempfile.TemporaryDirectory(prefix='reference-identity-') as directory:
+        root = Path(directory)
+        _, template = fixture(root, stacks=2, services=['cloudwatch-logs', 's3'])
+        consumer, producer = 'cfn-stack-app-dev-data1', 'cfn-stack-app-dev-data2'
+        kms = {'desired.service.kms.serviceId': 'kms'}
+        for identity, logical, kind in [('001', 'Key', 'KMS.Key'), ('002', 'OtherKey', 'KMS.Key'), ('003', 'Alias', 'KMS.Alias')]:
+            kms.update({f'desired.resource.{identity}.resourceType': kind,
+                        f'desired.resource.{identity}.cfn-logicalId': producer + '-' + logical,
+                        f'desired.resource.{identity}.anchor': logical.lower()})
+            template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
+        template['Resources']['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
+        write(root / 'model/dev/123456789012/kms.properties', '\n'.join(f'{k}={v}' for k, v in kms.items()) + '\n')
+        logmodel = root / 'model/dev/123456789012/cloudwatch-logs.properties'
+        original = logmodel.read_text()
+        link = '[key](kms.md#key)'
+        write(logmodel, original + 'desired.row.001-010.property=Logs.LogGroup.KmsKeyId\ndesired.row.001-010.value=' + link + '\n')
+        template['Outputs'] = {'KeyArn': {'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-KeyArn'}}}}
+        template['Outputs']['OtherKeyArn'] = {'Value': {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-OtherKeyArn'}}}
+        template['Outputs']['KeyId'] = {'Value': {'Ref': 'Key'}, 'Export': {'Name': {'Fn::Sub': '${Name}-KeyId'}}}
+        template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': {'Fn::Join': ['', ['app-dev-data2', '-KeyArn']]}}
+        mutate_template(root, template)
+        def kms_result():
+            comparison, records = compare(root, ['cloudwatch-logs'])
+            return comparison, next(i for i in records if i['resource'] == '001' and i['property'] == 'Logs.LogGroup.KmsKeyId')
+        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            comparison, record = kms_result()
+            assert record['category'] == 'matched', record
+            keyid = comparison.reference('cloudwatch-logs', link)
+            arn = comparison.evaluate(producer, {'Fn::GetAtt': ['Key', 'Arn']})
+            assert keyid['$attribute'] == 'KeyId' and arn['$attribute'] == 'Arn'
+            callback = lambda l, r, path: comparison.reference_same(l, r, 'KMS.Alias', path)
+            assert same(keyid, arn, reference=callback, path='TargetKeyId') is True
+            assert same(keyid, arn) is False  # Attributes are never globally collapsed.
+            assert comparison.reference_same(keyid, arn, 'Logs.LogGroup', 'KmsKeyId') is False
+            assert comparison.reference_same(keyid, arn, 'SQS.Queue', 'KmsMasterKeyId') is None
+            assert same(keyid, dict(keyid)) is False  # JSON-shaped values cannot forge evidence.
+            alias = comparison.reference('cloudwatch-logs', '[alias](kms.md#alias)')
+            assert comparison.reference_same(alias, arn, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is False
+            template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-OtherKeyArn'}
+            mutate_template(root, template)
+            assert kms_result()[1]['category'] == 'difference'
+            template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-KeyId'}
+            mutate_template(root, template)
+            assert kms_result()[1]['category'] == 'difference'  # Same key, invalid ARN form.
+            template['Resources']['Log']['Properties']['KmsKeyId'] = 'unknown-key-arn'
+            mutate_template(root, template)
+            assert kms_result()[1]['category'] == 'uncompared'
+            template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'missing-export'}
+            mutate_template(root, template)
+            comparison, record = kms_result()
+            assert record['category'] == 'uncompared' and record['cause']['export'] == 'missing-export'
+            # A true nested difference wins even when another leaf cannot be proven.
+            assert same({'key': keyid, 'flag': True}, {'key': 'unknown', 'flag': False}, reference=callback) is False
+            assert same({'key': keyid, 'flag': True}, {'key': 'unknown', 'flag': True}, reference=callback) is None
+            expression = Expression('Sub', ['${X}', {'X': arn}])
+            assert same({'key': expression, 'flag': True}, {'key': 'unknown', 'flag': False}, reference=callback) is False
+            assert same({'key': expression, 'flag': True}, {'key': 'unknown', 'flag': True}, reference=callback) is None
+            fields = value_differences({'key': expression, 'flag': True}, {'key': 'unknown', 'flag': False},
+                                      'KMS.Alias.Config', exact=True, reference=callback)
+            assert fields == [{'path': 'flag', 'model': 'true', 'iac': 'false'}]
+            # An unrelated missing DataZone template never discards a healthy export.
+            stacks = root / 'model/dev/123456789012/cloudformation-stacks.properties'
+            write(stacks, stacks.read_text() + 'desired.stack.003.name=datazone-stack\ndesired.stack.003.template=datazone.yaml\ndesired.stack.003.parameters=datazone.json\ndesired.stack.003.deployOrder=1\n')
+            datazone = {'desired.service.datazone.serviceId': 'datazone', 'desired.resource.001.resourceType': 'DataZone.Domain',
+                        'desired.resource.001.cfn-logicalId': 'datazone-stack-Domain'}
+            write(root / 'model/dev/123456789012/datazone.properties', '\n'.join(f'{k}={v}' for k, v in datazone.items()) + '\n')
+            template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-KeyArn'}
+            mutate_template(root, template)
+            comparison, records = compare(root, ['cloudwatch-logs', 'datazone'])
+            assert any(i['property'] == 'Logs.LogGroup.KmsKeyId' and i['resource'] == '001' and i['category'] == 'matched' for i in records)
+            assert any(i['service'] == 'datazone' and i['category'] == 'difference' and i['cause']['relationship'] == 'direct' for i in records)
+            cached = comparison.metrics.copy()
+            with patch.object(comparison, 'templates', side_effect=AssertionError('repeat stack scan')):
+                for _ in range(3):
+                    assert comparison.evaluate(consumer, {'Fn::ImportValue': 'app-dev-data2-KeyArn'}) == comparison.reference('cloudwatch-logs', link, 'Arn')
+                    expect_error(lambda: comparison.evaluate(consumer, {'Fn::ImportValue': 'missing-export'}), 'search incomplete')
+            assert comparison.metrics == cached and len(comparison.export_failures) == 1
+            # A bad output is isolated from healthy outputs in that same stack.
+            template['Outputs']['Broken'] = {'Value': 'x', 'Export': {'Name': {'Ref': 'Key'}}}
+            mutate_template(root, template)
+            assert kms_result()[1]['category'] == 'matched'
+        # Partial revalidation preserves true differences; proven matches retire only their own Issue.
+        path = root / 'issues/dev/123456789012/iac-issues.md'
+        difference = dict(category='difference', service='cloudwatch-logs', resource='001', property='Logs.LogGroup.KmsKeyId',
+                          stack=consumer, reason='value mismatch', iac={'path': 'infra/cloudformation/templates/shared.yaml'}, desired='a', actual='b')
+        other = dict(difference, property='Logs.LogGroup.RetentionInDays', desired=7, actual=14)
+        write_report(path, *iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [difference, other]))
+        uncertain = dict(difference, category='uncompared', reason='reference unproven')
+        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [uncertain, other])
+        retained = iac_state(report, 'dev', '123456789012', data=state)[0]
+        assert any(e['retained'] and e['id'] == iac_key(difference) and e['record']['category'] == 'difference' for e in retained)
+        assert any(not e['retained'] and e['id'] == iac_key(other) and e['record']['category'] == 'difference' for e in retained)
+        matched = dict(difference, category='matched', reason='reference expression equivalent')
+        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, other])
+        resolved = iac_state(report, 'dev', '123456789012', data=state)[0]
+        assert not any(e['record']['category'] == 'difference' and e['id'] == iac_key(difference) for e in resolved)
+        assert '参照表現差分（意味的同一性を確認済み）: 1件' in report
+        write_report(path, report, state)
+        assert iac_state(path.read_text(), 'dev', '123456789012', data=json.loads(path.with_name('iac-issues.state.json').read_text()))[0] == resolved
+        # Older comparison errors omitted stack identity; a unique proof for the
+        # same Model resource/property also clears those legacy unresolved records.
+        legacy_pending = dict(difference, category='uncompared', stack=None, reason='ImportValue handoff search incomplete')
+        write_report(path, *iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [legacy_pending, other]))
+        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, other])
+        entries = iac_state(report, 'dev', '123456789012', data=state)[0]
+        assert not any(e['retained'] and e['id'] == iac_key(legacy_pending) for e in entries)
+        # Conflicting incomplete evidence cannot retire an earlier true difference.
+        report, state = iac_merge(root, path, 'dev', '123456789012', ['cloudwatch-logs'], [matched, uncertain, other])
+        assert any(e['retained'] and e['id'] == iac_key(legacy_pending) for e in iac_state(report, 'dev', '123456789012', data=state)[0])
+        # One unresolved import shared by many consumers is one investigation, not many repairs.
+        pending = [dict(uncertain, resource=str(i), cause={'kind': 'import-unresolved', 'export': 'missing-export', 'relationship': 'import'}) for i in range(40)]
+        entries = [{'id': iac_key(i), 'record': i, 'retained': False} for i in pending]
+        groups = iac_actions(entries, 'dev', '123456789012')
+        assert len(groups) == 1 and groups[0]['classification'] == '比較未完了' and groups[0]['status'] == '要調査'
+        assert '修正要否は未確定' in groups[0]['remedy']
+        missing = dict(pending[0], cause={'kind': 'template-missing', 'path': 'datazone.yaml', 'relationship': 'export-search-incomplete'})
+        group = iac_actions([{'id': iac_key(missing), 'record': missing, 'retained': False}], 'dev', '123456789012')[0]
+        assert group['classification'] == '比較未完了' and group['status'] == '要調査'
+    print('Reference identity/report regressions: PASS (KMS forms/identity, isolated cached exports, partial retention/resolution)')
+
+
 def concurrency(root):
     # Same-worktree report writes wait for file acquisition, then merge latest contents.
     from task_contract import refresh, complete, reservations, contracts, status
@@ -1274,7 +1398,9 @@ def action_report_cases():
         write_report(path, third, third_state)
         matched = dict(direct[0], category='matched')
         preserved = read_iac(iac_merge(root, path, 'dev', 'cde', services, [matched]), 'dev', 'cde')[0]
-        assert any(entry['retained'] and entry['id'] == iac_key(direct[0]) and entry['record']['category'] == 'difference' for entry in preserved)
+        # Explicit matched evidence retires this old Issue; absence still retains all others.
+        assert not any(entry['id'] == iac_key(direct[0]) and entry['record']['category'] == 'difference' for entry in preserved)
+        assert any(entry['retained'] and entry['id'] == iac_key(direct[1]) for entry in preserved)
         # Migrate legacy IDs/content/prose verbatim, conservatively without causal guessing.
         legacy_item = f'差分: 001 / S3.Bucket.BucketName / stack1: value mismatch; model="a"; IaC="b" <!-- iac-id: {iac_key(difference)} -->'
         legacy = '# model → IaC比較の非阻害結果\n\nhuman確認: 旧例外\n\n### s3\n\n<!-- issue-service: s3 -->\n\n1. ' + legacy_item + '\n'
@@ -1612,6 +1738,7 @@ def main():
     state_report_cases()
     comparison_repair_cases()
     local_reference_cases()
+    reference_identity_report_cases()
     symbolic_string_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout

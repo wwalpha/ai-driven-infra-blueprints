@@ -31,6 +31,22 @@ def module(filename, name):
 put_row = module('check-model-aws.py', 'issues_row_projection').put_row
 
 
+# Documented identifier formats absent from the provider schema's string pattern.
+# Each entry is a property contract, not permission to erase reference attributes.
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-kms-alias.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-cloudtrail-trail.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-athena-workgroup-encryptionconfiguration.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-ecr-repository-encryptionconfiguration.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-s3-bucket-serversideencryptionbydefault.html
+REFERENCE_FORMS = {
+    'KMS.Alias.TargetKeyId': {'KeyId', 'Arn'},
+    'CloudTrail.Trail.KMSKeyId': {'KeyId', 'Arn', 'AliasName'},
+    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'KeyId', 'Arn'},
+    'ECR.Repository.EncryptionConfiguration.KmsKey': {'KeyId', 'Arn', 'AliasName'},
+    'S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': {'KeyId', 'Arn', 'AliasName'},
+}
+
+
 def strict_json(text):
     return json.loads(text, object_pairs_hook=unique_object, parse_constant=invalid_constant)
 
@@ -79,31 +95,57 @@ def safe_value(value, property_name=''):
     return value
 
 
-def same(left, right):
+def comparison_result(values, *, any_match=False):
+    """A confirmed difference wins over uncertainty; a match must prove every leaf."""
+    decisive = True if any_match else False
+    uncertain = False
+    for value in values:
+        if value is decisive:
+            return decisive
+        uncertain |= value is None
+    return None if uncertain else not decisive
+
+
+def same(left, right, *, reference=None, path=''):
     """Preserve types, array order, duplicates and object membership."""
+    if reference:
+        result = reference(left, right, path)
+        if result is not NotImplemented:
+            return result
     if type(left) is not type(right):
         return False
     if isinstance(left, dict):
-        return left.keys() == right.keys() and all(same(left[key], right[key]) for key in left)
+        return left.keys() == right.keys() and comparison_result(
+            same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key) for key in left)
     if isinstance(left, list):
-        return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and comparison_result(
+            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right))
     return left == right
 
 
-def selected_same(desired, actual, property_name=''):
+def selected_same(desired, actual, property_name='', *, reference=None, path=''):
     """Only selected nested settings constrain IaC. Tags have confirmed keyed semantics."""
+    if reference:
+        result = reference(desired, actual, path)
+        if result is not NotImplemented:
+            return result
     if type(desired) is not type(actual):
         return False
     if isinstance(desired, dict):
-        return desired.keys() <= actual.keys() and all(selected_same(item, actual[key], key) for key, item in desired.items())
+        return desired.keys() <= actual.keys() and comparison_result(
+            selected_same(item, actual[key], key, reference=reference, path=f'{path}.{key}' if path else key)
+            for key, item in desired.items())
     if isinstance(desired, list):
         if property_name in {'Tags', 'HostedZoneTags'} and all(isinstance(item, dict) and 'Key' in item for item in desired):
             keys = [item['Key'] for item in desired]
             selected = [item for item in actual if isinstance(item, dict) and item.get('Key') in keys]
             if len(set(keys)) != len(keys) or len(selected) != len(keys):
                 return False
-            return all(any(selected_same(item, candidate) for candidate in selected) for item in desired)
-        return len(desired) == len(actual) and all(selected_same(a, b) for a, b in zip(desired, actual))
+            return comparison_result(comparison_result(
+                (selected_same(item, candidate, reference=reference, path=path + '[]') for candidate in selected), any_match=True)
+                for item in desired)
+        return len(desired) == len(actual) and comparison_result(
+            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual))
     return desired == actual
 
 
@@ -118,6 +160,8 @@ class Comparison:
         self._index, self.symbols = None, {}
         self.local_comparison, self.reference_models_loaded = False, False
         self.exports = None
+        self.export_failures, self.stack_errors = [], {}
+        self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
         self.load_errors = []
         self.inputs = {root / 'project.json'}
@@ -275,6 +319,7 @@ class Comparison:
             return node['type'] == 'string'
         return False
 
+
     def substitution(self, stack, value, seen):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
@@ -311,30 +356,48 @@ class Comparison:
         if token in seen:
             raise Blocked(f'cyclic ImportValue: {name}')
         if self.exports is None:
-            exports = {}
-            try:
-                for _, unit in self.templates():
+            # Cache the partial index and failures too: one broken stack is not a
+            # reason to discard proven exports or retry the entire search per row.
+            self.exports = {}
+            for _, unit in self.templates():
+                try:
                     _, (document, parameters, pseudo) = self.stack(unit)
                     if document.get('Transform'):
                         raise Blocked('Transform requires external evaluation')
-                    for output in document.get('Outputs', {}).values():
+                except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                    self.export_failures.append(error)
+                    continue
+                for output in document.get('Outputs', {}).values():
+                    try:
                         if 'Export' not in output or not condition_active(document, parameters, pseudo, output):
                             continue
                         export = self.evaluate(unit['name'], output['Export']['Name'], frozenset({('export-name',)}))
                         if not isinstance(export, str):
                             raise Blocked('Export name is not a local string')
-                        exports.setdefault(export, []).append((unit['name'], output.get('Value')))
-            except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
-                blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
-                if getattr(error, 'iac_cause', None):
-                    blocked.iac_cause = dict(error.iac_cause, relationship='export-search-incomplete', consumer_stack=stack)
-                raise blocked from error
-            self.exports = exports
+                        self.exports.setdefault(export, []).append((unit['name'], output.get('Value')))
+                    except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                        self.export_failures.append(error)
         candidates = self.exports.get(name, [])
+        if not candidates and self.export_failures:
+            error = self.export_failures[0]
+            blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
+            causes = [getattr(failure, 'iac_cause', None) for failure in self.export_failures]
+            if all(causes) and len({(cause['kind'], cause['path']) for cause in causes}) == 1:
+                blocked.iac_cause = dict(causes[0], relationship='export-search-incomplete', consumer_stack=stack)
+            else:
+                blocked.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise blocked from error
         if len(candidates) != 1 or candidates[0][0] == stack:
-            raise Blocked(f'ImportValue handoff matches={len(candidates)} or same-stack export: {name}')
+            blocked = Blocked(f'ImportValue handoff matches={len(candidates)} or same-stack export: {name}')
+            blocked.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise blocked
         producer, value = candidates[0]
-        return self.evaluate(producer, value, seen | {token})
+        try:
+            return self.evaluate(producer, value, seen | {token})
+        except Blocked as error:
+            if not getattr(error, 'iac_cause', None):
+                error.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise
 
     def evaluate(self, stack, value, seen=frozenset()):
         document, parameters, pseudo = self.stack_inputs[stack]
@@ -450,6 +513,51 @@ class Comparison:
                 return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
         return {key: item for key, item in ((key, self.evaluate(stack, child, seen)) for key, child in value.items()) if item != {'$noValue': True}}
 
+    def reference_forms(self, kind, path):
+        key = kind + '.' + path
+        if key not in self.reference_formats:
+            try:
+                node = self.catalog.property_schema(kind, path)
+            except KeyError:
+                # Policy document members and open JSON fields have no typed schema.
+                node = {}
+            self.reference_formats[key] = ({'Arn'} if node.get('pattern', '').startswith('^arn:') or
+                                           path.lower().endswith(('arn', 'arns')) else REFERENCE_FORMS.get(key))
+        return self.reference_formats[key]
+
+    def reference_same(self, left, right, kind, path):
+        """Compare proven identities under a property contract, retaining form/alias intent."""
+        if isinstance(left, Expression) or isinstance(right, Expression):
+            return True if same(left, right) else None
+        symbols = [value for value in (left, right) if isinstance(value, ResourceReference)]
+        if not symbols or not any(self.resources[value['$resource'][0]][value['$resource'][1]]['resourceType']
+                                  in {'KMS.Key', 'KMS.Alias'} for value in symbols):
+            return NotImplemented
+        if len(symbols) != 2:
+            # No observed/AWS values: a literal cannot prove this symbolic identity.
+            return None
+        if left['$resource'] != right['$resource']:
+            # Aliases retain their own identity; a mutable alias is not a direct key.
+            return False
+        forms = self.reference_forms(kind, path)
+        if forms is not None:
+            if left['$attribute'] == right['$attribute'] and left['$attribute'] not in forms:
+                return None
+            equal = left['$attribute'] in forms and right['$attribute'] in forms
+            if equal and left['$attribute'] != right['$attribute']:
+                self.reference_equivalent = True
+            return equal
+        return True if left['$attribute'] == right['$attribute'] else None
+
+    def desired_reference(self, service, value, kind, path, attribute=None):
+        symbol = self.reference(service, value, attribute)
+        if self.local_comparison and attribute is None:
+            refservice, identity = symbol['$resource']
+            refkind = self.resources[refservice][identity]['resourceType']
+            if refkind == 'KMS.Key' and self.reference_forms(kind, path) == {'Arn'}:
+                symbol = self.reference(service, value, 'Arn')
+        return symbol
+
     def desired_value(self, service, row, kind, *, stack=None):
         raw = row.get('document', row['value'])
         if 'document' in row:
@@ -458,7 +566,7 @@ class Comparison:
             prop = row['property'].removeprefix(kind + '.')
             # A schema-typed ARN property selects the referenced Arn, never a current ARN.
             attribute = 'Arn' if row['property'] == 'CodeBuild.Project.ServiceRole' or prop.lower().endswith(('arn', 'arns')) else None
-            symbol = self.reference(service, raw, attribute)
+            symbol = self.desired_reference(service, raw, kind, prop, attribute)
             node = self.catalog.property_schema(kind, prop)
             return [symbol] if node.get('type') == 'array' else symbol
         else:
@@ -472,19 +580,19 @@ class Comparison:
                     raise Blocked('property type is not uniquely determined')
                 value = strict_json(value)
         policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
-        def references(item, field='', operands=False):
+        def references(item, field='', operands=False, path=''):
             if isinstance(item, str) and LINK.fullmatch(item):
                 attribute = 'Arn' if field.lower().endswith(('arn', 'arns')) or policy and field in {'Resource', 'NotResource', 'AWS'} else None
-                return self.reference(service, item, attribute)
+                return self.desired_reference(service, item, kind, path, attribute)
             if isinstance(item, list):
-                return [references(child, field, operands) for child in item]
+                return [references(child, field, operands, path + '[]') for child in item]
             if isinstance(item, dict):
                 if self.local_comparison:
                     intrinsic = next((key for key in item if key == 'Ref' or key.startswith('Fn::')), None)
                     if intrinsic:
                         if intrinsic not in {'Fn::Split', 'Fn::Select', 'Fn::Join', 'Fn::Sub'} or len(item) != 1 or stack is None:
                             raise Blocked(f'unproven model intrinsic reference: {intrinsic} {item[intrinsic]}; no confirmed template/target binding')
-                        argument = references(item[intrinsic], field, True)
+                        argument = references(item[intrinsic], field, True, path)
                         if intrinsic == 'Fn::Sub':
                             text, variables = (argument, {}) if isinstance(argument, str) else argument if isinstance(argument, list) and len(argument) == 2 else (None, None)
                             if not isinstance(text, str) or not isinstance(variables, dict):
@@ -493,19 +601,33 @@ class Comparison:
                                 raise Blocked('unproven model Sub variable; explicit bindings required')
                         # Only literals and confirmed model links reach the existing evaluator.
                         return self.evaluate(stack, {intrinsic: argument})
-                return {key: references(child, field if operands else key, operands) for key, child in item.items()}
+                return {key: references(child, field if operands else key, operands, path + '.' + key) for key, child in item.items()}
             return item
-        return references(value)
+        return references(value, path=row['property'].removeprefix(kind + '.'))
 
     def templates(self):
+        if self._templates is not None:
+            return self._templates
         stackpath = self.root / 'model' / self.environment / self.directory / 'cloudformation-stacks.properties'
         self.inputs.add(stackpath)
         if not stackpath.is_file():
-            return []
+            self._templates = []
+            return self._templates
         _, stacks = stack_model(self.model('cloudformation-stacks').values)
-        return stacks
+        self._templates = stacks
+        return self._templates
 
     def stack(self, unit):
+        name = unit['name']
+        if name in self.stack_errors:
+            raise self.stack_errors[name].with_traceback(None)
+        try:
+            return self.stack_input(unit)
+        except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+            self.stack_errors[name] = error
+            raise
+
+    def stack_input(self, unit):
         name = unit['name']
         template = self.root / 'infra/cloudformation/templates' / self.target.get('alias', '') / unit['template']
         parameters_path = self.root / 'infra/cloudformation/parameters' / self.environment / self.directory / unit['parameters']
@@ -729,15 +851,20 @@ class Comparison:
                 if actual == {'$noValue': True}:
                     self.record('difference', service, identity, prop, 'property omitted by AWS::NoValue', value, None, name, sources[key][0], iac_source)
                     continue
-                if not (same(value, actual) if key in exact else selected_same(value, actual, key)):
-                    if self.local_comparison and (symbolic(value) or symbolic(actual)):
-                        self.record('uncompared', service, identity, prop, 'symbolic equivalence is unproven', value, actual, name, sources[key][0], iac_source)
-                        continue
+                self.reference_equivalent = False
+                reference = (lambda left, right, path: self.reference_same(left, right, rowkind, path)) if self.local_comparison else None
+                equal = (same(value, actual, reference=reference, path=key) if key in exact else
+                         selected_same(value, actual, key, reference=reference, path=key))
+                if equal is None:
+                    self.record('uncompared', service, identity, prop, 'reference identity or property format is unproven',
+                                stack=name, source=sources[key][0], template=iac_source)
+                elif not equal:
                     self.record('difference', service, identity, prop, 'value mismatch', value, actual, name, sources[key][0], iac_source)
                     self.results[-1]['model_sources'] = sources[key]
                     # Preserve original records; capture display evidence before redaction loses it.
                     from issues_reports import identifier, value_differences
                     self.display_differences[identifier(self.results[-1])] = value_differences(
-                        value, actual, prop, exact=key in exact, redact=self.redacted)
+                        value, actual, prop, exact=key in exact, redact=self.redacted, reference=reference)
                 else:
-                    self.record('matched', service, identity, prop, 'equal', stack=name, source=sources[key][0], template=iac_source)
+                    reason = 'reference expression equivalent' if self.reference_equivalent else 'equal'
+                    self.record('matched', service, identity, prop, reason, stack=name, source=sources[key][0], template=iac_source)

@@ -179,7 +179,7 @@ IAC_DATA = r'<!-- iac-report-data: (.+) -->'
 IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
 
 
-def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value):
+def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value, reference=None):
     """Display only: use the detector's predicate, then redact the differing leaves."""
     missing = object()
     differences = []
@@ -204,7 +204,15 @@ def value_differences(desired, actual, property_name='', *, exact=False, redact=
         if left is missing or right is missing:
             add(path, shown_left, shown_right)
             return
-        if predicate(left, right, name):
+        if reference is None:
+            equal = predicate(left, right, name)
+        else:
+            field = property_name.rsplit('.', 1)[-1]
+            typed_path = path if path.startswith(field + '[') else field + ('.' + path if path else '')
+            typed_path = re.sub(r'\[\d+\]', '[]', typed_path)
+            equal = (same(left, right, reference=reference, path=typed_path) if exact else
+                     selected_same(left, right, name, reference=reference, path=typed_path))
+        if equal is None or equal:
             return
         if type(left) is not type(right):
             add(path, shown_left, shown_right)
@@ -350,6 +358,17 @@ def iac_actions(entries, environment, directory):
             remedy = ('CREATE対象と実装要否を確認し、未実装ならModelに従ってテンプレートを作成する。意図的な未実装なら状態を明示して管理する。'
                       if cause['kind'] == 'template-missing' else 'Stack設計のparameters指定と配置先を確認し、必要な入力ファイルを作成・配置する。')
             target, status = path, '要対応'
+            if item['category'] in {'uncompared', 'error'}:
+                classification, status = '比較未完了', '要調査'
+                description = f'{path} の欠落により参照探索を完了できない。設定差分は未確定。'
+                remedy = '参照先とExport宣言・探索範囲を確認して再比較する。Model/IaCの修正要否は未確定。'
+        elif item['category'] == 'uncompared' and cause.get('kind') == 'import-unresolved':
+            target = None
+            key = [environment, directory, 'import-unresolved', cause['export']]
+            title = f'Export {cause["export"]} の参照解決が未完了'
+            classification, status = '比較未完了', '要調査'
+            description = '参照先Exportの一意性または値を確認できない。設定差分は未確定。'
+            remedy = 'Export/Importの宣言・有効条件・参照先を確認して再比較する。Model/IaCの修正要否は未確定。'
         elif item['category'] == 'difference' and item.get('iac') and item.get('stack') and item['reason'] in {
                 'value mismatch', 'property missing', 'resource missing', 'inline CREATE child missing', 'property omitted by AWS::NoValue'}:
             target = item['iac']['path']
@@ -365,7 +384,7 @@ def iac_actions(entries, environment, directory):
             target = None
             key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), entry.get('legacy')]
             title = f'{item["service"]} / {item["resource"]} / {item["property"]} の確認が必要'
-            classification, status = ('処理エラー' if item['category'] == 'error' else '原因未確定'), '要調査'
+            classification, status = ('処理エラー' if item['category'] == 'error' else '比較未完了' if item['category'] == 'uncompared' else '原因未確定'), '要調査'
             description = '原因または対応先を確定できない。'
             remedy = ('Export/Importの参照関係・宣言・有効条件と探索の完了を確認する。直接依存は未確定。'
                       if 'ImportValue' in item['reason'] else '記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。')
@@ -374,6 +393,10 @@ def iac_actions(entries, environment, directory):
                                              'description': description, 'remedy': remedy, 'target': target,
                                              'status': status, 'members': []})
         group['members'].append(index)
+        # A direct confirmed omission remains actionable when its dependent
+        # unresolved references share the cause, regardless of input ordering.
+        if known_missing and item['category'] == 'difference':
+            group.update(classification=classification, description=description, remedy=remedy, status=status)
     return sorted(groups.values(), key=lambda group: (group['status'] != '要対応', group['classification'], group['id']))
 
 
@@ -399,18 +422,27 @@ def iac_merge(root, path, environment, directory, services, records, display=Non
     scoped = set(services)
     if any(item['service'] not in scoped for item in records):
         raise ValueError('IaC record outside selected services')
-    active, uncertain = set(), set()
+    active, uncertain, matched = set(), set(), set()
+    matched_slots, uncertain_slots = {}, set()
     for item in records:
+        slot = item['service'], item['resource'], item['property']
         if item['category'] in IAC_CATEGORIES:
             active.add(iac_key(item))
         if item['category'] in {'uncompared', 'error'}:
             uncertain.add(iac_key(item))
+            uncertain_slots.add(slot)
+        if item['category'] == 'matched':
+            matched.add(iac_key(item))
+            matched_slots.setdefault(slot, set()).add(item.get('stack'))
     entries = []
     for entry in previous:
         item = entry['record']
+        slot = item['service'], item['resource'], item['property']
+        proven = entry['id'] in matched or (item.get('stack') is None and len(matched_slots.get(slot, set())) == 1)
+        proven = proven and slot not in uncertain_slots and (item['service'], item['resource'], '*') not in uncertain_slots
         if item['service'] not in scoped:
             entries.append(entry)
-        elif item['category'] in IAC_CATEGORIES and (entry['id'] not in active or
+        elif item['category'] in IAC_CATEGORIES and not proven and (entry['id'] not in active or
                 entry['id'] in uncertain and item['category'] == 'difference'):
             entries.append(dict(entry, retained=True))
     entries.extend({'id': iac_key(item), 'record': item, 'retained': False} for item in records)
@@ -436,6 +468,7 @@ def iac_merge(root, path, environment, directory, services, records, display=Non
     actions = iac_actions(entries, environment, directory)
     current = [entry['record'] for entry in entries if not entry['retained']]
     counts = {category: sum(item['category'] == category for item in current) for category in ('difference', 'uncompared', 'error')}
+    equivalent = sum(item['category'] == 'matched' and item['reason'] == 'reference expression equivalent' for item in current)
     retained = sum(entry['retained'] for entry in entries)
     status = 'error' if counts['error'] else 'partial' if counts['uncompared'] or retained else 'differences' if counts['difference'] else 'complete match'
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S Asia/Tokyo')
@@ -447,6 +480,7 @@ def iac_merge(root, path, environment, directory, services, records, display=Non
              f'- 人間の判断が必要なIssue数: {sum(group["status"] in {"要判断", "要調査"} for group in actions)}',
              f'- 比較未完了のIssue数: {sum(any(entries[i]["record"]["category"] in {"uncompared", "error"} or entries[i]["retained"] for i in group["members"]) for group in actions)}',
              f'- 元レコード数: 差分 {counts["difference"]} / 未比較 {counts["uncompared"]} / 処理エラー {counts["error"]}',
+             f'- 参照表現差分（意味的同一性を確認済み）: {equivalent}件',
              f'- 保持未確認: {retained}件（今回差分件数とは別）', '',
              '件数は保存済み全Serviceの現行結果。今回確認した範囲外の結果は再確認していない。',
              '']
