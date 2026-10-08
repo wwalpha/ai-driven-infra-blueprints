@@ -8,7 +8,7 @@ For `Logs.LogGroup.LogGroupName`, apply the source service's default/recommended
 
 | AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
 | --- | --- | --- | --- | --- |
-| AWS CodeBuild | Project log group | `Logs.LogGroup` | `LogGroupName` | `/aws/codebuild/{{project_name}}[/{{suffix}}]` |
+| AWS CodeBuild | Project log group | `Logs.LogGroup` | `LogGroupName` | `/aws/codebuild/{{project_name}}` |
 | AWS Lambda | Standard function log group | `Logs.LogGroup` | `LogGroupName` | `/aws/lambda/{{function_name}}` |
 | AWS Step Functions | Execution log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vendedlogs/states/{{state_machine_name}}` |
 | Amazon VPC | Flow Logs log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vpc/flow-logs[/{{suffix}}]` |
@@ -33,7 +33,7 @@ For built-in Glue 5.0 logs, the complete `LogGroupName` must use the following f
 
 ## Application rules
 
-- CodeBuild uses the confirmed source `CodeBuild.Project.Name` for `project_name`. Its `[/{{suffix}}]` is optional: use the selected target's `project.json` suffix under the common rules; when configured, use `/aws/codebuild/<projectName>/<suffix>`, otherwise omit the preceding `/` as well and use `/aws/codebuild/<projectName>`.
+- CodeBuild uses the confirmed source `CodeBuild.Project.Name` for `project_name`. Use `/aws/codebuild/<projectName>` without appending a target suffix.
 - VPC Flow Logs' `[/{{suffix}}]` is optional. `suffix` uses the selected target's `project.json` setting under the common rules; when configured, use `/aws/vpc/flow-logs/<suffix>`, otherwise omit the preceding `/` as well and use `/aws/vpc/flow-logs`.
 - Do not require AWS service default/recommended formats to conform to `cwlogs-...` or the common lower-kebab-case format. Retain service-specific separators and case.
 - Use confirmed source resource names for `function_name`, `state_machine_name`, etc. Do not infer placeholder values or the source service.
