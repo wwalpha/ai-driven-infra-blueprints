@@ -255,4 +255,3 @@ def check_task_file_gating() -> None:
         isolated.check(False, "global process failure")
         assert "global process failure" in isolated.errors
     print("Task file gating: PASS (6 cases; unrelated CloudFormation errors detected: 82; blocking errors from those files: 0)")
-

@@ -404,4 +404,3 @@ def check_artifact_naming() -> None:
     assert not errors_for([inline_name, inline])
     assert errors_for([inline_name, old_inline])
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
-

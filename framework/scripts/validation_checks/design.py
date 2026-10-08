@@ -322,4 +322,3 @@ def check_event_rule_row_order() -> None:
                 selected[index] = (rows[index][0], value)
                 assert any("must have a confirmed value" in error for error in errors(selected))
         assert not errors([rows[0], ("State", "ENABLED"), *rows[2:]])
-

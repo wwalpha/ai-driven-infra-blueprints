@@ -207,4 +207,3 @@ def check_rule_reading_contract() -> None:
         validator = MODULE.Validator(root)
         validator.check_framework_rule_readings()
         assert not validator.errors, validator.errors
-

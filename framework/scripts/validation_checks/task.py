@@ -360,4 +360,3 @@ def check_model_task_boundaries() -> None:
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_boundary(prompt)
         assert not validator.errors, (task_type, validator.errors)
-

@@ -411,4 +411,3 @@ def check_stack_mapping_targets():
     prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
     assert "python framework/scripts/cloudformation_observed.py --environment" in prompt
     assert "After generation/changes as well" in prompt and "Do not automatically fill missing identifier rows" in prompt
-
