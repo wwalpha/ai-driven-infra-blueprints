@@ -79,7 +79,7 @@ Treat [issue gate](framework/rules/issue-gate.md) as authoritative for stop cond
 
 ## Local issues scan
 
-issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`.
+issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`. IaC reports contain only the latest selected scope; existing state and old IaC notes are not carried forward.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment <environment> --target-directory <alias-or-account-id> --service <service-id> --artifact /tmp/issues-scan.json

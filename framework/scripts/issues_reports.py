@@ -1,4 +1,4 @@
-"""Conservative scoped report merge under a short shared lock, with atomic publication."""
+"""Ordinary issue merge, current-run IaC display and atomic scoped publication."""
 from __future__ import annotations
 
 import hashlib
@@ -365,16 +365,10 @@ def iac_summary(records, environment, directory, services, display=None):
         category = action['category']
         counts[category] += 1
         members = [entries[i]['record'] for i in action['members']]
-        # This is a display key only. Unknown causes keep independent Issue IDs.
-        key = (category, tuple(sorted({item['service'] for item in members})),
-               tuple(sorted({item['property'] for item in members})),
-               action['target'] if action['status'] == '要対応' else None,
-               action['id'] if any(item.get('cause') for item in members) else None,
-               members[0]['reason'], action['remedy'])
-        problem = action['title'] if any(item.get('cause') for item in members) else members[0]['reason']
-        group = groups.setdefault(key, dict(category=category, problem=brief(problem),
-            cause=safe_text(action['description']), remedy=action['remedy'], target=action['target'] if category == '要対応' else None,
-            services=list(key[1]), stacks=set(), issues=0, records=0, direct=set(), uncompared=0, errors=0,
+        # One display unit per proven action; prose similarity never merges unknown causes.
+        group = groups.setdefault(action['id'], dict(category=category, problem=brief(action['title']),
+            cause=brief(action['description']), remedy=action['remedy'], target=action['target'],
+            services=sorted({item['service'] for item in members}), stacks=set(), issues=0, records=0, direct=set(), uncompared=0, errors=0,
             cascading=0, examples=[]))
         group['issues'] += 1
         group['records'] += len(members)
@@ -386,7 +380,7 @@ def iac_summary(records, environment, directory, services, display=None):
         group['uncompared'] += sum(item['category'] == 'uncompared' for item in members)
         group['errors'] += sum(item['category'] == 'error' for item in members)
         group['cascading'] += sum(item.get('cause', {}).get('relationship') in {'export-search-incomplete', 'legacy-search-incomplete'} for item in members)
-        for i in sorted(action['members'], key=lambda i: (entries[i]['record'].get('cause', {}).get('relationship') != 'direct', entries[i]['id'])):
+        for i in sorted(action['members'], key=lambda i: (entries[i]['record'].get('cause', {}).get('relationship') != 'direct', entries[i]['id'], identifier(entries[i]['record']))):
             if len(group['examples']) >= MAX_EXAMPLES:
                 break
             item = entries[i]['record']
@@ -398,7 +392,7 @@ def iac_summary(records, environment, directory, services, display=None):
                 example['omitted_fields'] = max(0, len(fields or []) - MAX_FIELDS)
                 example['field_status'] = '検出は不一致。マスク済み値から相違項目を復元できない。' if not fields else ''
             group['examples'].append(example)
-    ordered = sorted(groups.values(), key=lambda group: (IAC_CLASSES.index(group['category']), group['services'], group['problem'], group['target'] or ''))
+    ordered = sorted(groups.values(), key=lambda group: (IAC_CLASSES.index(group['category']), group['services'], group['problem'], group['target'] or '', group['examples'][0]['issue_id']))
     for group in ordered:
         group['direct_resources'] = len(group.pop('direct'))
         stacks = sorted(group['stacks'])
@@ -409,7 +403,8 @@ def iac_summary(records, environment, directory, services, display=None):
     visible = [next(group for group in ordered if group['category'] == category) for category in IAC_CLASSES
                if any(group['category'] == category for group in ordered)]
     visible += [group for group in ordered if group not in visible][:MAX_GROUPS - len(visible)]
-    visible.sort(key=lambda group: (IAC_CLASSES.index(group['category']), group['services'], group['problem']))
+    visible.sort(key=lambda group: (IAC_CLASSES.index(group['category']), group['services'], group['problem'], group['examples'][0]['issue_id']))
+    visible_ids = {group['examples'][0]['issue_id'] for group in visible}
     raw = {kind: sum(item['category'] == kind for item in records) for kind in ('difference', 'uncompared', 'error', 'matched', 'excluded')}
     return dict(issue_count=len(actions), categories=counts, record_count=len(records), records=raw,
                 proven_causes=sum(any((entries[i]['record'].get('cause', {}).get('kind') in {'template-missing', 'parameters-missing'}
@@ -420,90 +415,63 @@ def iac_summary(records, environment, directory, services, display=None):
                 direct_resources=len({(item['service'], item['resource'], item.get('stack')) for item in records if item['category'] == 'difference'}),
                 group_count=len(ordered), omitted_groups=max(0, len(ordered) - MAX_GROUPS),
                 omitted_issues=len(actions)-sum(group['issues'] for group in visible),
-                omitted_records=sum(group['records'] for group in ordered)-sum(group['records'] for group in visible), groups=visible)
+                omitted_records=sum(group['records'] for group in ordered)-sum(group['records'] for group in visible),
+                omitted_categories={category: sum(group['issues'] for group in ordered if group not in visible and group['category'] == category)
+                                    for category in IAC_CLASSES},
+                omitted_record_categories={kind: sum(entries[i]['record']['category'] == kind for action in actions
+                                                     if action['id'] not in visible_ids
+                                                     for i in action['members']) for kind in ('difference', 'uncompared', 'error')}, groups=visible)
+
+
+def comparison_status(counts):
+    return ('error' if counts['error'] else 'partial' if counts['uncompared'] else
+            'differences' if counts['difference'] else 'complete match' if counts['matched'] else 'no compared records')
 
 
 def iac_report(environment, directory, services, records, display=None, *, stamp=None):
     summary = iac_summary(records, environment, directory, services, display)
     counts = summary['records']
-    status = 'error' if counts['error'] else 'partial' if counts['uncompared'] else 'differences' if counts['difference'] else 'complete match'
+    status = comparison_status(counts)
     if stamp and stamp.endswith('Z'):
         stamp = datetime.fromisoformat(stamp.replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S Asia/Tokyo')
     stamp = stamp or datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S Asia/Tokyo')
-    lines = ['# model → IaC比較の非阻害結果', '', '通常issue gateの停止対象外。', '', '<!-- iac-summary:start -->',
-        '## サマリー', '', f'更新日時: {stamp}',
-        f'今回確認した範囲: {environment}／{directory}／{", ".join(sorted(set(services)))}',
-        f'今回の判定: {status}; 差分 {counts["difference"]}件; 未比較 {counts["uncompared"]}件; 処理error {counts["error"]}件',
-        '今回のScopeのみ。Scope外は未比較。旧結果の解消・再確認を意味しない。',
-        f'- 独立Issue数: {summary["issue_count"]}',
-        f'- 証明済み原因数: {summary["proven_causes"]}（Issue数・レコード数とは別）',
-        *[f'- {category}: {count} Issue' for category, count in summary['categories'].items()],
-        f'- 元レコード数: {summary["record_count"]}（差分 {counts["difference"]} / 未比較 {counts["uncompared"]} / 処理エラー {counts["error"]} / 一致 {counts["matched"]} / 除外 {counts["excluded"]}）',
-        f'- 直接影響リソース数: {summary["direct_resources"]}',
-        f'- 参照表現差分（意味的同一性を確認済み）: {sum(item["category"] == "matched" and item["reason"] == "reference expression equivalent" for item in records)}件',
-        '', '## 分類別一覧', '', '| 分類 | 問題 / Service | 影響件数 | 対応方法 |', '| --- | --- | --- | --- |']
+    lines = ['# model → IaC比較の非阻害結果', '', f'実行日時: {stamp}',
+        f'今回指定した範囲: {environment}／{directory}／{", ".join(sorted(set(services)))}',
+        f'今回の判定: {status}',
+        '今回指定した範囲の結果。対象外Serviceは今回未検証。通常issue gateの停止対象外。',
+        f'問題: {summary["issue_count"]}件（原因・必要対応単位）',
+        f'影響: 差分 {counts["difference"]}件 / 未比較 {counts["uncompared"]}項目 / 処理エラー {counts["error"]}項目',
+        f'元レコード数: {summary["record_count"]}（一致 {counts["matched"]} / 除外 {counts["excluded"]}）',
+        f'分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['categories'].items()),
+        f'表示{len(summary["groups"])}／全{summary["issue_count"]}対応単位、未表示{summary["omitted_issues"]}',
+        '未表示の分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['omitted_categories'].items()),
+        '未表示の影響: ' + ' / '.join(f'{kind} {count}件' for kind, count in summary['omitted_record_categories'].items()), '']
     for group in summary['groups']:
-        lines.append(f'| {group["category"]} | {group["problem"]} / {", ".join(group["services"])} | {group["issues"]} Issue / {group["records"]}レコード | {group["remedy"]} |')
-    lines.extend(['', f'表示グループ: {min(MAX_GROUPS, summary["group_count"])} / {summary["group_count"]}。省略: {summary["omitted_groups"]}グループ / {summary["omitted_issues"]} Issue / {summary["omitted_records"]}レコード（分類ごとの件数には全件を含む）。',
-        '表示上のグループは同一原因の証明ではない。独立Issueと元レコードの対応は実行時artifactから取得する。', '', '## 代表例', ''])
-    for group in summary['groups']:
-        lines.extend([f'### {group["category"]}: {group["problem"]} / {", ".join(group["services"])}',
-            f'- 原因: {group["cause"]}', f'- 必要な対応: {group["remedy"]}',
-            *([f'- 修正対象: `{group["target"]}`（ファイルが存在しない）'] if group['target'] else []),
-            f'- 影響: {group["records"]}レコード / 直接差分 {group["direct_resources"]}リソース / 未比較 {group["uncompared"]}項目 / 処理エラー {group["errors"]}項目',
-            f'- 影響Stack: {", ".join(group["stacks"][:5])}。省略 {group["omitted_stacks"]} Stack（全範囲はartifact）。',
-            f'- 連鎖未比較: {group["cascading"]}項目。独立実障害には加算しない。欠落Stackへの直接Import依存は未確定。'])
+        target = ('不足入力: ' + brief(Path(group['target']).name) if group['target'] and group['category'] != '要判断' else
+                  'Model／IaC（修正先は要判断）' if group['category'] == '要判断' else
+                  '未特定（Model／IaC／比較器／不足入力を確認）')
+        lines.extend([f'## {group["category"]}: {group["problem"]}',
+            f'- 原因: {group["cause"]}', f'- 必要な対応: {group["remedy"]}', f'- 修正対象: {target}',
+            f'- 影響範囲: {", ".join(group["services"])}。{group["records"]}レコード / 直接差分 {group["direct_resources"]}リソース / 未比較 {group["uncompared"]}項目 / 処理エラー {group["errors"]}項目'])
+        if group['cascading']:
+            lines.append(f'- 探索中断: {group["cascading"]}項目。直接Import依存は未確定。')
         for example in group['examples']:
-            lines.append(f'- {example["issue_id"]}: {example["service"]} / {example["resource"]} / {example["property"]}: {example["reason"]}')
+            lines.append(f'対象: {example["service"]} / {example["resource"]} / {example["property"]}: {example["reason"]}')
             if 'fields' in example:
                 if example['field_status']:
-                    lines.append('  - 相違項目: ' + example['field_status'])
+                    lines.append('相違項目: ' + example['field_status'])
                 for field in example['fields']:
-                    lines.extend(['  - 相違項目: ' + field['path'], '    - Model: ' + field['model'], '    - IaC: ' + field['iac']])
+                    lines.extend(['相違項目: ' + field['path'], '- Model: ' + field['model'], '- IaC: ' + field['iac']])
                     if field['model'] == field['iac']:
-                        lines.append('    - 不一致の検出結果を保持（短縮・マスキングまたはキー重複）。')
-                lines.append(f'  - 省略相違フィールド: {example["omitted_fields"]}件')
-        lines.extend([f'- 省略代表例: {group["omitted_examples"]}レコード', ''])
-    lines.extend(['全詳細: 同じscanのartifactに対し issues_scan.py detail --artifact <path> --section iac --category <分類> --offset 0 --limit 50。',
-                  'Issue抽出: --issue-id ISSUE-<id>。名前・判断材料は --section naming / judgments で全ページを確認する。',
-                  '<!-- iac-summary:end -->', ''])
+                        lines.append('不一致の検出結果を保持（短縮・マスキングまたはキー重複）。')
+                if example['omitted_fields']:
+                    lines.append(f'省略相違フィールド: {example["omitted_fields"]}件')
+        if group['omitted_examples']:
+            lines.append(f'省略代表例: {group["omitted_examples"]}レコード')
+        lines.append('')
+    lines.extend(['詳細: 同じscanの一時artifactを issues_scan.py detail --artifact <path> --section iac_issues で確認し、',
+                  '得られたIDを --section iac --issue-id <id> に指定する（--offset / --limit でページ取得）。', ''])
     return '\n'.join(lines)
-
-
-def iac_annotations(path):
-    """No result restoration. Refuse opaque legacy prose rather than discarding human notes."""
-    legacy = path.with_name('iac-issues.state.json')
-    text = path.read_text(encoding='utf-8') if path.exists() else ''
-    if text and not text.startswith('# model → IaC比較の非阻害結果\n'):
-        raise ValueError('malformed existing IaC report')
-    embedded = re.findall(r'<!-- iac-report-data: (.+) -->', text)
-    if (legacy.exists() and embedded) or len(embedded) > 1:
-        raise ValueError('ambiguous legacy IaC annotations: inspect state/embedded data before deletion')
-    if legacy.exists() or embedded:
-        # One-time disposal reads annotations only, never records/digests/history.
-        data = json.loads(legacy.read_text(encoding='utf-8')) if legacy.exists() else json.loads(embedded[0])
-        if not isinstance(data, dict) or not isinstance(data.get('annotations'), list) or not isinstance(data.get('generated_line_ids'), list):
-            raise ValueError('legacy IaC annotations unavailable: inspect old state before deletion')
-        if any(not isinstance(note, str) for note in data['annotations']):
-            raise ValueError('malformed legacy human annotations')
-        generated = set(data['generated_line_ids'])
-        context, notes = '', list(data['annotations'])
-        for line in re.sub(r'<!-- iac-report-data: (.+) -->', '', text).splitlines():
-            if line.startswith('## ISSUE-'):
-                context = line.partition(':')[0].removeprefix('## ')
-            elif line.startswith('## '):
-                context = ''
-            if line.strip() and identifier(line) not in generated:
-                notes.append(f'【{context}】 {line}' if context else line)
-        return list(dict.fromkeys(notes))
-    if not text.strip():
-        return []
-    if text.count('<!-- iac-summary:start -->') != 1 or text.count('<!-- iac-summary:end -->') != 1:
-        raise ValueError('legacy IaC report: inspect human annotations before replacing opaque legacy prose')
-    before, rest = text.split('<!-- iac-summary:start -->', 1)
-    _, after = rest.split('<!-- iac-summary:end -->', 1)
-    return [line for line in (before + after).splitlines() if line.strip() and
-            line not in {'# model → IaC比較の非阻害結果', '通常issue gateの停止対象外。', '## 人間注記'}]
 
 
 def save_authority(root, environment, directory, services, filenames, check_write=True):
@@ -514,9 +482,6 @@ def save_authority(root, environment, directory, services, filenames, check_writ
     if not scope or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract'):
         raise ValueError('report save requires a running report-only migration with explicit service scope')
     reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md', 'diff.md')}
-    legacy = f'issues/{environment}/{directory}/iac-issues.state.json'
-    if 'iac-issues.state.json' in filenames or not safe_path(root, legacy).exists():
-        reports.add(legacy)
     allowed = paths_in(text, '## Allowed paths')
     permitted = reports | {prompt.relative_to(root).as_posix()}
     if not allowed & reports or not allowed <= permitted or not paths_in(text, '## Modified files') <= permitted:
@@ -570,9 +535,6 @@ def atomic_files(contents):
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
-    legacy = root / 'issues' / environment / directory / 'iac-issues.state.json'
-    if iac is not None and legacy.exists():
-        names.append('iac-issues.state.json')
     outputs = save_authority(root, environment, directory, services, names, check_write=False)
     for _ in reserved_batches(root, {'reports': outputs}):
         # Merge the latest saved service blocks only after acquisition. Keep the
@@ -581,15 +543,8 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
             paths = save_authority(root, environment, directory, services, names)
             contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
             if iac is not None:
-                if legacy.exists() and len(paths) != 3:
-                    raise ValueError('legacy state appeared during save: reserve deletion path and retry')
-                notes = iac_annotations(paths[1])
                 contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp)
-                if notes:
-                    contents[paths[1]] += '## 人間注記\n\n' + '\n'.join(safe_text(line) for line in notes) + '\n'
-            if len(paths) == 3:
-                contents[paths[2]] = None  # Delete only after human notes are preserved.
             if guard:
                 guard()  # Check after formatting, immediately before publication; never repeat comparison.
             atomic_files(contents)
-    return [path for path in paths if path.name != 'iac-issues.state.json']
+    return paths

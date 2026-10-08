@@ -176,7 +176,7 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
     mapping.update({f"framework/scripts/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
                     for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
-    mapping["framework/scripts/test_support/validator.py"] = {"validate-blueprint.checks.py", "blueprint-loop.checks.py"}
+    mapping["framework/scripts/test_support/validator.py"] = {"validate-blueprint.checks.py", "blueprint-loop.checks.py", "issue_gate.checks.py"}
     # check_links/check_projection dynamically load the reference fixture and its layout inputs.
     mapping["framework/scripts/design_document.checks.py"] = {
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}

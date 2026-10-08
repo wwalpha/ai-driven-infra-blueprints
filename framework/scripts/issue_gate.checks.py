@@ -4,7 +4,6 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -12,14 +11,9 @@ import sys
 import tempfile
 from unittest import mock
 
+from test_support.validator import load
+
 from issue_gate import issue_errors, remediation_scope, require_no_issues, require_target_no_issues
-
-
-def load(name):
-    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def main():
@@ -109,7 +103,7 @@ def main():
                 instance.task_type, instance.changed_paths = task_type, {changed}
                 instance.check_issue_gate()
                 assert instance.errors, (task_type, allowed, changed)
-        # State is no longer a report output; only a real deletion receives the save-only exception.
+        # State is neither a report output nor a save-only deletion target.
         legacy = "issues/dev/cde/iac-issues.state.json"
         active.write_text(investigation + f"- `{legacy}`\n")
         state = root / legacy
@@ -122,7 +116,7 @@ def main():
         instance = validator.Validator(root)
         instance.task_type, instance.changed_paths = "migration", {legacy}
         instance.check_issue_gate()
-        assert not instance.errors  # Explicit old-state deletion preserves the report-only exception.
+        assert instance.errors  # State deletion is outside the report-only exception.
         instance = validator.Validator(root)
         instance.task_type, instance.changed_paths = "migration", {"issues/dev/cde/iac-issues.md"}
         instance.check_issue_gate()

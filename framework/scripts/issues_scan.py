@@ -24,7 +24,7 @@ from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, DeferredExhausted
 from issues_iac import Comparison, module, safe_value
-from issues_reports import save, identifier, blocks, owned_blocks, numbered, inventories, safe_text, iac_summary, iac_dataset, brief
+from issues_reports import save, identifier, blocks, owned_blocks, numbered, inventories, safe_text, iac_summary, iac_dataset, brief, comparison_status
 
 
 def outside(root, path):
@@ -294,7 +294,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
 
 def summary(artifact):
     counts = Counter(item['category'] for item in artifact.get('iac', []))
-    status = 'error' if counts['error'] else 'partial' if counts['uncompared'] else 'differences' if counts['difference'] else 'complete match'
+    status = comparison_status(counts)
     return {'ordinary_candidates': len(artifact.get('ordinary', [])), 'judgment_items': len(artifact.get('judgments', [])),
             'naming_items': len(artifact.get('naming', {}).get('names', [])), 'iac_differences': counts['difference'],
             'iac_uncompared': counts['uncompared'], 'iac_errors': counts['error'], 'iac_matched': counts['matched'], 'iac_excluded': counts['excluded'], 'iac_status': status,

@@ -415,7 +415,7 @@ def check_parallel_and_selection():
         assert selected(f"framework/scripts/validation_checks/{name}.py") == validator, name
     leaf = "framework/scripts/validation_checks/task.py"
     assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
-    assert selected("framework/scripts/test_support/validator.py") == shared
+    assert selected("framework/scripts/test_support/validator.py") == shared | {"issue_gate.checks.py"}
     all_checks = {p.name for p in SCRIPT.parent.glob("*.checks.py")}
     for unknown in ("framework/scripts/validation_checks/unknown.py", "framework/scripts/test_support/unknown.py"):
         assert selected(leaf, unknown) == all_checks

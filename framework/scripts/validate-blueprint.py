@@ -508,9 +508,6 @@ class Validator:
             if self.task_type == "migration" and scope:
                 reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
                            for name in ("issues.md", "iac-issues.md", "diff.md")}
-                reports.update(f"issues/{env}/{target}/iac-issues.state.json" for env, target, _ in scope
-                               if f"issues/{env}/{target}/iac-issues.state.json" in self.changed_paths
-                               and not (self.root / f"issues/{env}/{target}/iac-issues.state.json").exists())
                 prompt = task_path(self.root)
                 permitted = reports | {self.relative(prompt)}
                 lines = prompt.read_text(encoding="utf-8").splitlines()
