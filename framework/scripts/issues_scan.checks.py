@@ -716,7 +716,7 @@ def local_reference_cases():
             assert comparison.evaluate(consumer, {'Fn::Sub': ['${Bucket}-${Name}-${AWS::Region}-${!Bucket}',
                    {'Bucket': 'override', 'Name': 'mapped', 'AWS::Region': 'override-region'}]}) == 'override-mapped-override-region-${Bucket}'
             assert comparison.evaluate(consumer, {'Fn::Sub': ['${X}', {'X': {'Ref': 'Bucket'}}]}) == 'bucket-app-dev-data1'
-            for value in ({'Fn::Sub': '${Missing}'}, {'Fn::Sub': '${Bucket.Arn}'},
+            for value in ({'Fn::Sub': '${Missing}'},
                           {'Fn::Sub': ['${X}', {'X': ['not', 'a string']}]}):
                 try:
                     comparison.evaluate(consumer, value)
@@ -783,6 +783,112 @@ def local_reference_cases():
             # A missing declared stack prevents proof of export uniqueness.
             (root / 'infra/cloudformation/parameters/dev/123456789012/stack-2.json').unlink()
             expect_error(lambda: candidate().evaluate(consumer, imported), 'search incomplete')
+
+
+
+@patch('socket.socket', side_effect=AssertionError('network forbidden'))
+def symbolic_string_cases(_network):
+    from issues_iac import Expression
+    with tempfile.TemporaryDirectory(prefix='symbolic-strings-') as directory:
+        root = Path(directory) / 'project'
+        _, template = fixture(root, stacks=2, services=['cloudwatch-logs'])
+        comparison, _ = compare(root, ['cloudwatch-logs'])
+        name, other = 'cfn-stack-app-dev-data1', 'cfn-stack-app-dev-data2'
+        ref = {'Fn::GetAtt': ['Log', 'Arn']}
+        split = {'Fn::Split': [':*', ref]}
+        select = {'Fn::Select': [0, split]}
+        joined = {'Fn::Join': ['', [select, ':log-stream:account_*']]}
+        symbol = comparison.evaluate(name, ref)
+        # Preserve resource identity, attributes and every operation without ARN retrieval.
+        result = comparison.evaluate(name, select)
+        assert same(result, Expression('Select', [0, Expression('Split', [':*', symbol])]))
+        assert not same(symbol, dict(symbol))
+        assert same(result, comparison.evaluate(name, {'Fn::Select': ['0', split]}))
+        assert not same(result, comparison.evaluate(other, select))
+        assert same(comparison.evaluate(name, joined), comparison.evaluate(name, joined))
+        assert comparison.evaluate(name, {'Fn::Split': [',', 'a,,b,']}) == ['a', '', 'b', '']
+        assert comparison.evaluate(name, {'Fn::Select': [0, {'Fn::Split': [':*', 'literal:*']}]}) == 'literal'
+        for value in ({'Fn::Split': [',', 42]}, {'Fn::Split': [1, 'text']},
+                      {'Fn::Split': [',']}, {'Fn::Split': ['', 'text']}):
+            try:
+                comparison.evaluate(name, value)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('invalid Split must remain error')
+        resource = comparison.resources['cloudwatch-logs']['001']
+        prop = 'LogGroupName'
+        def category(actual, desired):
+            comparison.results = []
+            with patch.object(comparison, 'desired_value', return_value=desired):
+                comparison.compare_rows('cloudwatch-logs', '001', resource, name, 'Log',
+                    root / 'infra/cloudformation/templates/shared.yaml',
+                    {'Properties': {prop: actual}}, template)
+            records = [record for record in comparison.results if record['property'].endswith('.' + prop)]
+            assert len(records) == 1, records
+            return records[0]['category']
+        # Inject already bound desired expressions, never grant raw model intrinsics a binding.
+        assert category(joined, comparison.evaluate(name, joined)) == 'matched'
+        assert category(joined, comparison.evaluate(other, joined)) == 'uncompared'
+        assert category(select, result) == 'matched'
+        assert category(select, symbol) == 'uncompared'
+        assert category('literal', 'literal') == 'matched'
+        assert category({'Fn::Join': ['-', ['a', 'b']]}, 'a:b') == 'difference'
+        assert category({'Fn::Split': [',', 42]}, []) == 'error'
+        assert category({'Fn::Split': [':*', dict(symbol)]}, result) == 'error'
+        assert category({'Fn::Join': ['', [dict(symbol), ':log-stream:account_*']]}, comparison.evaluate(name, joined)) == 'error'
+        assert category({'Fn::Split': [',', {'Fn::GetAtt': ['Missing', 'Arn']}]}, []) == 'uncompared'
+        assert category({'Fn::Select': [1, split]}, result) == 'uncompared'
+        changed = {'Fn::Join': [':', [select, 'different']]}
+        assert category(changed, comparison.evaluate(name, joined)) == 'uncompared'
+        sub = {'Fn::Sub': ['${Arn}:log-stream:${Suffix}-${!literal}', {'Arn': select, 'Suffix': 'account_*'}]}
+        assert category(sub, comparison.evaluate(name, sub)) == 'matched'
+        assert not same(comparison.evaluate(name, sub), comparison.evaluate(other, sub))
+        assert category({'Fn::Join': ['', [select, 42]]}, result) == 'error'
+        assert category({'Fn::Select': [True, split]}, result) == 'error'
+        assert category({'Fn::Select': [-1, split]}, result) == 'error'
+        assert category({'Fn::Select': [ref, split]}, result) == 'uncompared'
+        assert not same(result, comparison.evaluate(name, {'Fn::Select': [0, {'Fn::Split': [',', ref]}]}))
+        assert same({'Resource': [result, result]}, {'Resource': [result, result]})
+        assert not selected_same({'Resource': [result, result]}, {'Resource': [result]})
+        assert not selected_same({'Resource': [result]}, {'Resource': [comparison.evaluate(other, select)]})
+        assert category({'Fn::Select': [1, ['only']]}, 'only') == 'error'
+        assert category({'Fn::Split': [{'Ref': 'Name'}, 'text']}, []) == 'error'
+        assert not same(comparison.evaluate(name, joined), json.loads(json.dumps(comparison.redacted(comparison.evaluate(name, joined)))))
+        assert comparison.evaluate(name, {'Fn::Sub': '${Log.Arn}'}) == symbol
+        assert not same(comparison.evaluate(name, {'Fn::Join': ['', [{'Ref': 'Log'}, '/*']]}),
+                        comparison.evaluate(name, {'Fn::Join': ['', [ref, '/*']]}))
+        # Real model→Policy comparison: links bind identities, raw template refs do not.
+        policy = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': 'logs:PutLogEvents', 'Resource': joined}]}
+        template['Resources']['Policy'] = {'Type': 'AWS::IAM::ManagedPolicy', 'Properties': {'PolicyDocument': policy}}
+        mutate_template(root, template)
+        def publish(desired):
+            model = {'desired.service.iam.serviceId': 'iam', 'desired.resource.001.resourceType': 'IAM.ManagedPolicy',
+                     'desired.resource.001.cfn-logicalId': name + '-Policy',
+                     'desired.row.001-001.property': 'IAM.ManagedPolicy.PolicyDocument',
+                     'desired.row.001-001.value': 'policy.json', 'desired.row.001-001.document': json.dumps(desired)}
+            write(root / 'model/dev/123456789012/iam.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
+            _, records = compare(root, ['iam'])
+            assert len(records) == 1, records
+            return records[0]['category']
+        link = '[PENDING_DEPLOY](cloudwatch-logs.md#cloudwatch-logs-cwlogs-app-dev-data1)'
+        model_join = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', link]}]}, ':log-stream:account_*']]}
+        def desired_policy(expression):
+            return dict(policy, Statement=[dict(policy['Statement'][0], Resource=expression)])
+        assert publish(desired_policy(model_join)) == 'matched'
+        model_sub = {'Fn::Sub': ['${Arn}:log-stream:account_*', {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', link]}]}}]}
+        # Different equivalent syntaxes remain conservative until a rewrite is proven.
+        assert publish(desired_policy(model_sub)) == 'uncompared'
+        template['Resources']['Policy']['Properties']['PolicyDocument'] = desired_policy(
+            {'Fn::Sub': ['${Arn}:log-stream:account_*', {'Arn': select}]})
+        mutate_template(root, template)
+        assert publish(desired_policy(model_sub)) == 'matched'
+        assert publish(desired_policy({'Fn::Sub': '${Log.Arn}'})) == 'uncompared'
+        assert publish(desired_policy(joined)) == 'uncompared'
+        different_link = link.replace('data1', 'data2')
+        assert publish(desired_policy({'Fn::Sub': ['${Arn}:log-stream:account_*',
+            {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', different_link]}]}}]})) == 'uncompared'
+    print('Symbolic string evaluation: PASS (GetAtt/Split/Select/Join/Sub, typed equality and classifications)')
 
 
 def concurrency(root):
@@ -1506,6 +1612,7 @@ def main():
     state_report_cases()
     comparison_repair_cases()
     local_reference_cases()
+    symbolic_string_cases()
     assert not subprocess.run(['git', 'diff', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     assert not subprocess.run(['git', 'diff', '--cached', '--', 'framework/scripts/issue_gate.py'], cwd=ROOT, capture_output=True).stdout
     print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')

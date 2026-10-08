@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 import re
 import sys
+from dataclasses import dataclass
 
 from cloudformation_inputs import Blocked, condition_active, load_target, load_template_inputs, resolve_value, output_value
 from cloudformation_observed import resource_index, mapped_resource
@@ -34,10 +35,36 @@ def strict_json(text):
     return json.loads(text, object_pairs_hook=unique_object, parse_constant=invalid_constant)
 
 
+class ResourceReference(dict):
+    """A confirmed identity, distinct from a same-shaped JSON literal."""
+
+
+@dataclass(frozen=True, eq=False)
+class Expression:
+    """An evaluated intrinsic with unresolved operands; never a JSON literal."""
+    operation: str
+    operands: list
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.operation == other.operation and same(self.operands, other.operands)
+
+
+def symbolic(value):
+    if isinstance(value, Expression):
+        return True
+    if isinstance(value, dict):
+        return any(symbolic(item) for item in value.values())
+    if isinstance(value, list):
+        return any(symbolic(item) for item in value)
+    return False
+
+
 def safe_value(value, property_name=''):
     """Do not publish secrets, dynamic secrets or current/generated ARN strings."""
     if re.search(r'password|secretstring|secretbinary|token|credential|privatekey', property_name, re.I):
         return '<masked>'
+    if isinstance(value, Expression):
+        return {'$expression': value.operation, '$operands': safe_value(value.operands, property_name)}
     if isinstance(value, str):
         if '{{resolve:' in value or re.search(r'arn:aws[a-z-]*:', value, re.I):
             return '<masked ARN/secret>'
@@ -186,7 +213,7 @@ class Comparison:
         readonly = self.catalog.schema(resource['resourceType']).get('readOnlyProperties', [])
         if expected_attribute not in attributes and '/properties/' + expected_attribute not in primary + readonly:
             raise Blocked(f'reference attribute not confirmed: {expected_attribute}')
-        return {'$resource': [refservice, identity], '$attribute': expected_attribute}
+        return ResourceReference({'$resource': [refservice, identity], '$attribute': expected_attribute})
 
     def index(self):
         if self._index is None:
@@ -230,12 +257,26 @@ class Comparison:
                 if self.local_comparison:
                     raise Blocked(f'unproven resource attribute: {logical}.{attribute}') from error
                 raise
-        result = {'$resource': [path.stem, identity], '$attribute': attribute}
+        result = ResourceReference({'$resource': [path.stem, identity], '$attribute': attribute})
         self.symbols[cachekey] = result
         return result
 
+    def string_operand(self, value):
+        if isinstance(value, str):
+            return True
+        if isinstance(value, Expression):
+            return value.operation in {'Select', 'Join', 'Sub'}
+        if isinstance(value, ResourceReference):
+            service, identity = value['$resource']
+            kind = self.resources[service][identity]['resourceType']
+            node = self.catalog.property_schema(kind, value['$attribute'])
+            if 'type' not in node:
+                raise Blocked('reference string type is unproven')
+            return node['type'] == 'string'
+        return False
+
     def substitution(self, stack, value, seen):
-        if isinstance(value, dict) and set(value) == {'$resource', '$attribute'}:
+        if isinstance(value, ResourceReference):
             service, identity = value['$resource']
             attribute = value['$attribute']
             resource = self.resources[service][identity]
@@ -250,8 +291,12 @@ class Comparison:
                 raise Blocked('Transform requires external evaluation')
             properties = document['Resources'][logical].get('Properties', {})
             if attribute not in properties:
-                raise Blocked(f'resource substitution has no explicit property: {logical}.{attribute}')
+                if self.string_operand(value):
+                    return value
+                raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')
             return self.substitution(name, self.evaluate(name, properties[attribute], seen | {token}), seen | {token})
+        if isinstance(value, Expression) and self.string_operand(value):
+            return value
         if type(value) in (int, float):
             return str(value)
         if not isinstance(value, str):
@@ -306,6 +351,8 @@ class Comparison:
             if isinstance(value, float):
                 return float(value)
             return value
+        if isinstance(value, ResourceReference):
+            return value
         if len(value) == 1:
             key, arg = next(iter(value.items()))
             if ('export-name',) in seen and (key in {'Fn::GetAtt', 'Fn::ImportValue'} or key == 'Ref' and arg not in parameters | pseudo):
@@ -322,18 +369,33 @@ class Comparison:
                     raise ValueError('invalid Fn::If')
                 condition = resolve_value({'Condition': arg[0]}, parameters, pseudo, conditions=document.get('Conditions', {}))
                 return self.evaluate(stack, arg[1 if condition else 2], seen)
-            if key == 'Fn::Select' and isinstance(arg, list) and len(arg) == 2:
+            if key == 'Fn::Select':
+                if not isinstance(arg, list) or len(arg) != 2:
+                    raise ValueError('invalid Fn::Select')
                 index, items = self.evaluate(stack, arg, seen)
                 if isinstance(index, str) and index.isdigit():
                     index = int(index)
-                if type(index) is not int or not isinstance(items, list) or not 0 <= index < len(items):
+                if self.local_comparison and (isinstance(index, Expression) or isinstance(index, ResourceReference)):
+                    raise Blocked('Select index is unproven')
+                if type(index) is not int or index < 0:
+                    raise ValueError('invalid Select operands')
+                if isinstance(items, Expression) and items.operation == 'Split':
+                    # Split always has element zero; other bounds need a concrete string.
+                    if index != 0:
+                        raise Blocked('Select bounds are unproven for symbolic Split')
+                    return Expression('Select', [index, items])
+                if not isinstance(items, list) or index >= len(items) or items[index] is None:
                     raise ValueError('invalid Select operands')
                 return items[index]
-            if key == 'Fn::Split' and isinstance(arg, list) and len(arg) == 2:
-                delimiter, text = self.evaluate(stack, arg, seen)
-                if not isinstance(delimiter, str) or not delimiter or not isinstance(text, str):
+            if key == 'Fn::Split':
+                if not isinstance(arg, list) or len(arg) != 2 or not isinstance(arg[0], str) or not arg[0]:
                     raise ValueError('invalid Split operands')
-                return text.split(delimiter)
+                delimiter, text = arg[0], self.evaluate(stack, arg[1], seen)
+                if isinstance(text, str):
+                    return text.split(delimiter)
+                if self.local_comparison and self.string_operand(text):
+                    return Expression('Split', [str(delimiter), text])
+                raise ValueError('invalid Split operands')
             if key == 'Fn::FindInMap' and isinstance(arg, list) and len(arg) == 3:
                 mapping, first, second = self.evaluate(stack, arg, seen)
                 try:
@@ -349,6 +411,7 @@ class Comparison:
                 if not isinstance(text, str) or not isinstance(variables, dict):
                     raise ValueError('invalid Fn::Sub')
                 substitutions = parameters | pseudo | {key: self.evaluate(stack, child, seen) for key, child in variables.items()}
+                resolved = {}
                 def replace(match):
                     key = match.group(1)
                     if key.startswith('!'):
@@ -357,15 +420,26 @@ class Comparison:
                         child = substitutions[key]
                     else:
                         child = self.evaluate(stack, {'Fn::GetAtt': key} if '.' in key else {'Ref': key}, seen)
-                    return self.substitution(stack, child, seen)
-                return re.sub(r'\$\{([^}]+)\}', replace, text)
+                    child = self.substitution(stack, child, seen)
+                    resolved[key] = child
+                    return child if isinstance(child, str) else match.group(0)
+                concrete = re.sub(r'\$\{([^}]+)\}', replace, text)
+                if all(isinstance(child, str) for child in resolved.values()):
+                    return concrete
+                if re.fullmatch(r'\$\{([^}]+)\}', text) and len(resolved) == 1:
+                    return next(iter(resolved.values()))
+                return Expression('Sub', [str(text), resolved])
             if key == 'Fn::Join' and self.local_comparison:
-                if not isinstance(arg, list) or len(arg) != 2:
+                if not isinstance(arg, list) or len(arg) != 2 or not isinstance(arg[0], str):
                     raise ValueError('invalid Fn::Join')
-                delimiter, parts = self.evaluate(stack, arg, seen)
-                if not isinstance(delimiter, str) or not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
-                    raise Blocked('Join operands are not proven local strings')
-                return delimiter.join(parts)
+                delimiter, parts = str(arg[0]), self.evaluate(stack, arg[1], seen)
+                if not isinstance(parts, list):
+                    raise ValueError('invalid Join operands')
+                if all(isinstance(part, str) for part in parts):
+                    return delimiter.join(parts)
+                if not all(self.string_operand(part) for part in parts):
+                    raise ValueError('invalid Join operands')
+                return Expression('Join', [delimiter, parts])
             if key == 'Fn::Sub' and isinstance(arg, list):
                 if len(arg) != 2 or not isinstance(arg[0], str) or not isinstance(arg[1], dict):
                     raise ValueError('invalid Fn::Sub')
@@ -376,7 +450,7 @@ class Comparison:
                 return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
         return {key: item for key, item in ((key, self.evaluate(stack, child, seen)) for key, child in value.items()) if item != {'$noValue': True}}
 
-    def desired_value(self, service, row, kind):
+    def desired_value(self, service, row, kind, *, stack=None):
         raw = row.get('document', row['value'])
         if 'document' in row:
             value = strict_json(raw)
@@ -398,18 +472,28 @@ class Comparison:
                     raise Blocked('property type is not uniquely determined')
                 value = strict_json(value)
         policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
-        def references(item, field=''):
+        def references(item, field='', operands=False):
             if isinstance(item, str) and LINK.fullmatch(item):
                 attribute = 'Arn' if field.lower().endswith(('arn', 'arns')) or policy and field in {'Resource', 'NotResource', 'AWS'} else None
                 return self.reference(service, item, attribute)
             if isinstance(item, list):
-                return [references(child, field) for child in item]
+                return [references(child, field, operands) for child in item]
             if isinstance(item, dict):
                 if self.local_comparison:
                     intrinsic = next((key for key in item if key == 'Ref' or key.startswith('Fn::')), None)
                     if intrinsic:
-                        raise Blocked(f'unproven model intrinsic reference: {intrinsic} {item[intrinsic]}; no confirmed template/target binding')
-                return {key: references(child, key) for key, child in item.items()}
+                        if intrinsic not in {'Fn::Split', 'Fn::Select', 'Fn::Join', 'Fn::Sub'} or len(item) != 1 or stack is None:
+                            raise Blocked(f'unproven model intrinsic reference: {intrinsic} {item[intrinsic]}; no confirmed template/target binding')
+                        argument = references(item[intrinsic], field, True)
+                        if intrinsic == 'Fn::Sub':
+                            text, variables = (argument, {}) if isinstance(argument, str) else argument if isinstance(argument, list) and len(argument) == 2 else (None, None)
+                            if not isinstance(text, str) or not isinstance(variables, dict):
+                                raise ValueError('invalid Fn::Sub')
+                            if any(not key.startswith('!') and key not in variables for key in re.findall(r'\$\{([^}]+)\}', text)):
+                                raise Blocked('unproven model Sub variable; explicit bindings required')
+                        # Only literals and confirmed model links reach the existing evaluator.
+                        return self.evaluate(stack, {intrinsic: argument})
+                return {key: references(child, field if operands else key, operands) for key, child in item.items()}
             return item
         return references(value)
 
@@ -605,7 +689,7 @@ class Comparison:
                     value = {'Key': 'Name', 'Value': literal(row['value'])}
                 else:
                     try:
-                        value = self.desired_value(service, row, rowkind)
+                        value = self.desired_value(service, row, rowkind, stack=name)
                     except (Blocked, KeyError) as error:
                         self.record('uncompared', service, identity, prop, str(error), source=source)
                         incomplete.add(short.split('.', 1)[0].removesuffix('[]'))
@@ -646,6 +730,9 @@ class Comparison:
                     self.record('difference', service, identity, prop, 'property omitted by AWS::NoValue', value, None, name, sources[key][0], iac_source)
                     continue
                 if not (same(value, actual) if key in exact else selected_same(value, actual, key)):
+                    if self.local_comparison and (symbolic(value) or symbolic(actual)):
+                        self.record('uncompared', service, identity, prop, 'symbolic equivalence is unproven', value, actual, name, sources[key][0], iac_source)
+                        continue
                     self.record('difference', service, identity, prop, 'value mismatch', value, actual, name, sources[key][0], iac_source)
                     self.results[-1]['model_sources'] = sources[key]
                     # Preserve original records; capture display evidence before redaction loses it.
