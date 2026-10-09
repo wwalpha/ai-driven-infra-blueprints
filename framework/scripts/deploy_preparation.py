@@ -153,8 +153,8 @@ def markdown_sections(text):
     result = {}
     for index, (start, level, anchors) in enumerate(headings):
         end = next((pos for pos, depth, _ in headings[index + 1:] if depth <= level), len(text))
-        for anchor in anchors:
-            if anchor in result and result[anchor] != text[start:end]:
+        for anchor in dict.fromkeys(anchors):
+            if anchor in result:
                 raise ValueError(f"ambiguous rule section: {anchor}")
             result[anchor] = text[start:end]
     return result

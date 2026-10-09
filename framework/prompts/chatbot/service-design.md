@@ -67,7 +67,7 @@ Write chat questions, explanations, completion reports, and saved Markdown title
 
 Before questions and when users instruct “続き”/“再開”, check latest repository information in this order.
 
-1. `README.md`
+1. [Context priority](../../../README.md#context-priority), [Roles](../../../README.md#roles), and [Initial detailed design](../../../README.md#initial-detailed-design). README is a human guide; do not read its full body for a limited design change.
 2. `project.json`
 3. `docs/system-overview.md`
 4. Existing designs corresponding to targets. For limited existing-resource/property changes, check authoritative properties through partial-reading procedures in `Codex反映依頼` below
@@ -82,9 +82,9 @@ Before questions and when users instruct “続き”/“再開”, check latest
 
 From Service rule lookup in the common naming-rule entry, additionally read only service files corresponding to target resource-type catalog namespaces. Even for multiple services, read only target namespaces; do not batch-read the entire naming-rule directory. Match Catalog resource types/Naming target and patterns in selected service files.
 
-For naming-pattern `{{suffix}}`, use only target `suffix` strings corresponding to selected environment/alias in `project.json`. Replace `[-{{suffix}}]` with `-<suffix>` if configured; otherwise omit the entire component including separators. If mandatory `{{suffix}}` is unset, show missing configuration and stop. Do not substitute other targets' values, aliases, or account IDs, append to suffix-free patterns, replace fixed endings, or automatically change existing names.
+For naming-pattern `{{suffix}}`, read and follow [General rules](../../rules/aws-resource-naming.md#general-rules), including target-specific values, optional/mandatory suffix conditions, and the prohibition on automatically changing existing names. Keep the target namespace's [Service rule lookup](../../rules/aws-resource-naming.md#service-rule-lookup) and its resource/property-specific exceptions in the required reading scope.
 
-Treat `README.md` as repository-wide instructions, `project.json` as target settings, and `docs/system-overview.md` as system-background reference. Do not stop questions or designs solely because System Overview contains `UNSET`.
+Use [AGENTS.md](../../../AGENTS.md) for execution boundaries and the selected workflow's mandatory/conditional Read sections; treat the README sections above as role/design guidance, `project.json` as target settings, and `docs/system-overview.md` as system-background reference. Do not stop questions or designs solely because System Overview contains `UNSET`.
 
 `<target-directory>` is the alias if selected targets have aliases, otherwise AWS account IDs. For multiple targets or AWS accounts, first verify each resource's owning target and cross-account dependencies.
 

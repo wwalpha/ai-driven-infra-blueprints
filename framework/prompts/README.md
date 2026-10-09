@@ -45,7 +45,7 @@ For manual edits, do not split implement and deploy. `05_update.md` receives hum
 | Design | [`chatbot/service-design.md`](chatbot/service-design.md) | Confirm detailed design values for new systems, features, or services with the human | Output completed model properties and destination Markdown/JSON, or a self-contained Codex prompt for existing-resource retrieval |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | Reflect detailed designs already created in the repository into CloudFormation/Terraform | Create/change IaC through local static validation |
 | 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, perform uniquely determined CloudFormation controlled repair, and update necessary observed values |
-| 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing detailed designs, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
+| 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing model properties, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
 | 7 | [`codex/07_destroy.md`](codex/07_destroy.md) | Explicit CloudFormation Stack deletion requested | Independent destroy; observed consistency and scoped local loop |
 | 6 | [`codex/06_scenario-test.md`](codex/06_scenario-test.md) | Application behavior confirmation is needed after deploy | Update scenarios and current results for the same target |
 
@@ -139,7 +139,7 @@ Implementation scope:
 
 ### `codex/04_deploy.md`
 
-- Description: Deploy/apply created/validated IaC to target AWS accounts without changing it.
+- Description: Deploy/apply created/validated IaC to authorized target AWS accounts; only controlled repair under the deploy workflow may change IaC.
 - Timing: IaC from `03_implement.md` is confirmed and target IaC has no uncommitted changes.
 - How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates.
 
@@ -162,8 +162,8 @@ AWS profile:
 ### `codex/05_update.md`
 
 - Description: Receive uncommitted diffs created by the human in existing model properties as confirmed design; perform Markdown generation, IaC reflection, and deploy/apply.
-- Timing: The human directly edits existing detailed design and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
-- How to use: Instruct only use of the prompt. Codex obtains environment, AWS account, and Design scope from changed detailed design paths and determines Deployment scope from corresponding existing IaC. Omitted delete/replacement authorization is `none`; omitted AWS profile uses target `awsProfile`, or default credential chain if unset. Reject explicit profiles differing from settings before execution. If design diffs mix multiple targets, stop without changes; ask only for missing deployment-unit items as needed.
+- Timing: The human directly edits existing model properties and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
+- How to use: Instruct only use of the prompt. Codex obtains environment, AWS account, and Design scope from changed model property paths and determines Deployment scope from corresponding existing IaC. Omitted delete/replacement authorization is `none`; omitted AWS profile uses target `awsProfile`, or default credential chain if unset. Reject explicit profiles differing from settings before execution. If design diffs mix multiple targets, stop without changes; ask only for missing deployment-unit items as needed.
 
 Usage example:
 
@@ -203,10 +203,10 @@ chatbot/service-design.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
 
-When the human directly edits existing detailed design:
+When the human directly edits existing model properties:
 
 ```text
-humanがdocs/designs/**/*.mdを修正（未commit）
+humanがmodel/**/*.propertiesを修正（未commit）
   -> 05_update.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
@@ -217,8 +217,8 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 - Codex prompts output by `service-design.md` change only detailed designs and models.
 - `03_implement.md` changes only IaC and does not run AWS APIs.
-- `04_deploy.md` leaves IaC unchanged and executes only authorized deploy/apply.
-- `05_update.md` leaves human detailed design diffs unchanged and updates only models, IaC, and generated current values, then deploys/applies.
+- `04_deploy.md` executes only authorized deploy/apply; IaC changes require its controlled repair contract.
+- `05_update.md` preserves human intended-design model diffs, generates Markdown/JSON, reflects IaC, and executes only authorized deploy/apply and observed updates.
 - `06_scenario-test.md` changes only scenarios/results, without repairing designs or IaC.
 - Do not treat deploy success as application behavior PASS.
 

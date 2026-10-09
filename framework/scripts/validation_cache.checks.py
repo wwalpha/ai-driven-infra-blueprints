@@ -36,6 +36,17 @@ def main():
         first.write_text("SQS.Queue.QueueNamo=\n", encoding="utf-8")
         os.utime(first, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
         assert PassCache(root, directory=directory).key("catalog") != key, "same size/mtime must not reuse stale content"
+        for relative in ("README.md", ".agents/skills/worktree/SKILL.md", "framework/rules/task-contract.md"):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            before = PassCache(root, directory=directory).key("catalog")
+            path.write_text("entry\n", encoding="utf-8")
+            added = PassCache(root, directory=directory).key("catalog")
+            assert added != before
+            path.write_text("change\n", encoding="utf-8")
+            assert PassCache(root, directory=directory).key("catalog") != added
+            path.unlink()
+            assert PassCache(root, directory=directory).key("catalog") == before
         original = digest_files(root, [first])
         missing = materials / "new.properties"
         assert digest_files(root, [first, missing]) != original

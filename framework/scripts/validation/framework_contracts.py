@@ -96,6 +96,17 @@ def check_framework_active_task_transition(findings, root):
 
 def check_framework_rule_readings(findings, root):
     from deploy_preparation import markdown_sections, rule_readings
+    # These entry sections must direct execution to the existing authorities.
+    routes = {
+        ("README.md", "task-transition"): {
+            "task-contract.md": {"task-transition"}},
+        ("framework/rules/loop-engineering.md", "local-loop"): {
+            "task-contract.md": {"task-transition", "acceptance-contract"}},
+        (".agents/skills/worktree/SKILL.md", "read-before-execution"): {
+            "task-contract.md": {"task-transition", "task-boundary", "acceptance-contract", "retry-and-stop"},
+            "loop-engineering.md": {"local-loop", "validation-scope", "framework-regression",
+                                    "conflict-resolution-and-reproducible-validation", "retry-and-stop"}},
+    }
     sources = [root / "AGENTS.md", root / "README.md",
                *sorted((root / "framework/rules").glob("*.md")),
                *sorted((root / "framework/prompts").rglob("*.md")),
@@ -104,8 +115,20 @@ def check_framework_rule_readings(findings, root):
         try:
             text = source.read_text(encoding="utf-8")
             rule_readings(root, source, text)
+            sections = markdown_sections(text)
+            for (relative, heading), required in routes.items():
+                if source != root / relative:
+                    continue
+                if heading not in sections:
+                    findings.check(False, f"mandatory reading entry missing: {relative}#{heading}")
+                    continue
+                readings = rule_readings(root, source, sections[heading])
+                for filename, anchors in required.items():
+                    entry = readings.get((root / "framework/rules" / filename).resolve())
+                    covered = set(entry["sections"]) if entry else set()
+                    findings.check("" in covered or anchors <= covered,
+                                   f"mandatory rule readings missing: {relative}#{heading} -> {filename}")
             if source.parent == root / "framework/prompts/codex":
-                sections = markdown_sections(text)
                 reading = sections.get("read-first", sections.get("read-before-changing-files", ""))
                 required = {root / "framework/rules" / name for name in
                             ("task-contract.md", "issue-gate.md", "project-configuration.md")}
@@ -155,6 +178,11 @@ def check_framework_task_completion_contract(findings, root):
     rules = (root / "framework" / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
     findings.check("Requirement ID" in contract and "Acceptance checks" in contract, "task rules lack completion contract")
     findings.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
+    from deploy_preparation import markdown_sections
+    transition = markdown_sections(contract).get("task-transition", "")
+    for boundary in ("30 seconds", "20 waiting attempts", "Never forcibly steal", "Suspension reason",
+                     "--resume", "--complete", "Deferred path-based Acceptance", "running"):
+        findings.check(boundary in transition, f"Task transition safety boundary missing: {boundary}")
 
 
 def check_framework_task_type_dispatch(findings, task_type):

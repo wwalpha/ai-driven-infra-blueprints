@@ -381,6 +381,19 @@ def check_rule_section_boundaries():
         else:
             raise AssertionError("missing required section accepted")
 
+    for ambiguous in ("## Duplicate\nsame\n## Duplicate\nsame\n",
+                      "<a id=\"shared\"></a>\n## One\nfirst\n<a id=\"shared\"></a>\n## Two\nsecond\n"):
+        try:
+            M.markdown_sections(ambiguous)
+        except ValueError as error:
+            assert "ambiguous rule section" in str(error)
+        else:
+            raise AssertionError("duplicate heading/anchor accepted")
+    assert "same" in M.markdown_sections('<a id="same"></a>\n## Same\nrule\n')
+    # Required child exceptions and stop conditions remain inside the selected range.
+    nested = "## Required\nrule\n### Exception\nstop on missing input\n## Optional\nomit\n"
+    assert M.markdown_sections(nested)["required"] == "## Required\nrule\n### Exception\nstop on missing input\n"
+
 
 if __name__ == "__main__":
     check_rule_section_boundaries()

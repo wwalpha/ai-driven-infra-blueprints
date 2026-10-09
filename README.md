@@ -48,7 +48,7 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/prompts/chatbot/service-design.md`: Ask instructions outputting detailed design files and a self-contained Codex prompt to create them in the repository
 - `framework/prompts/codex/03_implement.md`: Instructions converting approved detailed design into selected IaC through local static validation
 - `framework/prompts/codex/04_deploy.md`: Instructions for safety checks of created/validated IaC, deploy/apply, and deployment completion confirmation
-- `framework/prompts/codex/05_update.md`: Instructions reflecting human-manually-edited uncommitted detailed design into IaC through deploy/apply
+- `framework/prompts/codex/05_update.md`: Instructions reflecting human-manually-edited uncommitted model properties into generated designs and IaC through deploy/apply
 - `framework/prompts/codex/06_scenario-test.md`: Instructions validating application behavior in a task separate from deploy
 - `framework/scripts/check-deploy-context.py`: Preflight confirming topology, credentials, deployment account, region, IaC engine, and required commands
 - `framework/scripts/sync_runtime.py`: Target selection, stage preparation and service publication orchestration
@@ -68,17 +68,13 @@ Do not use aliases when an environment has only one target. For multiple logical
 
 ## Task transition
 
-For repository changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation/chat-only consultation require no contract. Use the corresponding workflow for each phase's procedures.
-
-Reservations are scoped to the Git worktree, identified by a fingerprint of its worktree-specific Git directory, independently of the branch. Different worktrees can reserve the same repository-relative file. Within one worktree, only overlapping files become Deferred; Active files continue, including when the Deferred output is under `issues/`.
-
-Write workers automatically refresh reservations, finish Active work first, then retry Deferred outputs every 30 seconds for up to 20 attempts under the existing registration lock. Agents run `python framework/scripts/task_contract.py --task-file tasks/<task-name>.md --wait` themselves after Active work, then immediately continue acquired files; humans need not monitor or resume. At exhaustion the execution ends cleanly with unfinished Deferred work retained, neither failed nor completed. Normal reexecution acquires available files automatically. `--resume` remains for real suspended errors. Keep the task `running` while Deferred work remains; after all requested work and the successful final loop, use `--complete`. Foreign tasks cannot be selected or executed in this worktree.
+For repository changes, register `tasks/<task-name>.md` before writing. **Read and follow [Task transition](framework/rules/task-contract.md#task-transition)** for selection/ownership, exact reservations, Active/Deferred acquisition, completion, suspension and resume. Read-only investigation/chat-only consultation require no contract. Use the selected workflow for its inputs, execution order and phase-specific completion conditions; a successful Active check alone does not complete unfinished Deferred work.
 
 ### Isolated change tasks
 
 Use `/worktree <task-id> <child skill/task and inputs>` with [the worktree skill](.agents/skills/worktree/SKILL.md): **change task → isolated worktree → task validation/completion → commit → rebase onto latest local base → ff-only merge → cleanup**. Read-only investigation/review usually needs no worktree. The child workflow and worktree-scoped reservations remain unchanged.
 
-`framework/scripts/worktree_task.py create|finalize|cleanup --task-id <task-id>` returns JSON and an exit code. It uses `codex/worktree/<task-id>` and `.worktrees/<task-id>`, resolving repository-local `blueprint.baseBranch`, otherwise the existing `origin/HEAD` default, then `main`/`master`. No fetch/pull/push is required. Finalize normally requires the existing Task Contract's `completed` status; explicit human approval of concrete validation failures permits `finalize --human-approved-validation-failure "<approval and accepted failures>"` with the task kept `suspend` and validation still FAIL. Both paths require finished work/inputs and a clean checkout holding the local base; it never switches/stashes another checkout. Failed/incomplete tasks and aborted rebase conflicts retain their worktree, branch and task changes. Cleanup failure retains merged history and reports leftovers for a safe `cleanup` retry.
+The helper `framework/scripts/worktree_task.py create|finalize|cleanup --task-id <task-id>` returns JSON and an exit code. Follow the skill's [Create and execute](.agents/skills/worktree/SKILL.md#create-and-execute), [Complete and integrate](.agents/skills/worktree/SKILL.md#complete-and-integrate), and [Failures and cleanup](.agents/skills/worktree/SKILL.md#failures-and-cleanup) sections. It uses an existing committed local base without remote Git operations. Failed/incomplete tasks retain their work; concrete validation failures require explicit human approval before exceptional integration, with Task `suspend` and validation FAIL retained. A cleanup failure after merge retains merged history and requires the helper's cleanup-only retry.
 
 Worktrees start from committed base inputs. `/update` requires the human's uncommitted intended model diff in the task worktree; source dirty files are not automatically copied. Git isolation does not isolate AWS resources; cross-worktree AWS mutation locking is a separate responsibility.
 
@@ -352,79 +348,34 @@ Record `Task type` and `## Allowed paths` in the active prompt. Allowed paths ca
 - `tasks/network-design.md`
 ```
 
-Ordinary tasks validate design/models, generated Markdown/JSON equality, ownership, stacks, catalogs/schemas, naming, policies, references/links, artifacts, active task contracts, and task-specific checks for services specified in Validation scope. Carry specified services from validator through model matching. Retain common contract/change scope/project topology/catalog integrity checks. Read only information needed for link resolution from reference targets; do not validate entire target services. Both unstaged/staged `git diff --check` run in the loop. Separately retain existing mandatory CloudFormation/Terraform and deploy procedures according to each phase's rules/prompts.
+Read [Local loop](framework/rules/loop-engineering.md#local-loop), [Validation scope](framework/rules/loop-engineering.md#validation-scope), and the selected workflow's task-type completion section before execution. Scope comes from the active contract; `full` adds all framework regression without expanding actual service validation. Explicit `--all` or scope `all` means overall validation plus all regression. Framework changes (including documentation) require [Framework regression](framework/rules/loop-engineering.md#framework-regression), also in `task`/`local`.
 
 ```console
-python -X utf8 framework/scripts/blueprint-loop.py --mode task
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
+python -X utf8 framework/scripts/blueprint-loop.py --mode full --task-file tasks/<task-name>.md
 ```
 
-If the framework is unchanged, omit `*.checks.py` self-tests. Automatically add all self-tests for unstaged/staged/untracked changes across `framework/**` (scripts/rules/materials/schema/catalog/prompts etc.), `.agents/**`, `AGENTS.md`, or `README.md`. For framework change tasks or revalidation of committed framework changes, explicitly run the following.
-
-```console
-python -X utf8 framework/scripts/blueprint-loop.py --mode full
-```
-
-`full` executes all `framework/scripts/*.checks.py` in addition to ordinary task validation. Overall actual-design validation and framework regression are separate responsibilities. A `task` with unchanged framework does not execute self-tests even with Validation scope `all`.
-
-Windows requires password input before starting full regression. This also applies to automatic addition and `--affected` selection resulting in all checks; stop without starting validation if unregistered, mismatched, or canceled. Ordinary scoped validation and regression narrowed to a subset require no input. For Windows staged validation, also stage current `blueprint-loop.py`/`regression_guard.py`; do not execute old entrypoints differing from the workspace.
-
-When the human runs the following at the repository root, a salted password hash is saved only to one `.lock` directly under the repository. Administrator privileges, ProgramData installation, and ACL configuration are unnecessary. Passwords must be at least 12 characters; do not pass them through chat or command arguments, and enter them in hidden input fields.
-
-```console
-python -I -B framework/scripts/regression_guard.py --install
-```
-
-Do not overwrite existing `.lock`. Do not start full regression for mismatch, absent registration, corruption, noninteractive input, or cancellation. Exclude `.lock` from task change scope as local configuration and carry its value into staged validation. Do not save unlock flags or reusable tokens. Do not separate it from permissions to edit repository files. Enabling the guard outside Windows is outside this scope.
-
-If registered with the old version, running the following at the repository root reuses the same password (do not overwrite an existing repository `.lock`). The corrected version does not refer to ProgramData.
-
-```powershell
-Copy-Item 'C:\ProgramData\BlueprintRegressionGuard\.lock' '.\.lock'
-```
-
-Unify generation/validation targets using active task `## Validation scope`. `task`/`local`/`full` all use that scope; `full` alone does not expand to all services. Skills specifying `local` may also complete with scoped validation alone. Stop if scope is missing. Run overall validation only with explicit `--all` or scope `all`. `--all` and `local` scope `all` also run all self-tests. Leave daily overall validation to the separately configured schedule; do not add overall validation “just in case” after scoped validation.
-
-Command examples denote the Python 3 launcher as `python`. When only Python Launcher exists on Windows, use `py -3`; on Unix-like OSes with only `python3`, use `python3`, replacing the leading `python` in each command.
+Use one command matching the task. `python` denotes the available Python 3 launcher (`python3` on Unix-like OSes or `py -3` on Windows when needed). Full regression on Windows requires human input under the [Windows full regression input guard](framework/rules/loop-engineering.md#windows-full-regression-input-guard); agents must not register passwords or bypass it.
 
 ### Fixed snapshot validation after conflict resolution
 
-After staging resolved files and this task's `tasks/<task-name>.md`, execute with an explicit comparison-base commit.
+Read [Conflict resolution and reproducible validation](framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation) before staging/resolving conflicts or selecting affected checks. Stage this task's inputs/contract and specify a comparison-base commit matching the requested scope:
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
 ```
 
-Fix staged contents outside the repository and use its runner/contract. Do not include original workspace unstaged changes or change the original index. Differences against the comparison base include incoming changes. If original HEAD/index changes by completion, fail as stale; do not treat old results as success for the latest state. `snapshot.json` retains the validated tree/comparison base. Ordinary execution continues to validate unstaged changes too.
-
-`--affected` selects the corresponding check for changes to existing regression scripts themselves, or the loop check for standalone loop runner changes. Execute all checks for changes with unknown mappings such as common processing/rules/catalogs. Display selection reasons and unexecuted checks; reject combining with `full`/`--all`. Use `--mode full` for framework development task completion.
-
-Run regression with at most 2 parallel workers and display diagnostics in name order. Specify `--jobs 1` for serial comparison. Precheck UTF-8 at start; automatically switch to UTF-8 mode even with ordinary Python launch.
-
-Ordinary task/local validation reuses catalog/service results when input contents match the last success. Decide by SHA-256 and file sets of model entries/parts, Markdown/JSON, reference targets, project, and framework code/rules/catalogs/schemas; do not omit based only on mtime. Save successful records in OS temporary directory `blueprint-validation-cache` outside the repository; change the external save destination with `BLUEPRINT_VALIDATION_CACHE_DIR`. For corruption/unknown dependencies, revalidate within explicit scope. Run contracts, issues, change scope, Acceptance, scope-wide resource ownership/stack duplication, and IaC/deploy safety checks every time.
-
-Validate multiple services of the same target with at most 4 parallel workers too. Use `--validation-jobs 1` for serial execution and `--fresh` to disable result reuse. `--mode full` and `--all` validate fresh. Display reused/executed counts; do not call incomplete validation PASS even after 60 seconds.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` uses proven dependencies, falls back to all regression for shared/unknown inputs, and cannot combine with `full`/`--all`. Framework task completion still requires `full`. See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 
-Even without additional options, save timing logs per execution to OS temporary directory `blueprint-loop-*` and display its absolute path at start. Specify a parent directory outside the repository for continued retention.
+Follow [Timing and long-running execution](framework/rules/loop-engineering.md#timing-and-long-running-execution) for log retention, profiling, interruption/disconnection and incomplete-run decisions. Run logs live outside the repository and display their absolute path. For example:
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --log-dir /tmp/blueprint-loop-logs
 ```
 
-Adding `--profile` measures function breakdowns for validator/generation-matching child processes and model_design/design_catalog. Specify `--fresh --validation-jobs 1 --profile` for detailed first-run-equivalent measurement. cProfile measures the main thread, so parallel-worker function breakdowns are absent. Avoid direct comparison with ordinary elapsed times because profiling overhead is included.
-
-On Windows, replace the destination with, for example, `C:\Temp\blueprint-loop-logs`. The OS may remove temporary directories; use a dedicated directory outside the repository for long-term retention. Each execution creates a separate directory without overwriting earlier logs.
-
-| File | Contents |
-| --- | --- |
-| `snapshot.json` (with `--staged`) | Comparison-base commit, HEAD, index tree, equality with original state, exit code |
-| `*.checks.prof` (with `--profile`) | Function-level cProfile measurements for model_design/design_catalog. Top 25 entries also appear in check logs |
-| `validate-blueprint.prof` / `sync-model-*.prof` (with `--profile`) | cProfile measurements for validator/generation-matching child processes |
-| `timing.jsonl` | Loop/check start/end UTC times, elapsed seconds, PID, exit code, success/failure. Includes liveness records every 30 seconds |
-| `01-validate-blueprint.py.log` etc. | Per-check stdout/stderr. Saved directly to files during execution; also displayed in the terminal when checks finish |
-
-Measure durations with a monotonic clock. The terminal displays check start/end and check names/elapsed seconds/PIDs every 30 seconds. Liveness display indicates that child processes have not exited; it is not a processing progress percentage. Forced termination or OS shutdown may prevent `loop_end` records. Treat missing `loop_end` as incomplete.
+Use an external Windows destination such as `C:\Temp\blueprint-loop-logs` when needed. Use `--fresh --validation-jobs 1 --profile` for detailed profiling; its overhead is separate from ordinary elapsed time. Missing `loop_end` is incomplete, and a liveness heartbeat is not PASS.
 
 On 2026-10-02, measuring the pre-change local loop in this framework repository (Mac, uninitialized template, all 15 existing focused checks) yielded 38.6 seconds overall and 0.56 seconds for the repository validator. Main components were 14.2 seconds for `design_catalog.checks.py`, 9.6 seconds for `model_design.checks.py`, and 5.0 seconds for `policy_tables.checks.py`. In a separate profile run, 42 `design_catalog.checks.py` cases repeatedly launched model validation in child processes; waiting accounted for 12.8 seconds. The 30–60-minute phenomenon was not reproduced in this environment. Distinguish these times from consumer repositories/other OSes.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 import re
 import shlex
-from test_support.validator import MODULE, SCRIPT, project, write
+from test_support.validator import MODULE, SCRIPT, project, write, load
 
 
 def check_optional_alias_contract() -> None:
@@ -194,9 +194,12 @@ def check_rule_reading_contract() -> None:
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
     with project() as root:
-        write(root / "README.md", "reference fixture\n")
+        write(root / "README.md", "## Task transition\n[Task](framework/rules/task-contract.md#task-transition)\n")
+        task_rule = root / "framework/rules/task-contract.md"
+        task_rule.parent.mkdir(parents=True)
+        write(task_rule, "## Task transition\nfixture\n")
         rule = root / "framework/rules/fixture.md"
-        rule.parent.mkdir(parents=True)
+        rule.parent.mkdir(parents=True, exist_ok=True)
         write(rule, "## Present\nrequired rule\n")
         agents = root / "AGENTS.md"
         write(agents, "[rule](framework/rules/fixture.md#missing)\n")
@@ -207,3 +210,86 @@ def check_rule_reading_contract() -> None:
         validator = MODULE.Validator(root)
         validator.check_framework_rule_readings()
         assert not validator.errors, validator.errors
+
+    # Required routes are checked in their execution section, including child rules.
+    from deploy_preparation import markdown_sections, rule_readings, markdown_prose
+    from pathlib import Path
+    repository = SCRIPT.parents[2]
+    sources = [repository / "AGENTS.md", repository / "README.md",
+               *sorted((repository / "framework/prompts").rglob("*.md")),
+               *sorted((repository / "framework/rules").glob("*.md")),
+               *sorted((repository / ".agents/skills").glob("*/SKILL.md"))]
+    for source in sources:
+        text = source.read_text(encoding="utf-8")
+        prose = "".join(re.sub(r"(`+).*?\1", "", line) for _, line in markdown_prose(text))
+        for link in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", prose):
+            if ":" in link:
+                continue
+            target, _, anchor = link.partition("#")
+            if target and Path(target).suffix != ".md":
+                continue
+            path = (source.parent / target).resolve() if target else source
+            assert path.is_file(), (source, link)
+            if anchor:
+                assert anchor in markdown_sections(path.read_text(encoding="utf-8")), (source, link)
+    for relative, heading, link in (
+        ("README.md", "task-transition", "framework/rules/task-contract.md#task-transition"),
+        ("framework/rules/loop-engineering.md", "local-loop", "task-contract.md#task-transition"),
+        (".agents/skills/worktree/SKILL.md", "read-before-execution", "../../../framework/rules/task-contract.md#task-transition"),
+    ):
+        with project() as root:
+            destination = root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            original = (repository / relative).read_text(encoding="utf-8")
+            # Copy only authorities required by this entry, never live contracts/state.
+            pending = list(rule_readings(repository, repository / relative, original))
+            copied = set()
+            while pending:
+                source = pending.pop()
+                if source in copied:
+                    continue
+                copied.add(source)
+                body = source.read_text(encoding="utf-8")
+                path = root / source.relative_to(repository)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                write(path, body)
+                pending.extend(rule_readings(repository, source, body))
+            if relative != "README.md":
+                write(root / "README.md", "## Task transition\n[Task](framework/rules/task-contract.md#task-transition)\n")
+            write(root / "AGENTS.md", "fixture\n")
+            write(destination, original)
+            validator = MODULE.Validator(root)
+            validator.check_framework_rule_readings()
+            assert not validator.errors, validator.errors
+            # A link outside the mandatory section does not repair its removal.
+            assert link in markdown_sections(original)[heading]
+            write(destination, original.replace(link, "https://example.invalid/rule", 1) + f"\n## Background\n[Task]({link})\n")
+            validator = MODULE.Validator(root)
+            validator.check_framework_rule_readings()
+            assert any("mandatory rule readings missing" in error for error in validator.errors), validator.errors
+
+    # Removing an authority's stop condition must fail even with valid links/headings.
+    with project() as root:
+        rules = root / "framework/rules"
+        rules.mkdir(parents=True)
+        contract = (repository / "framework/rules/task-contract.md").read_text(encoding="utf-8")
+        loop = (repository / "framework/rules/loop-engineering.md").read_text(encoding="utf-8")
+        write(rules / "task-contract.md", contract)
+        write(rules / "loop-engineering.md", loop)
+        validator = MODULE.Validator(root)
+        validator.check_framework_task_completion_contract()
+        assert not validator.errors, validator.errors
+        for boundary in ("Never forcibly steal", "20 waiting attempts", "Deferred path-based Acceptance"):
+            assert boundary in contract
+            write(rules / "task-contract.md", contract.replace(boundary, "REMOVED", 1))
+            validator = MODULE.Validator(root)
+            validator.check_framework_task_completion_contract()
+            assert any("safety boundary missing" in error for error in validator.errors), validator.errors
+
+    loop = load("blueprint-loop")
+    all_checks = sorted((SCRIPT.parent).glob("*.checks.py"))
+    for path in ("framework/scripts/deploy_preparation.py", "framework/scripts/validation_cache.py",
+                 "framework/scripts/validation/framework_contracts.py", "README.md",
+                 ".agents/skills/worktree/SKILL.md", "framework/rules/loop-engineering.md"):
+        selected, reason = loop.select_checks(repository, {path}, True)
+        assert selected == all_checks, (path, selected, reason)

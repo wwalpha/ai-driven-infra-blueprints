@@ -74,9 +74,10 @@ from script_loader import module
 import issues_scan as scan, s3_delivery as delivery
 aws = module('check-model-aws.py', 'model_aws_compare')
 deploy = module('cloudformation-deploy.py', 'core_deploy')
+from deployment import repair
 assert delivery.module('check-model-aws.py', 'model_aws_compare') is aws
-assert aws.Unresolved is rows.Unresolved and aws.put_row is deploy.put_row is rows.put_row
-assert deploy.same is values.same and scan.Comparison is iac.Comparison
+assert aws.Unresolved is rows.Unresolved and aws.put_row is repair.put_row is rows.put_row
+assert repair.same is values.same and scan.Comparison is iac.Comparison
 assert deploy.Blocked is iac.Blocked
 '''
 for order in [('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]:

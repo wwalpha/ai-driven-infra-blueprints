@@ -7,7 +7,11 @@ description: Run a repository change task in an isolated linked Git worktree, th
 
 Use `/worktree <task-id> <child skill/task and its inputs>` for a task that changes repository files. This skill wraps the selected task; it does not replace its logic, authorize another phase, or authorize AWS operations. Existing task types do not encode read-only intent: decide from the requested outputs. Investigation/review without saved changes runs in the current checkout; `/issues` with saved reports is a change task.
 
-Read [Task Contract](../../../framework/rules/task-contract.md) and applicable [local loop/completion rules](../../../framework/rules/loop-engineering.md). Read only the selected child skill and its required references; do not reread every skill. Use the Python 3 launcher required by that workflow (`python3` below).
+## Read before execution
+
+Read [Task transition](../../../framework/rules/task-contract.md#task-transition), [Task boundary](../../../framework/rules/task-contract.md#task-boundary), [Acceptance contract](../../../framework/rules/task-contract.md#acceptance-contract), and [Retry and stop](../../../framework/rules/task-contract.md#retry-and-stop). For validation/integration, read [Local loop](../../../framework/rules/loop-engineering.md#local-loop), [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression), [Conflict resolution and reproducible validation](../../../framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation), and [Retry and stop](../../../framework/rules/loop-engineering.md#retry-and-stop).
+
+Read only the selected child skill and its mandatory/conditional references, including its task-type completion section; these remain authoritative for child permissions and finish conditions. Read [Validation cache](../../../framework/rules/loop-engineering.md#validation-cache) when reusing results and [Timing and long-running execution](../../../framework/rules/loop-engineering.md#timing-and-long-running-execution) for long runs/recovery. Use the Python 3 launcher required by that workflow (`python3` below).
 
 ## Create and execute
 

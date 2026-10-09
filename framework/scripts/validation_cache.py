@@ -69,8 +69,9 @@ class PassCache:
             raise ValueError("validation cache must be outside the repository")
 
     def common_key(self):
-        paths = [self.root / "project.json", self.root / "AGENTS.md"]
-        paths.extend(path for path in (self.root / "framework").rglob("*") if path.is_file() or path.is_symlink())
+        paths = [self.root / "project.json", self.root / "AGENTS.md", self.root / "README.md"]
+        paths.extend(path for directory in ("framework", ".agents")
+                     for path in (self.root / directory).rglob("*") if path.is_file() or path.is_symlink())
         inputs = [digest_files(self.root, paths)]
         runtime = Path(__file__).resolve().parents[2]
         if runtime != self.root:
