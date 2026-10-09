@@ -4,6 +4,8 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import pytest
+from test_support.pytest_cli import run
 import model_projection
 import json
 
@@ -24,25 +26,24 @@ SCRIPTS = Path(__file__).resolve().parent
 VALIDATOR = load("validate-blueprint")
 
 
-def main():
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory).resolve()
-        path = root / "docs/designs/dev/123456789012/iam.md"
-        path.parent.mkdir(parents=True)
-        artifacts = path.parent / "iam"
-        artifacts.mkdir()
-        trust = {"Version": "2012-10-17", "Statement": [{
-            "Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"},
-            "Action": "sts:AssumeRole", "Condition": {
-                "StringEquals": {"aws:SourceAccount": "123456789012"},
-                "ArnLike": {"aws:SourceArn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*"},
-            },
-        }]}
-        inline = {"Version": "2012-10-17", "Id": "Logging", "Statement": [
-            {"Sid": "Write", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": ["arn:aws:logs:*:123456789012:log-group:example:*"]},
-            {"Effect": "Deny", "NotAction": ["logs:DescribeLogGroups"], "NotResource": "arn:aws:logs:*:123456789012:log-group:other:*"},
-        ]}
-        text = """# IAM設計書
+def check_iam(tmp_path):
+    root = tmp_path
+    path = root / "docs/designs/dev/123456789012/iam.md"
+    path.parent.mkdir(parents=True)
+    artifacts = path.parent / "iam"
+    artifacts.mkdir()
+    trust = {"Version": "2012-10-17", "Statement": [{
+        "Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"},
+        "Action": "sts:AssumeRole", "Condition": {
+            "StringEquals": {"aws:SourceAccount": "123456789012"},
+            "ArnLike": {"aws:SourceArn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*"},
+        },
+    }]}
+    inline = {"Version": "2012-10-17", "Id": "Logging", "Statement": [
+        {"Sid": "Write", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": ["arn:aws:logs:*:123456789012:log-group:example:*"]},
+        {"Effect": "Deny", "NotAction": ["logs:DescribeLogGroups"], "NotResource": "arn:aws:logs:*:123456789012:log-group:other:*"},
+    ]}
+    text = """# IAM設計書
 
 - Design service ID: `iam`
 - Owned catalog resource types: `IAM.Role`, `IAM.InstanceProfile`
@@ -65,11 +66,11 @@ def main():
 ## リソース詳細
 
 """
-        for logical_id in ("RoleA", "RoleB"):
-            file_id = VALIDATOR.artifact_id(logical_id)
-            for suffix, document in (("trust-policy", trust), ("logging", inline), ("extra", inline)):
-                (artifacts / f"{file_id}-{suffix}.json").write_text(json.dumps(document), encoding="utf-8")
-            text += f'''<a id="iam-{logical_id.lower()}"></a>
+    for logical_id in ("RoleA", "RoleB"):
+        file_id = VALIDATOR.artifact_id(logical_id)
+        for suffix, document in (("trust-policy", trust), ("logging", inline), ("extra", inline)):
+            (artifacts / f"{file_id}-{suffix}.json").write_text(json.dumps(document), encoding="utf-8")
+        text += f'''<a id="iam-{logical_id.lower()}"></a>
 
 ### IAM.Role: {logical_id}
 
@@ -83,7 +84,7 @@ def main():
 | 6 | Policies[].PolicyDocument | [Extra](iam/{file_id}-extra.json) | 追加の権限ポリシー |
 
 '''
-        text += '''<a id="iam-profile"></a>
+    text += '''<a id="iam-profile"></a>
 
 ### IAM.InstanceProfile: Profile
 
@@ -91,144 +92,144 @@ def main():
 | ---: | --- | --- | --- |
 | 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
 '''
-        path.write_text(text, encoding="utf-8")
-        baseline_model = model_projection.model_for(path)
-        rendered = rendered_design(path)
-        path.write_text(rendered, encoding="utf-8")
-        assert rendered_design(path) == rendered, "generation must be idempotent"
-        assert model_projection.model_for(path) == baseline_model, "views must not alter the model"
-        assert "desired.note." not in baseline_model
-        assert rendered.count("| Version |\n| --- |\n| `2012-10-17` |") == 2
-        assert rendered.count(START) == 2
-        assert rendered.count("\n#### ") == 6
-        assert rendered.count("\n## リソース詳細\n") == 1
-        assert "[RoleA](#iam-rolea)" in rendered
-        assert "Flow Logsに使用するRole" in rendered and "追加ログを記録するRole" in rendered
-        assert 'id="iam-rolea-inline-logging"' in rendered and 'id="iam-roleb-inline-logging"' in rendered
-        assert "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
-        assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
-        condition_row = next(line for line in rendered.splitlines() if line.startswith("| 1 | Allow |"))
-        assert "aws:SourceAccount" in condition_row and "aws:SourceArn" in condition_row
+    path.write_text(text, encoding="utf-8")
+    baseline_model = model_projection.model_for(path)
+    rendered = rendered_design(path)
+    path.write_text(rendered, encoding="utf-8")
+    assert rendered_design(path) == rendered, "generation must be idempotent"
+    assert model_projection.model_for(path) == baseline_model, "views must not alter the model"
+    assert "desired.note." not in baseline_model
+    assert rendered.count("| Version |\n| --- |\n| `2012-10-17` |") == 2
+    assert rendered.count(START) == 2
+    assert rendered.count("\n#### ") == 6
+    assert rendered.count("\n## リソース詳細\n") == 1
+    assert "[RoleA](#iam-rolea)" in rendered
+    assert "Flow Logsに使用するRole" in rendered and "追加ログを記録するRole" in rendered
+    assert 'id="iam-rolea-inline-logging"' in rendered and 'id="iam-roleb-inline-logging"' in rendered
+    assert "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |" in rendered
+    assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
+    condition_row = next(line for line in rendered.splitlines() if line.startswith("| 1 | Allow |"))
+    assert "aws:SourceAccount" in condition_row and "aws:SourceArn" in condition_row
 
-        def errors(content):
-            path.write_text(content, encoding="utf-8")
-            validator = VALIDATOR.Validator(root)
-            validator.accounts = {("dev", "123456789012"): {}}
-            validator.check_policy_tables()
-            validator.check_design_overviews()
-            validator.check_design_links({})
-            catalog_types, owners, outputs = VALIDATOR.Validator(SCRIPTS.parents[1]).catalog_design_properties()
-            validator.check_design_tables({path: ("iam", ("IAM.Role", "IAM.InstanceProfile"))}, catalog_types, owners, outputs)
-            validator.check_design_artifacts()
-            return validator.errors
+    def errors(content):
+        path.write_text(content, encoding="utf-8")
+        validator = VALIDATOR.Validator(root)
+        validator.accounts = {("dev", "123456789012"): {}}
+        validator.check_policy_tables()
+        validator.check_design_overviews()
+        validator.check_design_links({})
+        catalog_types, owners, outputs = VALIDATOR.Validator(SCRIPTS.parents[1]).catalog_design_properties()
+        validator.check_design_tables({path: ("iam", ("IAM.Role", "IAM.InstanceProfile"))}, catalog_types, owners, outputs)
+        validator.check_design_artifacts()
+        return validator.errors
 
-        assert not errors(rendered), errors(rendered)
-        assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
-        for metadata in ("Property：", "JSON：", "Version：", "Id："):
-            assert metadata not in rendered
-            assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
-        assert errors(rendered.replace("| `2012-10-17` |", "| `2008-10-17` |", 1)), "wrong trust Version must fail"
-        assert errors(text), "missing views must fail"
-        assert errors(rendered.replace("[RoleA](#iam-rolea)", "[Wrong](#iam-rolea)"))
-        assert errors(rendered.replace('id="iam-roleb-inline-extra"', 'id="iam-rolea-inline-extra"'))
-        assert errors(rendered.replace("`logs:CreateLogStream`<br>`logs:PutLogEvents`", "`logs:CreateLogStream`", 1))
-        assert errors(rendered.replace(START, "", 1))
-        assert errors(rendered.replace(END, "", 1))
-        assert errors(rendered.replace("### IAM.Role: RoleB", "### IAM.Role: RoleA"))
+    assert not errors(rendered), errors(rendered)
+    assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
+    for metadata in ("Property：", "JSON：", "Version：", "Id："):
+        assert metadata not in rendered
+        assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
+    assert errors(rendered.replace("| `2012-10-17` |", "| `2008-10-17` |", 1)), "wrong trust Version must fail"
+    assert errors(text), "missing views must fail"
+    assert errors(rendered.replace("[RoleA](#iam-rolea)", "[Wrong](#iam-rolea)"))
+    assert errors(rendered.replace('id="iam-roleb-inline-extra"', 'id="iam-rolea-inline-extra"'))
+    assert errors(rendered.replace("`logs:CreateLogStream`<br>`logs:PutLogEvents`", "`logs:CreateLogStream`", 1))
+    assert errors(rendered.replace(START, "", 1))
+    assert errors(rendered.replace(END, "", 1))
+    assert errors(rendered.replace("### IAM.Role: RoleB", "### IAM.Role: RoleA"))
 
-        # Generated one-based rows retain both inline policies for every Role.
-        indexed_lines = text.splitlines()
-        for resource in reversed(resources_in(indexed_lines)):
-            start = resource.table_end
-            while indexed_lines[start - 1].startswith("|") and indexed_lines[start - 1] not in {HEADER, ALIGNMENT}:
-                start -= 1
-            rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in indexed_lines[start:resource.table_end]]
-            shown = indexed_rows(rows, resource.resource_type)
-            indexed_lines[start:resource.table_end] = ["| " + " | ".join(row) + " |" for row in shown]
-        indexed = "\n".join(indexed_lines) + "\n"
-        assert "Policies[1].PolicyDocument" in indexed and "Policies[2].PolicyDocument" in indexed
-        path.write_text(indexed, encoding="utf-8")
-        indexed_rendered = rendered_design(path)
-        assert indexed_rendered.count("#### インラインポリシー：Logging") == 2
-        assert indexed_rendered.count("#### インラインポリシー：Extra") == 2
-        assert indexed_rendered.count("\n#### ") == 6
-        assert "\n".join(without_policy_tables(indexed_rendered.splitlines())) + "\n" == indexed
-        assert not errors(indexed_rendered), errors(indexed_rendered)
-        assert rendered_design(path) == indexed_rendered, "indexed policy generation must be idempotent"
-        assert model_projection.model_for(path) == baseline_model, "array display and policy views must preserve the model"
-        path.write_text(rendered, encoding="utf-8")
+    # Generated one-based rows retain both inline policies for every Role.
+    indexed_lines = text.splitlines()
+    for resource in reversed(resources_in(indexed_lines)):
+        start = resource.table_end
+        while indexed_lines[start - 1].startswith("|") and indexed_lines[start - 1] not in {HEADER, ALIGNMENT}:
+            start -= 1
+        rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in indexed_lines[start:resource.table_end]]
+        shown = indexed_rows(rows, resource.resource_type)
+        indexed_lines[start:resource.table_end] = ["| " + " | ".join(row) + " |" for row in shown]
+    indexed = "\n".join(indexed_lines) + "\n"
+    assert "Policies[1].PolicyDocument" in indexed and "Policies[2].PolicyDocument" in indexed
+    path.write_text(indexed, encoding="utf-8")
+    indexed_rendered = rendered_design(path)
+    assert indexed_rendered.count("#### インラインポリシー：Logging") == 2
+    assert indexed_rendered.count("#### インラインポリシー：Extra") == 2
+    assert indexed_rendered.count("\n#### ") == 6
+    assert "\n".join(without_policy_tables(indexed_rendered.splitlines())) + "\n" == indexed
+    assert not errors(indexed_rendered), errors(indexed_rendered)
+    assert rendered_design(path) == indexed_rendered, "indexed policy generation must be idempotent"
+    assert model_projection.model_for(path) == baseline_model, "array display and policy views must preserve the model"
+    path.write_text(rendered, encoding="utf-8")
 
-        # JSON changes affect the existing hash and must invalidate the derived view.
-        artifact = artifacts / "role-a-trust-policy.json"
-        changed = json.loads(json.dumps(trust))
-        changed["Statement"][0]["Condition"]["StringEquals"]["aws:SourceAccount"] = "222222222222"
-        artifact.write_text(json.dumps(changed), encoding="utf-8")
-        assert errors(rendered)
-        assert model_projection.model_for(path) != baseline_model
-        artifact.write_text(json.dumps(trust, indent=4, sort_keys=True), encoding="utf-8")
-        assert not errors(rendered), "JSON formatting and object key order must not change views"
-        assert model_projection.model_for(path) == baseline_model
+    # JSON changes affect the existing hash and must invalidate the derived view.
+    artifact = artifacts / "role-a-trust-policy.json"
+    changed = json.loads(json.dumps(trust))
+    changed["Statement"][0]["Condition"]["StringEquals"]["aws:SourceAccount"] = "222222222222"
+    artifact.write_text(json.dumps(changed), encoding="utf-8")
+    assert errors(rendered)
+    assert model_projection.model_for(path) != baseline_model
+    artifact.write_text(json.dumps(trust, indent=4, sort_keys=True), encoding="utf-8")
+    assert not errors(rendered), "JSON formatting and object key order must not change views"
+    assert model_projection.model_for(path) == baseline_model
 
-        # A single Statement object, different principals, array conditions and escaping.
-        special = {"Statement": {"Effect": "Deny", "NotPrincipal": {"AWS": ["arn:aws:iam::123456789012:root"], "Federated": "example"},
-            "NotAction": "s3:*", "Resource": "*", "Condition": {"StringEquals": {"key": ["a|b", "<value>", "`value`"]}}}}
-        artifact.write_text(json.dumps(special), encoding="utf-8")
-        role = resources_in(without_policy_tables(rendered.splitlines()))[0]
-        special_view = "\n".join(policy_lines(path, role.policies[0]))
-        assert "NotPrincipal.AWS" in special_view and "NotPrincipal.Federated" in special_view
-        assert "&#124;" in special_view and "&lt;value&gt;" in special_view
-        assert "| Version |" not in special_view, "do not invent an absent Version table"
-        assert "Version：" not in special_view, "do not invent absent Version"
-        artifact.write_text(json.dumps({**trust, "Unknown": True}), encoding="utf-8")
-        assert errors(rendered), "unknown policy elements must never be omitted"
-        artifact.write_text('{"Statement":{"Effect":"Allow","Effect":"Deny"}}', encoding="utf-8")
-        assert errors(rendered), "duplicate JSON keys must not be silently discarded"
-        artifact.write_text(json.dumps({"Statement": [{"Effect": []}]}), encoding="utf-8")
-        assert errors(rendered), "malformed Effect must report a validation error"
-        artifact.write_text(json.dumps(trust), encoding="utf-8")
-        assert errors(rendered.replace(START, START + "\n" + START, 1))
-        assert errors(rendered.replace("iam/role-a-trust-policy.json", "../role-a-trust-policy.json"))
+    # A single Statement object, different principals, array conditions and escaping.
+    special = {"Statement": {"Effect": "Deny", "NotPrincipal": {"AWS": ["arn:aws:iam::123456789012:root"], "Federated": "example"},
+        "NotAction": "s3:*", "Resource": "*", "Condition": {"StringEquals": {"key": ["a|b", "<value>", "`value`"]}}}}
+    artifact.write_text(json.dumps(special), encoding="utf-8")
+    role = resources_in(without_policy_tables(rendered.splitlines()))[0]
+    special_view = "\n".join(policy_lines(path, role.policies[0]))
+    assert "NotPrincipal.AWS" in special_view and "NotPrincipal.Federated" in special_view
+    assert "&#124;" in special_view and "&lt;value&gt;" in special_view
+    assert "| Version |" not in special_view, "do not invent an absent Version table"
+    assert "Version：" not in special_view, "do not invent absent Version"
+    artifact.write_text(json.dumps({**trust, "Unknown": True}), encoding="utf-8")
+    assert errors(rendered), "unknown policy elements must never be omitted"
+    artifact.write_text('{"Statement":{"Effect":"Allow","Effect":"Deny"}}', encoding="utf-8")
+    assert errors(rendered), "duplicate JSON keys must not be silently discarded"
+    artifact.write_text(json.dumps({"Statement": [{"Effect": []}]}), encoding="utf-8")
+    assert errors(rendered), "malformed Effect must report a validation error"
+    artifact.write_text(json.dumps(trust), encoding="utf-8")
+    assert errors(rendered.replace(START, START + "\n" + START, 1))
+    assert errors(rendered.replace("iam/role-a-trust-policy.json", "../role-a-trust-policy.json"))
 
-        # The 16-character limit belongs only to inline Statement.Sid.
-        inline_artifact = artifacts / "role-a-logging.json"
-        role = resources_in(without_policy_tables(rendered.splitlines()))[0]
-        for sid, valid in (("S" * 16, True), ("S" * 17, False), (17, False)):
-            document = json.loads(json.dumps(inline))
-            document["Statement"][0]["Sid"] = sid
-            inline_artifact.write_text(json.dumps(document), encoding="utf-8")
-            try:
-                view = "\n".join(policy_lines(path, role.policies[1]))
-            except ValueError as error:
-                assert not valid and "Sid must be a string of at most 16 characters" in str(error)
-            else:
-                assert valid and "S" * 16 in view
-            assert json.loads(inline_artifact.read_text(encoding="utf-8")) == document
-        assert any("Sid must be" in error for error in errors(rendered))
-        inline_artifact.write_text(json.dumps(inline), encoding="utf-8")
-        trust_with_sid = json.loads(json.dumps(trust))
-        trust_with_sid["Statement"][0]["Sid"] = "T" * 17
-        artifact.write_text(json.dumps(trust_with_sid), encoding="utf-8")
-        assert "T" * 17 in "\n".join(policy_lines(path, role.policies[0]))
-        artifact.write_text(json.dumps(trust), encoding="utf-8")
+    # The 16-character limit belongs only to inline Statement.Sid.
+    inline_artifact = artifacts / "role-a-logging.json"
+    role = resources_in(without_policy_tables(rendered.splitlines()))[0]
+    for sid, valid in (("S" * 16, True), ("S" * 17, False), (17, False)):
+        document = json.loads(json.dumps(inline))
+        document["Statement"][0]["Sid"] = sid
+        inline_artifact.write_text(json.dumps(document), encoding="utf-8")
+        try:
+            view = "\n".join(policy_lines(path, role.policies[1]))
+        except ValueError as error:
+            assert not valid and "Sid must be a string of at most 16 characters" in str(error)
+        else:
+            assert valid and "S" * 16 in view
+        assert json.loads(inline_artifact.read_text(encoding="utf-8")) == document
+    assert any("Sid must be" in error for error in errors(rendered))
+    inline_artifact.write_text(json.dumps(inline), encoding="utf-8")
+    trust_with_sid = json.loads(json.dumps(trust))
+    trust_with_sid["Statement"][0]["Sid"] = "T" * 17
+    artifact.write_text(json.dumps(trust_with_sid), encoding="utf-8")
+    assert "T" * 17 in "\n".join(policy_lines(path, role.policies[0]))
+    artifact.write_text(json.dumps(trust), encoding="utf-8")
 
-        # --write updates only derived Markdown and requires an explicit file.
-        path.write_text(text, encoding="utf-8")
-        check = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path)], capture_output=True)
-        assert check.returncode == 1 and path.read_text(encoding="utf-8") == text
-        write = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"], capture_output=True)
-        assert write.returncode == 0, write.stderr
-        assert path.read_text(encoding="utf-8") == rendered
+    # --write updates only derived Markdown and requires an explicit file.
+    path.write_text(text, encoding="utf-8")
+    check = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path)], capture_output=True)
+    assert check.returncode == 1 and path.read_text(encoding="utf-8") == text
+    write = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"], capture_output=True)
+    assert write.returncode == 0, write.stderr
+    assert path.read_text(encoding="utf-8") == rendered
 
-        # The policy-only renderer does not invent omitted Role settings.
-        minimal = text[:text.index('<a id="iam-roleb"')]
-        minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("| RoleName |", "| Policies[]"))) + "\n"
-        path.write_text(minimal, encoding="utf-8")
-        view = rendered_design(path)
-        assert "[RoleA](#iam-rolea)" in view
-        assert "#### インラインポリシー" not in view
-        other_service = "# 他サービスの設計\n\n実装注記を維持する。\n"
-        path.write_text(other_service, encoding="utf-8")
-        assert rendered_design(path) == other_service
+    # The policy-only renderer does not invent omitted Role settings.
+    minimal = text[:text.index('<a id="iam-roleb"')]
+    minimal = "\n".join(line for line in minimal.splitlines() if not any(prop in line for prop in ("| RoleName |", "| Policies[]"))) + "\n"
+    path.write_text(minimal, encoding="utf-8")
+    view = rendered_design(path)
+    assert "[RoleA](#iam-rolea)" in view
+    assert "#### インラインポリシー" not in view
+    other_service = "# 他サービスの設計\n\n実装注記を維持する。\n"
+    path.write_text(other_service, encoding="utf-8")
+    assert rendered_design(path) == other_service
     print("IAM policy tables checks: PASS (generation, validation, model, CLI)")
 
 
@@ -301,10 +302,7 @@ def service_policy_checks():
             assert model_projection.model_for(path) == baseline_model, prop
             assert rendered.count(START) == 2 and rendered.count(END) == 2
             suffix = "inline-access" if prop == "IAM.User.Policies[].PolicyDocument" else "policy-access"
-            if owner_type == "S3.Bucket":
-                assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
-            else:
-                assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
+            assert f'id="{service}-sample-a-{suffix}"' in rendered and f'id="{service}-sample-b-{suffix}"' in rendered
             for duplicate in ("Property：", "JSON：", "Version：", "Id："):
                 assert duplicate not in rendered, (prop, duplicate)
             assert rendered.count("実装注記を維持する。") == 2
@@ -448,16 +446,20 @@ def grouping_and_settings_checks():
         assert not validator.errors, validator.errors
         for malformed in ({"LifecyclePolicyText": {}}, {"LifecyclePolicyText": "not-json"}, {"LifecyclePolicyText": "[]"}, {"LifecyclePolicyText": '{"rules":[],"rules":[]}'}):
             lifecycle.write_text(json.dumps(malformed), encoding="utf-8")
-            try:
+            with pytest.raises(ValueError):
                 rendered_design(path)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("invalid embedded policy JSON must fail")
     print("Policy grouping/settings checks: PASS (KMS aliases, absent policy, multiple formats, nested JSON)")
 
 
+check_service_policies = service_policy_checks
+
+
+check_grouping_and_settings = grouping_and_settings_checks
+
+
+def main():
+    return run(__file__, ['check_iam', 'check_service_policies', 'check_grouping_and_settings'])
+
+
 if __name__ == "__main__":
-    main()
-    service_policy_checks()
-    grouping_and_settings_checks()
+    raise SystemExit(main())

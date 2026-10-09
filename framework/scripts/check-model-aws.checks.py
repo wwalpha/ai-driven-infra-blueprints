@@ -7,6 +7,8 @@ test-created models are the only regression fixtures. Missing boto3 is a failure
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+import pytest
+from test_support.pytest_cli import run
 import copy
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import importlib.util
@@ -16,7 +18,6 @@ import os
 from pathlib import Path
 import socket
 import sys
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,14 +40,12 @@ def check(condition, message):
 
 
 def expect(error_type, function):
-    try:
+    with pytest.raises(error_type):
         function()
-    except error_type:
-        check(True, 'expected rejection')
-    else:
-        raise AssertionError('expected ' + error_type.__name__)
+    check(True, 'expected rejection')
 
 
+STACK_MODEL = 'desired.stack.001.name=fixture\ndesired.stack.001.template=a.yaml\ndesired.stack.001.parameters=a.json\ndesired.stack.001.deployOrder=1\ndesired.deployment.maxConcurrentStacks=1\n'
 ACCOUNT = '123456789012'
 TARGET = {'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'environment': 'dev', 'directory': ACCOUNT,
           'iacEngine': 'cloudformation'}
@@ -561,7 +560,7 @@ def common_checks(root):
     ctx.finish()
     # Stack presence/state and local metadata, without templates or parameters.
     stacks = directory / 'cloudformation-stacks.properties'
-    stacks.write_text('desired.stack.001.name=fixture\ndesired.stack.001.template=a.yaml\ndesired.stack.001.parameters=a.json\ndesired.stack.001.deployOrder=1\ndesired.deployment.maxConcurrentStacks=1\n', encoding='utf-8')
+    stacks.write_text(STACK_MODEL, encoding='utf-8')
     for fault in (None, 'missing', 'failed'):
         stack_ctx = Offline(root, fault)
         stack_ctx.egress = False
@@ -574,6 +573,8 @@ def common_checks(root):
 
 def association_checks(root):
     directory = root / 'model/dev' / ACCOUNT
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'cloudformation-stacks.properties').write_text(STACK_MODEL, encoding='utf-8')
     # SDK responses and desired rows are authored separately. Moving a tag value
     # onto a different key must fail even when the multisets of values are equal.
     path = directory / 'ec2.properties'
@@ -706,27 +707,37 @@ def fixture_coverage(root):
     print(f"Offline model coverage: {report['modelCount']} models / {report['resourceTypeCount']} types / {report['keyCount']} keys")
 
 
-def main():
+@pytest.fixture(autouse=True)
+def offline_network():
+    with patch.object(socket.socket, "connect", side_effect=AssertionError("network is forbidden in offline checks")):
+        yield
+
+
+@pytest.mark.parametrize("callback, subdirectory", [
+    (service_checks, ""), (common_checks, ""), (association_checks, ""),
+    (batch_checks, "batch"), (cfn_identity_checks, "cfn-identity"), (fixture_coverage, "coverage"),
+], ids=["services", "common", "associations", "batch", "cfn-identity", "coverage"])
+def check_domains(tmp_path, callback, subdirectory):
+    callback(tmp_path / subdirectory)
+
+
+def check_consumer_coverage():
     consumer = Path(os.environ['AWS_COMPARE_COVERAGE_ROOT']) if 'AWS_COMPARE_COVERAGE_ROOT' in os.environ else None
-    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network is forbidden in offline checks')):
-        with tempfile.TemporaryDirectory(prefix='aws-compare-checks-') as tmp:
-            root = Path(tmp)
-            service_checks(root)
-            common_checks(root)
-            association_checks(root)
-            batch_checks(root / 'batch')
-            cfn_identity_checks(root / 'cfn-identity')
-            fixture_coverage(root / 'coverage')
-        # Explicit read-only consumer audit is optional; regression has no host-path dependency.
-        if consumer is not None and consumer.is_dir():
-            report = m.coverage(consumer, m.inventory(consumer, m.targets(consumer, all_targets=True)))
-            check(not report['problems'], 'consumer coverage: ' + repr(report['problems']))
-            check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated')
-            print(f"Read-only model coverage: {report['modelCount']} models / {report['resourceTypeCount']} types / {report['keyCount']} keys")
-        elif 'AWS_COMPARE_COVERAGE_ROOT' in os.environ:
-            raise AssertionError('explicit coverage root is missing')
+    # Explicit read-only consumer audit is optional; regression has no host-path dependency.
+    if consumer is not None and consumer.is_dir():
+        report = m.coverage(consumer, m.inventory(consumer, m.targets(consumer, all_targets=True)))
+        check(not report['problems'], 'consumer coverage: ' + repr(report['problems']))
+        check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated')
+        print(f"Read-only model coverage: {report['modelCount']} models / {report['resourceTypeCount']} types / {report['keyCount']} keys")
+    elif 'AWS_COMPARE_COVERAGE_ROOT' in os.environ:
+        raise AssertionError('explicit coverage root is missing')
     print(f'AWS model comparison checks: PASS ({COUNT} assertions; no AWS connection)')
 
 
-if __name__ == '__main__':
-    main()
+
+def main():
+    return run(__file__, ['check_domains', 'check_consumer_coverage'])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

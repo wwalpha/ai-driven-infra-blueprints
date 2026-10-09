@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 from test_support.validator import load
+from test_support.pytest_cli import Diagnostics, run
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -1903,22 +1904,9 @@ def check_cli_result(result, monkeypatch, capsys):
     assert capsys.readouterr().err == ("pytest failure\n" * 2 if result else "")
 
 
-class Diagnostics:
-    """Keep legacy success output while retaining pytest's failure diagnostics."""
-
-    def pytest_runtest_logreport(self, report):
-        if report.failed:
-            print(report.longrepr, file=sys.stderr)
-
-    pytest_collectreport = pytest_runtest_logreport
-
 
 def main():
-    result = pytest.main([str(Path(__file__).resolve()), "-s", "-p", "no:terminal"], plugins=[Diagnostics()])
-    if result == 0:
-        print("model_design: PASS (authoritative updates, service rollback, naming coverage and service displays)")
-    return int(result != 0)
-
+    return run(__file__, message="model_design: PASS (authoritative updates, service rollback, naming coverage and service displays)")
 
 if __name__ == "__main__":
     if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):

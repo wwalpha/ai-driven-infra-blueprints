@@ -359,9 +359,10 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode full --task-file tasks
 
 Use one command matching the task. `python` denotes the available Python 3 launcher (`python3` on Unix-like OSes or `py -3` on Windows when needed). Full regression on Windows requires human input under the [Windows full regression input guard](framework/rules/loop-engineering.md#windows-full-regression-input-guard); agents must not register passwords or bypass it.
 
-### pytest Pilot
+### pytest checks
 
-The `model_design.checks.py` Pilot requires Python 3.10 or newer and the test-only
+The `model_design.checks.py` Pilot and ten migrated suites listed in
+`framework/scripts/pytest.ini` require Python 3.10 or newer and the test-only
 dependency below, installed in the Python environment used for regression. Existing
 runtime dependencies remain separate. Other `.checks.py` scripts keep their runner.
 
@@ -370,6 +371,7 @@ python -m pip install -r framework/scripts/requirements-test.txt
 python -B framework/scripts/model_design.checks.py
 python -m pytest -q framework/scripts/model_design.checks.py
 python -m pytest -q framework/scripts/model_design.checks.py::check_invalid_model
+python -m pytest -q framework/scripts
 ```
 
 Use `python3` on macOS or `py -3` on Windows when needed. Both entrypoints reject

@@ -5,6 +5,8 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import pytest
+from test_support.pytest_cli import run
 import importlib.util
 import sync_runtime
 import io
@@ -12,7 +14,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 from collections import Counter
 from contextlib import redirect_stdout, redirect_stderr
@@ -32,12 +33,9 @@ TARGET = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEng
 
 
 def rejects(action, fragment):
-    try:
+    with pytest.raises((ValueError, M.Blocked)) as error:
         action()
-    except (ValueError, M.Blocked) as error:
-        assert fragment in str(error), str(error)
-    else:
-        raise AssertionError("expected blocker: " + fragment)
+    assert fragment in str(error.value), str(error.value)
 
 
 def stack_id(name):
@@ -313,11 +311,10 @@ def fixture(root, names, models=False):
     return contract
 
 
-def check_controller():
+def check_controller(tmp_path):
     runner = M.run_session
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/destroy.md"}), \
-            patch.object(M, "run_session", side_effect=lambda *args, **kwargs: runner(*args, **kwargs, sleep=lambda _: None)):
-        base = Path(directory); root = base / "repo"; root.mkdir()
+    with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/destroy.md'}), patch.object(M, 'run_session', side_effect=lambda *args, **kwargs: runner(*args, **kwargs, sleep=lambda _: None)):
+        base = tmp_path; root = base / "repo"; root.mkdir()
         fixture(root, {"A": 10})
         fake = Fake(["A"])
         # Use the real AWS backend/real context; subprocess is the sole fake boundary.
@@ -419,9 +416,9 @@ def check_controller():
             (root / "issues/dev/123456789012/issues.md").unlink(missing_ok=True)
 
 
-def check_observed():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/destroy.md"}):
-        root = Path(directory); fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
+def check_observed(tmp_path):
+    with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/destroy.md'}):
+        root = tmp_path; fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
         # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
@@ -500,14 +497,13 @@ def check_observed():
         print("D15: PASS unmapped pending design reported/unchanged; observed and duplicate ownership still block")
 
 
+
+
+
+
 def main():
-    check_order_and_safety()
-    check_unused_export()
-    check_absence()
-    check_controller()
-    check_observed()
-    print("cloudformation-destroy: PASS (D01-D16; fake AWS only)")
+    return run(__file__, ['check_order_and_safety', 'check_unused_export', 'check_absence', 'check_controller', 'check_observed'], 'cloudformation-destroy: PASS (D01-D16; fake AWS only)')
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

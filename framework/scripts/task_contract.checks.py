@@ -4,13 +4,14 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+import pytest
+from test_support.pytest_cli import run
 import sync_runtime
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import os
 from pathlib import Path
 import subprocess
-import tempfile
 import shutil
 from threading import Barrier
 from unittest.mock import patch
@@ -42,17 +43,14 @@ def contract(name, files, state="running", kind="governance", scope="framework")
 
 
 def blocked(callback, message):
-    try:
+    with pytest.raises(ValueError) as error:
         callback()
-    except ValueError as error:
-        assert message in str(error), str(error)
-    else:
-        raise AssertionError(f"expected rejection: {message}")
+    assert message in str(error.value), str(error.value)
 
 
-def check_admission_selection():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_admission_selection(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         first = "tasks/first.md"
         second = "tasks/second.md"
         tasks.start(root, first, contract(first, ["new/file.md"]))
@@ -99,9 +97,9 @@ def check_admission_selection():
         tasks.complete(root, second)
 
 
-def check_completed_legacy_and_paths():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_completed_legacy_and_paths(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         old = "tasks/old.md"
         new = "tasks/new.md"
         tasks.start(root, old, contract(old, ["README.md", "old.md"]))
@@ -136,9 +134,11 @@ def check_completed_legacy_and_paths():
         blocked(lambda: tasks.start(root, new, contract(new, ["file.md"], state="paused")), "Task status")
 
 
-def check_shared_issue_files():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_shared_issue_files(tmp_path):
+    directory = tmp_path / "case-0"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         first, second = "tasks/first.md", "tasks/second.md"
         reports = ["issues/issue.md", "issues/dev/cde/issues.md", "issues/dev/cde/diff.md",
                    "issues/deep/nested/result.json"]
@@ -167,8 +167,10 @@ def check_shared_issue_files():
 
     # Report merge/publication retains its existing lock, content retention and save-only gate.
     from issues_reports import save
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-1"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         report = "issues/dev/cde/issues.md"
         tasks.start(root, first, contract(first, [report], kind="migration", scope="dev/cde/ec2"))
         tasks.start(root, second, contract(second, [report], kind="migration", scope="dev/cde/s3"))
@@ -176,52 +178,49 @@ def check_shared_issue_files():
             save(root, "dev", "cde", ["ec2"], additions=[{"service": "ec2", "message": "retained issue"}])
         before = (root / report).read_bytes()
         with patch.dict(os.environ, {tasks.SELECTOR: second}), patch.object(tasks.time, "sleep") as sleep:
-            try:
+            with pytest.raises(tasks.DeferredExhausted):
                 save(root, "dev", "cde", ["s3"])
-            except tasks.DeferredExhausted:
-                assert sleep.call_count == 20
-            else:
-                raise AssertionError("busy report must remain unfinished")
+            assert sleep.call_count == 20
         assert (root / report).read_bytes() == before
         tasks.complete(root, first)
         with patch.dict(os.environ, {tasks.SELECTOR: second}), patch.object(tasks.time, "sleep", side_effect=AssertionError("released report must not wait")):
             save(root, "dev", "cde", ["s3"], additions=[{"service": "s3", "message": "second issue"}])
         assert all(value in (root / report).read_text() for value in ("retained issue", "second issue"))
 
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        blocked(lambda: tasks.start(root, first, contract(first, ["issues/../escape.md"])), "exact repository-relative path")
-        (root / "issues").symlink_to(root / "elsewhere")
-        blocked(lambda: tasks.start(root, first, contract(first, ["issues/issue.md"])), "symlinks")
-        (root / "issues").unlink()
-        outside = contract(first, ["issues/issue.md"]).replace(
-            "## Allowed paths\n- `tasks/first.md`\n- `issues/issue.md`", "## Allowed paths\n- `tasks/first.md`")
-        blocked(lambda: tasks.start(root, first, outside), "outside Allowed paths")
+    directory = tmp_path / "case-2"
+    directory.mkdir()
+    root = directory
+    blocked(lambda: tasks.start(root, first, contract(first, ["issues/../escape.md"])), "exact repository-relative path")
+    (root / "issues").symlink_to(root / "elsewhere")
+    blocked(lambda: tasks.start(root, first, contract(first, ["issues/issue.md"])), "symlinks")
+    (root / "issues").unlink()
+    outside = contract(first, ["issues/issue.md"]).replace(
+        "## Allowed paths\n- `tasks/first.md`\n- `issues/issue.md`", "## Allowed paths\n- `tasks/first.md`")
+    blocked(lambda: tasks.start(root, first, outside), "outside Allowed paths")
 
 
-def check_simultaneous_registration():
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        def register(name):
-            try:
-                tasks.start(root, name, contract(name, ["future.md"]))
-                return True
-            except ValueError:
-                return False
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            results = list(executor.map(register, ["tasks/one.md", "tasks/two.md"]))
-        assert 1 <= sum(results) <= 2  # A busy registration remains retryable.
-        for name in ("tasks/one.md", "tasks/two.md"):
-            if not (root / name).exists():
-                tasks.start(root, name, contract(name, ["future.md"]))
-        entries = tasks.reservations(root, tasks.contracts(root))
-        assert sum("future.md" in entry.active for entry in entries.values()) == 1
-        assert sum("future.md" in entry.deferred for entry in entries.values()) == 1
+def check_simultaneous_registration(tmp_path):
+    root = tmp_path
+    def register(name):
+        try:
+            tasks.start(root, name, contract(name, ["future.md"]))
+            return True
+        except ValueError:
+            return False
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(register, ["tasks/one.md", "tasks/two.md"]))
+    assert 1 <= sum(results) <= 2  # A busy registration remains retryable.
+    for name in ("tasks/one.md", "tasks/two.md"):
+        if not (root / name).exists():
+            tasks.start(root, name, contract(name, ["future.md"]))
+    entries = tasks.reservations(root, tasks.contracts(root))
+    assert sum("future.md" in entry.active for entry in entries.values()) == 1
+    assert sum("future.md" in entry.deferred for entry in entries.values()) == 1
 
 
-def check_suspend_and_resume():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_suspend_and_resume(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         first, second = "tasks/first.md", "tasks/second.md"
         tasks.start(root, first, contract(first, ["shared.md", "own.md"]))
         blocked(lambda: tasks.suspend(root, first, " "), "concrete reason")
@@ -266,12 +265,12 @@ def check_suspend_and_resume():
         assert tasks.paths_in((root / first).read_text(), "## Modified files") == {first, "shared.md", "own.md"}
 
 
-def check_validator_isolation():
+def check_validator_isolation(tmp_path):
     spec = importlib.util.spec_from_file_location("validator", Path(__file__).with_name("validate-blueprint.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         first, second = "tasks/one.md", "tasks/two.md"
         tasks.start(root, first, contract(first, ["README.md", "日本語 file.md"]))
@@ -307,9 +306,9 @@ def check_validator_isolation():
         blocked(lambda: module.Validator(root).check_task_scope(), "no task reservation")
 
 
-def check_deploy_update_ownership():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_deploy_update_ownership(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         dev, stg = "tasks/dev-deploy.md", "tasks/stg-update.md"
         dev_path = "infra/cloudformation/parameters/dev/cde/a.json"
         stg_path = "infra/cloudformation/parameters/stg/cde/other.json"
@@ -337,9 +336,9 @@ def check_deploy_update_ownership():
     print("Deploy/update ownership: PASS (F isolation, unowned changes and reservation conflicts blocked)")
 
 
-def check_worktree_isolation():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        base = Path(directory).resolve()
+def check_worktree_isolation(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        base = tmp_path
         root, linked = base / "main", base / "linked"
         root.mkdir()
         def git(where, *args):
@@ -403,9 +402,11 @@ def check_worktree_isolation():
     print("Worktree isolation: PASS (main/linked, detached/renamed, foreign selection/ownership, independent locks)")
 
 
-def check_deferred_acquisition_race():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_deferred_acquisition_race(tmp_path):
+    directory = tmp_path / "case-0"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         owner, one, two = "tasks/owner.md", "tasks/one.md", "tasks/two.md"
         tasks.start(root, owner, contract(owner, ["shared.md"]))
         for name in (one, two):
@@ -432,8 +433,10 @@ def check_deferred_acquisition_race():
 
     # The automatic worker path uses the same mutex: two waiting workers cannot
     # both acquire, even when their retries race after an owner's completion.
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-1"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         tasks.start(root, owner, contract(owner, ["shared.md"]))
         for name in (one, two):
             tasks.start(root, name, contract(name, ["shared.md"]))
@@ -453,12 +456,12 @@ def check_deferred_acquisition_race():
         assert sum("shared.md" in entries[name].deferred for name in (one, two)) == 1
 
 
-def check_deferred_validation():
+def check_deferred_validation(tmp_path):
     spec = importlib.util.spec_from_file_location("validator", Path(__file__).with_name("validate-blueprint.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
         subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
         first, second = "tasks/first.md", "tasks/second.md"
         tasks.start(root, first, contract(first, ["b.yaml"]))
@@ -489,9 +492,11 @@ def check_deferred_validation():
 
 
 
-def check_automatic_retry():
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+def check_automatic_retry(tmp_path):
+    directory = tmp_path / "case-0"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         one, two, worker = "tasks/one.md", "tasks/two.md", "tasks/worker.md"
         tasks.start(root, one, contract(one, ["a.md"]))
         tasks.start(root, two, contract(two, ["b.md"]))
@@ -518,22 +523,21 @@ def check_automatic_retry():
         assert not tasks.reservations(root, tasks.contracts(root))[worker].deferred
         tasks.complete(root, worker)
 
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-1"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         owner, worker = "tasks/owner.md", "tasks/worker.md"
         tasks.start(root, owner, contract(owner, ["busy.md"]))
         tasks.start(root, worker, contract(worker, ["busy.md", "ready.md"]))
         owner_before = (root / owner).read_bytes()
         jobs = {file: [root / file] for file in ("busy.md", "ready.md")}
         with patch.object(tasks, "refresh", wraps=tasks.refresh) as refresh, patch.object(tasks.time, "sleep") as sleep:
-            try:
+            with pytest.raises(tasks.DeferredExhausted) as error:
                 for file in tasks.reserved_batches(root, jobs, task_file=worker):
                     assert file == "ready.md"
                     (root / file).write_text("finished Active work")
-            except tasks.DeferredExhausted as error:
-                assert "unfinished" in str(error) and "20 retries" in str(error)
-            else:
-                raise AssertionError("must cleanly exhaust, without yielding a Deferred write")
+            assert "unfinished" in str(error.value) and "20 retries" in str(error.value)
             assert sleep.call_count == 20 and all(call.args == (30,) for call in sleep.call_args_list)
             # Startup and post-Active refresh, then exactly 20 waiting attempts.
             assert refresh.call_count == 22
@@ -551,8 +555,10 @@ def check_automatic_retry():
         assert tasks.status((root / worker).read_text()) == "running"
 
     # An indivisible output group must wait as a unit; independent jobs proceed.
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-2"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         tasks.start(root, owner, contract(owner, ["generated.json"]))
         tasks.start(root, worker, contract(worker, ["generated.json", "generated.md", "independent.md"]))
         events = []
@@ -565,8 +571,10 @@ def check_automatic_retry():
         assert events == ["independent", "bundle"]
 
     # Agent waiting returns on partial acquisition so acquired work precedes more waiting.
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-3"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         tasks.start(root, one, contract(one, ["a.md"]))
         tasks.start(root, two, contract(two, ["b.md"]))
         tasks.start(root, worker, contract(worker, ["a.md", "b.md"]))
@@ -582,8 +590,10 @@ def check_automatic_retry():
     spec = importlib.util.spec_from_file_location("retry_sync", Path(__file__).with_name("sync-model.py"))
     sync = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sync)
-    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-        root = Path(directory)
+    directory = tmp_path / "case-4"
+    directory.mkdir()
+    with patch.dict(os.environ, {}, clear=True):
+        root = directory
         output = "model/dev/cde/ec2.properties"
         source = root / "docs/designs/dev/cde/ec2.md"
         source.parent.mkdir(parents=True)
@@ -601,16 +611,11 @@ def check_automatic_retry():
     print("Automatic Deferred retry: PASS (Active first, partial work, 30 sec x 20, clean exhaustion, restart, atomic groups, agent continuation)")
 
 
+
+
+def main():
+    return run(__file__, ['check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
+
+
 if __name__ == "__main__":
-    check_automatic_retry()
-    check_worktree_isolation()
-    check_deferred_acquisition_race()
-    check_deferred_validation()
-    check_deploy_update_ownership()
-    check_admission_selection()
-    check_completed_legacy_and_paths()
-    check_shared_issue_files()
-    check_simultaneous_registration()
-    check_suspend_and_resume()
-    check_validator_isolation()
-    print("task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)")
+    raise SystemExit(main())

@@ -3,6 +3,8 @@
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+import pytest
+from test_support.pytest_cli import run
 import argparse
 from collections import Counter
 from contextlib import contextmanager
@@ -208,12 +210,9 @@ def mutate_template(root, template):
 
 
 def expect_error(function, phrase=None):
-    try:
+    with pytest.raises((ValueError, OSError, RuntimeError)) as error:
         function()
-    except (ValueError, OSError, RuntimeError) as error:
-        assert phrase is None or phrase in str(error), str(error)
-    else:
-        raise AssertionError('expected rejection')
+    assert phrase is None or phrase in str(error.value), str(error.value)
 
 
 def checks(root, values, template):
@@ -712,12 +711,8 @@ def local_reference_cases():
             assert comparison.evaluate(consumer, {'Fn::Sub': ['${X}', {'X': {'Ref': 'Bucket'}}]}) == 'bucket-app-dev-data1'
             for value in ({'Fn::Sub': '${Missing}'},
                           {'Fn::Sub': ['${X}', {'X': ['not', 'a string']}]}):
-                try:
+                with pytest.raises(Blocked):
                     comparison.evaluate(consumer, value)
-                except Blocked:
-                    pass
-                else:
-                    raise AssertionError('unproven Sub must be blocked')
             imported = {'Fn::ImportValue': {'Fn::Join': ['', ['app-dev-data2', '-BucketArn']]}}
             assert comparison.evaluate(consumer, imported) == {'$resource': ['s3', '002'], '$attribute': 'Arn'}
             expect_error(lambda: comparison.evaluate(consumer, {'Fn::ImportValue': 'missing'}), 'matches=0')
@@ -804,12 +799,8 @@ def symbolic_string_cases(_network):
         assert comparison.evaluate(name, {'Fn::Select': [0, {'Fn::Split': [':*', 'literal:*']}]}) == 'literal'
         for value in ({'Fn::Split': [',', 42]}, {'Fn::Split': [1, 'text']},
                       {'Fn::Split': [',']}, {'Fn::Split': ['', 'text']}):
-            try:
+            with pytest.raises(ValueError):
                 comparison.evaluate(name, value)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError('invalid Split must remain error')
         resource = comparison.resources['cloudwatch-logs']['001']
         prop = 'LogGroupName'
         def category(actual, desired):
@@ -1526,9 +1517,8 @@ def state_report_cases():
                                 raise error_type('fixture publication failure')
                             return replace(source, destination)
                         with patch('issues_reports.os.replace', side_effect=fail_replace):
-                            try: save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
-                            except error_type: pass
-                            else: raise AssertionError('partial publication cannot succeed')
+                            with pytest.raises(error_type):
+                                save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
                         assert failed and snapshot() == before
                         assert set(path.parent.iterdir()) == {*outputs, state}
             before = snapshot()
@@ -1547,9 +1537,8 @@ def state_report_cases():
             with task(root, ['s3'], name='report-writer'):
                 before = snapshot()
                 with patch('task_contract.time.sleep') as sleep:
-                    try: save(root, 'dev', '123456789012', ['s3'], iac=[record])
-                    except DeferredExhausted: pass
-                    else: raise AssertionError('reserved report must defer whole batch')
+                    with pytest.raises(DeferredExhausted):
+                        save(root, 'dev', '123456789012', ['s3'], iac=[record])
                 assert sleep.call_count == 20 and snapshot() == before
                 complete(root, 'tasks/report-owner.md')
                 save(root, 'dev', '123456789012', ['s3'], iac=[record])
@@ -1655,6 +1644,55 @@ def summary_scale_cases():
     print(f'IaC bounded output: PASS ({len(report.splitlines())} lines; stdout {len(stdout)} characters; 2193 records / 1194 action units)')
 
 
+@pytest.fixture(scope="module", autouse=True)
+def protected_sources():
+    protected = [ROOT / 'framework/scripts' / name for name in
+                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model_design.py', 'policy_tables.py')]
+    before = {path: path.read_bytes() if path.exists() else None for path in protected}
+    yield
+    assert before == {path: path.read_bytes() if path.exists() else None for path in protected}, 'checks changed protected source'
+
+
+@pytest.fixture
+def scan_project(tmp_path):
+    root = tmp_path / "project"
+    values, template = fixture(root, stacks=3, parts=True)
+    return root, values, template
+
+
+def check_scan_workflow(scan_project):
+    root, values, template = scan_project
+    checks(root, values, template)
+    naming_target_scope_cases()
+    resource_cases(root)
+    extended_cases(root, template)
+    concurrency(root)
+
+
+check_action_report = action_report_cases
+
+
+check_mismatch_display = mismatch_display_cases
+
+
+check_state_report = state_report_cases
+
+
+check_summary_scale = summary_scale_cases
+
+
+check_comparison_repair = comparison_repair_cases
+
+
+check_local_reference = local_reference_cases
+
+
+check_reference_identity_report = reference_identity_report_cases
+
+
+check_symbolic_string = symbolic_string_cases
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--benchmark', action='store_true')
@@ -1676,28 +1714,8 @@ def main():
     if args.benchmark:
         benchmark(args.log_dir or Path(tempfile.mkdtemp(prefix='issues-performance-')))
         return
-    protected = [ROOT / 'framework/scripts' / name for name in
-                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model_design.py', 'policy_tables.py')]
-    before = {path: path.read_bytes() if path.exists() else None for path in protected}
-    with tempfile.TemporaryDirectory(prefix='issues-checks-') as directory:
-        root = Path(directory) / 'project'
-        values, template = fixture(root, stacks=3, parts=True)
-        checks(root, values, template)
-        naming_target_scope_cases()
-        resource_cases(root)
-        extended_cases(root, template)
-        concurrency(root)
-    action_report_cases()
-    mismatch_display_cases()
-    state_report_cases()
-    summary_scale_cases()
-    comparison_repair_cases()
-    local_reference_cases()
-    reference_identity_report_cases()
-    symbolic_string_cases()
-    assert before == {path: path.read_bytes() if path.exists() else None for path in protected}, 'checks changed protected source'
-    print('Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
+    return run(__file__, ['check_scan_workflow', 'check_action_report', 'check_mismatch_display', 'check_state_report', 'check_summary_scale', 'check_comparison_repair', 'check_local_reference', 'check_reference_identity_report', 'check_symbolic_string'], 'Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
