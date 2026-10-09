@@ -248,7 +248,7 @@ def check_optional_alias_targets() -> None:
             "model/sandbox/210987654321",
             "infra/cloudformation/parameters/dev/cde",
             "infra/cloudformation/parameters/dev/non-cde",
-            "infra/terraform/environments/sandbox/210987654321",
+            "infra/210987654321/terraform/sandbox",
         ):
             (root / path).mkdir(parents=True)
 
@@ -275,6 +275,8 @@ def check_optional_alias_targets() -> None:
         assert any("must contain only projectName and targets" in error for error in validator.errors), validator.errors
 
         invalid_targets = [
+            ([{**topology["targets"][2], "environment": "modules"}],
+             "Terraform environment conflicts with shared modules directory"),
             ([topology["targets"][0]], "single-target environment must omit alias"),
             (
                 [

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import re
+from .terraform import root_directory
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 def check_target_file(path: Path, base: Path, *, accounts, findings) -> tuple[str, str] | None:
@@ -123,6 +124,8 @@ def check_project_topology(accounts, findings, root, template_mode):
                 f"invalid AWS region ID: {target}: {region}",
             )
         findings.check(engine in {"cloudformation", "terraform"}, f"invalid IaC engine: {target}")
+        findings.check(engine != "terraform" or environment != "modules",
+                       f"Terraform environment conflicts with shared modules directory: {target}")
         key = (environment, target_directory)
         order.append(key)
         findings.check(key not in accounts, f"duplicate target directory in environment: {target}")
@@ -177,8 +180,8 @@ def check_initialized_paths(accounts, findings, root, scope, template_mode):
         ]
         if values["engine"] == "cloudformation":
             paths.append(root / "infra" / "cloudformation" / "parameters" / environment / target_directory)
-        else:
-            paths.append(root / "infra" / "terraform" / "environments" / environment / target_directory)
+        elif values["engine"] == "terraform":
+            paths.append(root_directory(root, (environment, target_directory)))
         for path in paths:
             findings.check(path.is_dir(), f"initialized target path missing: {findings.relative(path)}")
 

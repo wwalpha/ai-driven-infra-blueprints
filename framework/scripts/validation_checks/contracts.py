@@ -12,7 +12,7 @@ def check_optional_alias_contract() -> None:
         "AGENTS.md": "target directory",
         "framework/prompts/codex/01_initialize.md": "optional `alias`",
         "framework/rules/cloudformation.md": "templates/<alias>/",
-        "framework/rules/terraform.md": "modules/<alias>/",
+        "framework/rules/terraform.md": "infra/<target-directory>/terraform/modules/<module>/",
         "framework/rules/detailed-design.md": "<target-directory>",
         "framework/rules/scenario-testing.md": "<target-directory>",
     }

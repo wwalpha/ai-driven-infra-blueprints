@@ -133,11 +133,13 @@ If IaC engine is `cloudformation`:
 infra/cloudformation/parameters/<environment>/<target-directory>/.gitkeep
 ```
 
-If IaC engine is `terraform`:
+If IaC engine is `terraform`, follow [Terraform placement rules](../../rules/terraform.md):
 
 ```text
-infra/terraform/environments/<environment>/<target-directory>/.gitkeep
+infra/<target-directory>/terraform/<environment>/.gitkeep
 ```
+
+Resolve target-directory from the existing alias-or-Account-ID rule. Create only the absent Root; implementation later creates shared `infra/<target-directory>/terraform/modules/<module>/` as needed. Reuse that Module tree across environments; do not create per-environment copies, backend.tf, terraform.tfvars, or sample configuration during initialization/target addition.
 
 Do not delete existing directories. Reuse existing target paths containing only `.gitkeep` without changing their contents.
 

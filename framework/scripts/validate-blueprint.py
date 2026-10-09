@@ -458,8 +458,8 @@ class Validator:
     def check_iac_selection(self) -> None:
         iac.check_iac_selection(self.root, self.scope, self.accounts, self.template_mode, self.findings)
         if self.scope is None or self.task_type == "infrastructure" or any(
-                path.startswith("infra/terraform/") for path in self.changed_paths):
-            terraform.check_configuration(self.root, self.scope, self.accounts, self.findings)
+                terraform.is_terraform_path(path) for path in self.changed_paths):
+            terraform.check_configuration(self.root, self.scope, self.accounts, self.findings, self.changed_paths)
 
     def check_cloudformation_yaml_rules(self) -> None:
         cloudformation.check_cloudformation_yaml_rules(self.root, self.iac_paths, self.findings)

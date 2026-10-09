@@ -254,18 +254,19 @@ infra/
     templates/  # aliasなしの共通template
     templates/<alias>/  # alias別template
     parameters/<environment>/<target-directory>/
-  terraform/  # Terraformを選択したtargetがある場合だけ
-    modules/  # aliasなしの共通module（resource・変数宣言）
-    modules/<alias>/  # 同じaliasの全環境で共有（サービス別ファイル分割を維持）
-    environments/<environment>/<target-directory>/  # Root: module呼出し・Provider
-      terraform.tfvars  # 環境×Target別の値。秘密情報の平文保存は禁止
-      backend.tf  # 環境×Target別のBackend/State
+  <target-directory>/  # alias、未指定ならAWS Account ID
+    terraform/  # このtarget-directoryでTerraformを選択した場合だけ
+      modules/<module>/  # 同じtarget-directoryの全環境で共有するAWS resource実装
+      <environment>/  # Root: Module呼出し・Provider・環境別設定
+        main.tf  # 例: source = "../modules/iam"
+        terraform.tfvars  # 既存の入力方式に従う。無条件必須ではない
+        backend.tf  # 承認済みBackend/State方式に従う。無条件必須ではない
 tests/
   scenarios/<scenario-id>/
   results/<scenario-id>/<environment>/<target-directory>/
 ```
 
-Terraform Roots use their alias Module (without an alias, the common Module and AWS Account ID target directory). Resource definitions belong to Modules; environment values belong to Roots. The validator checks normalized Module sources and direct Root resources, retaining task scope/file gating and fmt/init/validate. See [Terraform input rules](framework/rules/terraform.md#module-and-environment-inputs).
+Terraformの配置の正本は [Terraform rules](framework/rules/terraform.md) です。Rootは環境別、Moduleはtarget-directory別です。同じaliasの全環境が同じModuleを参照し、異なるalias間では共有しません。aliasなしではAccount IDを使用し、異なるAccount ID間でも分離します。AWS resourceはModule側、環境パラメータはRoot側に置き、その他の有効なTerraform Root構成は維持します。初期化・target追加では選択されたTerraform Rootの空ディレクトリだけを作成し、実装時に必要な共有Moduleと承認済み環境設定を作成します。既存Root/Moduleを再生成・複製しません。検証は正規化した参照先、配置、engine、AWS resource境界を確認し、Module変更時には共有するRootとの参照関係も確認します。Terraform CLIのfmt/init/validateの既存責務は維持します。
 
 ## Design information
 

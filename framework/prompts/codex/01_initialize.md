@@ -147,17 +147,19 @@ If IaC engine is `cloudformation`:
 infra/cloudformation/parameters/<environment>/<target-directory>/.gitkeep
 ```
 
-If IaC engine is `terraform`:
+If IaC engine is `terraform`, follow [Terraform placement rules](../../rules/terraform.md):
 
 ```text
-infra/terraform/environments/<environment>/<target-directory>/.gitkeep
+infra/<target-directory>/terraform/<environment>/.gitkeep
 ```
+
+Resolve target-directory from the existing alias-or-Account-ID rule. Create only the absent Root; implementation later creates shared `infra/<target-directory>/terraform/modules/<module>/` as needed. Reuse that Module tree across environments; do not create per-environment copies, backend.tf, terraform.tfvars, or sample configuration during initialization/target addition.
 
 Check all targets' `iacEngine` and delete roots of IaC engines selected by no targets.
 
-- If no target selects CloudFormation, delete `infra/cloudformation/`.
-- If no target selects Terraform, delete `infra/terraform/`.
-- Retain both roots only when both are selected.
+- If no target selects CloudFormation, delete unused `infra/cloudformation/` scaffolding. If a Terraform target has the valid alias `cloudformation`, preserve its selected `infra/cloudformation/terraform/` subtree.
+- Create `infra/<target-directory>/terraform/` only for target-directories selecting Terraform. Remove unused empty Terraform scaffolding (including legacy `infra/terraform/`) only under the existing deletion guard below.
+- Retain each selected engine’s paths; never generate Terraform structure for an unselected target.
 - If deletion targets contain files other than `.gitkeep`, stop without deleting them as existing implementations.
 
 ## Do not create
