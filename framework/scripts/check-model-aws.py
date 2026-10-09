@@ -434,7 +434,7 @@ class Resource:
         if "Fn::GetAtt" in value or "Ref" in value:
             item = value.get("Fn::GetAtt", value.get("Ref"))
             logical = item[0] if isinstance(item, list) else item.split(".")[0]
-            from model_design import cfn_resource_identity
+            from iac_values import cfn_resource_identity
             stack = cfn_resource_identity(self.spec["cfn-logicalId"])[0] if "cfn-logicalId" in self.spec else None
             matches = []
             for path in self.model.path.parent.glob("*.properties"):

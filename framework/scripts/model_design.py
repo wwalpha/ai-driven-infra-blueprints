@@ -6,7 +6,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
-from iac_values import cfn_resource_identity
+import iac_values
 from array_display import indexed_rows
 from model_references import deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows
 from model_display import display_rows, catalog_display_rows, row_table, sg_tables
@@ -245,7 +245,7 @@ def validate_resource_identities(path, values, root, resources):
                 from model_files import read_model
                 _, stacks = stack_model(properties(read_model(stack_source)))
                 stack_names = {stack["name"] for _, stack in stacks}
-            if cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
+            if iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
                 raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
 
 

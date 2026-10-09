@@ -380,7 +380,7 @@ def resource_identity_metadata(lines, *, values=None, import_cfn_ids=False):
                 if not re.fullmatch(r"[0-9]{3}", value) or value in metadata.values():
                     raise ValueError("invalid/duplicate resource entry number")
             else:
-                from model_design import cfn_resource_identity
+                from iac_values import cfn_resource_identity
                 cfn_resource_identity(value)
             metadata[anchor] = value
     return result["resource-entry"], result["cfn-logical-id"]

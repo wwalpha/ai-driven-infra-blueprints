@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 from design_catalog import DesignSchemaCatalog
-from model_design import cfn_resource_identity
+from iac_values import cfn_resource_identity
 from model_references import catalog_outputs
 from model_core import properties, entries, stack_model, LINK
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target

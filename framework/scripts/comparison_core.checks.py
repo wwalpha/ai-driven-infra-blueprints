@@ -79,6 +79,17 @@ assert delivery.module('check-model-aws.py', 'model_aws_compare') is aws
 assert aws.Unresolved is rows.Unresolved and aws.put_row is repair.put_row is rows.put_row
 assert repair.same is values.same and scan.Comparison is iac.Comparison
 assert deploy.Blocked is iac.Blocked
+import model_design, model_core, cloudformation_observed as observed
+assert not hasattr(model_design, 'cfn_resource_identity')
+assert iac.cfn_resource_identity is observed.cfn_resource_identity is repair.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
+assert values.cfn_resource_identity('cfn-stack-app-dev-ism-DepartmentVpc') == ('cfn-stack-app-dev-ism', 'DepartmentVpc')
+for invalid in ('missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
+    try:
+        values.cfn_resource_identity(invalid)
+    except ValueError as error:
+        assert 'invalid cfn-logicalId' in str(error)
+    else:
+        raise AssertionError('invalid CFn identity accepted')
 '''
 for order in [('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]:
     subprocess.run([sys.executable, '-B', '-c', code, str(Path(__file__).parent), *order], check=True)

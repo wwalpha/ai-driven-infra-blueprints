@@ -1246,7 +1246,7 @@ def check_stack_policy():
 
 
 def check_stack_mapping_roundtrip():
-    from model_design import cfn_resource_identity
+    from iac_values import cfn_resource_identity
     from design_layout import resource_identity_metadata
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

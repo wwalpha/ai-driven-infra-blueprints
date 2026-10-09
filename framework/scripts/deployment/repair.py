@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from model_design import cfn_resource_identity
+from iac_values import cfn_resource_identity
 from comparison_rows import put_row
 from issues_iac import Comparison
 from iac_values import same, fingerprint

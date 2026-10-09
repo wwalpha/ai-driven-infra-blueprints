@@ -9,7 +9,7 @@ from cloudformation_inputs import Blocked, condition_active, load_target, load_t
 from cloudformation_observed import resource_index, mapped_resource
 from design_catalog import DesignSchemaCatalog
 from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
-from model_design import cfn_resource_identity
+from iac_values import cfn_resource_identity
 from model_references import catalog_outputs
 from model_core import LINK, entries, stack_model
 from model_files import load_model, resource_row_index, MAX_LINES

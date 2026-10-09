@@ -59,6 +59,8 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/scripts/service_rows.py`: Paired Glue/CodeBuild/CodePipeline row display and restoration
 - `framework/scripts/model_display.py`: Catalog ordering and common display tables
 - `framework/scripts/model_core.py`: Model string parsing and resource/stack/deployment contracts, without Markdown or CLI dependencies
+- `framework/scripts/iac_values.py`: Authoritative CFn identity parsing and symbolic comparison values. Internal callers import identity parsing directly; the renderer does not re-export it.
+- `framework/scripts/model_files.py`: Validated model loading and part locations; retain public `read_model` text compatibility over `load_model`.
 - `framework/scripts/ec2_display.py`: EC2 Name tag and block-device row display/restoration, without file access or writes
 - `framework/scripts/sync-model.py`: Deterministically generates/validates Markdown/JSON artifacts from authoritative design-value model properties
 - `framework/scripts/model_files.py`: Reads only the target resource's authority, same display group, and common notes with positions using `<service.properties> --resource '<resource-number-or-logical-id-or-anchor>'`. `--find '<key-or-logical-id>'` searches target files/lines without displaying values. Physically split models exceeding 600 lines by executing `--split` in an explicit design/migration task
