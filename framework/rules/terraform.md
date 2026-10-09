@@ -19,6 +19,17 @@ Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
 - Even when detailed design tables are integrated, retain CREATE KMS Keys and Aliases as separate resources. Do not generate IMPORT. Resolve target Keys from grouped Alias model `parentReference` and set Key attribute references in `target_key_id` corresponding to `parentProperty`. References from S3 to Aliases use the corresponding Alias name. Do not change existing resource addresses solely because display changes.
 - Expose CREATE catalog `IDENTIFIER_OUTPUT` needed by subsequent resources or root modules as non-sensitive `output` from resource attributes. Generated ARNs are excluded from output collection and observed value persistence.
 
+## Module and environment inputs
+
+- Gather AWS `resource` definitions in the alias Module; environment Roots contain Module calls, variable declarations/values, Provider, Backend and State configuration, never direct `resource` blocks. Keep existing service-specific file splits and Provider settings.
+- Each aliased Root calls the same `infra/terraform/modules/<alias>/` directory across environments with a local literal `source` (for example `../../../modules/cde`). Normalize the path before checking it; other aliases, environment-specific Module copies, missing paths and external sources are not permitted for these Root calls.
+- Roots without aliases call the common `infra/terraform/modules/` directory, identified by `environments/<environment>/<AWS Account ID>/`; do not route them to an alias Module.
+- Declare Module inputs in its `variables.tf` or existing service files. Put environment-specific values in the corresponding Root's `terraform.tfvars`, `.auto.tfvars`, or existing approved Terraform input mechanism. Do not hardcode environment-specific values/defaults in Modules or read another environment's tfvars.
+- Environment inputs may compose resource Names/Tags, but must not select resource structure or behavior through conditionals, count, for_each, lookup, or workspace/environment-name comparisons. Pass actual differing values as variables instead.
+- Keep Backend/State identities distinct for every environment/target; confirm the approved backend key/path and workspace instead of guessing. Do not save passwords/API keys or other secrets as plaintext tfvars; use the existing approved secret input mechanism. Stop on unconfirmed required inputs.
+- Reuse existing Module call names and resource addresses. Moving existing managed resources into Modules or changing addresses requires a separate explicitly authorized migration; this rule does not authorize State migration.
+- Validate only generated files. Missing not-yet-generated Module/Root files alone are not implementation-preflight errors; an existing Module call to a missing directory is an error. Configuration findings use existing Validation scope and current-task changed-file grants, with whole-IaC gating only when explicitly requested by the existing full/regression workflow.
+
 ## Resource mode boundary
 
 - Only authoritative model resourceMode=CREATE (including unspecified mode) is generated for Terraform. Retain IMPORT in detailed designs/properties, outside IaC generation, without AWS resource changes. Do not generate IMPORT as Terraform `resource`. Do not create/execute Terraform import commands/import blocks or import into state.

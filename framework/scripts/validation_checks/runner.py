@@ -102,7 +102,7 @@ def check_boundaries():
 
 
 def check_module_inputs():
-    names = ('findings', 'scenario', 'cloudformation', 'design', 'design_tables', 'design_links',
+    names = ('findings', 'scenario', 'cloudformation', 'iac', 'terraform', 'design', 'design_tables', 'design_links',
              'project', 'task', 'framework_contracts')
     with project() as root, project() as runtime:
         for base in (root, runtime):

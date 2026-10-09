@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 from validation_cache import PassCache, input_scope
-from validation import scenario, cloudformation, design, design_tables, design_links, project, framework_contracts
+from validation import scenario, cloudformation, iac, terraform, design, design_tables, design_links, project, framework_contracts
 from validation.task import TaskValidation
 from validation.framework_contracts import CODEX_PROMPT_FILENAME_PATTERN
 from validation.findings import Findings
@@ -456,7 +456,10 @@ class Validator:
         return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope)
 
     def check_iac_selection(self) -> None:
-        cloudformation.check_iac_selection(self.root, self.scope, self.accounts, self.template_mode, self.findings)
+        iac.check_iac_selection(self.root, self.scope, self.accounts, self.template_mode, self.findings)
+        if self.scope is None or self.task_type == "infrastructure" or any(
+                path.startswith("infra/terraform/") for path in self.changed_paths):
+            terraform.check_configuration(self.root, self.scope, self.accounts, self.findings)
 
     def check_cloudformation_yaml_rules(self) -> None:
         cloudformation.check_cloudformation_yaml_rules(self.root, self.iac_paths, self.findings)

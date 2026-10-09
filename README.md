@@ -255,13 +255,17 @@ infra/
     templates/<alias>/  # alias別template
     parameters/<environment>/<target-directory>/
   terraform/  # Terraformを選択したtargetがある場合だけ
-    modules/  # aliasなしの共通module
-    modules/<alias>/  # alias別module
-    environments/<environment>/<target-directory>/
+    modules/  # aliasなしの共通module（resource・変数宣言）
+    modules/<alias>/  # 同じaliasの全環境で共有（サービス別ファイル分割を維持）
+    environments/<environment>/<target-directory>/  # Root: module呼出し・Provider
+      terraform.tfvars  # 環境×Target別の値。秘密情報の平文保存は禁止
+      backend.tf  # 環境×Target別のBackend/State
 tests/
   scenarios/<scenario-id>/
   results/<scenario-id>/<environment>/<target-directory>/
 ```
+
+Terraform Roots use their alias Module (without an alias, the common Module and AWS Account ID target directory). Resource definitions belong to Modules; environment values belong to Roots. The validator checks normalized Module sources and direct Root resources, retaining task scope/file gating and fmt/init/validate. See [Terraform input rules](framework/rules/terraform.md#module-and-environment-inputs).
 
 ## Design information
 

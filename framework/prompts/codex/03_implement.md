@@ -135,7 +135,8 @@ For CloudFormation:
 
 For Terraform:
 
-1. Use `infra/terraform/modules/<alias>/` for aliased targets, or common `infra/terraform/modules/` for targets without aliases; change only target `infra/terraform/environments/<environment>/<target-directory>/`.
+1. Follow [Module and environment inputs](../../rules/terraform.md#module-and-environment-inputs). Keep existing service file splits and Provider configuration. Gather AWS `resource` definitions and variable declarations in `infra/terraform/modules/<alias>/` (or common `infra/terraform/modules/` without an alias). Every environment Root for the same alias calls that same directory with a normalized local literal `source`; different aliases use separate Modules. Do not duplicate resources by environment or place `resource` blocks in Roots. Change only approved shared Modules and target `infra/terraform/environments/<environment>/<target-directory>/` files; confirm effects on other environments using the shared Module without expanding change scope.
+   Place differing values in target `terraform.tfvars` or the existing approved input mechanism. Keep required Root input declarations and Module argument wiring; do not read another environment's tfvars, save plaintext secrets, guess required values, or hardcode environment-specific Module values. Environment names may compose Names/Tags but must not branch resource structure/behavior. Confirm distinct approved Backend/State identities for each environment/target. Preserve existing Module names/resource addresses; stop if State migration would be required.
 2. Run `terraform fmt -check`, `terraform init -backend=false` with fresh `TF_DATA_DIR`, and `terraform validate`.
 3. Do not run `terraform plan`, `terraform apply`, or AWS APIs. Do not create/save state files or plan binaries.
 

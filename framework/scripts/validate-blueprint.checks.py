@@ -5,7 +5,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 from test_support.validator import MODULE, load
-from validation_checks import task, design, references, cloudformation, scope, contracts, scenario, runner
+from validation_checks import task, design, references, cloudformation, terraform, scope, contracts, scenario, runner
 
 
 def main() -> None:
@@ -40,6 +40,7 @@ def main() -> None:
     references.check_s3_bucket_policy_grouping()
     references.check_resource_overview()
     references.check_subnet_association_overview()
+    terraform.check_configuration()
     cloudformation.check_cloudformation_yaml_rules()
     cloudformation.check_cloudformation_environment_parameters()
     cloudformation.check_cloudformation_stack_design()

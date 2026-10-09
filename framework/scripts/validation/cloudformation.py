@@ -1,4 +1,4 @@
-"""Selected IaC inputs and existing CloudFormation syntax/Environment checks."""
+"""CloudFormation syntax, Environment and stack design checks."""
 
 
 import json
@@ -22,43 +22,6 @@ QUOTED_LONG_CF_KEY = re.compile(
     rf"(?P<prefix>^|[{{,]|-\s)\s*(?P<quote>['\"])(?:{_SHORT_CF_NAMES})(?P=quote)\s*:"
 )
 YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
-
-
-def check_iac_selection(root, scope, accounts, template_mode, findings) -> None:
-    active_engines = {values["engine"] for values in accounts.values()}
-    for engine in ("cloudformation", "terraform"):
-        engine_root = root / "infra" / engine
-        files = [
-            path
-            for path in engine_root.rglob("*")
-            if path.is_file() and not path.name.startswith(".")
-        ]
-        if template_mode:
-            findings.check(not files, f"template mode contains {engine} implementation")
-        elif engine in active_engines:
-            findings.check(engine_root.is_dir(), f"selected IaC engine directory missing: {engine}")
-        else:
-            findings.check(not engine_root.exists(), f"unselected IaC engine directory remains: {engine}")
-
-    for engine, relative_base, label, placement in (
-        ("cloudformation", "infra/cloudformation/parameters", "CloudFormation", "parameter"),
-        ("terraform", "infra/terraform/environments", "Terraform", "composition"),
-    ):
-        base = root / relative_base
-        if engine == "terraform" and not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file() or path.name.startswith("."):
-                continue
-            parts = path.relative_to(base).parts
-            findings.check(len(parts) >= 3, f"{label} {placement} must be scoped by environment/target directory: {findings.relative(path)}")
-            if len(parts) >= 3:
-                target = (parts[0], parts[1])
-                if scope is not None and not any(item[:2] == target for item in scope):
-                    continue
-                findings.check(target in accounts, f"{label} target is not defined: {findings.relative(path)}")
-                if target in accounts:
-                    findings.check(accounts[target]["engine"] == engine, f"{label} is not selected: {findings.relative(path)}")
 
 
 def unquoted_yaml(line: str) -> str:
