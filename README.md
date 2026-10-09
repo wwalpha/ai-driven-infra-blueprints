@@ -359,6 +359,26 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode full --task-file tasks
 
 Use one command matching the task. `python` denotes the available Python 3 launcher (`python3` on Unix-like OSes or `py -3` on Windows when needed). Full regression on Windows requires human input under the [Windows full regression input guard](framework/rules/loop-engineering.md#windows-full-regression-input-guard); agents must not register passwords or bypass it.
 
+### pytest Pilot
+
+The `model_design.checks.py` Pilot requires Python 3.10 or newer and the test-only
+dependency below, installed in the Python environment used for regression. Existing
+runtime dependencies remain separate. Other `.checks.py` scripts keep their runner.
+
+```console
+python -m pip install -r framework/scripts/requirements-test.txt
+python -B framework/scripts/model_design.checks.py
+python -m pytest -q framework/scripts/model_design.checks.py
+python -m pytest -q framework/scripts/model_design.checks.py::check_invalid_model
+```
+
+Use `python3` on macOS or `py -3` on Windows when needed. Both entrypoints reject
+optimized Python (`-O` or `PYTHONOPTIMIZE`). Pytest caching and temporary-directory
+retention are disabled; each invocation owns its temporary root. The legacy CLI
+retains PASS output, failure diagnostics,
+nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop's selection,
+parallelism and Windows full-regression input guard remain unchanged.
+
 ### Fixed snapshot validation after conflict resolution
 
 Read [Conflict resolution and reproducible validation](framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation) before staging/resolving conflicts or selecting affected checks. Stage this task's inputs/contract and specify a comparison-base commit matching the requested scope:
