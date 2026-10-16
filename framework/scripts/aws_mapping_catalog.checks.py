@@ -14,13 +14,10 @@ import shutil
 import socket
 import yaml
 
-from aws_mapping import Registry
+from aws_mapping import Registry, registry as mapping_registry
 from aws_mapping_catalog import project, catalog_properties
-from model_templates import model_paths
-from model_files import load_model
-from model_core import entries
 from validation_cache import input_scope
-from aws_mapping_display import display_name, formal_name
+from aws_mapping_display import MODEL_ONLY, display_name, formal_name
 from design_catalog import design_material_files
 from script_loader import module
 
@@ -30,13 +27,11 @@ m = module('check-model-aws.py', 'model_aws_compare')
 
 @input_scope
 def coverage():
-    formal = {row['property'] for path in model_paths(ROOT)
-              for _, row in entries(load_model(path).values, 'desired.row.')}
     catalog = {line.partition('=')[0] for p in design_material_files(ROOT)
                for line in p.read_text(encoding='utf-8').splitlines() if '=' in line and not line.startswith('#')}
     properties, types, sources, summaries = {}, set(), Counter(), []
     for path in sorted((ROOT / 'framework/mappings/aws').glob('*.yaml')):
-        registry = Registry(ROOT, path.stem)
+        registry = mapping_registry(ROOT, path.stem)
         document = yaml.safe_load(path.read_text(encoding='utf-8'))
         declared = {kind + '.' + prop: definition
                     for kind, resource in document['resourceTypes'].items()
@@ -62,7 +57,8 @@ def coverage():
     assert properties.keys() == catalog, 'missing/extra catalog mapping'
     model_only = {key for service in m.SERVICES
                   for key in getattr(m.service_module(service), 'MODEL_FIELDS', {})}
-    assert formal - catalog == model_only
+    assert model_only == MODEL_ONLY, 'adapter/display Model-only mismatch'
+    assert not model_only & catalog, 'Model-only property declared in catalog'
     assert all(not hasattr(m.service_module(service), 'FIELDS') for service in m.SERVICES)
     assert not (ROOT / 'framework/rules/display-property-aliases.json').exists()
     print(f'Catalog coverage: PASS ({len(types)} resource types / {len(properties)} properties; missing/extra/duplicates 0; include {sum(p.include for p in properties.values())}; Model-only {len(model_only)}; old definitions 0)')
@@ -117,6 +113,7 @@ def initialization_checks():
     print('Mapping initialization: PASS (adapter 0; same scope 1; separate roots/data/patch/scopes isolated)')
 
 
+@input_scope
 def schema_checks():
     document = yaml.safe_load((ROOT / 'framework/mappings/aws/sns.yaml').read_text(encoding='utf-8'))
     with TemporaryDirectory(prefix='mapping-schema-') as directory:
@@ -139,7 +136,16 @@ def schema_checks():
             target.write_text(yaml.safe_dump(value, sort_keys=False), encoding='utf-8')
             return Registry(root, 'sns')
 
-        assert len(load(document).properties) == 30
+        assert len(load(document).properties) == sum(
+            len(resource['properties']) for resource in document['resourceTypes'].values())
+        candidate = copy.deepcopy(document)
+        candidate['version'] = 2
+        try:
+            load(candidate)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('invalid file-backed Mapping accepted')
         native = copy.deepcopy(document)
         native['resourceTypes']['SNS.Topic']['identity'] = {'getter': 'provider-sns-topic', 'idPath': 'TopicArn',
                                                           'arnPath': 'TopicArn', 'nameProperty': 'TopicName'}
@@ -154,7 +160,7 @@ def schema_checks():
             candidate = copy.deepcopy(native)
             candidate['resourceTypes'][resource]['identity'][key] = value
             try:
-                load(candidate)
+                catalog_properties(root, 'sns', candidate)
             except ValueError:
                 pass
             else:
@@ -185,7 +191,7 @@ def schema_checks():
             candidate = copy.deepcopy(document)
             mutate(candidate)
             try:
-                load(candidate)
+                catalog_properties(root, 'sns', candidate)
             except ValueError:
                 pass
             else:
@@ -195,7 +201,7 @@ def schema_checks():
         del item['aws']
         item['source'] = {'kind': 'model', 'location': 'desired row SNS.Topic.TopicName', 'classification': 'local_metadata', 'constraint': 'Do not replace an available AWS source.'}
         try:
-            load(candidate)
+            catalog_properties(root, 'sns', candidate)
         except ValueError:
             pass
         else:
@@ -262,12 +268,13 @@ def schema_checks():
     print('Mapping schema: PASS (provider capability/identity, API casing, provenance, types, flags, negative definitions)')
 
 
+@input_scope
 def projections():
-    webhook = Registry(ROOT, 'codebuild').properties['CodeBuild.Project.Triggers.Webhook']
+    webhook = mapping_registry(ROOT, 'codebuild').properties['CodeBuild.Project.Triggers.Webhook']
     assert project(webhook, {}) is False
     assert project(webhook, {'webhook': None}) is False
     assert project(webhook, {'webhook': {'url': 'fixture'}}) is True
-    account = Registry(ROOT, 'datazone').properties['DataZone.Connection.AwsLocation.AwsAccountId']
+    account = mapping_registry(ROOT, 'datazone').properties['DataZone.Connection.AwsLocation.AwsAccountId']
     assert project(account, {'physicalEndpoints': [{'awsLocation': {'awsAccountId': 'fixture'}}]}) == 'fixture'
     assert project(account, {'physicalEndpoints': []}) == m.MISSING
     assert project(account, {'physicalEndpoints': [{'awsLocation': {'awsAccountId': 'fixture'}}, {}]}) == m.MISSING
@@ -278,7 +285,7 @@ def projections():
     else:
         raise AssertionError('ambiguous endpoint values silently selected')
     assert project(replace(account, transform='identity', field=m.Field('fixture', 'rows[].items[].value')), {'rows': [{'items': [{'value': 0}, {'value': False}]}, {'items': [{'value': None}]}]}) == [[0, False], [None]]
-    s3 = Registry(ROOT, 's3')
+    s3 = mapping_registry(ROOT, 's3')
     response = {'ServerSideEncryptionConfiguration': [{'ApplyServerSideEncryptionByDefault': {'SSEAlgorithm': 'aws:kms', 'KMSMasterKeyID': 'fixture-key'}, 'BucketKeyEnabled': False}]}
     prefix = 'S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.'
     assert project(s3.properties[prefix + 'SSEAlgorithm'], response) == ['aws:kms']
