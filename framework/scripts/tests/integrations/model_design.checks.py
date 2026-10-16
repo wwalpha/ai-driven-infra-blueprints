@@ -1412,6 +1412,27 @@ def check_service_failure_protection(root, project):
         assert message in str(error.value), error.value
         return str(error.value)
 
+    # Loop IT delegates detailed LogGroup failures here; retain exact inputs and non-writing behavior.
+    for property_key, value, diagnostic in (
+        ("desired.row.001-001.value", "``", "confirmed resource display label is missing"),
+        ("desired.row.001-002.value", "`31`", "schema"),
+    ):
+        invalid = {**logs, "desired.row.001-002.value": "`14`", property_key: value}
+        write_model(base / "logs.properties", text(invalid))
+        snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        fails_with(diagnostic, write=False)
+        assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+    design = docs / "logs.md"
+    saved_design = design.read_text()
+    design.write_text(saved_design.replace("`14`", "`31`"))
+    validator_module = load("validate-blueprint")
+    validator = validator_module.Validator(root)
+    validator.schema_catalog = validator_module.DesignSchemaCatalog(root)
+    validator.check_design_tables({}, *validator.catalog_design_properties())
+    assert any("schema" in error and "RetentionInDays" in error for error in validator.errors), validator.errors
+    assert design.read_text() == saved_design.replace("`14`", "`31`")
+    design.write_text(saved_design)
+
     # Missing JSON input preserves this service's Markdown and JSON; others save.
     logs["desired.row.001-002.value"] = "`7`"
     write_model(base / "logs.properties", text(logs))

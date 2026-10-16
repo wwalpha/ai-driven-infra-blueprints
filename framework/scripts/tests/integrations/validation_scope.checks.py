@@ -237,16 +237,25 @@ invalid unrelated table alignment
         assert validator.generated_models_checked
         check_single_target_cache(root)
         # Missing/unknown selectors and changes outside scope fail before service checks.
-        for invalid in ({("unknown", "cde", "ec2")}, {("dev", "cde", "missing")}):
+        for invalid in ({("unknown", "cde", "ec2")}, {("dev", "999999999999", "ec2")}, {("dev", "cde", "missing")}):
             rejected = VALIDATOR.Validator(root, invalid)
             rejected.accounts = validator.accounts
             rejected.check_validation_scope()
             assert rejected.errors
+            if next(iter(invalid))[:2] not in validator.accounts:
+                assert any("validation target is not defined" in error for error in rejected.errors)
         validator.changed_paths = {"model/prod/cde/ec2.properties"}
         validator.check_validation_scope()
         assert any("outside validation scope" in error for error in validator.errors)
         design = root / "docs/designs/dev/cde/ec2.md"
         saved = design.read_text()
+        design.unlink()
+        rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
+        rejected.accounts = validator.accounts
+        rejected.check_validation_scope()
+        assert any("validation input missing" in error for error in rejected.errors), rejected.errors
+        assert not design.exists(), "scope validation regenerated missing Markdown"
+        design.write_text(saved)
         design.write_text(saved.replace("vpc.md#vpc-subnet-app-dev-cde", "vpc.md#missing-anchor"))
         rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
         rejected.accounts = validator.accounts

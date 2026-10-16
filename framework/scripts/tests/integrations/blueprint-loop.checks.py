@@ -267,24 +267,9 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert tasks.status(active.read_text()) == "suspend"
     assert "unresolved issue blocks task" in "\n".join(tasks.section(active.read_text(), "## Suspension reason"))
     issue.unlink()
-    for label, model_text, design_text, diagnostic in (
-        ("model/view mismatch", good_model.replace("value=14", "value=7"), good_design, "generated Markdown is stale"),
-        ("missing name", good_model.replace("value=cwlogs-app-dev-flow", "value=``"), good_design, "confirmed resource display label is missing"),
-        ("schema violation", good_model.replace("value=14", "value=31"), good_design.replace("14", "31"), "schema"),
-        ("broken reference", good_model, good_design.replace("14", "[missing](missing.md#missing)"), "broken design link"),
-    ):
-        write_model(model, model_text)
-        design.write_text(design_text, encoding="utf-8")
-        result = run()
-        assert result.returncode != 0 and diagnostic in result.stdout, (label, result.stdout, result.stderr)
-    write_model(model, good_model)
-    design.write_text(good_design, encoding="utf-8")
     # Contract scope remains enforced before design validation.
     tasks.resume(root, "tasks/active.md")
     contract = active.read_text(encoding="utf-8")
-    active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/999999999999/logs`"), encoding="utf-8")
-    result = run()
-    assert result.returncode != 0 and "validation target is not defined" in result.stdout, result.stdout
     active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/123456789012/ec2`"), encoding="utf-8")
     result = run()
     assert result.returncode != 0 and "changed design path is outside validation scope" in result.stdout, result.stdout
@@ -299,6 +284,7 @@ display.resource.001.comment=通信ログを保存するLog Group
     write_model(model, good_model.replace("value=14", "value=7"))
     result = run()
     assert result.returncode != 0 and "generated Markdown is stale" in result.stdout, result.stdout
+    assert design.read_text(encoding="utf-8") == good_design, "validation rewrote the stale view"
     write_model(model, good_model)
     active.write_text(contract.replace("- `dev/123456789012/logs`", "- `all`"), encoding="utf-8")
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
@@ -315,13 +301,7 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert result.returncode == 0, result.stdout + result.stderr
     assert not subprocess.check_output(["git", "diff", "--", str(design.relative_to(root))], cwd=root)
     assert design.read_text(encoding="utf-8") == good_design
-    design.write_text(good_design.replace("14", "7"), encoding="utf-8")
-    result = run()
-    assert result.returncode != 0 and "generated Markdown is stale" in result.stdout, result.stdout
-    design.unlink()
-    result = run()
-    assert result.returncode != 0 and "validation input missing" in result.stdout, result.stdout
-    print("task-service-validation: PASS (scoped design, excluded error, mismatch, name, schema, reference, contract scope, explicit all)")
+    print("task-service-validation: PASS (9 real CLI runs: cache/profile, issue suspension, Git/scope, excluded errors, mismatch, all, model-only repair)")
 
 
 def check_parallel_and_selection(tmp_path):
@@ -357,7 +337,7 @@ def check_staged_snapshot(tmp_path):
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
-    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py"):
+    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "worktree_task.py", "worktree_python.py"):
         shutil.copyfile(SCRIPT.with_name(name), scripts / name)
     # These isolated runner fixtures exercise orchestration after authorization.
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
@@ -513,7 +493,7 @@ def check_failure_suspension(tmp_path):
         scripts = root / "framework/scripts"
         scripts.mkdir(parents=True)
         (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
-        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "run-python.py"):
+        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "run-python.py", "worktree_task.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
@@ -700,6 +680,19 @@ def check_windows_exit_propagation(tmp_path):
 def check_workflow(tmp_path) -> None:
     from run_it import check_assertion_guards
     check_assertion_guards(SCRIPT.parent / "tests")
+    # AST coverage is not execution coverage: sample both real entrypoint classes.
+    for relative in ("units/blueprint-loop-unit.checks.py", "integrations/service-parameter-inputs.checks.py"):
+        rejected = subprocess.run([sys.executable, "-O", str(SCRIPT.parent / "tests" / relative)],
+                                  capture_output=True, encoding="utf-8")
+        assert rejected.returncode != 0 and "Focused checks require assertions" in rejected.stderr
+    guard_fixture = tmp_path / "guard.checks.py"
+    guard = "if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\n"
+    guard_fixture.write_text(guard + "assert False, 'normal check body reached'\n", encoding="utf-8")
+    normal = subprocess.run([sys.executable, "-E", str(guard_fixture)], capture_output=True, encoding="utf-8")
+    assert normal.returncode != 0 and "AssertionError: normal check body reached" in normal.stderr
+    guard_fixture.write_text("assert False, 'normal check body reached'\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="code before assertion guard"):
+        check_assertion_guards(tmp_path)
     root = tmp_path / "repository"
     log_parent = tmp_path / "logs"
     scripts = root / "framework" / "scripts"
@@ -709,6 +702,8 @@ def check_workflow(tmp_path) -> None:
     shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
     shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
     shutil.copyfile(SCRIPT.with_name("task_contract.py"), scripts / "task_contract.py")
+    shutil.copyfile(SCRIPT.with_name("worktree_task.py"), scripts / "worktree_task.py")
+    shutil.copyfile(SCRIPT.with_name("worktree_python.py"), scripts / "worktree_python.py")
     shutil.copyfile(SCRIPT.with_name("sync_files.py"), scripts / "sync_files.py")
     shutil.copyfile(SCRIPT.with_name("validation_cache.py"), scripts / "validation_cache.py")
     shutil.copyfile(SCRIPT.with_name("sync_progress.py"), scripts / "sync_progress.py")
