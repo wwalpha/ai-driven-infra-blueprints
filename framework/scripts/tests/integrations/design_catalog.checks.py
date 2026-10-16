@@ -7,13 +7,9 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.design_catalog_fixtures import *
+from validation_cache import input_scope, memo_table
 
 def main():
-    for resource_type in (MACIE_JOB, QUICKSIGHT_GROUP):
-        command = [sys.executable, str(ROOT / "framework/scripts/design_catalog.py"), "--cloudformation-type", resource_type]
-        result = subprocess.run(command, capture_output=True, encoding="utf-8")
-        assert result.returncode == 1 and "CloudFormation unsupported" in result.stdout
-
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
         group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
@@ -27,7 +23,7 @@ def main():
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
         design = root / "docs/designs/dev/123456789012/macie.md"
-        # The generated-view subprocess reads the fixture's actual Mapping.
+        # Real sync reads the fixture's actual Mapping.
         import yaml
         mapping = root / 'framework/mappings/aws/macie.yaml'
         definition = yaml.safe_load(mapping.read_text(encoding='utf-8'))
@@ -44,6 +40,7 @@ def main():
         naming = root / "framework/rules/aws-resource-naming.md"
         naming.write_text(naming.read_text(encoding="utf-8") + "\n| Fixture | Job | `Macie.ClassificationJob` | `name` | `{{purpose}}` |\n", encoding="utf-8")
 
+        @input_scope
         def check(values=VALUES, text=None):
             artifact = design.with_suffix("") / "job-scope.json"
             if text is None and isinstance(values.get("s3JobDefinition"), dict) and values["s3JobDefinition"].get("bucketDefinitions"):
@@ -65,7 +62,10 @@ def main():
                     if key.endswith('.value') and value == '[対象条件](macie/job-scope.json)':
                         model_values[key.removesuffix('.value')+'.document'] = model_projection.json.dumps(json.loads(artifact.read_text()), ensure_ascii=False, separators=(',', ':'))
             write_model(model, model_values)
-            validator = VALIDATOR.Validator(root)
+            # Fixture writes end the previous immutable input snapshot.
+            memo_table().clear()
+            # Real generation and mismatch detection are exercised independently below.
+            validator = VALIDATOR.Validator(root, model_check=lambda scope: [])
             validator.schema_catalog = schema
             validator.accounts = {("dev", "123456789012"): {}}
             validator.check_designs()
@@ -114,8 +114,44 @@ def main():
             {**VALUES, "jobArn": "arn:aws:macie2:ap-northeast-1:123456789012:classification-job/example"},
             {**VALUES, "jobId": "arn:aws:macie2:ap-northeast-1:123456789012:classification-job/example"},
         ]
-        for values in bad_values:
-            assert check(values), values
+        expected_errors = [
+            (".name: required property missing",),
+            ("SCHEDULED requires scheduleFrequency",),
+            ("ONE_TIME must omit scheduleFrequency", "ONE_TIME must omit initialRun"),
+            ("jobType: must be one of",),
+            ("name: maxLength must be <= 500",),
+            ("name: omit unused optional properties",),
+            ("samplingPercentage: maximum must be <= 100",),
+            ("samplingPercentage: must be integer",),
+            ("initialRun: must be boolean",),
+            ("scheduleFrequency: minProperties must be >= 1",),
+            ("scheduleFrequency: maxProperties must be <= 1",),
+            ("scheduleFrequency.monthlySchedule.dayOfMonth: maximum must be <= 31",),
+            ("s3JobDefinition: must satisfy exactly one alternative",),
+            ("s3JobDefinition: must satisfy exactly one alternative", "s3JobDefinition.bucketDefinitions: minItems must be >= 1"),
+            ("s3JobDefinition.bucketDefinitions[0].accountId: must match", "s3JobDefinition.bucketDefinitions[0].buckets[0]: must be string"),
+            ("s3JobDefinition.bucketDefinitions[0].buckets: required property missing",),
+            ("s3JobDefinition.bucketCriteria.typo: unknown property",),
+            ("NONE requires customDataIdentifierIds",),
+            ("INCLUDE requires managedDataIdentifierIds",),
+            ("RECOMMENDED must omit managedDataIdentifierIds",),
+            ("tags.team: must be string",),
+            (".clientToken: unknown property",),
+            (".jobArn: unknown property",),
+        ]
+        assert len(bad_values) == 24 and len(expected_errors) == 23
+        job_schema = schema.schema(MACIE_JOB)
+        # Root schema covers required/unknown keys; property paths also check sentinels.
+        assert not schema.api_value_errors(MACIE_JOB, job_schema, VALUES, "")
+        assert not schema.job_errors(VALUES)
+        for values, expected in zip(bad_values[:-1], expected_errors, strict=True):
+            errors = schema.api_value_errors(MACIE_JOB, job_schema, values, "")
+            for key, value in values.items():
+                if key in job_schema["properties"]:
+                    errors.extend(schema.api_value_errors(MACIE_JOB, job_schema["properties"][key], value, key))
+            errors.extend(schema.job_errors(values))
+            assert all(any(message in error for error in errors) for message in expected), (values, expected, errors)
+        assert any("ARN" in error and "jobId" in error for error in check(bad_values[-1]))
         original_row = next(line for line in markdown(VALUES).splitlines() if "| name |" in line)
         duplicate = markdown(VALUES).replace(original_row, original_row + "\n" + original_row, 1)
         assert any("duplicate API" in error for error in check(text=duplicate))
@@ -166,9 +202,12 @@ def main():
         artifact.unlink()
         assert not check()
         write_model(model, read_model(model) + "desired.extra=stale\n")
-        validator = VALIDATOR.Validator(root)
-        validator.check_generated_service_models()
-        assert validator.errors
+        try:
+            sync_runtime.sync(root, False, "dev", "123456789012")
+        except ValueError as error:
+            assert "model/display projection mismatch: macie.md: desired.extra" in str(error), error
+        else:
+            raise AssertionError("stale desired.extra accepted by real sync")
         group_snapshot = root / "framework/materials/api/QuickSight_Group.json"
         group_original = group_snapshot.read_text(encoding="utf-8")
         group_schema = json.loads(group_original)
@@ -182,7 +221,7 @@ def main():
         snapshot = root / "framework/materials/api/Macie_ClassificationJob.json"
         snapshot.write_text(snapshot.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         assert api_snapshot_errors(root)
-    print("design-catalog: PASS (Macie and QuickSight API designs, identities, outputs, CFn boundary, snapshot integrity)")
+    print("design-catalog: PASS (Macie and QuickSight API designs, identities, outputs, real sync, 24 invalid inputs, snapshot integrity)")
 
 
 if __name__ == "__main__":

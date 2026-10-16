@@ -8,6 +8,14 @@
 
 pytest件数はテスト定義・aliasと設定から算出する。直接実行入口で選択されるcallbackとpytestラッパーは重ねて合計しない。
 
+## design_catalog の検証経路
+
+- API異常値24件は `integrations/design_catalog.checks.py` に維持。23件は `DesignSchemaCatalog.api_value_errors()` の型・範囲・required・additionalPropertiesと `job_errors()` の具体的違反を検証し、`jobId` ARN拒否1件はMarkdown→Model→Validatorで検証する。UTへの移動なし。
+- 個別結合ケースは `Validator(model_check=...)` で全体同期だけを分離し、Markdown/Model構造検証を維持。既存 `input_scope` はケースごとに終了し、Modelを書き換えた直後もキャッシュを破棄する。
+- 実処理の `sync_runtime.sync()` は正常系の生成・読み戻しと、`desired.extra=stale` に対する `model/display projection mismatch: macie.md: desired.extra` の検出を担当する。
+- Macie/QuickSight変換、PENDING_DEPLOY/識別子、ONE_TIME/WEEKLY/MONTHLY、重複API項目、Mapping種別不一致、S3 JSON一致・リンク名・重複・並び順、API Snapshot破損を維持する。
+- CloudFormation非対応CLIの2重実行は除去。同じAPI種別に対する終了コード1・`CloudFormation unsupported` は既存の `integrations/issues_api_only.checks.py` で継続検証する。
+
 ## 配置と入口の件数
 
 | 種別 | ファイル数 | pytest関数 / 展開数 | 直接関数 |
@@ -1023,11 +1031,11 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/design_catalog.checks.py:146` / `main` | UT | `units/design_catalog-unit.checks.py:20` | `assert group['source']['deleteOperation'] == 'DeleteGroup'` |
 | `unknown/design_catalog.checks.py:147` / `main` | UT | `units/design_catalog-unit.checks.py:21` | `assert catalog.required_design_properties(QUICKSIGHT_GROUP) == {'AwsAccountId', 'Namespace', 'GroupName'}` |
 | `unknown/design_catalog.checks.py:160` / `main` | UT | `units/design_catalog-unit.checks.py:34` | `raise AssertionError('API design leaked into the CFn catalog')` |
-| `unknown/design_catalog.checks.py:164` / `main` | IT | `integrations/design_catalog.checks.py:15` | `assert result.returncode == 1 and 'CloudFormation unsupported' in result.stdout` |
-| `unknown/design_catalog.checks.py:170` / `main` | IT | `integrations/design_catalog.checks.py:21` | `assert 'resourceType=QuickSight.Group' in group_model` |
-| `unknown/design_catalog.checks.py:171` / `main` | IT | `integrations/design_catalog.checks.py:22` | `assert 'QuickSight.Group.PrincipalId' in group_model` |
-| `unknown/design_catalog.checks.py:172` / `main` | IT | `integrations/design_catalog.checks.py:23` | `assert 'observed.row.' in group_model and 'PENDING_DEPLOY' in group_model` |
-| `unknown/design_catalog.checks.py:173` / `main` | IT | `integrations/design_catalog.checks.py:24` | `assert 'QuickSight.Group.Arn' not in group_model and 'arn:' not in group_model` |
+| `unknown/design_catalog.checks.py:164` / `main` | IT | `integrations/issues_api_only.checks.py:46` | `assert result.returncode == 1 and 'CloudFormation unsupported' in result.stdout` |
+| `unknown/design_catalog.checks.py:170` / `main` | IT | `integrations/design_catalog.checks.py:17` | `assert 'resourceType=QuickSight.Group' in group_model` |
+| `unknown/design_catalog.checks.py:171` / `main` | IT | `integrations/design_catalog.checks.py:18` | `assert 'QuickSight.Group.PrincipalId' in group_model` |
+| `unknown/design_catalog.checks.py:172` / `main` | IT | `integrations/design_catalog.checks.py:19` | `assert 'observed.row.' in group_model and 'PENDING_DEPLOY' in group_model` |
+| `unknown/design_catalog.checks.py:173` / `main` | IT | `integrations/design_catalog.checks.py:20` | `assert 'QuickSight.Group.Arn' not in group_model and 'arn:' not in group_model` |
 | `unknown/design_catalog.checks.py:223` / `main` | IT | `integrations/design_catalog.checks.py:74` | `assert not check(), check()` |
 | `unknown/design_catalog.checks.py:225` / `main` | IT | `integrations/design_catalog.checks.py:76` | `assert f'desired.resource.002.resourceType={MACIE_JOB}' in pending` |
 | `unknown/design_catalog.checks.py:226` / `main` | IT | `integrations/design_catalog.checks.py:77` | `assert 'desired.row.002-002.value=[Job](#macie-daily-data-scan)' in pending` |
@@ -1042,31 +1050,31 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/design_catalog.checks.py:236` / `main` | IT | `integrations/design_catalog.checks.py:87` | `assert not check({**VALUES, 'scheduleFrequency': {'monthlySchedule': {'dayOfMonth': 31}}})` |
 | `unknown/design_catalog.checks.py:237` / `main` | IT | `integrations/design_catalog.checks.py:88` | `assert not (errors := check({**VALUES, 'managedDataIdentifierSelector': 'NONE', 'customDataIdentifierIds': ['custom-id']})), errors` |
 | `unknown/design_catalog.checks.py:238` / `main` | IT | `integrations/design_catalog.checks.py:89` | `assert not check({**VALUES, 's3JobDefinition': {'bucketCriteria': {}}}), check({**VALUES, 's3JobDefinition': {'bucketCriteria': {}}})` |
-| `unknown/design_catalog.checks.py:270` / `main` | IT | `integrations/design_catalog.checks.py:121` | `assert any(('duplicate API' in error for error in check(text=duplicate)))` |
-| `unknown/design_catalog.checks.py:271` / `main` | IT | `integrations/design_catalog.checks.py:122` | `assert any(('display Mapping resource type missing' in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, 'Macie.Unknown'))))` |
-| `unknown/design_catalog.checks.py:276` / `main` | IT | `integrations/design_catalog.checks.py:127` | `assert not check(text=text), check(text=text)` |
-| `unknown/design_catalog.checks.py:277` / `main` | IT | `integrations/design_catalog.checks.py:128` | `assert 'desired.row.002-006.artifactSha256=' in read_model(model)` |
-| `unknown/design_catalog.checks.py:279` / `main` | IT | `integrations/design_catalog.checks.py:130` | `assert any(('bucket mapping differs from JSON artifact' in error for error in check(text=text)))` |
-| `unknown/design_catalog.checks.py:281` / `main` | IT | `integrations/design_catalog.checks.py:132` | `assert any(('requires a Markdown mapping table' in error for error in check(text=text.split('#### 対象S3 bucket')[0])))` |
-| `unknown/design_catalog.checks.py:282` / `main` | IT | `integrations/design_catalog.checks.py:133` | `assert any(('missing or duplicate Macie bucket' in error for error in check(text=text.replace('`app-data` \|', '`app-data` \|\n\| [daily-data-scan](#macie-daily-data-scan) \| `123456789012` \| `app-data` \|'))))` |
-| `unknown/design_catalog.checks.py:283` / `main` | IT | `integrations/design_catalog.checks.py:134` | `assert any(('invalid Macie Job/account mapping row' in error for error in check(text=text.replace('[daily-data-scan](#macie-daily-data-scan) \| `123456789012`', '[Other](#macie-other) \| `123456789012`'))))` |
-| `unknown/design_catalog.checks.py:295` / `main` | IT | `integrations/design_catalog.checks.py:146` | `assert any(('account rows must be contiguous' in error for error in check(text=noncontiguous)))` |
-| `unknown/design_catalog.checks.py:296` / `main` | IT | `integrations/design_catalog.checks.py:147` | `assert not check()` |
-| `unknown/design_catalog.checks.py:302` / `main` | IT | `integrations/design_catalog.checks.py:153` | `assert sync_runtime.sync(root, True, 'dev', '123456789012') == 0` |
-| `unknown/design_catalog.checks.py:303` / `main` | IT | `integrations/design_catalog.checks.py:154` | `assert json.loads(artifact.read_text(encoding='utf-8'))['bucketDefinitions'][0]['buckets'] == ['new-bucket']` |
-| `unknown/design_catalog.checks.py:304` / `main` | IT | `integrations/design_catalog.checks.py:155` | `assert 'scoping' in json.loads(artifact.read_text(encoding='utf-8'))` |
-| `unknown/design_catalog.checks.py:305` / `main` | IT | `integrations/design_catalog.checks.py:156` | `assert '`new-bucket`' in design.read_text(encoding='utf-8')` |
-| `unknown/design_catalog.checks.py:314` / `main` | IT | `integrations/design_catalog.checks.py:165` | `assert any(('API schema violation' in error for error in check(text=text)))` |
-| `unknown/design_catalog.checks.py:316` / `main` | IT | `integrations/design_catalog.checks.py:147` | `assert not check()` |
-| `unknown/design_catalog.checks.py:320` / `main` | IT | `integrations/design_catalog.checks.py:171` | `assert validator.errors` |
-| `unknown/design_catalog.checks.py:328` / `main` | IT | `integrations/design_catalog.checks.py:179` | `assert any(('identity must be AwsAccountId + Namespace + GroupName' in error for error in api_snapshot_errors(root)))` |
-| `unknown/design_catalog.checks.py:333` / `main` | IT | `integrations/design_catalog.checks.py:184` | `assert api_snapshot_errors(root)` |
+| `unknown/design_catalog.checks.py:270` / `main` | IT | `integrations/design_catalog.checks.py:157` | `assert any(('duplicate API' in error for error in check(text=duplicate)))` |
+| `unknown/design_catalog.checks.py:271` / `main` | IT | `integrations/design_catalog.checks.py:158` | `assert any(('display Mapping resource type missing' in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, 'Macie.Unknown'))))` |
+| `unknown/design_catalog.checks.py:276` / `main` | IT | `integrations/design_catalog.checks.py:163` | `assert not check(text=text), check(text=text)` |
+| `unknown/design_catalog.checks.py:277` / `main` | IT | `integrations/design_catalog.checks.py:164` | `assert 'desired.row.002-006.artifactSha256=' in read_model(model)` |
+| `unknown/design_catalog.checks.py:279` / `main` | IT | `integrations/design_catalog.checks.py:166` | `assert any(('bucket mapping differs from JSON artifact' in error for error in check(text=text)))` |
+| `unknown/design_catalog.checks.py:281` / `main` | IT | `integrations/design_catalog.checks.py:168` | `assert any(('requires a Markdown mapping table' in error for error in check(text=text.split('#### 対象S3 bucket')[0])))` |
+| `unknown/design_catalog.checks.py:282` / `main` | IT | `integrations/design_catalog.checks.py:169` | `assert any(('missing or duplicate Macie bucket' in error for error in check(text=text.replace('`app-data` \|', '`app-data` \|\n\| [daily-data-scan](#macie-daily-data-scan) \| `123456789012` \| `app-data` \|'))))` |
+| `unknown/design_catalog.checks.py:283` / `main` | IT | `integrations/design_catalog.checks.py:170` | `assert any(('invalid Macie Job/account mapping row' in error for error in check(text=text.replace('[daily-data-scan](#macie-daily-data-scan) \| `123456789012`', '[Other](#macie-other) \| `123456789012`'))))` |
+| `unknown/design_catalog.checks.py:295` / `main` | IT | `integrations/design_catalog.checks.py:182` | `assert any(('account rows must be contiguous' in error for error in check(text=noncontiguous)))` |
+| `unknown/design_catalog.checks.py:296` / `main` | IT | `integrations/design_catalog.checks.py:183` | `assert not check()` |
+| `unknown/design_catalog.checks.py:302` / `main` | IT | `integrations/design_catalog.checks.py:189` | `assert sync_runtime.sync(root, True, 'dev', '123456789012') == 0` |
+| `unknown/design_catalog.checks.py:303` / `main` | IT | `integrations/design_catalog.checks.py:190` | `assert json.loads(artifact.read_text(encoding='utf-8'))['bucketDefinitions'][0]['buckets'] == ['new-bucket']` |
+| `unknown/design_catalog.checks.py:304` / `main` | IT | `integrations/design_catalog.checks.py:191` | `assert 'scoping' in json.loads(artifact.read_text(encoding='utf-8'))` |
+| `unknown/design_catalog.checks.py:305` / `main` | IT | `integrations/design_catalog.checks.py:192` | `assert '`new-bucket`' in design.read_text(encoding='utf-8')` |
+| `unknown/design_catalog.checks.py:314` / `main` | IT | `integrations/design_catalog.checks.py:201` | `assert any(('API schema violation' in error for error in check(text=text)))` |
+| `unknown/design_catalog.checks.py:316` / `main` | IT | `integrations/design_catalog.checks.py:183` | `assert not check()` |
+| `unknown/design_catalog.checks.py:320` / `main` | IT | `integrations/design_catalog.checks.py:208` | `assert "model/display projection mismatch: macie.md: desired.extra" in str(error)` |
+| `unknown/design_catalog.checks.py:328` / `main` | IT | `integrations/design_catalog.checks.py:218` | `assert any(('identity must be AwsAccountId + Namespace + GroupName' in error for error in api_snapshot_errors(root)))` |
+| `unknown/design_catalog.checks.py:333` / `main` | IT | `integrations/design_catalog.checks.py:223` | `assert api_snapshot_errors(root)` |
 | `unknown/design_catalog.checks.py:154` / `main` | UT | `units/design_catalog-unit.checks.py:28` | `raise AssertionError(f'unsupported CFn type accepted: {resource_type}')` |
-| `unknown/design_catalog.checks.py:267` / `main` | IT | `integrations/design_catalog.checks.py:118` | `assert check(values), values` |
-| `unknown/design_catalog.checks.py:292` / `main` | IT | `integrations/design_catalog.checks.py:143` | `raise AssertionError('wrong S3 link label accepted')` |
-| `unknown/design_catalog.checks.py:312` / `main` | IT | `integrations/design_catalog.checks.py:163` | `raise AssertionError('bucketCriteria accepted with a fixed bucket table')` |
-| `unknown/design_catalog.checks.py:290` / `main` | IT | `integrations/design_catalog.checks.py:141` | `assert 'label must match its S3 Bucket' in str(error)` |
-| `unknown/design_catalog.checks.py:310` / `main` | IT | `integrations/design_catalog.checks.py:161` | `assert 'conflicts with bucketCriteria' in str(error)` |
+| `unknown/design_catalog.checks.py:267` / `main` | IT | `integrations/design_catalog.checks.py:153` | 24入力維持: Schema直接23件（具体的違反）、jobId ARNは結合1件 |
+| `unknown/design_catalog.checks.py:292` / `main` | IT | `integrations/design_catalog.checks.py:179` | `raise AssertionError('wrong S3 link label accepted')` |
+| `unknown/design_catalog.checks.py:312` / `main` | IT | `integrations/design_catalog.checks.py:199` | `raise AssertionError('bucketCriteria accepted with a fixed bucket table')` |
+| `unknown/design_catalog.checks.py:290` / `main` | IT | `integrations/design_catalog.checks.py:177` | `assert 'label must match its S3 Bucket' in str(error)` |
+| `unknown/design_catalog.checks.py:310` / `main` | IT | `integrations/design_catalog.checks.py:197` | `assert 'conflicts with bucketCriteria' in str(error)` |
 | `unknown/export-design-pdf.checks.py:22` / `module` | IT | `integrations/export-design-pdf.checks.py:22` | `assert SPEC and SPEC.loader` |
 | `unknown/export-design-pdf.checks.py:77` / `main` | IT | `integrations/export-design-pdf.checks.py:77` | `assert expected == {'dev-cde-vpc-a': 2, 'dev-cde-iam-role': 2, 'dev-cde-iam-role-two': 1, 'dev-cde-iam-policy': 1, 'appendix-dev-cde-vpc-policy': 2, 'stg-non-cde-vpc-a': 2}, expected` |
 | `unknown/export-design-pdf.checks.py:85` / `main` | IT | `integrations/export-design-pdf.checks.py:85` | `assert '[Role](#dev-cde-iam-role)' in merged` |
@@ -1420,11 +1428,10 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `integrations/compact-model-sources.checks.py:95` | 3: `(('preview', 'Common'), ('release', 'Common'), ('independent', 'Independent'))` |
 | `integrations/compact-model-sources.checks.py:102` | 動的: `paths` |
 | `integrations/comparison_core.checks.py:68` | 2: `[('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]` |
-| `integrations/design_catalog.checks.py:12` | 2: `(MACIE_JOB, QUICKSIGHT_GROUP)` |
-| `integrations/design_catalog.checks.py:34` | 動的: `definition['resourceTypes'].values()` |
-| `integrations/design_catalog.checks.py:117` | 動的: `bad_values` |
-| `integrations/design_catalog.checks.py:35` | 動的: `resource['properties'].values()` |
-| `integrations/design_catalog.checks.py:64` | 動的: `list(model_values.items())` |
+| `integrations/design_catalog.checks.py:30` | 動的: `definition['resourceTypes'].values()` |
+| `integrations/design_catalog.checks.py:153` | 23: `bad_values[:-1]`、1: `bad_values[-1]`（jobId ARN結合） |
+| `integrations/design_catalog.checks.py:31` | 動的: `resource['properties'].values()` |
+| `integrations/design_catalog.checks.py:61` | 動的: `list(model_values.items())` |
 | `integrations/eventbridge-producer-name-reference.checks.py:105` | 3: `[('lambda', 'Lambda.Function', 'FunctionName'), ('sqs', 'SQS.Queue', 'QueueName'), ('iam', 'IAM.User', 'UserName')]` |
 | `integrations/glue_datazone_catalog.checks.py:29` | 2: `((glue, glue_model), (datazone, datazone_model))` |
 | `integrations/group-03-input-references.checks.py:128` | 2: `[('iam', 'IAM.InstanceProfile', 'IAM.InstanceProfile.InstanceProfileName'), ('kms', 'KMS.Key', None)]` |
