@@ -15,6 +15,8 @@ from support.model_sources import write_model, snapshot_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import module_complete
+
 
 def rejected(call):
     try:
@@ -64,3 +66,5 @@ with tempfile.TemporaryDirectory() as directory:
     with patch.object(Path,'read_bytes',side_effect=PermissionError('denied')):
         rejected(lambda:load_model(path))
 print('Runtime Models: PASS (source discovery; binding-only resources; fixed identities; creation/rerun; missing/corrupt/unknown rejection; input invalidation)')
+
+module_complete(__file__)

@@ -15,6 +15,8 @@ from model_templates import affected, design_source_digest, json_text
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +114,7 @@ def entry(service, env='dev'):
     return env,'team',service
 
 
+@it_case
 def check_precision(root, service, kind, name_property):
     source = producer(root, service, kind, name_property)
     template = root/'model/templates/team'/(service+'.properties.tpl')
@@ -158,6 +161,7 @@ def check_precision(root, service, kind, name_property):
     assert affected(root,{relative}) == own | {entry(s) for s in ('uses-first','uses-second','fixed-export','continues','stops-here','disabled')}
 
 
+@it_case
 def check_identity_and_deletion(root):
     source = producer(root,'iam','IAM.Role','RoleName')
     consumer(root,'uses-instance','iam','IAM.Role','item1',instance=True)
@@ -177,6 +181,7 @@ def check_identity_and_deletion(root):
     assert affected(root,{binding.relative_to(root),source.relative_to(root)}) == {entry('iam'),entry('uses-instance')}
 
 
+@it_case
 def check_shared_environments(root):
     dev = producer(root,'iam','IAM.Role','RoleName')
     stg = producer(root,'iam','IAM.Role','RoleName',env='stg')
@@ -192,6 +197,7 @@ def check_shared_environments(root):
     assert json.loads(dev.read_text())['instances']['item1']['parameters']['Name']=='dev-name1'
 
 
+@it_case
 def check_identifiers(root):
     catalog=Path(__file__).resolve().parents[4]/'framework/materials/aws/EC2_VPC.properties'
     write(root/'framework/materials/aws/EC2_VPC.properties',catalog.read_text(encoding='utf-8'))
@@ -220,6 +226,7 @@ def check_identifiers(root):
     assert affected(root,{observed.relative_to(root)}) == own|{entry('by-id')}
 
 
+@it_case
 def check_type_and_unknown(root):
     source=producer(root,'iam','IAM.Role','RoleName')
     consumer(root,'build','iam','IAM.Role')
@@ -236,6 +243,7 @@ def check_type_and_unknown(root):
         raise AssertionError('missing authoritative template must stop')
 
 
+@it_case
 def check_import_scope(root):
     from import_guard import changes
     source=producer(root,'iam','IAM.Role','RoleName')
@@ -249,6 +257,7 @@ def check_import_scope(root):
     assert set(found)=={'dev/team/iam/001','dev/team/build/005'},found
 
 
+@it_case
 def check_selection(root):
     source=producer(root,'iam','IAM.Role','RoleName')
     unused=producer(root,'unused','IAM.Role','RoleName')
@@ -265,6 +274,7 @@ def check_selection(root):
     assert affected(root,{source.relative_to(root)}) == {entry('iam'),entry('build')}
 
 
+@it_case
 def check_cycles(root):
     consumer(root,'alpha','beta','CodeBuild.Project','005')
     consumer(root,'beta','alpha','CodeBuild.Project','005')

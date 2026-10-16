@@ -1,5 +1,7 @@
 """Scenario/Result metadata and state handoff without running scenarios."""
 
+from support.it_case_receipt import it_case
+
 
 from support.validator import MODULE, project, write
 
@@ -7,6 +9,7 @@ from support.validator import MODULE, project, write
 from validation.scenario import is_rfc3339
 
 
+@it_case
 def check_records():
     with project() as root:
         scenario = root / 'tests/scenarios/fixture/scenario.md'

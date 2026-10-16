@@ -21,6 +21,8 @@ from model_core import properties
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from support.it_case_receipt import it_case
+
 ROOT = Path(__file__).resolve().parents[4]
 from support import model_design_fixtures as HELPERS
 SYNC = HELPERS.SYNC
@@ -41,6 +43,7 @@ def rejects(action, *messages):
     raise AssertionError(f"invalid input accepted: {messages}")
 
 
+@it_case
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

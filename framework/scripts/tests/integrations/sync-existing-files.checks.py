@@ -11,6 +11,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from support.it_case_receipt import it_case
+
 import importlib.util
 import io
 import shutil
@@ -27,6 +29,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+@it_case
 def check_failure_safety() -> None:
     missing_target = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
     assert missing_target.returncode != 0 and "--target" in missing_target.stderr

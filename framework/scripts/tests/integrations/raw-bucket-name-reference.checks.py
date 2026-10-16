@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.raw_bucket_name_reference_fixtures import *
 
+@it_case
 def check(root):
     producer = root/'model/preview/team/s3.properties'
     original = ('desired.service.s3.serviceId=s3\n'

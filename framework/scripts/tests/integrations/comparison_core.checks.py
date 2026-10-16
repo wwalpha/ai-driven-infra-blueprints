@@ -6,6 +6,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import module_complete
+
 # Fresh processes forbid acquisition/CLI/file-read paths, rather than merely observing no network.
 import subprocess
 code = r'''
@@ -68,3 +70,5 @@ for invalid in ('missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
 for order in [('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]:
     subprocess.run([sys.executable, '-B', '-c', code, str(Path(__file__).resolve().parents[2]), *order], check=True)
 print('Comparison core checks: PASS (rows/typed values/uncertainty/masking/fresh import identity)')
+
+module_complete(__file__)

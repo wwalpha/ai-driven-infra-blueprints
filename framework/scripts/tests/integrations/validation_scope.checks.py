@@ -6,10 +6,13 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.validation_scope_fixtures import *
 
 from support.it_workspace import copy_framework
 
+@it_case
 def check_single_target_cache(root):
     docs, models = root / "docs/designs/dev/cde", root / "model/dev/cde"
     services = {"codecommit": ("CodeCommit.Repository", "RepositoryName", "repo-app-dev-cde"),
@@ -94,6 +97,7 @@ def check_single_target_cache(root):
     active.write_text(saved_contract, encoding="utf-8")
 
 
+@it_case
 def check_template_consumers(root):
     from support import model_templates_fixtures as source_checks
     source_checks.fixture(root, ('dev', 'stg'))

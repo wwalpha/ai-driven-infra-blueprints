@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 import tempfile
 from unittest.mock import patch
@@ -26,6 +28,7 @@ def rejected(call, phrase):
         raise AssertionError('invalid input accepted: ' + phrase)
 
 
+@it_case
 def check(root):
     template = root / 'model/templates/team/security-group.properties.tpl'
     shared = {'type': 'string', 'description': 'Endpoint共通の受信元IPv4範囲',

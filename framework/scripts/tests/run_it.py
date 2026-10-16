@@ -35,22 +35,41 @@ def inventory(tests):
     errors = []
     if not cases:
         errors.append('empty IT case ledger')
-    for path in sorted((tests / 'integrations').rglob('*.py')):
+    suites = sorted((tests / 'integrations').rglob('*.py'))
+    for path in suites:
         tree = ast.parse(path.read_text(encoding='utf-8'))
         relative = path.relative_to(tests).as_posix()
-        names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+        functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
         aliases = {n.targets[0].id for n in tree.body if isinstance(n, ast.Assign)
                    and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.Name)}
-        for name in names:
-            if name.startswith('check_') and (relative, name) not in cases:
+        owned = {name: value for (file, name), value in cases.items() if file == relative}
+        if path.name.endswith('.checks.py') and not owned:
+            errors.append(f'unregistered IT suite: {relative}')
+        for name in functions:
+            if name.startswith('check_') and name not in owned:
                 errors.append(f'unregistered IT case: {relative}::{name}')
-        for file, name in cases:
-            if file == relative and name not in names | aliases:
+        imports = {alias.name for node in tree.body if isinstance(node, ast.ImportFrom)
+                   and node.module == 'support.it_case_receipt'
+                   for alias in node.names if alias.asname is None}
+        for name, (mode, count) in owned.items():
+            if mode not in ('pytest', 'direct', 'direct_group', 'module') or count < 1:
+                errors.append(f'invalid IT registration: {relative}::{name}')
+            elif mode == 'module':
+                expected = ast.parse('module_complete(__file__)').body[0]
+                if (name != '__module__' or count != 1 or 'module_complete' not in imports
+                        or ast.dump(tree.body[-1]) != ast.dump(expected)):
+                    errors.append(f'missing terminal module completion: {relative}::{name}')
+            elif name not in functions and not (mode == 'pytest' and name in aliases):
                 errors.append(f'missing IT case: {relative}::{name}')
+            elif mode in ('direct', 'direct_group'):
+                decorators = functions[name].decorator_list
+                if (count != 1 or 'it_case' not in imports or not decorators
+                        or ast.unparse(decorators[0]) != 'it_case'):
+                    errors.append(f'missing outer completion decorator: {relative}::{name}')
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith('.checks'):
                 errors.append(f'IT module dependency: {relative}: {node.value}')
-    present = {p.relative_to(tests).as_posix() for p in (tests / 'integrations').rglob('*.py')}
+    present = {p.relative_to(tests).as_posix() for p in suites}
     errors += [f'missing IT file: {file}' for file, _ in cases if file not in present]
     return cases, errors
 
@@ -112,52 +131,82 @@ def run_child(suite, tests, receipt, baseline=False):
     def measured_pytest(args=None, plugins=None):
         return pytest_main(args, plugins=[*(plugins or []), plugin])
     pytest.main = measured_pytest
-    calls, metrics = Counter(), Counter()
-    prefix = str(tests / 'integrations') + os.sep
-    def profile(frame, event, arg):
-        if event == 'call' and frame.f_code.co_filename.startswith(prefix):
-            file = Path(frame.f_code.co_filename).relative_to(tests).as_posix()
-            calls[file + '::' + frame.f_code.co_name] += 1
-        if event == 'call' and frame.f_code.co_filename.startswith(str(tests / 'support')):
-            if frame.f_code.co_name in ('input_templates', 'typed_services', 'generated_policy'):
-                metrics['fixture_requests:' + frame.f_code.co_name] += 1
-                if baseline:
-                    metrics['generated:' + frame.f_code.co_name] += 1
+    completed, metrics = Counter(), Counter()
+    suite_key = suite.resolve().relative_to(tests.resolve()).as_posix()
     def audit(event, args):
         if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen'):
             metrics[event] += 1
         elif event == 'blueprint.it_fixture.generated':
             metrics['generated:' + args[0]] += 1
+        elif event == 'blueprint.it_case.completed':
+            source = Path(args[0]).resolve().relative_to(tests.resolve()).as_posix()
+            completed[source + '::' + args[1]] += 1
     sys.addaudithook(audit)
-    sys.setprofile(profile)
     sys.argv = [str(suite)]
     try:
         runpy.run_path(str(suite), run_name='__main__')
     finally:
-        sys.setprofile(None)
-        receipt.write_text(json.dumps({'calls': calls, 'collected': plugin.collected,
+        receipt.write_text(json.dumps({'version': 1, 'suite': suite_key, 'completed': completed, 'collected': plugin.collected,
                                        'passed': plugin.passed, 'metrics': metrics}), encoding='utf-8')
 
 
+def receipt_errors(receipt, suite=None):
+    if not isinstance(receipt, dict) or receipt.get('version') != 1:
+        return ['missing/invalid runtime receipt schema']
+    owner = receipt.get('suite')
+    if not isinstance(owner, str) or not owner or (suite is not None and owner != suite):
+        return ['invalid runtime receipt suite']
+    for field in ('completed', 'metrics'):
+        values = receipt.get(field)
+        if not isinstance(values, dict) or any(not isinstance(k, str) or type(v) is not int or v < 1
+                                               for k, v in values.items()):
+            return [f'invalid runtime receipt {field}']
+    for field in ('collected', 'passed'):
+        values = receipt.get(field)
+        if not isinstance(values, list) or any(not isinstance(k, str) or not k.startswith(owner + '::') for k in values):
+            return [f'invalid runtime receipt {field}']
+        if len(set(values)) != len(values):
+            return [f'duplicate runtime receipt {field}']
+    if any(not k.startswith('integrations/') or '::' not in k for k in receipt['completed']):
+        return ['invalid runtime receipt completed owner']
+    if not set(receipt['passed']) <= set(receipt['collected']):
+        return ['passed runtime case was not collected']
+    return []
+
+
 def reachability(cases, receipts):
-    calls, collected, passed = Counter(), Counter(), Counter()
+    completed, collected, passed = Counter(), Counter(), Counter()
+    errors = [] if cases else ['empty IT case ledger']
+    owners = set()
     for receipt in receipts:
-        calls.update(receipt.get('calls', {}))
-        for key in receipt.get('collected', []):
+        invalid = receipt_errors(receipt)
+        if invalid:
+            errors += invalid
+            continue
+        owner = receipt['suite']
+        if owner in owners:
+            errors.append(f'duplicate runtime receipt suite: {owner}')
+        owners.add(owner)
+        completed.update(receipt['completed'])
+        for key in receipt['collected']:
             collected[key.split('[', 1)[0]] += 1
-        for key in receipt.get('passed', []):
+        for key in receipt['passed']:
             passed[key.split('[', 1)[0]] += 1
-    errors = []
+    for path in sorted({path for path, _ in cases if path.endswith('.checks.py')} - owners):
+        errors.append(f'missing runtime receipt: {path}')
     for key in collected:
-        if tuple(key.split('::', 1)) not in cases:
+        if cases.get(tuple(key.split('::', 1)), (None,))[0] != 'pytest':
             errors.append(f'unregistered collected IT case: {key}')
+    for key in completed:
+        if cases.get(tuple(key.split('::', 1)), (None,))[0] not in ('direct', 'direct_group', 'module'):
+            errors.append(f'unregistered completed IT case: {key}')
     for (path, name), (mode, count) in cases.items():
         key = path + '::' + name
         if mode == 'pytest':
             if collected[key] != count or passed[key] != count:
                 errors.append(f'{key}: expected {count}, collected {collected[key]}, passed body {passed[key]}')
-        elif not calls[key]:
-            errors.append(f'{key}: verification body not reached')
+        elif mode not in ('direct', 'direct_group', 'module') or not completed[key]:
+            errors.append(f'{key}: verification did not complete')
     return errors
 
 
@@ -181,7 +230,11 @@ def execute_suites(tests, output, summary, baseline=False):
             code = 1
         elapsed = time.monotonic() - started
         try:
-            receipts.append(json.loads(receipt.read_text(encoding='utf-8')))
+            data = json.loads(receipt.read_text(encoding='utf-8'))
+            invalid = receipt_errors(data, suite.relative_to(tests).as_posix())
+            if invalid:
+                raise ValueError('; '.join(invalid))
+            receipts.append(data)
         except (OSError, ValueError) as error:
             print(f'missing/invalid runtime receipt: {suite.name}: {error}', file=sys.stderr)
             code = 1
@@ -201,7 +254,7 @@ def run_all(tests, summary, baseline=False):
         from support.it_fixture_bundle import bundle, ENV
     else:
         ENV = 'BLUEPRINT_IT_FIXTURES'
-    cases, errors = inventory(tests)
+    cases, errors = ({}, []) if baseline else inventory(tests)
     if not baseline:
         check_assertion_guards(tests)
     started = time.monotonic()
@@ -224,7 +277,8 @@ def run_all(tests, summary, baseline=False):
                 if fixture is not None:
                     os.environ[ENV] = str(fixture)
                 rows, receipts = execute_suites(tests, Path(directory), summary, baseline)
-                errors += reachability(cases, receipts)
+                if not baseline:
+                    errors += reachability(cases, receipts)
     except RuntimeError as error:
         errors.append(str(error))
     finally:
@@ -238,8 +292,9 @@ def run_all(tests, summary, baseline=False):
             os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] = previous_cache
     for receipt in receipts:
         metrics.update(receipt.get('metrics', {}))
-    result = {'seconds': time.monotonic() - started, 'bundle_initializations': metrics['blueprint.it_bundle.initialized'],
-              'seed_generations': {key.removeprefix('generated:'): count for key, count in metrics.items() if key.startswith('generated:')},
+    result = {'seconds': time.monotonic() - started, 'bundle_initializations': None if baseline else metrics['blueprint.it_bundle.initialized'],
+              'seed_generations': None if baseline else {key.removeprefix('generated:'): count for key, count in metrics.items() if key.startswith('generated:')},
+              'reachability': 'not verified (baseline)' if baseline else 'verified' if not errors else 'failed',
               'metrics': dict(metrics), 'suites': rows, 'reachability_errors': errors}
     if not baseline:
         from support.it_fixture_bundle import NAMES
@@ -248,6 +303,8 @@ def run_all(tests, summary, baseline=False):
     print(json.dumps(result, ensure_ascii=False), flush=True)
     for error in errors:
         print('FAIL reachability: ' + error, file=sys.stderr)
+    if baseline:
+        summary.write('\nBaseline reachability: not verified; fixture generation metrics: not comparable.\n')
     summary.write(f'\nBundle initializations: {result["bundle_initializations"]}; '
                   f'reachability errors: {len(errors)}; total seconds: {result["seconds"]:.3f}\n')
     summary.write('\n```json\n' + json.dumps(result['metrics'], indent=2) + '\n```\n')
@@ -279,8 +336,11 @@ def main():
         summary.write('\n### Current\n\n')
         after = run_all(TESTS, summary)
         if args.baseline_root:
-            summary.write(f'\nSame-run instrumented time: {before["seconds"]:.3f}s → {after["seconds"]:.3f}s\n')
-    return int(bool(after['reachability_errors']) or any(row['code'] for row in after['suites']))
+            summary.write(f'\nObserved times: baseline {before["seconds"]:.3f}s; current {after["seconds"]:.3f}s.\n'
+                          'Validation content and suite equivalence are not established; these are not a same-condition speedup.\n'
+                          'Legacy profiler-derived fixture request/generation counts are not comparable.\n')
+    return int(any(result['reachability_errors'] or any(row['code'] for row in result['suites'])
+                   for result in ([before, after] if args.baseline_root else [after])))
 
 
 if __name__ == '__main__':

@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import ast
 from contextlib import redirect_stdout
 import copy
@@ -85,6 +87,7 @@ class CLI:
         return subprocess.CompletedProcess(command, 0, json.dumps(value), '')
 
 
+@it_case
 @input_scope
 def check():
     # Generation uses authored authorities; the framework checkout has no consumer data.

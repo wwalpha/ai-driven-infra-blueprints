@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.framework_input_isolation_fixtures import *
 
+@it_case
 def check():
     from integrations.validation_checks.task import check_task_type_dispatch
     if not __debug__:

@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 import io
 import shutil
@@ -32,6 +34,7 @@ from support import model_design_fixtures as MODELS
 
 from support.it_workspace import copy_framework
 
+@it_case
 def check(root):
     copy_framework(root / 'framework')
     write_fixture_files({root/'project.json':t.json_text({'projectName':'app', 'targets':[

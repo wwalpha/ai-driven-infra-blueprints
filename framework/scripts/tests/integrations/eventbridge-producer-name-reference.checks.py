@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import module_complete
+
 import copy
 from support.model_sources import write_model, write_fixture_files
 import tempfile
@@ -107,3 +109,5 @@ if __name__ == '__main__':
         with tempfile.TemporaryDirectory() as directory:
             check(Path(directory).resolve(), service, kind, name)
     print('EventBridge producer names: PASS (FunctionName/QueueName/UserName; typed links/raw JSON; labels; hash/impact/trace; strict rejection)')
+
+module_complete(__file__)

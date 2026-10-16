@@ -18,6 +18,8 @@ from support.model_sources import write_fixture_files as save_files
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 
 def rejected(call):
     try:
@@ -27,6 +29,7 @@ def rejected(call):
     raise AssertionError('invalid context/override accepted')
 
 
+@it_case
 def check(root):
     project = root/'project.json'
     target = {'environment':'preview','alias':'team','awsAccountId':'111111111111',

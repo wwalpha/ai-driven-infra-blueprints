@@ -6,10 +6,13 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.deploy_preparation_fixtures import *
 
 from support.it_workspace import copy_framework
 
+@it_case
 def check_preparation():
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory).resolve()
@@ -89,6 +92,7 @@ def check_preparation():
         print(f"Offline preparation benchmark: {wall:.3f}s; phase timing generated (fixture, no AWS)")
 
 
+@it_case
 def check_stale_and_conflicts():
     for reason in ("input", "issue", "reservation", "runtime", "candidate", "model", "markdown-change",
                    "markdown-delete", "json-change", "json-delete", "legacy-change", "legacy-delete"):
@@ -137,6 +141,7 @@ def check_stale_and_conflicts():
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
 
 
+@it_case
 def check_generated_boundaries():
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory).resolve()
@@ -212,6 +217,7 @@ def check_generated_boundaries():
         assert "task path must not use symlinks" in output.getvalue()
 
 
+@it_case
 def check_service_generated_equality():
     # Only the valid IAM model/view is used for schema/generated equality evidence.
     with tempfile.TemporaryDirectory() as directory:

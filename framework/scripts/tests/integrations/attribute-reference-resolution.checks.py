@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 import tempfile
 
@@ -70,6 +72,7 @@ def rejected(root, action, phrase):
     assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
+@it_case
 def check_pair(root, first, second):
     consumer, _, _ = fixture(root, first, second)
     producer, directory, template = fixture(root, second, first)
@@ -120,6 +123,7 @@ def check_pair(root, first, second):
     template.write_bytes(original_template)
 
 
+@it_case
 def check_fixed_label(root):
     consumer, directory, template = fixture(root, 's3', 'cloudtrail')
     producer, producer_directory, producer_template = fixture(root, 'cloudtrail', 's3')
@@ -183,6 +187,7 @@ def fixture_stack(root):
     return path, directory, template
 
 
+@it_case
 def check_stack(root):
     consumer, _, template = fixture(root, 's3')
     producer, directory, producer_template = fixture_stack(root)
@@ -234,6 +239,7 @@ def check_stack(root):
     inputs.write_bytes(original)
 
 
+@it_case
 def check_preparation_cache(root):
     template = root / 'model/templates/team/iam.properties.tpl'
     source = root / 'model/parameters/preview/team/iam'
@@ -282,6 +288,7 @@ def check_preparation_cache(root):
     assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
+@it_case
 def check():
     with tempfile.TemporaryDirectory() as directory:
         check_preparation_cache(Path(directory))

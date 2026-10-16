@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 from support.model_sources import write_model, write_fixture_files
 import tempfile
@@ -26,6 +28,7 @@ def rejected(function, phrase):
         raise AssertionError('invalid name reference accepted: ' + phrase)
 
 
+@it_case
 def check(root):
     template = root / 'model/templates/team/cloudwatch-logs.properties.tpl'
     refs = {

@@ -6,9 +6,12 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from integrations.validation_checks import cloudformation, design, references, runner, scenario, scope, task, terraform
 
 
+@it_case
 def main():
     cloudformation.check_cloudformation_stack_design()
     cloudformation.check_stack_mapping_targets()

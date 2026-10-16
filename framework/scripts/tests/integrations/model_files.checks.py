@@ -6,10 +6,13 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.model_files_fixtures import *
 
 from support.it_workspace import copy_framework
 
+@it_case
 def check_resource_reading(root):
     source = root / "model/dev/123456789012/kms.properties"
     values = {

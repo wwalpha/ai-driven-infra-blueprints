@@ -11,6 +11,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from support.it_case_receipt import it_case
+
 import importlib.util
 import tempfile
 from unittest.mock import patch
@@ -33,6 +35,7 @@ def expect_error(root: Path, message: str) -> None:
         raise AssertionError(f"expected {message}")
 
 
+@it_case
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

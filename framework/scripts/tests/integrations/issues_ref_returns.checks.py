@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import tempfile
 from unittest.mock import patch
 
@@ -15,6 +17,7 @@ from iac_values import same
 from support.validator import load
 
 
+@it_case
 def main_checks():
     from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-ref-returns-') as temporary:

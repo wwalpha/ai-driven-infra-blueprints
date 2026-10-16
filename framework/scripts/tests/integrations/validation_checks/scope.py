@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from support.it_case_receipt import it_case
+
 
 import json
 
@@ -25,6 +27,7 @@ from unittest.mock import patch
 from support.validator import MODULE, project, git_project, commit, write
 
 
+@it_case
 def check_deployment_iac_scope():
     from deploy_preparation import task_deployment_input_paths
     from model_design import markdown_for
@@ -113,6 +116,7 @@ def check_deployment_iac_scope():
     print("Deployment IaC scope: PASS (A/B dev ignores other-task invalid stg; stg/full fail; shared template and own out-of-scope IaC fail)")
 
 
+@it_case
 def check_task_file_gating() -> None:
     import task_contract as tasks
     import worktree_task as wt

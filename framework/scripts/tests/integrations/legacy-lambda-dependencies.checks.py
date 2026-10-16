@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import module_complete
+
 import tempfile
 
 import model_templates as t
@@ -133,3 +135,5 @@ if __name__ == '__main__':
         with tempfile.TemporaryDirectory() as directory:
             check(Path(directory).resolve(), human)
     print('Lambda dependencies: PASS (YAML inputs, hash/cache/impact, scope, exact values, reciprocal links, missing rejection)')
+
+module_complete(__file__)

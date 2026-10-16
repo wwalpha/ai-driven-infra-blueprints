@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from support.it_case_receipt import it_case
+
 
 import json
 
@@ -22,6 +24,7 @@ from unittest.mock import patch
 from support.validator import MODULE, SCRIPT, project, git_project, commit, write
 
 
+@it_case
 def check_task_contract() -> None:
     with git_project() as root:
         (root / "tasks").mkdir()
@@ -78,6 +81,7 @@ def check_task_contract() -> None:
         assert any("Infrastructure phase must appear exactly once" in error for error in validator.errors)
 
 
+@it_case
 def check_idle_without_active_task() -> None:
     with git_project() as root:
 
@@ -107,6 +111,7 @@ def check_idle_without_active_task() -> None:
         assert any("active task prompt missing" in error for error in validator.errors)
 
 
+@it_case
 def check_destroy_phase() -> None:
     with git_project() as root:
         model = root / "model/dev/123456789012/ec2.properties"
@@ -153,6 +158,7 @@ def check_destroy_phase() -> None:
         assert {"check_task_scope", "check_scoped_designs", "check_acceptance_checks"} <= set(invoked)
 
 
+@it_case
 def check_task_type_dispatch() -> None:
     from support.model_sources import write_model
     with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/active.md'}):
@@ -167,6 +173,7 @@ def check_task_type_dispatch() -> None:
         check_task_type_cases(root)
 
 
+@it_case
 def check_task_type_cases(root) -> None:
     valid = {
         "initialization": {"project.json"},

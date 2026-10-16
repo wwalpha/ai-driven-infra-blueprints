@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from support.it_case_receipt import it_case
+
 
 import json
 
@@ -12,6 +14,7 @@ from support.validator import MODULE, SCRIPT, project, write
 
 from support.it_workspace import copy_framework
 
+@it_case
 def check_cloudformation_stack_design() -> None:
     with project() as root:
         target = root / "docs" / "designs" / "dev" / "123456789012"
@@ -81,6 +84,7 @@ def check_cloudformation_stack_design() -> None:
         )
 
 
+@it_case
 def check_stack_mapping_targets():
     from model_design import markdown_for
     import shutil

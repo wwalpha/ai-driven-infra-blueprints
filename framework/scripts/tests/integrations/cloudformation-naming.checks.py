@@ -18,6 +18,8 @@ from validation_cache import input_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+
+from support.it_case_receipt import it_case
 ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -60,6 +62,7 @@ def parameters(doc, original, case):
     return values
 
 
+@it_case
 def check_imports(collection, producer_name, pseudo):
     producers = [item for (name, _), item in collection.items() if name == producer_name]
     assert producers, 'no export producer: '+producer_name
@@ -99,6 +102,7 @@ def check_imports(collection, producer_name, pseudo):
     return count
 
 
+@it_case
 def check_names(collection, path, pseudo):
     env, alias = path.parent.parent.name, path.parent.name
     iam = load_model(path.with_name('iam.properties')).values
@@ -123,6 +127,7 @@ def check_names(collection, path, pseudo):
     if alias == 'non-cde': assert count, 'no vulnerability role cases'
 
 
+@it_case
 def check_flow_logs(collection, pseudo):
     named = {name:item for (name,_),item in collection.items()}
     vpc,vpc_parameters = named['vpc.yaml']; kms,kms_parameters = named['kms.yaml']
@@ -168,6 +173,7 @@ def fixture(root):
         'desired.row.001-001.property':'IAM.Role.RoleName','desired.row.001-001.value':'`venusinf-dev-VulnerabilityScan02Role-fixture`'})
 
 
+@it_case
 @input_scope
 def check():
     with TemporaryDirectory(prefix='naming-contracts-') as directory:
@@ -177,6 +183,7 @@ def check():
             check_fixtures()
 
 
+@it_case
 def check_fixtures():
     # Preserve the former standalone checks' dev scope; other environments remain covered by the normal validator.
     paths = [p for p in model_paths(ROOT) if p.stem == 'cloudformation-stacks' and p.parent.parent.name == 'dev']

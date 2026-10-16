@@ -1,4 +1,6 @@
 """Typed service contracts over authored, disposable authorities."""
+
+from support.it_case_receipt import it_case
 import copy
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,6 +24,7 @@ def cases(service):
         before = load_model(path).values
         yield (environment, alias, directory, template, path, human, bindings, observed, before)
 
+@it_case
 def check_kms():
     for environment, alias, directory, template, path, human, bindings, observed, before in cases('kms'):
         original = copy.deepcopy(human)
@@ -49,6 +52,7 @@ def check_kms():
                 inputs['Enabled'] = 'true'
             rejected(lambda: t.expand(template, human, observed, bindings, environment), phrase)
 
+@it_case
 def check_security_group():
     for environment, alias, directory, template, path, original, bindings, observed, before in cases('security-group'):
         identity, parameter = next(((identity, parameter) for identity, item in original['instances'].items() for parameter in item['parameters'] if parameter.endswith('FromPort')))
@@ -74,6 +78,7 @@ def check_security_group():
                 inputs[parameter] = str(previous)
             rejected(lambda: t.expand(template, human, observed, bindings, environment), phrase)
 
+@it_case
 def check_route53():
     for environment, alias, directory, template, path, original, bindings, observed, before in cases('route53'):
         if alias == 'cde':
@@ -109,6 +114,7 @@ def check_route53():
                 inputs[parameter] = str(previous)
             rejected(lambda: t.expand(template, human, observed, bindings, environment), phrase)
 
+@it_case
 def check_iam():
     objects = 0
     for environment, alias, directory, template, path, original, bindings, observed, before in cases('iam'):
@@ -141,6 +147,7 @@ def check_iam():
             rejected(lambda: t.expand(template, human, observed, bindings, environment), phrase)
     assert objects > 0
 
+@it_case
 def check_s3():
     trails = 0
     for environment, alias, directory, template, path, human, bindings, observed, before in cases('s3'):
@@ -175,6 +182,7 @@ def check_s3():
     assert trails == len([p for p in t.model_paths(ROOT) if p.stem == 'cloudtrail'])
     assert trails > 0
 
+@it_case
 def check_glue():
     jobs = 0
     for environment, alias, directory, template, path, human, bindings, observed, before in cases('glue'):
@@ -198,6 +206,7 @@ def check_glue():
         logs = ROOT / 'model' / environment / alias / 'cloudwatch-logs.properties'
     assert jobs > 0
 
+@it_case
 def check_cloudwatch_logs():
     groups = 0
     producers = set()
@@ -215,6 +224,7 @@ def check_cloudwatch_logs():
         assert t.expand(template, human, observed, bindings, env)[0] == before
     assert {'lambda', 'glue', 'iam', 'codebuild', 'mwaa', 'cloudtrail'} <= producers
 
+@it_case
 def check_lambda():
     functions = permissions = 0
     for env, alias, directory, template, path, human, bindings, observed, before in cases('lambda'):
@@ -241,6 +251,7 @@ def check_lambda():
         event = path.with_name('eventbridge.properties')
     assert functions > 0 and permissions > 0
 
+@it_case
 def check_eventbridge():
     rules = schedules = 0
     for env, alias, directory, template, path, human, bindings, observed, before in cases('eventbridge'):
@@ -273,6 +284,7 @@ def check_eventbridge():
         producer = path.with_name('lambda.properties')
     assert rules > 0 and schedules > 0
 
+@it_case
 def check_codepipeline():
     pipelines = 0
     configurations = 0
@@ -309,6 +321,7 @@ def rejected(call, phrase):
     else:
         raise AssertionError('invalid service input accepted: ' + phrase)
 
+@it_case
 def check_responsibilities():
     from model_core import entries
     from model_projection import document_sha256
@@ -396,6 +409,7 @@ def check_responsibilities():
                 assert checked, 'no input cases: ' + service
     print('Service responsibilities: PASS (bindings-only instances, fixed mappings, hashes, context provenance, input/type/constraint rejection, typed isolated edits)')
 
+@it_case
 @input_scope
 def check():
     from support.service_fixtures import typed_services
@@ -406,6 +420,7 @@ def check():
             check_fixtures()
 
 
+@it_case
 def check_fixtures():
     check_responsibilities()
     check_kms()

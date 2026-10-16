@@ -6,11 +6,14 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.design_catalog_fixtures import *
 from validation_cache import input_scope, memo_table
 
 from support.it_workspace import copy_framework
 
+@it_case
 def main():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"

@@ -233,7 +233,8 @@ def check_ci_workflow(tmp_path):
             code = codes.pop(0)
             if isinstance(code, OSError):
                 raise code
-            Path(command[-1]).write_text('{}')
+            Path(command[-1]).write_text(json.dumps({'version': 1, 'suite': 'integrations/' + Path(command[command.index('--suite') + 1]).name,
+                                                   'completed': {}, 'collected': [], 'passed': [], 'metrics': {}}))
             return subprocess.CompletedProcess(command, code)
         summary = io.StringIO()
         with patch.object(run_it.subprocess, 'run', side_effect=execute) as launch:
@@ -245,6 +246,17 @@ def check_ci_workflow(tmp_path):
         for path in output.iterdir():
             path.unlink()
     assert [row['code'] for row in rows] == [1, 1, 0]
+
+    def invalid_receipts(command, **kwargs):
+        path = Path(command[-1])
+        if path.name.startswith('a.'):
+            path.write_text('{broken')
+        elif path.name.startswith('b.'):
+            path.write_text('{}')
+        return subprocess.CompletedProcess(command, 0)
+    with patch.object(run_it.subprocess, 'run', side_effect=invalid_receipts):
+        rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
+    assert all(row['code'] != 0 for row in rows) and not receipts
 
 
 def check_it_reachability(tmp_path):
@@ -272,17 +284,64 @@ if __name__ == '__main__':
     data = json.loads(receipt.read_text())
     cases = {('integrations/receipt.checks.py', 'check_body'): ('pytest', 2)}
     assert not run_it.reachability(cases, [data])
-    assert data['calls']['integrations/receipt.checks.py::check_body'] == 2
+    assert len(data['passed']) == 2
+    assert 'calls' not in data
+    assert run_it.reachability(cases, [{**data, 'passed': data['passed'][:1]}])
+    assert run_it.reachability(cases, [{**data, 'passed': [data['passed'][0]] * 2}])
     cases[('integrations/receipt.checks.py', 'check_not_called')] = ('direct', 1)
-    assert 'verification body not reached' in run_it.reachability(cases, [data])[0]
+    assert 'verification did not complete' in run_it.reachability(cases, [data])[0]
     cases[('integrations/receipt.checks.py', 'check_body')] = ('pytest', 3)
     assert 'expected 3, collected 2, passed body 2' in run_it.reachability(cases, [data])[0]
     assert run_it.reachability(cases, [{**data, 'passed': []}])
+
+    suite.write_text(f"import sys\nsys.path.insert(0, {str(Path(run_it.__file__).parent.parent)!r})\n" + """from support.it_case_receipt import it_case, module_complete
+from unittest.mock import patch
+from validation_cache import input_scope
+import inspect
+@it_case
+@input_scope
+@patch.object(inspect, 'ismodule', return_value=True)
+def check_direct(mock, value=3):
+    assert inspect.ismodule(None)
+    return value
+@it_case
+def check_failure():
+    raise ValueError('expected')
+assert str(inspect.signature(check_direct)) == '(mock, value=3)'
+assert check_direct.__name__ == 'check_direct'
+assert check_direct() == check_direct() == 3
+try:
+    check_failure()
+except ValueError:
+    pass
+module_complete(__file__)
+""")
+    command = [sys.executable, '-B', str(Path(run_it.__file__)), '--suite', str(suite),
+               '--tests', str(tests), '--receipt', str(receipt)]
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    data = json.loads(receipt.read_text())
+    direct = ('integrations/receipt.checks.py', 'check_direct')
+    module = ('integrations/receipt.checks.py', '__module__')
+    cases = {direct: ('direct', 1), module: ('module', 1)}
+    assert data['completed'] == {'::'.join(direct): 2, '::'.join(module): 1}
+    assert not run_it.reachability(cases, [data])
+    assert run_it.reachability({**cases, (direct[0], 'check_failure'): ('direct', 1)}, [data])
+    assert run_it.reachability(cases, [{**data, 'completed': {'::'.join(direct): 2}}])
+    for invalid in (None, {}, {**data, 'completed': []}, {**data, 'metrics': {'bad': False}}):
+        assert run_it.reachability(cases, [invalid])
+    assert run_it.reachability(cases, [])
+    suite.write_text(suite.read_text().replace('module_complete(__file__)', "raise RuntimeError('before completion')"))
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert run_it.reachability(cases, [json.loads(receipt.read_text())])
 
 
 def check_it_assertion_guards(tmp_path):
     import run_it
     run_it.check_assertion_guards(Path(run_it.__file__).parent)
+    source = Path(run_it.__file__).read_text()
+    assert 'setprofile' not in source and 'settrace' not in source
     path = tmp_path / 'sample.checks.py'
     guard = "if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\n"
     path.write_text(guard + 'assert False\n')
@@ -338,15 +397,41 @@ def check_it_inventory(tmp_path):
     (tmp_path / 'CASES.md').write_text(row + row)
     with pytest.raises(ValueError, match='duplicate'):
         run_it.registered_cases(tmp_path)
-    assert run_it.reachability({}, [{'collected': ['integrations/example.py::check_one']}])
+    assert run_it.reachability({}, [])
+    assert len(cases) == 308
+    original = [value for value in cases.values() if value[0] in ('direct', 'pytest')]
+    assert len(original) == 289 and sum(count for _, count in original) == 389
+    assert sum(mode == 'direct' for mode, _ in original) == 113
+    assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 12
+    assert sum(mode == 'module' for mode, _ in cases.values()) == 7
+    assert len(list((Path(run_it.__file__).parent / 'integrations').rglob('*.checks.py'))) == 66
+    folder = tmp_path / 'integrations'
+    folder.mkdir()
+    entry = folder / 'example.checks.py'
+    row = row.replace('example.py', 'example.checks.py')
+    (tmp_path / 'CASES.md').write_text(row)
+    entry.write_text('def check_one():\n    pass\n')
+    assert any('decorator' in error for error in run_it.inventory(tmp_path)[1])
+    entry.write_text('from support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    pass\n')
+    assert not run_it.inventory(tmp_path)[1]
+    entry.write_text('pass\n')
+    assert any('missing IT case' in error for error in run_it.inventory(tmp_path)[1])
+    (folder / 'unregistered.checks.py').write_text('pass\n')
+    assert any('unregistered IT suite' in error for error in run_it.inventory(tmp_path)[1])
+    (folder / 'unregistered.checks.py').unlink()
+    (tmp_path / 'CASES.md').write_text(row.replace('check_one', '__module__').replace('direct /', 'module /'))
+    entry.write_text('from support.it_case_receipt import module_complete\nmodule_complete(__file__)\n')
+    assert not run_it.inventory(tmp_path)[1]
+    entry.write_text(entry.read_text() + 'assert True\n')
+    assert any('terminal module' in error for error in run_it.inventory(tmp_path)[1])
 
 
 def check_it_run_lifecycle(tmp_path):
     import run_it
     from support import it_fixture_bundle as fixtures
     (tmp_path / 'integrations').mkdir()
-    (tmp_path / 'integrations/example.py').write_text('def check_one():\n    assert True\n')
-    (tmp_path / 'CASES.md').write_text('| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n')
+    (tmp_path / 'integrations/example.checks.py').write_text("if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\nfrom support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    assert True\n")
+    (tmp_path / 'CASES.md').write_text('| `origin` | `check_one` | IT | [case](integrations/example.checks.py) | direct / 1 |\n')
     def build(root, name):
         (root / name).mkdir()
         (root / name / 'seed').write_text(name)
@@ -354,7 +439,7 @@ def check_it_run_lifecycle(tmp_path):
     def execute(*args):
         assert os.environ[fixtures.ENV]
         assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] != 'previous-cache'
-        return [{'suite': 'example', 'code': 0}], [{'calls': {'integrations/example.py::check_one': 1}}]
+        return [{'suite': 'example', 'code': 0}], [{'version': 1, 'suite': 'integrations/example.checks.py', 'completed': {'integrations/example.checks.py::check_one': 1}, 'collected': [], 'passed': [], 'metrics': {}}]
     with patch.dict(os.environ, {fixtures.ENV: 'previous-bundle', 'BLUEPRINT_VALIDATION_CACHE_DIR': 'previous-cache'}), \
          patch.object(fixtures, 'build', side_effect=build), patch.object(run_it, 'execute_suites', side_effect=execute):
         result = run_it.run_all(tmp_path, io.StringIO())
@@ -363,6 +448,13 @@ def check_it_run_lifecycle(tmp_path):
         assert not result['reachability_errors']
         assert os.environ[fixtures.ENV] == 'previous-bundle'
         assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] == 'previous-cache'
+    # Old baseline may have neither ledger nor markers; only process results are comparable.
+    (tmp_path / 'CASES.md').unlink()
+    with patch.object(run_it, 'execute_suites', return_value=([{'suite': 'old', 'code': 7}], [])):
+        result = run_it.run_all(tmp_path, io.StringIO(), baseline=True)
+    assert result['reachability'] == 'not verified (baseline)'
+    assert result['bundle_initializations'] is None and result['seed_generations'] is None
+    assert result['suites'][0]['code'] == 7
 
 
 if __name__ == '__main__':

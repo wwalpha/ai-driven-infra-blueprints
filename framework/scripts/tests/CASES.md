@@ -1603,3 +1603,29 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | [worktree_task.checks.py](integrations/worktree_task.checks.py) / `check_success_and_empty` | 既存2分岐を拡張 / 新規ケース0 | 完了/統合認可で予約計算0、従来のCLI finalize/cleanup |
 
 通常checkout・手動Worktreeの予約、Deferred待機、finalize範囲外変更拒否は既存ITケースを継続使用する。追加UTはGit/AWSを実行せず、実プロジェクトのmodelを参照しない。
+
+## IT 実行グループの完了記録
+
+既存289関数・389パターンとは別の19実行グループ。direct_groupは既存main入口、moduleは既存トップレベルの最終到達地点を記録する。独立検証関数数には加算しない。
+
+| 元パス | 入口 | 分類 | 現在の配置 | 実行方式 / グループ数 |
+| --- | --- | --- | --- | --- |
+| `compact-model-sources.checks.py` | `__module__` | IT | [group](integrations/compact-model-sources.checks.py) | module / 1 |
+| `comparison_core.checks.py` | `__module__` | IT | [group](integrations/comparison_core.checks.py) | module / 1 |
+| `design_catalog.checks.py` | `main` | IT | [group](integrations/design_catalog.checks.py) | direct_group / 1 |
+| `eventbridge-producer-name-reference.checks.py` | `__module__` | IT | [group](integrations/eventbridge-producer-name-reference.checks.py) | module / 1 |
+| `export-design-pdf.checks.py` | `main` | IT | [group](integrations/export-design-pdf.checks.py) | direct_group / 1 |
+| `glue_datazone_catalog.checks.py` | `main` | IT | [group](integrations/glue_datazone_catalog.checks.py) | direct_group / 1 |
+| `group-03-input-references.checks.py` | `__module__` | IT | [group](integrations/group-03-input-references.checks.py) | module / 1 |
+| `issue_gate.checks.py` | `main` | IT | [group](integrations/issue_gate.checks.py) | direct_group / 1 |
+| `lambda_permission.checks.py` | `main` | IT | [group](integrations/lambda_permission.checks.py) | direct_group / 1 |
+| `legacy-lambda-dependencies.checks.py` | `__module__` | IT | [group](integrations/legacy-lambda-dependencies.checks.py) | module / 1 |
+| `quicksight-display.checks.py` | `main` | IT | [group](integrations/quicksight-display.checks.py) | direct_group / 1 |
+| `regression_guard.checks.py` | `main` | IT | [group](integrations/regression_guard.checks.py) | direct_group / 1 |
+| `resource_mode.checks.py` | `main` | IT | [group](integrations/resource_mode.checks.py) | direct_group / 1 |
+| `rotation_schedule.checks.py` | `main` | IT | [group](integrations/rotation_schedule.checks.py) | direct_group / 1 |
+| `runtime-model.checks.py` | `__module__` | IT | [group](integrations/runtime-model.checks.py) | module / 1 |
+| `security_group_tables.checks.py` | `main` | IT | [group](integrations/security_group_tables.checks.py) | direct_group / 1 |
+| `service-parameter-inputs.checks.py` | `__module__` | IT | [group](integrations/service-parameter-inputs.checks.py) | module / 1 |
+| `validate-blueprint.checks.py` | `main` | IT | [group](integrations/validate-blueprint.checks.py) | direct_group / 1 |
+| `validation_cache.checks.py` | `main` | IT | [group](integrations/validation_cache.checks.py) | direct_group / 1 |

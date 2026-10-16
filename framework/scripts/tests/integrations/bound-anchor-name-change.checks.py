@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 import io
 from contextlib import redirect_stdout
@@ -83,6 +85,7 @@ def validated(root, path):
     return doc
 
 
+@it_case
 def check(root):
     INPUTS.fixture(root)
     build = MODELS.model('codebuild', 'CodeBuild.Project', 'cbld-app-preview-build', [

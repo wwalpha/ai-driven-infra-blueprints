@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from support.it_case_receipt import it_case
+
 
 import json
 
@@ -13,6 +15,7 @@ import shutil
 from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
 
 
+@it_case
 def check_description_design_constraints() -> None:
     repository = SCRIPT.parents[2]
     catalog = MODULE.Validator(repository).catalog_design_properties()

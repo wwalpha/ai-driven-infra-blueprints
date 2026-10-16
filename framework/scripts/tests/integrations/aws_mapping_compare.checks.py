@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.aws_mapping_compare_fixtures import *
 
+@it_case
 @input_scope
 def mapping_checks():
     # include=false remains in Compare, with real acquisition and typed transforms.

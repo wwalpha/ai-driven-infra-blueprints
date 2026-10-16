@@ -9,6 +9,8 @@ from model_files import read_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.model_sources import write_model
 import tempfile
 
@@ -72,6 +74,7 @@ def staged(root, model, values):
         assert load_model(stage / auxiliary.relative_to(root)).values == load_model(auxiliary).values
 
 
+@it_case
 def check(root):
     save_files({root / 'framework/fixture.txt': 'fixture\n',
                 root / 'model/preview/team/iam.properties': '# model-index: 1\n# part: iam/part-001.properties\n',

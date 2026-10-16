@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.worktree_task_fixtures import *
 
+@it_case
 def check_success_and_empty():
     for empty in (False, True):
         with fixture() as root:
@@ -39,6 +42,7 @@ def check_success_and_empty():
     print("Normal/zero-change lifecycle: PASS")
 
 
+@it_case
 def check_finalize_line_endings():
     for newline in (b"\n", b"\r\n"):
         for staged in (False, True):
@@ -64,6 +68,7 @@ def check_finalize_line_endings():
     print("LF/CRLF integration and real trailing whitespace rejection: PASS")
 
 
+@it_case
 def check_incomplete_and_ownership():
     for mode in ("running", "suspend", "deferred", "outside", "foreign", "unexpected-commit", "git-conflict",
                  "missing-python-setup", "missing-python-status"):
@@ -111,6 +116,7 @@ def check_incomplete_and_ownership():
     print("Incomplete/suspended/Deferred/foreign/outside-task/conflict guards: PASS")
 
 
+@it_case
 def check_dirty_base_and_retry():
     with fixture() as root:
         target, state = start(root)
@@ -132,6 +138,7 @@ def check_dirty_base_and_retry():
     print("Dirty base/index preserved, committed task retained: PASS")
 
 
+@it_case
 def check_ahead_and_rebase_conflict():
     for conflict in (False, True):
         with fixture() as root:
@@ -159,6 +166,7 @@ def check_ahead_and_rebase_conflict():
     print("Latest local base/rebase abort/ff-only integration: PASS")
 
 
+@it_case
 def check_collisions_and_base_selection():
     with fixture() as root:
         git(root, "branch", "codex/worktree/example")
@@ -191,6 +199,7 @@ def check_collisions_and_base_selection():
     print("Branch/path/stale collisions and configured/main/master base: PASS")
 
 
+@it_case
 def check_directory_layout():
     with fixture() as root:
         ignore = root / ".gitignore"
@@ -219,6 +228,7 @@ def check_directory_layout():
     print("Repo-root .worktrees creation/ignore, invalid paths and unsupported .worktree rejection: PASS")
 
 
+@it_case
 def check_metadata_storage():
     with fixture() as root:
         target, first = start(root, "one")
@@ -266,6 +276,7 @@ def check_metadata_storage():
     print("Shared .worktrees/.blueprint state/locks, no old-location fallback, sibling retention and symlink guards: PASS")
 
 
+@it_case
 def check_cleanup_failure_and_retry():
     with fixture() as root:
         target, state = start(root)
@@ -304,6 +315,7 @@ def check_cleanup_failure_and_retry():
     print("Cleanup failure/retry/ignored data/merged history preserved: PASS")
 
 
+@it_case
 def check_merge_retry_and_commit_failure():
     for empty in (False, True):
         with fixture() as root:
@@ -355,6 +367,7 @@ def check_merge_retry_and_commit_failure():
     print("Failed merge retries, zero-change rebase, altered commit rejection: PASS")
 
 
+@it_case
 def check_human_approved_validation_failure():
     approval = "Human approves commit and merge despite file.txt trailing whitespace validation failure"
     for mode in ("accepted", "running", "deferred", "outside", "git-conflict", "blank"):
@@ -394,6 +407,7 @@ def check_human_approved_validation_failure():
     print("Explicit human approval, retained FAIL/suspend, scope/Deferred/Git guards and cleanup retry: PASS")
 
 
+@it_case
 def check_real_loop_integration():
     # Reuse the existing minimal framework fixture, not a new completion engine.
     from support import blueprint_loop_fixtures as loop_checks

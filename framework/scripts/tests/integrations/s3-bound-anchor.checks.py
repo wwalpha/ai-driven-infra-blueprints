@@ -9,6 +9,8 @@ from support.model_sources import write_model
 from model_files import read_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+
+from support.it_case_receipt import it_case
 import copy
 from contextlib import redirect_stdout
 import io
@@ -36,6 +38,7 @@ def rejected(call, phrase):
         raise AssertionError('invalid input accepted: ' + phrase)
 
 
+@it_case
 def check(root):
     copy_framework(root / 'framework')
     save_files({root / 'project.json': t.json_text({'projectName': 'anchor-fixture', 'targets': [{

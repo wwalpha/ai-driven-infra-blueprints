@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.design_document_fixtures import *
 
+@it_case
 @patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
 def check_projection(sync):
     with tempfile.TemporaryDirectory() as directory:
@@ -57,6 +60,7 @@ def check_projection(sync):
             assert f"desired.resource.001.resourceMode={mode}\n" in model_projection.model_for(source)
 
 
+@it_case
 @patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
 def check_links(module):
     with tempfile.TemporaryDirectory() as directory:

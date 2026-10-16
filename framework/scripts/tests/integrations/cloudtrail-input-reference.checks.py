@@ -8,6 +8,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import json
 from support.model_sources import write_model, write_fixture_files
 import tempfile
@@ -17,6 +19,7 @@ from model_files import load_model
 from support.model_sources import write_fixture_files as save_files
 
 
+@it_case
 def check(root):
     producer = root / 'model/preview/team/cloudtrail.properties'
     original = ('desired.resource.017.resourceType=CloudTrail.Trail\n'

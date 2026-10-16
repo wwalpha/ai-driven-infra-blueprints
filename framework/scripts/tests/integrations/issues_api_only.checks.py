@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.issues_api_only_fixtures import *
 
+@it_case
 def main_checks():
     from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-api-only-') as temporary:

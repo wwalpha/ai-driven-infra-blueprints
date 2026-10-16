@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.worktree_python_fixtures import *
 
+@it_case
 def check_output_decoding():
     for encoding in ("cp932", "utf-8"):
         stdout = "セットアップ出力\n".encode(encoding)
@@ -29,6 +32,7 @@ def check_output_decoding():
     print("Real CP932/UTF-8 stdout/stderr and zero/nonzero child exits: PASS")
 
 
+@it_case
 def check_setup():
     with checks.fixture() as root:
         req = root / py.REQUIREMENTS
@@ -108,6 +112,7 @@ def check_setup():
     print("Global setup without creation/install, failure retention, unsupported kinds rejected and cleanup: PASS")
 
 
+@it_case
 def check_real_global():
     with checks.fixture() as root:
         req = root / py.REQUIREMENTS
@@ -128,6 +133,7 @@ def check_real_global():
     print("Real offline global Python executes without venv creation or installation: PASS")
 
 
+@it_case
 def check_venv_fallback():
     with checks.fixture() as root:
         req = root / py.REQUIREMENTS
@@ -201,6 +207,7 @@ def check_venv_fallback():
     print("Real offline per-worktree venvs, strict registration, repair, retry and owned cleanup: PASS")
 
 
+@it_case
 def check_parallel_fallback():
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
@@ -242,6 +249,7 @@ def check_parallel_fallback():
     print("Concurrent worktrees install separately; retained per-task setup lock fails safely: PASS")
 
 
+@it_case
 def check_symlink_safety():
     with checks.fixture() as root:
         external = root.parent / "external"

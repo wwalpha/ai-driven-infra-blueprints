@@ -9,6 +9,8 @@ from model_files import read_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 import copy
 import math
 import tempfile
@@ -250,6 +252,7 @@ def check(root, alias, service):
     print(alias,service,'PASS (strict inputs; fragments/types; refs/Policy; identity; hash/impact/trace; repeat save)')
 
 
+@it_case
 def check_declared_inputs(service="cloudtrail"):
     from unittest.mock import patch
     specs = {

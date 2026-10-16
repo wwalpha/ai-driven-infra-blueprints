@@ -15,6 +15,8 @@ from support.model_sources import write_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import module_complete
+
 
 def rejected(call, message=None):
     try:
@@ -105,3 +107,5 @@ with tempfile.TemporaryDirectory() as directory:
         assert set(after)==set(before[path])
         assert (after!=before[path])==(path.parent.parent.name!='independent')
 print('Shared definition consumers: PASS (shared declaration; only bound Model values change; independent definition and fixed IDs preserved)')
+
+module_complete(__file__)

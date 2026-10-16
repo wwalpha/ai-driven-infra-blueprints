@@ -1,5 +1,7 @@
 """Terraform placement, composition, lexical safety and scoped regression fixtures."""
 
+from support.it_case_receipt import it_case
+
 
 import json
 
@@ -25,6 +27,7 @@ from support.validator import MODULE, SCRIPT, project, write
 from validation.terraform import blocks, root_directory, module_directory
 
 
+@it_case
 def check_cli():
     terraform = shutil.which('terraform')
 

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from support.it_case_receipt import it_case
+
 
 import model_projection
 
@@ -10,6 +12,7 @@ import model_projection
 from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
 
 
+@it_case
 def check_identifier_propagation() -> None:
     repository = SCRIPT.parents[2]
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
@@ -79,6 +82,7 @@ def check_identifier_propagation() -> None:
         assert any("identifier reference does not match observed target" in error for error in validator.errors)
 
 
+@it_case
 def check_array_source_role_links() -> None:
     from array_display import indexed_rows
 
@@ -116,6 +120,7 @@ def check_array_source_role_links() -> None:
         assert any("IAM Role link must display RoleName" in error for error in errors("wrong-role")), errors("wrong-role")
 
 
+@it_case
 def check_s3_bucket_policy_grouping() -> None:
     repository = SCRIPT.parents[2]
     catalog_types, property_owners, identifier_outputs = MODULE.Validator(
@@ -219,6 +224,7 @@ def check_s3_bucket_policy_grouping() -> None:
         assert any("must not have an independent heading" in error for error in errors(separate_heading))
 
 
+@it_case
 def check_subnet_association_overview() -> None:
     model = load("sync-model")
     association_type = "EC2.SubnetRouteTableAssociation"
@@ -321,6 +327,7 @@ def check_subnet_association_overview() -> None:
             assert any(message in failure for failure in failures), (message, failures)
 
 
+@it_case
 def check_resource_overview() -> None:
     with project() as root:
         design = root / "docs" / "designs" / "dev" / "123456789012" / "s3.md"

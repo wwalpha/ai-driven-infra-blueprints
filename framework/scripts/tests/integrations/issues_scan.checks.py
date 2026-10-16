@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.issues_scan_fixtures import *
 
+@it_case
 def naming_target_scope_cases():
     with tempfile.TemporaryDirectory(prefix='naming-target-path-') as directory:
         root = Path(directory) / 'project'
@@ -64,6 +67,7 @@ def naming_target_scope_cases():
     print('Naming Target issue candidates: PASS (root candidates 3→3; nested false positives 8→0)')
 
 
+@it_case
 def checks(root, values, template):
     services = sorted(values)
     comparator, records = compare(root, services)
@@ -236,6 +240,7 @@ def checks(root, values, template):
             save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '取得済みの具体的診断'}])
 
 
+@it_case
 def resource_cases(root):
     # Compact independent fixture edits, not consumer data.
     values = load_model(root / 'model/dev/123456789012/s3.properties').values.copy()
@@ -296,6 +301,7 @@ def resource_cases(root):
     write(project, original)
 
 
+@it_case
 def extended_cases(root, template):
     source = root / 'model/dev/123456789012/s3.properties'
     originals = load_model(source).files.copy()

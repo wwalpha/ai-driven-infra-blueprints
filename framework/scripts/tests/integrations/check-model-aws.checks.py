@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.check_model_aws_fixtures import *
 
+@it_case
 def service_checks(root):
     # Every supported field is extracted from a real botocore-validated SDK
     # response after executing the service's fetch adapter. These are not stubs
@@ -74,6 +77,7 @@ def service_checks(root):
     print(f'Service acquisition/field extraction: {type_count} resource types, {field_count} supported mappings, 27 × 4 comparison cases')
 
 
+@it_case
 def cli_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
@@ -178,6 +182,7 @@ def check_cli_service_names(tmp_path, service, operation, cli_service, paginate)
     assert ('--no-paginate' not in command) == paginate
 
 
+@it_case
 def batch_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
@@ -311,6 +316,7 @@ def batch_checks(root):
         check(set(report) == {'status', 'exitCode', 'counts', 'results'}, 'batch does not add a JSON wrapper')
 
 
+@it_case
 def common_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
@@ -434,6 +440,7 @@ def common_checks(root):
         stack_ctx.finish()
 
 
+@it_case
 def association_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True, exist_ok=True)
@@ -530,6 +537,7 @@ def association_checks(root):
         ctx.finish()
 
 
+@it_case
 def stack_checks(root):
     path = root / 'model/dev' / ACCOUNT / 'cloudformation-stacks.properties'
     path.parent.mkdir(parents=True)
@@ -559,6 +567,7 @@ def stack_checks(root):
             check(ctx.allowed == {('sts', 'get_caller_identity'), ('cloudformation', 'describe_stacks')}, 'Stack allowlist isolated')
 
 
+@it_case
 def cfn_identity_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
@@ -582,6 +591,7 @@ def cfn_identity_checks(root):
     ctx.finish()
 
 
+@it_case
 def identity_registry_checks(root):
     from aws_mapping import Identity
     ctx = Offline(root)
@@ -610,6 +620,7 @@ def identity_registry_checks(root):
     expect(m.Unresolved, lambda: m.Resource.identity(stack))
 
 
+@it_case
 def fixture_coverage(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)

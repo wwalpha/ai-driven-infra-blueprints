@@ -6,8 +6,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+from support.it_case_receipt import it_case
+
 from support.quicksight_display_fixtures import *
 
+@it_case
 def main():
     fields = [line.partition("=")[0] for line in
               (ROOT / "framework/materials/aws/QuickSight_DataSource.properties").read_text(encoding="utf-8").splitlines()

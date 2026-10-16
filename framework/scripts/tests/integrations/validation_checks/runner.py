@@ -1,5 +1,7 @@
 """Responsibility boundaries: dispatch, mutable gates, callbacks and import safety."""
 
+from support.it_case_receipt import it_case
+
 
 from contextlib import ExitStack, redirect_stdout
 
@@ -28,6 +30,7 @@ from support.validator import MODULE, SCRIPT, project, write, load
 from validation_cache import PassCache
 
 
+@it_case
 def check_module_inputs():
     names = ('findings', 'scenario', 'cloudformation', 'iac', 'terraform', 'design', 'design_tables', 'design_links',
              'project', 'task', 'framework_contracts')
