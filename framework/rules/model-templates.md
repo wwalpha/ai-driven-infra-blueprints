@@ -297,7 +297,7 @@ derived expressions or logical relationships. Normally do not edit bindings.
 python3 framework/scripts/model_templates.py --alias cde --service vpc --environment dev --inputs
 python3 framework/scripts/model_files.py model/dev/cde/vpc.properties --trace desired.row.001-003.value
 python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service vpc
-python3 framework/scripts/model_parameter_inputs.checks.py
+python3 framework/scripts/tests/unknown/model_parameter_inputs.checks.py
 ```
 
 Trace uses existing placeholders to show descriptions/current values/destinations,

@@ -422,20 +422,20 @@ Use one command matching the task. `python` denotes the available Python 3 launc
 
 ### pytest checks
 
-The `model_design.checks.py` Pilot and ten migrated suites listed in
-`framework/scripts/pytest.ini` require Python 3.10 or newer and the unified
+The existing pytest suites listed in
+`framework/scripts/tests/pytest.ini` require Python 3.10 or newer and the unified
 `framework/scripts/requirements.txt` in the Python environment used for regression.
 Managed worktree create uses global Python when these checks pass; otherwise it
 automatically prepares an isolated venv and installs the unified requirements there.
 Global packages are never modified. Use the worktree wrapper for the test commands below.
-Other `.checks.py` scripts keep their runner.
+Other `.checks.py` scripts keep their direct entrypoints. See [test layout and classification](framework/scripts/tests/README.md).
 
 ```console
 python -m pip install -r framework/scripts/requirements.txt
-python -B framework/scripts/model_design.checks.py
-python -m pytest -q framework/scripts/model_design.checks.py
-python -m pytest -q framework/scripts/model_design.checks.py::check_invalid_model
-python -m pytest -q framework/scripts
+python -B framework/scripts/tests/unknown/model_design.checks.py
+python -m pytest -q framework/scripts/tests/unknown/model_design.checks.py
+python -m pytest -q framework/scripts/tests/unknown/model_design.checks.py::check_invalid_model
+python -m pytest -q framework/scripts/tests
 ```
 
 Use `python3` on macOS or `py -3` on Windows when needed. Both entrypoints reject
@@ -475,7 +475,7 @@ Comparing prefix checks over 176 inputs × 500 repetitions × 3 trials yielded a
 LLM model/reasoning settings are not passed to Python checks. Even if luna/max appears slow, first separate execution times in `timing.jsonl` from Copilot model request/tool waiting/re-execution times. If only a particular check is slow, measure it with a standard profiler, for example as follows. Adjust check names/external destinations to actual measurement results. Execute after the original loop finishes.
 
 ```console
-python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/design_catalog.checks.py
+python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/tests/unknown/design_catalog.checks.py
 python -m pstats /tmp/design-catalog.prof
 ```
 
@@ -533,7 +533,7 @@ python3 framework/scripts/model_templates.py --alias cde --service iam --affecte
 python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service iam
 python3 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
 python3 framework/scripts/model_files.py model/dev/cde/iam.properties --trace desired.row.001-001.value
-python3 -B framework/scripts/model_templates.checks.py
+python3 -B framework/scripts/tests/unknown/model_templates.checks.py
 ```
 
 The common service template is `model/templates/<target-directory>/<service>.properties.tpl`.
@@ -549,6 +549,6 @@ observed updates preserve input digests, atomic saves and rollback; Markdown and
 JSON are generated outputs. Deployment permissions remain separate.
 
 The codecommit/datazone/security-hub YAML regressions retain their registered entry points
-and share assertions in `framework/scripts/test_support/parameter_cases.py`.
+and share assertions in `framework/scripts/tests/support/parameter_cases.py`.
 
-Regression runs the discovered `framework/scripts/*.checks.py` entries. Every regression test uses synthetic project/Model inputs generated in temporary directories, regardless of repository type or active Validation scope; it never inspects the executing repository's `project.json` or `model/`. Shared service parameter fixtures run through `service-parameter-inputs.checks.py`; typed service contracts run through `model_parameter_inputs.checks.py`. Their cases reject empty selections and retain policy, reference, identity, save/update and invalid-input checks. CloudFormation naming contracts use synthetic dev stack inputs and templates; actual designs are validated separately within the selected service scope. Check discovery with no entries fails.
+Regression runs the discovered `framework/scripts/tests/**/*.checks.py` entries. Every regression test uses synthetic project/Model inputs generated in temporary directories, regardless of repository type or active Validation scope; it never inspects the executing repository's `project.json` or `model/`. Shared service parameter fixtures run through `service-parameter-inputs.checks.py`; typed service contracts run through `model_parameter_inputs.checks.py`. Their cases reject empty selections and retain policy, reference, identity, save/update and invalid-input checks. CloudFormation naming contracts use synthetic dev stack inputs and templates; actual designs are validated separately within the selected service scope. Check discovery with no entries fails.

@@ -231,26 +231,26 @@ def utf8_preflight(directory, environment, diagnostics=None):
 
 
 def select_checks(root, paths, affected=False):
-    checks = sorted((root / "framework/scripts").glob("*.checks.py"))
+    checks = sorted((root / "framework/scripts/tests").rglob("*.checks.py"), key=lambda path: path.name)
     if not checks:
         raise ValueError("no framework regression checks discovered")
     if not affected:
         return checks, "all requested"
     # Exact paths only: unknown siblings and unresolved deletions stay full regression.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
-    mapping["framework/scripts/test_support/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
-    mapping["framework/scripts/test_support/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
+    mapping["framework/scripts/tests/support/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
+    mapping["framework/scripts/tests/support/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
-    mapping.update({f"framework/scripts/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
+    mapping.update({f"framework/scripts/tests/support/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
                     for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
-    mapping["framework/scripts/test_support/validator.py"] = {check.name for check in checks}
-    mapping["framework/scripts/model_design.checks.py"] = {check.name for check in checks}
-    mapping["framework/scripts/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
+    mapping["framework/scripts/tests/support/validator.py"] = {check.name for check in checks}
+    mapping["framework/scripts/tests/unknown/model_design.checks.py"] = {check.name for check in checks}
+    mapping["framework/scripts/tests/unknown/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
     # check_links/check_projection dynamically load the reference fixture and its layout inputs.
-    mapping["framework/scripts/design_document.checks.py"] = {
+    mapping["framework/scripts/tests/unknown/design_document.checks.py"] = {
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
-    mapping["framework/scripts/design_layout.checks.py"] = {
-        *mapping["framework/scripts/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
+    mapping["framework/scripts/tests/unknown/design_layout.checks.py"] = {
+        *mapping["framework/scripts/tests/unknown/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
     # EC2 restoration is consumed through shared layout, projection and dynamic fixtures.
     mapping["framework/scripts/ec2_display.py"] = {check.name for check in checks}
     mapping["framework/scripts/model_core.py"] = {check.name for check in checks}
@@ -278,8 +278,8 @@ def select_checks(root, paths, affected=False):
     mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}
                     for name in ("scenario", "cloudformation", "task", "framework_contracts", "project",
                                  "design", "design_tables", "design_links", "findings")})
-    mapping["framework/scripts/validation_checks/scenario.py"] = {"validate-blueprint.checks.py"}
-    mapping["framework/scripts/validation_checks/runner.py"] = {"validate-blueprint.checks.py"}
+    mapping["framework/scripts/tests/support/validation_checks/scenario.py"] = {"validate-blueprint.checks.py"}
+    mapping["framework/scripts/tests/support/validation_checks/runner.py"] = {"validate-blueprint.checks.py"}
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):
@@ -459,7 +459,7 @@ def main() -> int:
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
     if regression and not args.staged and (not args.affected or
-            set(checks) == set((root / "framework/scripts").glob("*.checks.py"))):
+            set(checks) == set((root / "framework/scripts/tests").rglob("*.checks.py"))):
         try:
             authorize_full_regression(root)
         except KeyboardInterrupt:
@@ -523,7 +523,7 @@ def main() -> int:
                               f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}")
         if regression and not args.staged:
             diagnostics.print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}")
-            omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
+            omitted = sorted(path.name for path in (root / "framework/scripts/tests").rglob("*.checks.py") if path not in checks)
             diagnostics.print(f"Not executed: {', '.join(omitted) or 'none'}")
         utf8_preflight(directory, environment, diagnostics)
         if args.staged:

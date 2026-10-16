@@ -58,14 +58,14 @@ rerun the failed test or affected service; for a fixture fix, run its consuming 
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
 failures left unfixed. Reuse the existing `--affected` mapping when it selects the needed
 subset. If it selects all regression, directly invoke the relevant existing
-`framework/scripts/<name>.checks.py` entrypoints or installed pytest test nodes during
+`framework/scripts/tests/<classification>/<name>.checks.py` entrypoints or installed pytest test nodes during
 repair. This narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, use these tests and the existing scoped validator rather
 than a loop that would automatically add all regression:
 
 ```console
-python3 -B framework/scripts/<name>.checks.py
-python3 -m pytest -q framework/scripts/<suite>.checks.py::<test-node>
+python3 -B framework/scripts/tests/<classification>/<name>.checks.py
+python3 -m pytest -q framework/scripts/tests/<classification>/<suite>.checks.py::<test-node>
 python3 framework/scripts/validate-blueprint.py --repository-root . --task-file tasks/<task-name>.md
 ```
 
@@ -218,7 +218,7 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 - Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
 - When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
-- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/*.checks.py` with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter fixtures share one entrypoint; typed service contracts remain part of the input regression. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
+- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/**/*.checks.py` with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter fixtures share one entrypoint; typed service contracts remain part of the input regression. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
 - The existing runner automatically adds regression in `task` / `local` for changed `framework/**`, `.agents/**`, `AGENTS.md` or `README.md`, including deletion/rename sources. This describes runner behavior, not an obligation to launch it for every edit; select the entrypoint under [Validation policy](#validation-policy). If Git cannot determine changes, stop rather than infer bounded impact.
 - `--mode local` is also valid as the same scoped validation as `task`. For a classification requiring a scoped loop, a skill's `local` execution suffices; do not add another `task` run. For a classification requiring Full, select the final Full directly instead of adding it after a redundant scoped loop. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.

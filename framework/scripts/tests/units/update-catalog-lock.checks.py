@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Focused checks for catalog input and identifier output counts."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+import importlib.util
+import tempfile
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from unittest.mock import patch
+
+
+SCRIPT = (Path(__file__).resolve().parents[2] / 'update-catalog-lock.py')
+SPEC = importlib.util.spec_from_file_location("update_catalog_lock", SCRIPT)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+def main() -> None:
+    names = ["ApiGateway_ApiKey.properties", "ApiGatewayV2_Api.properties"]
+    for path_type in (PurePosixPath, PureWindowsPath):
+        paths = [path_type(name) for name in names]
+        with patch.object(MODULE, "CATALOG_DIR") as directory:
+            directory.glob.return_value = paths
+            assert [path.name for path in MODULE.catalog_files()] == sorted(names)
+    with tempfile.TemporaryDirectory() as directory:
+        catalog = Path(directory) / "EC2_VPC.properties"
+        catalog.write_text(
+            "EC2.VPC.CidrBlock=\nEC2.VPC.VpcId=IDENTIFIER_OUTPUT\n",
+            encoding="utf-8",
+        )
+        assert MODULE.catalog_counts([catalog]) == (1, 1)
+        catalog.write_text("EC2.VPC.VpcId=IDENTIFIER_OUTPUT\nEC2.VPC.CidrBlock=\n", encoding="utf-8")
+        assert MODULE.catalog_counts([catalog]) == (1, 1), "catalog order is human-controlled"
+        catalog.write_text("EC2.VPC.VpcId=UNKNOWN\n", encoding="utf-8")
+        try:
+            MODULE.catalog_counts([catalog])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("unknown catalog marker was accepted")
+    print("update-catalog-lock: PASS")
+
+
+if __name__ == "__main__":
+    main()
