@@ -432,9 +432,10 @@ Other `.checks.py` scripts keep their direct entrypoints. See [test layout and c
 
 ```console
 python -m pip install -r framework/scripts/requirements.txt
-python -B framework/scripts/tests/unknown/model_design.checks.py
-python -m pytest -q framework/scripts/tests/unknown/model_design.checks.py
-python -m pytest -q framework/scripts/tests/unknown/model_design.checks.py::check_invalid_model
+python -B framework/scripts/tests/units/model_design-unit.checks.py
+python -B framework/scripts/tests/integrations/model_design.checks.py
+python -m pytest -q framework/scripts/tests/units/model_design-unit.checks.py framework/scripts/tests/integrations/model_design.checks.py
+python -m pytest -q framework/scripts/tests/units/model_design-unit.checks.py::check_invalid_model
 python -m pytest -q framework/scripts/tests
 ```
 
@@ -475,7 +476,7 @@ Comparing prefix checks over 176 inputs × 500 repetitions × 3 trials yielded a
 LLM model/reasoning settings are not passed to Python checks. Even if luna/max appears slow, first separate execution times in `timing.jsonl` from Copilot model request/tool waiting/re-execution times. If only a particular check is slow, measure it with a standard profiler, for example as follows. Adjust check names/external destinations to actual measurement results. Execute after the original loop finishes.
 
 ```console
-python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/tests/unknown/design_catalog.checks.py
+python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/tests/integrations/design_catalog.checks.py
 python -m pstats /tmp/design-catalog.prof
 ```
 
@@ -533,7 +534,7 @@ python3 framework/scripts/model_templates.py --alias cde --service iam --affecte
 python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service iam
 python3 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
 python3 framework/scripts/model_files.py model/dev/cde/iam.properties --trace desired.row.001-001.value
-python3 -B framework/scripts/tests/unknown/model_templates.checks.py
+python3 -B framework/scripts/tests/integrations/model_templates.checks.py
 ```
 
 The common service template is `model/templates/<target-directory>/<service>.properties.tpl`.
