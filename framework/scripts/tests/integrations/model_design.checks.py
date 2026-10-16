@@ -482,7 +482,7 @@ def check_athena_configuration_display(root):
     kind = "Athena.WorkGroup"
     prefix = kind + ".WorkGroupConfiguration."
     fields = [line.partition("=")[0] for line in
-              (ROOT / 'framework/materials/aws/athena_workgroup.properties').read_text(encoding="utf-8").splitlines()]
+              (ROOT / 'framework/materials/aws/Athena_WorkGroup.properties').read_text(encoding="utf-8").splitlines()]
     rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
     displayed = display_rows(kind, rows)
     from design_layout import formal_property

@@ -53,6 +53,18 @@ def blocked(callback, message):
     assert message in str(error.value), str(error.value)
 
 
+@pytest.fixture
+def identity_config(tmp_path):
+    external = tmp_path / "external.gitconfig"
+    external.write_text("", encoding="utf-8")
+    original = tasks.plain_git_config
+    # Control host configuration only; repository config and its parser stay real.
+    def configured(path):
+        return original(path if path.is_relative_to(tmp_path) else external)
+    with patch.object(tasks, "plain_git_config", side_effect=configured):
+        yield external
+
+
 def git_identity(root, fallback=False):
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
@@ -69,11 +81,15 @@ def git_identity(root, fallback=False):
         assert run_git.call_count == int(fallback)
 
 
-def check_identity_changes(tmp_path):
+def check_identity_changes(tmp_path, identity_config):
     with patch.dict(os.environ, {}, clear=True):
         root = tmp_path
         assert tasks.worktree_identity(root) == tasks.directory_identity(root)
         subprocess.run(["git", "init", "-q", str(root)], check=True)
+        git_identity(root)
+        identity_config.write_text("[safe]\n\tdirectory = *\n", encoding="utf-8")
+        git_identity(root, fallback=True)
+        identity_config.write_text("", encoding="utf-8")
         git_identity(root)
         shutil.rmtree(root / ".git")
         with patch.object(tasks.subprocess, "run", side_effect=AssertionError("non-Git compatibility")):
@@ -98,7 +114,7 @@ def check_identity_changes(tmp_path):
 
 
 @pytest.mark.parametrize("damage", ["gitfile", "encoding", "missing-target", "empty-target", "HEAD", "HEAD-symlink", "objects", "refs", "commondir", "config", "format", "boolean", "user-boolean", "include", "extensions", "valid-extension"])
-def check_identity_fallback(tmp_path, damage):
+def check_identity_fallback(tmp_path, damage, identity_config):
     with patch.dict(os.environ, {}, clear=True):
         root = tmp_path
         subprocess.run(["git", "init", "-q", str(root)], check=True)
@@ -142,7 +158,7 @@ def check_identity_fallback(tmp_path, damage):
 
 
 @pytest.mark.parametrize("variable", ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_PAGER"])
-def check_identity_environment(tmp_path, variable):
+def check_identity_environment(tmp_path, variable, identity_config):
     with patch.dict(os.environ, {}, clear=True):
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
         override = tmp_path / "override"
@@ -440,7 +456,7 @@ def check_deploy_update_ownership(tmp_path):
     print("Deploy/update ownership: PASS (F isolation, unowned changes and reservation conflicts blocked)")
 
 
-def check_worktree_isolation(tmp_path):
+def check_worktree_isolation(tmp_path, identity_config):
     with patch.dict(os.environ, {}, clear=True):
         base = tmp_path
         root, linked = base / "main", base / "linked"
