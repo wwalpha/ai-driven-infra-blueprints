@@ -1,28 +1,12 @@
 #!/usr/bin/env python3
-"""API-only comparison stays partial; implementation type resolution still fails."""
-
+"""Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import copy
-from collections import Counter
-import json
-import subprocess
-import tempfile
-from unittest.mock import patch
-
-from design_catalog import DesignSchemaCatalog
-from issues_iac import Comparison
-from issues_reports import iac_summary, iac_report
-from issues_scan import main, summary
-from support.validator import load
-
-ROOT = Path(__file__).resolve().parents[4]
-
+from support.issues_api_only_fixtures import *
 
 def main_checks():
     fixtures = load('issues_scan.checks', 'api_only_scan_fixtures')
@@ -56,12 +40,6 @@ def main_checks():
                 assert 'CFn非対応・比較対象外' in report and 'API側の実装状態は未確認' in report
                 assert '完了' in report and '実装scope' in report
                 assert 'complete match' not in report and '## 処理エラー' not in report
-            try:
-                catalog.cloudformation_type(kind)
-            except ValueError as error:
-                assert 'implementation remains incomplete if this resource is in scope' in str(error)
-            else:
-                raise AssertionError('API resource accepted as implemented CFn')
             result = subprocess.run([sys.executable, '-B', str(ROOT / 'framework/scripts/design_catalog.py'),
                                      '--repository-root', str(root), '--cloudformation-type', kind],
                                     capture_output=True, text=True)
@@ -111,18 +89,8 @@ def main_checks():
     print('API-only IaC classification: PASS (API/unknown/broken/CFn counts, CLI exits, implementation rejection)')
 
 
-def cli_exit(root, temporary, artifact, expected):
-    before = copy.deepcopy(artifact)
-    with patch('issues_scan.scan', return_value=artifact), patch('issues_scan.review_payload', return_value={}), \
-         patch('sys.argv', ['issues_scan.py', '--repository-root', str(root), 'scan', '--environment', 'dev',
-                            '--target-directory', '123456789012', '--service', 's3',
-                            '--artifact', str(temporary / 'scan.json')]):
-        assert main() == expected
-    assert artifact == before
-    assert json.loads((temporary / 'scan.json').read_text(encoding='utf-8')) == artifact
-
-
 if __name__ == '__main__':
     from support.model_sources import catalog_display
     with catalog_display():
         main_checks()
+

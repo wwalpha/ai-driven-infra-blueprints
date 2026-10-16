@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Separated checks; case provenance is recorded in ../CASES.md."""
+import sys
+from pathlib import Path
+sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+from support.quicksight_display_fixtures import *
+
+def main():
+    fields = [line.partition("=")[0] for line in
+              (ROOT / "framework/materials/aws/QuickSight_DataSource.properties").read_text(encoding="utf-8").splitlines()
+              if ".DataSourceParameters." in line]
+    source = [[str(index), field, f"`value-{index}`", f"設定の説明{index}"]
+              for index, field in enumerate(fields, 1)]
+    source.append(["16", KIND + ".Type", "`ATHENA`", "接続先の種類"])
+    shown = display_rows(KIND, source)
+    lines = ["### " + KIND + ": datasource", HEADER, ALIGNMENT,
+             *("| " + " | ".join(row) + " |" for row in shown)]
+    restored, children = expanded_design(lines)
+    assert not children
+    assert restored[3:] == ["| " + " | ".join(row) + " |" for row in source]
+    print("QuickSight display: PASS (15 parameter aliases, unchanged Type, lossless rows)")
+
+
+if __name__ == "__main__":
+    from support.model_sources import catalog_display
+    with catalog_display():
+        main()
+

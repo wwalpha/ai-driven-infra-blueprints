@@ -238,19 +238,22 @@ def select_checks(root, paths, affected=False):
         return checks, "all requested"
     # Exact paths only: unknown siblings and unresolved deletions stay full regression.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
-    mapping["framework/scripts/tests/support/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
-    mapping["framework/scripts/tests/support/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
+    mapping["framework/scripts/tests/integrations/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
+    mapping["framework/scripts/tests/integrations/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
-    mapping.update({f"framework/scripts/tests/support/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
-                    for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
+    mapping.update({f"framework/scripts/tests/{category}/validation_checks/{name}.py":
+                    {"validate-blueprint.checks.py", "validation-units.checks.py"}
+                    for category in ("units", "integrations")
+                    for name in ("task", "design", "references", "cloudformation", "scope", "contracts",
+                                 "scenario", "runner", "terraform")})
     mapping["framework/scripts/tests/support/validator.py"] = {check.name for check in checks}
-    mapping["framework/scripts/tests/unknown/model_design.checks.py"] = {check.name for check in checks}
-    mapping["framework/scripts/tests/unknown/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
+    mapping["framework/scripts/tests/integrations/model_design.checks.py"] = {check.name for check in checks}
+    mapping["framework/scripts/tests/integrations/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
     # check_links/check_projection dynamically load the reference fixture and its layout inputs.
-    mapping["framework/scripts/tests/unknown/design_document.checks.py"] = {
+    mapping["framework/scripts/tests/integrations/design_document.checks.py"] = {
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
-    mapping["framework/scripts/tests/unknown/design_layout.checks.py"] = {
-        *mapping["framework/scripts/tests/unknown/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
+    mapping["framework/scripts/tests/integrations/design_layout.checks.py"] = {
+        *mapping["framework/scripts/tests/integrations/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
     # EC2 restoration is consumed through shared layout, projection and dynamic fixtures.
     mapping["framework/scripts/ec2_display.py"] = {check.name for check in checks}
     mapping["framework/scripts/model_core.py"] = {check.name for check in checks}
@@ -278,8 +281,13 @@ def select_checks(root, paths, affected=False):
     mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}
                     for name in ("scenario", "cloudformation", "task", "framework_contracts", "project",
                                  "design", "design_tables", "design_links", "findings")})
-    mapping["framework/scripts/tests/support/validation_checks/scenario.py"] = {"validate-blueprint.checks.py"}
-    mapping["framework/scripts/tests/support/validation_checks/runner.py"] = {"validate-blueprint.checks.py"}
+    # A split suite keeps its unit cases in every existing dependency selection.
+    names = {check.name for check in checks}
+    for targets in mapping.values():
+        targets.update(name.replace(".checks.py", "-unit.checks.py") for name in list(targets)
+                       if name.replace(".checks.py", "-unit.checks.py") in names)
+        if "validate-blueprint.checks.py" in targets and "validation-units.checks.py" in names:
+            targets.add("validation-units.checks.py")
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):
