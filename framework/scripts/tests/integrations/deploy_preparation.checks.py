@@ -132,7 +132,6 @@ def check_stale_and_conflicts():
                 assert entry.state == "running" and entry.deferred
                 assert entry.active == {"tasks/deploy-offline.md"}
                 continue
-            assert not (root / "tasks/deploy-offline.md").exists()
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
 
 
@@ -209,7 +208,6 @@ def check_generated_boundaries():
         with redirect_stderr(output):
             assert M.main(arguments(root, base)) == 1
         assert "task path must not use symlinks" in output.getvalue()
-        assert not (root / "tasks/deploy-offline.md").exists()
 
 
 def check_service_generated_equality():

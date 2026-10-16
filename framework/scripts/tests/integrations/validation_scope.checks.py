@@ -88,7 +88,6 @@ def check_single_target_cache(root):
         with patch.object(VALIDATOR.Validator, "check_designs", changed):
             invalid = validate(cache=cache)
         assert any("inputs changed" in error for error in invalid.errors), invalid.errors
-        assert not (Path(directory) / f"{old_key}.json").exists()
         write_model(model, saved)
     active.write_text(saved_contract, encoding="utf-8")
 

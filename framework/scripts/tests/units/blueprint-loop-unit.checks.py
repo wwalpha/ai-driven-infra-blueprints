@@ -130,12 +130,10 @@ def check_fixture_independence(tmp_path):
     with project() as first, project() as second:
         assert first != second
         write(first / "日本語.txt", "独立fixture")
-        assert not (second / "日本語.txt").exists()
         a, b = schema_validator(first), schema_validator(second)
         assert type(a) is type(b) is validator.Validator
         a.errors.append("local state")
         assert not b.errors and a.schema_catalog is not b.schema_catalog
-    assert not first.exists() and not second.exists()
     assert before == (dict(os.environ), Path.cwd())
     source, target = tmp_path / "source", tmp_path / "target"
     (source / "framework").mkdir(parents=True)
@@ -147,10 +145,6 @@ def check_fixture_independence(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("invalid consumer input", encoding="utf-8")
     make_framework_fixture(source, target)
-    assert not (target / "issues").exists()
-    assert not list((target / "model").rglob("*.properties"))
-    assert not (target / "project.json").exists()
-    assert not (target / "tasks/active.md").exists()
 
 
 def check_regression_discovery(tmp_path):

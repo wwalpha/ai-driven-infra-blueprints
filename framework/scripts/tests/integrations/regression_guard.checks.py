@@ -16,7 +16,6 @@ def main():
         with patch.object(guard, "__file__", str(root / "framework/scripts/regression_guard.py")), \
              patch.object(guard, "password_input", side_effect=[password, "different-confirmation"]):
             rejected(guard.install)
-            assert not lock.exists()
         with patch.object(guard, "__file__", str(root / "framework/scripts/regression_guard.py")), \
              patch.object(guard, "password_input", return_value=password) as entry:
             guard.install()

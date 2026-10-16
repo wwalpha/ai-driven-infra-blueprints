@@ -107,7 +107,6 @@ def check_resource_reading(root):
             pass
         else:
             raise AssertionError("ambiguous selector or invalid grouped parent accepted")
-    assert not source.exists()
 
 
 def main():

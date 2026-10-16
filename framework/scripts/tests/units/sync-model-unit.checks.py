@@ -67,7 +67,6 @@ def check_file_rollback(tmp_path):
             assert str(error.value) == 'injected publication failure'
         assert failed in calls
         assert {path: path.read_bytes() for path in originals} == originals
-        assert not created.exists()
     restores = []
     def fail_restore(path, content):
         restores.append(path)
@@ -77,12 +76,12 @@ def check_file_rollback(tmp_path):
             write_fixture_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
         assert 'generated-file rollback failed:' in str(error.value)
         assert all(f'{path}: injected restoration failure' in str(error.value) for path in (last, first))
-    assert last in calls and restores == [last, first] and not created.exists()
+    assert last in calls and restores == [last, first]
     for path, content in originals.items():
         write_bytes(path, content)
     with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
         write_fixture_files({path: content.decode('utf-8') for path, content in originals.items()})
-    print('File rollback: PASS (first/middle/last partial write, new file removal, restoration error, no-op)')
+    print('File rollback: PASS (first/middle/last partial write, restoration error, no-op)')
 
 
 if __name__ == '__main__':

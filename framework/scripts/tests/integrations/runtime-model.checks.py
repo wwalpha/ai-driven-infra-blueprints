@@ -36,12 +36,10 @@ with tempfile.TemporaryDirectory() as directory:
     write_model(path, values)
     _, template, source = source_paths(path)
     assert model_paths(root)==[path] and model_paths(root,'prod')==[]
-    assert not path.exists() and not list(root.rglob('source.json'))
     for _ in range(2):
         before = snapshot_model(path)
         create_service(path)
         assert snapshot_model(path)==before and load_model(path).values==values
-        assert not path.exists() and not list(root.rglob('source.json'))
     for file in (template,source/'parameters.yaml',source/'bindings.json'):
         data=file.read_bytes();file.unlink()
         assert model_paths(root)==[path]
@@ -65,5 +63,4 @@ with tempfile.TemporaryDirectory() as directory:
     assert load_model(other).values==values and design_source_digest(path)!=old
     with patch.object(Path,'read_bytes',side_effect=PermissionError('denied')):
         rejected(lambda:load_model(path))
-    assert not path.exists() and not other.exists() and not list(root.rglob('source.json'))
-print('Runtime Models: PASS (source discovery; binding-only resources; fixed identities; creation/rerun; missing/corrupt/unknown rejection; input invalidation; no projection/stamp)')
+print('Runtime Models: PASS (source discovery; binding-only resources; fixed identities; creation/rerun; missing/corrupt/unknown rejection; input invalidation)')

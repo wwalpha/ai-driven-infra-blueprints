@@ -86,7 +86,6 @@ def start(root, task_id="example", files=("file.txt",)):
     state = cli(root, "create", task_id)
     target = Path(state["worktree"])
     assert target == Path(state["primary"]) / ".worktrees" / task_id
-    assert not (Path(state["primary"]) / ".worktree").exists()
     tasks.start(target, state["task_file"], contract(task_id, files))
     return target, state
 

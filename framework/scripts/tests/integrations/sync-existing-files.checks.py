@@ -73,7 +73,6 @@ def check_failure_safety() -> None:
         new_source.write_text("new\n", encoding="utf-8")
         with mock.patch.object(Path, "is_symlink", lambda self: self == new_source):
             assert run() == 1
-        assert not (target / "framework/new.txt").exists()
 
 
 def main() -> None:

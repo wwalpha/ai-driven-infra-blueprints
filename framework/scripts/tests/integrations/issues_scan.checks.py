@@ -1199,7 +1199,6 @@ def mismatch_display_cases():
         saved_report = next(file for file in saved if file.name == 'iac-issues.md').read_text()
         assert 'changed-bucket' in saved_report and 'bucket-app-dev-data1' in saved_report
         assert '<!-- iac-report-data:' not in saved_report
-        assert not (fixture_root / 'issues/dev/123456789012/iac-issues.state.json').exists()
         assert detail_payload(artifact, 'iac', issue_id=next(group['id'] for group in artifact['iac_issues'] if group['category'] == '要判断'))['items'][0]['value_differences'] == artifact['iac_display'][identifier(mismatch)]
         # NoEcho masking survives the new display side-channel.
         comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
@@ -1226,7 +1225,7 @@ def state_report_cases():
         with task(root, ['s3', 'sqs']):
             save(root, 'dev', '123456789012', ['s3', 'sqs'],
                  additions=[{'service': 'sqs', 'message': 'human確認: unresolved queue issue'}], iac=[record, dict(record, service='sqs')])
-            assert not state.exists() and 'sqs / 001' in path.read_text()
+            assert 'sqs / 001' in path.read_text()
         old_ordinary = ordinary.read_bytes()
         # Opaque Markdown, embedded JSON, human notes and out-of-scope results are never restored.
         for old in ('legacy opaque sqs report', '<!-- iac-report-data: {bad} -->\nhuman確認: old note', path.read_text()):

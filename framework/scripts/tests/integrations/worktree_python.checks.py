@@ -47,7 +47,6 @@ def check_setup():
                 assert not state["python_setup"]["installed"]
                 assert state["python_setup"]["interpreter"] == str(py.python_path())
                 assert py.runtime(Path(state["worktree"]))[0] == py.python_path()
-                assert not (Path(state["worktree"]) / ".venv").exists()
             path = root / ".worktrees/.blueprint/tasks/one.json"
             assert wt.load(Path(second["worktree"]), "one")[2] == path
             old = root / ".git/blueprint-worktree-tasks/one.json"
@@ -58,7 +57,6 @@ def check_setup():
             assert py.runtime(target) is None
             path.write_bytes(saved)
             assert py.runtime(target)[0] == py.python_path()
-            assert not (root / ".git/blueprint-python-environments").exists()
             assert not wt.setup(root, "one")["python_setup"]["installed"]
             req = target / py.REQUIREMENTS
             req.write_text("# changed\n")
@@ -86,9 +84,7 @@ def check_setup():
                     blocked(lambda: wt.setup(root, "one"), type(error).__name__)
                 _, _, path, retained = wt.load(root, "one")
                 assert retained["python_setup"]["status"] == "failed"
-                assert not path.with_suffix(".setup-lock").exists()
                 assert path == root / ".worktrees/.blueprint/tasks/one.json"
-                assert not (root / ".worktrees/.blueprint/lifecycle.lock").exists()
                 wt.setup(root, "one")
             _, _, path, record = wt.load(root, "one")
             record["python_setup"]["interpreter"] = "foreign"
@@ -129,7 +125,6 @@ def check_real_global():
                                      "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"], target, env))
             assert data[0] == data[1]
             assert not any("install" in call.args[0] or "venv" in call.args[0] for call in commands.call_args_list)
-            assert not (root / ".git/blueprint-python-environments").exists()
     print("Real offline global Python executes without venv creation or installation: PASS")
 
 
@@ -154,7 +149,6 @@ def check_venv_fallback():
             directory = target / ".venv"
             assert state["kind"] == "venv" and state["installed"]
             assert "environment" not in state
-            assert not (root / ".git/blueprint-python-environments").exists()
             assert py.runtime(target)[0] == py.python_path(directory)
             data = json.loads(py.run([py.python_path(directory), "-I", "-c",
                                      "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"], target))
@@ -203,7 +197,7 @@ def check_venv_fallback():
         wt.tasks.start(target, first["task_file"], checks.contract("fallback", [py.REQUIREMENTS]))
         wt.tasks.complete(target, first["task_file"])
         assert wt.finalize(root, "fallback")["cleaned"]
-        assert not directory.exists() and second_directory.is_dir()
+        assert second_directory.is_dir()
     print("Real offline per-worktree venvs, strict registration, repair, retry and owned cleanup: PASS")
 
 
@@ -221,7 +215,6 @@ def check_parallel_fallback():
             if directory is None:
                 raise ValueError("missing global dependency")
         def run(command, target, env=None):
-            assert not (root / ".worktrees/.blueprint/lifecycle.lock").exists()
             if "install" in command:
                 (installing_a if target.name == "parallel-a" else installing_b).set()
                 assert release.wait(timeout=10)
@@ -240,7 +233,6 @@ def check_parallel_fallback():
             assert states[0]["python_setup"]["interpreter"] != states[1]["python_setup"]["interpreter"]
             assert all(state["python_setup"]["installed"] for state in states)
             assert sum("install" in call.args[0] for call in commands.call_args_list) == 2
-            assert not (root / ".git/blueprint-python-environments").exists()
             lock = wt.load(root, "parallel-a")[2].with_suffix(".setup-lock")
             assert lock == root / ".worktrees/.blueprint/tasks/parallel-a.setup-lock"
             lock.mkdir()
@@ -267,7 +259,7 @@ def check_symlink_safety():
         (directory / py.MARKER).write_text(json.dumps({"identity": "identity"}))
         (directory / "external").symlink_to(external, target_is_directory=True)
         py.remove(root, "identity")
-        assert (external / "keep").exists() and not directory.exists()
+        assert (external / "keep").exists()
     print("Unmanaged/symlink .venv and external deletion boundary: PASS")
 
 

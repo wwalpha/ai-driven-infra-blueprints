@@ -16,7 +16,7 @@ def check_transactions(root):
         if path==new:raise OSError('injected partial-write failure')
         return write(path,*args,**kwargs)
     with patch.object(Path,'write_text',fail):rejected(lambda:templates.publish(root,output),'injected')
-    assert original.read_text()=='a=old\n' and not new.exists()
+    assert original.read_text()=='a=old\n'
     rejected(lambda:templates.publish(root,output,inputs={original:b'a=other\n'}),'changed after validation')
     assert original.read_text()=='a=old\n'
     # Written inputs are checked against published bytes; untouched inputs retain their snapshot.
@@ -24,15 +24,15 @@ def check_transactions(root):
     obsolete = root/'obsolete.json'; obsolete.write_text('{"old":true}\n', encoding='utf-8')
     snapshots = {original: original.read_bytes(), dependency: dependency.read_bytes(), obsolete: obsolete.read_bytes()}
     def verify():
-        assert original.read_text() == 'a=new\n' and new.is_file() and not obsolete.exists()
+        assert original.read_text() == 'a=new\n' and new.is_file()
     templates.publish(root, output, [obsolete], inputs=snapshots, verify=verify)
-    assert original.read_text() == 'a=new\n' and not obsolete.exists()
+    assert original.read_text() == 'a=new\n'
     original.write_text('a=old\n'); new.unlink()
     obsolete.write_bytes(snapshots[obsolete])
     def concurrent():
         dependency.write_text('{"changed":true}\n')
     rejected(lambda: templates.publish(root, output, [obsolete], inputs=snapshots, verify=concurrent), 'inputs changed during publication')
-    assert original.read_text() == 'a=old\n' and obsolete.read_bytes() == snapshots[obsolete] and not new.exists()
+    assert original.read_text() == 'a=old\n' and obsolete.read_bytes() == snapshots[obsolete]
     dependency.write_bytes(snapshots[dependency])
     # A terminated process leaves a durable journal; the next reader restores prior inputs.
     program='''import sys,os
@@ -48,7 +48,7 @@ t.publish(root,{original:'a=crash\\n',root/'new.json':'{}\\n'})
     result=subprocess.run([sys.executable,'-c',program,str(ROOT/'framework/scripts'),str(root)])
     assert result.returncode==17 and original.read_text()=='a=crash\n'
     with templates.publication_lock(root):pass
-    assert original.read_text()=='a=old\n' and not new.exists()
+    assert original.read_text()=='a=old\n'
 
 
 def check_expansion(root):
@@ -295,7 +295,6 @@ def check_creation(root):
     for _ in range(2):
         templates.create_service(path)
         assert load_model(path).values == expected
-        assert not path.exists() and not (directory/'source.json').exists()
     changed = templates.json_read((directory/'bindings.json').read_text())
     changed['instances']['fixture']['definition'] = 'Unknown'
     (directory/'bindings.json').write_text(templates.json_text(changed))

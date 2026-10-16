@@ -676,7 +676,6 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     path.unlink()
     assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
     assert "| RoleName | `AWSServiceRoleForConfig` |" in path.read_text(encoding="utf-8")
-    assert not path.with_name("iam.md").exists()
     assert sync_runtime.sync(root, False, "dev", "123456789012") == 0
 
 

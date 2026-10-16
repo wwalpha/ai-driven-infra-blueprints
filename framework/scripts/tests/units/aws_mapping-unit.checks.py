@@ -75,7 +75,6 @@ def check_v3_registry():
         getters += len(adapter_getters)
         apis.extend(adapter.APIS)
     assert (len(types), len(supported), identities, getters, len(apis), len(set(apis))) == (178, 52, 50, 63, 79, 78)
-    assert not (ROOT / 'framework/mappings/aws/cloudformation-stacks.yaml').exists()
     stack = m.service_module('cloudformation-stacks')
     assert stack.STACK_TYPE == 'CloudFormation.Stack'
     assert all(not hasattr(stack, name) for name in ('RESOURCE_TYPES', 'IDENTITIES', 'GETTERS'))

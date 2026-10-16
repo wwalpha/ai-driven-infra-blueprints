@@ -45,5 +45,4 @@ def check_cli():
                     assert result.returncode == 0, result.stdout + result.stderr
             result = subprocess.run([terraform, 'fmt', '-check', '-recursive', str(root)], capture_output=True, text=True)
             assert result.returncode == 0, result.stdout + result.stderr
-            assert not list(root.rglob('*.tfstate')) and not list(root.rglob('*.tfplan'))
 

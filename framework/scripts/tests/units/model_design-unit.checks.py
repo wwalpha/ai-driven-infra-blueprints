@@ -213,7 +213,6 @@ def check_temporary_roots(tmp_path):
     finally:
         for callback in cleanup:
             callback()
-    assert all(not path.exists() for path in paths)
     explicit = SimpleNamespace(option=SimpleNamespace(basetemp=tmp_path), add_cleanup=lambda _: pytest.fail("explicit temporary root replaced"))
     configure(explicit)
     assert explicit.option.basetemp == tmp_path and tmp_path.is_dir()

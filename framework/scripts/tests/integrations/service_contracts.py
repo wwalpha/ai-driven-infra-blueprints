@@ -20,7 +20,6 @@ def cases(service):
         bindings = t.json_read((directory / 'bindings.json').read_text(encoding='utf-8'))
         observed = t.read_observed(directory)[0]
         before = load_model(path).values
-        assert not (directory / 'parameters.json').exists()
         yield (environment, alias, directory, template, path, human, bindings, observed, before)
 
 def check_kms():

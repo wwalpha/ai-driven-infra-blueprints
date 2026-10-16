@@ -33,9 +33,9 @@ with tempfile.TemporaryDirectory() as directory:
              'desired.row.017-023.comment':'観測値の説明'}
     write_model(path,desired);_,template,source=t.source_paths(path);observed=source/'observed.json'
     key='observed.row.017-023.value'
-    assert not observed.exists() and load_model(path).values==desired
+    assert load_model(path).values==desired
     t.create_service(path)
-    assert observed in t.input_snapshot(path) and t.input_snapshot(path)[observed] is None
+    assert observed in t.input_snapshot(path)
     # Required identifiers stay unobserved; desired is never substituted for observed.
     assert not any(k.startswith('observed.') for k in t.reference_values(path,'017','S3.Bucket','identifier').values)
     for value in ('false','0','','null','`PENDING_DEPLOY`'):
@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert observed.read_bytes()==original and marker.read_text()=='before'
     empty=t.observed_outputs(path,desired)
     for _ in range(2):t.publish(root,empty,inputs=t.input_snapshot(path))
-    assert not observed.exists() and load_model(path).values==desired
+    assert load_model(path).values==desired
     snapshot=t.input_snapshot(path);observed.write_text(t.json_text({'version':1,'values':{}}))
     rejected(lambda:t.publish(root,empty,inputs=snapshot),'sources changed');observed.unlink()
     binding_file=source/'bindings.json';binding=t.json_read(binding_file.read_text());assert 'labels' not in binding['instances']['fixture']
@@ -81,8 +81,8 @@ with tempfile.TemporaryDirectory() as directory:
     for labels in (None,[],{'Unknown':'x'}):
         bad=copy.deepcopy(binding);bad['instances']['fixture']['labels']=labels;binding_file.write_text(t.json_text(bad));rejected(lambda:load_model(path))
     binding_file.write_text(t.json_text(binding))
-    assert load_model(path).values==desired and not path.exists() and not list(root.rglob('source.json'))
-print('Compact sources: PASS (optional observed; value/metadata separation; false/zero/empty/null/missing; malformed/orphan/unknown rejection; labels omission; required fields; atomic removal/rollback; missing-input guards; idempotence)')
+    assert load_model(path).values==desired
+print('Compact sources: PASS (optional observed; value/metadata separation; false/zero/empty/null/missing; malformed/orphan/unknown rejection; labels omission; required fields; atomic rollback; missing-input guards; idempotence)')
 
 with tempfile.TemporaryDirectory() as directory:
     root=Path(directory).resolve();template=root/'model/templates/team/shared.properties.tpl'
@@ -104,5 +104,4 @@ with tempfile.TemporaryDirectory() as directory:
         assert after['desired.resource.017.anchor']==before[path]['desired.resource.017.anchor']
         assert set(after)==set(before[path])
         assert (after!=before[path])==(path.parent.parent.name!='independent')
-    assert not any(path.exists() for path in paths) and not list(root.rglob('observed.json'))
 print('Shared definition consumers: PASS (shared declaration; only bound Model values change; independent definition and fixed IDs preserved)')

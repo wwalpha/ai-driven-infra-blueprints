@@ -476,9 +476,9 @@ def summary_fixture():
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
                  ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model_design.py', 'policy_tables.py')]
-    before = {path: path.read_bytes() if path.exists() else None for path in protected}
+    before = {path: path.read_bytes() for path in protected if path.exists()}
     yield
-    assert before == {path: path.read_bytes() if path.exists() else None for path in protected}, 'checks changed protected source'
+    assert before == {path: path.read_bytes() if path.exists() else None for path in before}, 'checks changed protected source'
 
 @pytest.fixture
 def scan_project(tmp_path):

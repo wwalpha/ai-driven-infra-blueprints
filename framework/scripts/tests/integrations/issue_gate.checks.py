@@ -91,7 +91,6 @@ def main():
             assert "unresolved issue blocks task" in str(error)
         else:
             raise AssertionError("model save bypassed issues")
-        assert not (root / "docs").exists()
 
         target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
                   "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}

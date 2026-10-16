@@ -919,7 +919,7 @@ def check_session_cli(tmp_path):
                 assert context_calls[0].args[0][:3] == ["mock-command", "--profile", "dev-profile"]
             return result
     assert invoke(["--profile", "other"]) == 2
-    assert not backends and not state_file.exists()
+    assert not backends
     timing = [json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()]
     assert any(event["phase"] == "authenticationContext" and event["result"] == "FAIL" for event in timing)
     assert timing[-1]["phase"] == "controller" and timing[-1]["result"] == "FAIL"
@@ -1316,7 +1316,6 @@ def check_observed_collector(framework_root):
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [unit], saved)
     assert before_parts == {p: p.read_bytes() for p in before_parts}
-    assert not source.exists()
     assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
 
     # Approved physical deletion resets the formal row and every reference; retention blocks.

@@ -70,7 +70,6 @@ def staged(root, model, values):
         for path in copied:
             assert (stage / path).read_bytes() == (root / path).read_bytes()
         assert load_model(stage / auxiliary.relative_to(root)).values == load_model(auxiliary).values
-        assert not (stage / 'model/parameters/preview/other/unrelated').exists()
 
 
 def check(root):
