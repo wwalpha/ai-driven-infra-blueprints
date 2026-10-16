@@ -1,5 +1,7 @@
 """Catalog-keyed AWS Mapping Registry shared by validation and AWS Compare."""
 from dataclasses import dataclass
+from copy import copy, deepcopy
+from functools import lru_cache
 from pathlib import Path
 import re
 from types import MappingProxyType
@@ -54,12 +56,10 @@ class Property:
 
 
 class Registry:
-    def __init__(self, root: Path, service: str, compile_properties=None):
+    def __init__(self, root: Path, service: str, compile_properties=None, *, content=None):
         self.root, self.service = Path(root), text(service, 'service')
-        if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', service):
-            raise ValueError('invalid Mapping service')
-        path = self.root / 'framework/mappings/aws' / (service + '.yaml')
-        document = yaml_read(path.read_text(encoding='utf-8'))
+        path = mapping_path(self.root, service)
+        document = yaml_read(path.read_text(encoding='utf-8') if content is None else content)
         from aws_mapping_catalog import catalog_properties
         result = (compile_properties or catalog_properties)(self.root, service, document)
         self.resource_types = frozenset(document['resourceTypes'])
@@ -75,6 +75,12 @@ class Registry:
         self.fields = MappingProxyType({key: prop.field for key, prop in result.items() if prop.include})
 
 
+def mapping_path(root, service):
+    if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', text(service, 'service')):
+        raise ValueError('invalid Mapping service')
+    return Path(root) / 'framework/mappings/aws' / (service + '.yaml')
+
+
 @memoized
 def registry(root: Path, service: str) -> Registry:
     """Reuse YAML/SDK validation within the existing validation_cache.input_scope."""
@@ -83,5 +89,22 @@ def registry(root: Path, service: str) -> Registry:
 
 @memoized
 def runtime_registry(root: Path, service: str) -> Registry:
+    # Read once: the cache key and compiler must use the same snapshot.
+    root = Path(root)
+    content = mapping_path(root, service).read_text(encoding='utf-8')
+    cached = _runtime_registry(root.absolute(), service, content)
+    result = copy(cached)
+    result.root = root
+    result.getters = MappingProxyType({name: MappingProxyType(deepcopy(dict(definition)))
+                                      for name, definition in cached.getters.items()})
+    result.identities = MappingProxyType(deepcopy(dict(cached.identities)))
+    properties = deepcopy(dict(cached.properties))
+    result.properties = MappingProxyType(properties)
+    result.fields = MappingProxyType({key: prop.field for key, prop in properties.items() if prop.include})
+    return result
+
+
+@lru_cache(maxsize=128)
+def _runtime_registry(root, service, content):
     from aws_mapping_catalog import runtime_properties
-    return Registry(root, service, runtime_properties)
+    return Registry(root, service, runtime_properties, content=content)

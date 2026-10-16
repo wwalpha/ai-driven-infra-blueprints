@@ -55,6 +55,11 @@ def check_v3_registry():
         document = aws_mapping.yaml_read(path.read_text(encoding='utf-8'))
         assert type(document['version']) is int and document['version'] == 3
         mapping = aws_mapping.registry(ROOT, path.stem)
+        runtime = aws_mapping.runtime_registry(ROOT, path.stem)
+        from aws_mapping_catalog import runtime_properties
+        assert runtime.properties == aws_mapping.Registry(ROOT, path.stem, runtime_properties).properties
+        assert dict(runtime.getters) == dict(mapping.getters)
+        assert runtime.identities == mapping.identities
         assert mapping.resource_types == document['resourceTypes'].keys()
         assert not types & mapping.resource_types
         types.update(mapping.resource_types)
@@ -130,6 +135,97 @@ def check_baseline():
     assert m.normalize(None, [], 'set') == []
     assert m.normalize(None, ['b', 'a'], 'set') == ['a', 'b']
     assert m.normalize(None, 'bucket-fixture', 'name') == 'bucket-fixture'
+
+
+def check_runtime_cache():
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    from aws_mapping_catalog import runtime_properties
+
+    content = (ROOT / 'framework/mappings/aws/config.yaml').read_text(encoding='utf-8')
+    with TemporaryDirectory() as directory:
+        roots = [Path(directory) / name for name in ('first', 'second')]
+        for root in roots:
+            path = root / 'framework/mappings/aws/config.yaml'
+            path.parent.mkdir(parents=True)
+            path.write_text(content, encoding='utf-8')
+            path.with_name('iam.yaml').write_text(
+                (ROOT / 'framework/mappings/aws/iam.yaml').read_text(encoding='utf-8'), encoding='utf-8')
+        root = roots[0]
+        path = root / 'framework/mappings/aws/config.yaml'
+        with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as read:
+            first = aws_mapping.runtime_registry(root, 'config')
+            again = aws_mapping.runtime_registry(root, 'config')
+            assert read.call_count == 1 and first.properties == again.properties
+            second = aws_mapping.runtime_registry(roots[1], 'config')
+            assert read.call_count == 2 and second.root == roots[1]
+            iam = aws_mapping.runtime_registry(root, 'iam')
+            assert read.call_count == 3 and iam.service == 'iam' and 'IAM.Role' in iam.resource_types
+
+            @input_scope
+            def snapshot():
+                pinned = aws_mapping.runtime_registry(root, 'config')
+                stat = path.stat()
+                path.write_text(content.replace('name: RoleName', 'name: OtherRole'), encoding='utf-8')
+                os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                assert aws_mapping.runtime_registry(root, 'config') is pinned
+                return pinned
+
+            assert snapshot().properties[RECORDER + '.RoleARN'].name == 'RoleName'
+            changed = aws_mapping.runtime_registry(root, 'config')
+            assert read.call_count == 4 and changed.properties[RECORDER + '.RoleARN'].name == 'OtherRole'
+            path.write_text('invalid: [', encoding='utf-8')
+            for _ in range(2):
+                try:
+                    aws_mapping.runtime_registry(root, 'config')
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError('invalid YAML reused a Registry')
+            assert read.call_count == 6, 'exceptions must not be cached'
+            path.write_text(content, encoding='utf-8')
+            assert aws_mapping.runtime_registry(root, 'config').properties == first.properties
+            assert read.call_count == 6
+            # Returned attributes and nested defaults must never mutate the private cached Registry.
+            first.getters = {}
+            first.service = 'changed'
+            default = RECORDER + '.RecordingGroup.ResourceTypes'
+            first.fields[default].default.append('changed')
+            fresh = aws_mapping.runtime_registry(root, 'config')
+            assert fresh.service == 'config' and fresh.getters and fresh.fields[default].default == []
+            assert fresh.fields[default] is fresh.properties[default].field
+            assert fresh.properties == aws_mapping.Registry(root, 'config', runtime_properties).properties
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                registries = list(pool.map(lambda _: aws_mapping.runtime_registry(root, 'config'), range(8)))
+            assert all(item.properties == fresh.properties for item in registries)
+            assert len({id(item) for item in registries}) == 8
+            registries[0].fields[default].default.append('thread-local')
+            assert all(item.fields[default].default == [] for item in registries[1:])
+
+
+def check_runtime_cache_snapshot_and_bound():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / 'framework/mappings/aws/fixture.yaml'
+        path.parent.mkdir(parents=True)
+        content = json.dumps({'version': 3, 'service': 'fixture', 'getters': {}, 'resourceTypes': {}})
+        path.write_text(content, encoding='utf-8')
+        original = aws_mapping.yaml_read
+
+        def read(snapshot):
+            path.write_text('invalid: [', encoding='utf-8')
+            return original(snapshot)
+
+        with patch.object(aws_mapping, 'yaml_read', side_effect=read):
+            assert aws_mapping.runtime_registry(root, 'fixture').service == 'fixture'
+        for number in range(129):
+            path.write_text(content + f'\n# {number}', encoding='utf-8')
+            aws_mapping.runtime_registry(root, 'fixture')
+        assert aws_mapping._runtime_registry.cache_info().currsize == 128
+        path.write_text(content, encoding='utf-8')
+        with patch.object(aws_mapping, 'yaml_read', wraps=original) as parsed:
+            aws_mapping.runtime_registry(root, 'fixture')
+            assert parsed.call_count == 1, 'least recently used snapshot must be evicted'
 
 
 if __name__ == '__main__':
