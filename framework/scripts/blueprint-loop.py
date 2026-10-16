@@ -19,7 +19,7 @@ import traceback
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
-from task_contract import (SELECTOR, task_path, task_changes, suspend, contracts, reservations,
+from task_contract import (SELECTOR, task_path, task_changes, suspend, contracts, authorizations,
                            bind_worktree, worktree_owner, local_contract)
 
 
@@ -547,7 +547,7 @@ def main() -> int:
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         elif selected_name:
-            pending = reservations(root, contracts(root))[selected_name].deferred
+            pending = authorizations(root)[selected_name].deferred
             if pending:
                 print("Blueprint task: DEFERRED (Active checks passed; remains running): " + ", ".join(pending), flush=True)
         return result

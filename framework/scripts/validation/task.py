@@ -10,7 +10,7 @@ from model_files import service_model_path
 from model_templates import affected, service_source
 from validation_scope import active_scope
 from issue_gate import require_no_issues
-from task_contract import task_path, task_changes, contracts, reservations, TASK_NAME, matches
+from task_contract import task_path, task_changes, contracts, authorizations, TASK_NAME, matches
 
 TASK_TYPES = {
     "initialization",
@@ -57,8 +57,7 @@ class TaskValidation:
                 "- Task type:" not in prompt.read_text(encoding="utf-8")):
             return  # Preserve the unchanged legacy idle state.
         if prompt.is_file():
-            records = contracts(self.root)
-            entry = reservations(self.root, records)[self.relative(prompt)]
+            entry = authorizations(self.root)[self.relative(prompt)]
             from worktree_task import committed_task_paths
             committed = committed_task_paths(self.root, self.relative(prompt))
             if committed is not None:
@@ -309,7 +308,7 @@ class TaskValidation:
 
     def check_tasks(self) -> None:
         try:
-            reservations(self.root, contracts(self.root))
+            authorizations(self.root)
         except (OSError, ValueError) as error:
             self.check(False, str(error))
 

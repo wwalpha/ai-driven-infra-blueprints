@@ -11,6 +11,42 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Task transition
 
+### Managed worktree authority
+
+A linked worktree created by `worktree_task.py` uses authorization without file
+reservation conflicts only when its lifecycle JSON, canonical worktree path,
+branch, Worktree identity, Task ID and selected `task_file` agree. Another local
+contract prevents this mode; foreign contracts cannot grant authority. Invalid
+managed state stops safely. Ordinary checkouts and manually created worktrees
+without lifecycle metadata retain the reservation/Active/Deferred rules below.
+No environment variable enables this mode.
+
+`authorizations()` separates validated task scope from `reservations()` conflict
+calculation. In managed worktrees, the validated exact Modified files are the
+write allowlist. Status, Allowed paths, identity, ownership and safe paths still
+apply. Existing incomplete Active/Deferred grants require explicit refresh;
+readers and ordinary writes never promote them. Registration and explicit refresh
+revalidate the full scope and publish grants atomically under the registration lock.
+
+Each process retains one managed authority snapshot. Normal `require_writable()`
+checks detect changes using file identity, mode, size, mtime and ctime, validate
+requested paths (including symlinks), and test allowlist membership. They perform
+no contract-content scan, conflict calculation, Git subprocess or JSON parsing.
+Changes to contract files/task-directory membership, lifecycle metadata, Git
+administrative state or Git environment invalidate the snapshot. Start, refresh,
+suspend, resume and complete are detected through their atomic contract updates;
+other processes' changes are detected too. Revalidation failure denies writes.
+Contract-free explicit-target generation keeps its existing behavior.
+
+Managed `reserved_batches()` yields each authorized job intact, without refresh,
+reservation acquisition, Deferred waiting or sleep; `wait_deferred()` never waits.
+Publication locks, atomic save/rollback, validation, Acceptance and all existing
+finalize/commit/rebase/ff-only merge/cleanup checks remain mandatory. The following
+reservation-specific rules apply to ordinary/manual checkouts; their authorization,
+task boundary and completion requirements also apply to managed worktrees.
+
+### Common transitions and ordinary reservations
+
 - Only `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, and `migration` are permitted task types. The active prompt is the contract for this change, not the long-term design authority.
 
 - Before repository changes, select this task's `tasks/<task-name>.md` and match its task type, target, and Goal to the latest request. A clean repository without a contract is idle. Register a separate contract as the first change of a new task; do not overwrite existing contracts.

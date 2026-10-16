@@ -177,6 +177,35 @@ def load(where, task_id):
     return primary, common, path, state
 
 
+def managed_state(where):
+    """Recognize only a registered linked checkout with matching lifecycle state."""
+    if not (where / ".git").is_file():
+        return None
+    root, common, primary = repository(where)
+    if root == primary:
+        return None
+    task_id = root.name
+    if root.parent != primary / ".worktrees":
+        branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.strip()
+        if not branch.startswith("codex/worktree/"):
+            return None
+        task_id = branch.removeprefix("codex/worktree/")
+    path = state_path(primary, task_id)
+    if not path.exists() and not path.is_symlink():
+        return None
+    if path.is_symlink() or root.is_symlink() or (root / ".git").is_symlink():
+        raise Blocked("managed worktree metadata/path must not use symlinks")
+    try:
+        _, _, path, state = load(root, task_id)
+        target = task_worktree(primary, state)
+        if target != where:
+            raise Blocked("managed worktree path mismatch")
+        gitdir = Path(output(root, "rev-parse", "--absolute-git-dir")).resolve()
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise Blocked("invalid managed worktree metadata") from error
+    return state, path, gitdir, common
+
+
 def committed_task_paths(root, task_file):
     """Reuse the managed worktree's pinned start; never read another checkout's diff."""
     _, _, primary = repository(root)
@@ -221,9 +250,10 @@ def task_worktree(root, state):
 
 def integration_task(target, state, approval=None):
     # A human-approved Git integration does not turn failed validation into completion.
-    records = tasks.contracts(target, include_foreign=True)
-    tasks.selected_text(target, records, state["task_file"])
-    entry = tasks.reservations(target, records)[state["task_file"]]
+    entries = tasks.authorizations(target)
+    if state["task_file"] not in entries:
+        raise Blocked("selected task contract missing or belongs to another worktree")
+    entry = entries[state["task_file"]]
     approval = approval or state.get("validation_failure_approval")
     expected = "suspend" if approval else "completed"
     if entry.state != expected:

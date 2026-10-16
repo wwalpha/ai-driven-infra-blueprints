@@ -12,8 +12,8 @@ pytest件数はテスト定義・aliasと設定から算出する。直接実行
 
 | 種別 | ファイル数 | pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
-| units | 51 | 78 / 96 | 23 |
-| integrations | 76 | 172 / 261 | 113 |
+| units | 52 | 84 / 115 | 23 |
+| integrations | 76 | 173 / 262 | 113 |
 | unknown | 0 | 0 / 0 | 0 |
 | support | 39 | 0 / 0 | 0 |
 
@@ -1523,3 +1523,18 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `units/comparison_core-unit.checks.py:159` | 6: `[(select(0, getatt('UnknownLength')), 'index 0, symbolic array minItems=0'), (select(1, getatt('DnsEntries')), 'index 1, symbolic array minItems=1'), (select(0, getatt('UnknownType')), 'array type is unproven'), (select(1, split), 'index 1, symbolic array minItems=1'), (select(getatt('Name'), ['a']), 'index is unproven'), ({'Fn::Split': [':', select(0, getatt('UnknownElement'))]}, 'string type is unproven')]` |
 | `units/comparison_core-unit.checks.py:168` | 18: `[select(2, getatt('DnsEntries')), select(0, getatt('Name')), select(True, ['a']), select(-1, ['a']), select(1.0, ['a']), select('x', ['a']), select(1, ['a']), select(0, []), select(0, [None]), select(0, {}), {'Fn::Select': [0]}, {'Fn::Split': [':', getatt('DnsEntries')]}, {'Fn::Split': [':', select(0, getatt('Numbers'))]}, {'Fn::Split': ['', 'text']}, {'Fn::Split': [1, 'text']}, {'Fn::Split': [':', None]}, {'Fn::Split': [':']}, {'Fn::Join': ['', [select(0, getatt('Numbers'))]]}]` |
 | `units/update-catalog-lock.checks.py:29` | 2: `(PurePosixPath, PureWindowsPath)` |
+
+## 管理対象Worktree認可の追加・拡張
+
+| 配置 / ケース | 入口 / 展開数 | 検証責務 |
+|---|---|---|
+| [task-contract-unit.checks.py](units/task-contract-unit.checks.py) / `check_managed_lifecycle_and_hot_path` | pytest / 1 | start/refresh/suspend/resume/complete、予約計算0、反復Git/契約scan0、不可分ジョブ、統合認可 |
+| 同上 / `check_external_changes_invalidate` | pytest / 9 | 状態・Allowed・scope・同サイズ置換・他タスク・identity・JSON・HEAD・JSON削除による失効 |
+| 同上 / `check_scope_expansion_requires_refresh` | pytest / 1 | 古いDeferredを自動昇格せず明示refreshで再検証 |
+| 同上 / `check_path_and_selection_guards` | pytest / 1 | 契約外・不正パス・Symlink・別task_file拒否 |
+| 同上 / `check_metadata_mismatch` | pytest / 6 | Task ID・task_file・branch・worktree・identity・primary不一致 |
+| 同上 / `check_contract_free_and_normal_reservations` | pytest / 1 | 契約なし実行・通常checkoutの既存Deferredと解放 |
+| [task_contract.checks.py](integrations/task_contract.checks.py) / `check_managed_authority_integration` | pytest / 1 | 既存Worktree fixture、実Gitの管理識別、別プロセスsuspend、branch変更、Atomic rollback |
+| [worktree_task.checks.py](integrations/worktree_task.checks.py) / `check_success_and_empty` | 既存2分岐を拡張 / 新規ケース0 | 完了/統合認可で予約計算0、従来のCLI finalize/cleanup |
+
+通常checkout・手動Worktreeの予約、Deferred待機、finalize範囲外変更拒否は既存ITケースを継続使用する。追加UTはGit/AWSを実行せず、実プロジェクトのmodelを参照しない。

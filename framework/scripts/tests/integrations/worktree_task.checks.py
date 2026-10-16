@@ -20,7 +20,9 @@ def check_success_and_empty():
                 (target / "file.txt").write_text("staged, then canceled\n")
                 git(target, "add", "file.txt")
                 (target / "file.txt").write_text("original\n")
-            finish_contract(target, state)
+            with patch.object(tasks, "reservations", side_effect=AssertionError("managed integration conflict calculation")):
+                finish_contract(target, state)
+                assert wt.integration_task(target, state).files == {state["task_file"], "file.txt", "追加 file.txt"}
             result = cli(target, "finalize")  # CLI uses the task cwd, not the helper's location.
             assert result["cleaned"]
             assert not wt.branch_exists(root, state["branch"])

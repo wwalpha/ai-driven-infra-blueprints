@@ -4,10 +4,12 @@ import argparse
 from contextlib import contextmanager
 import fnmatch
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import tempfile
 import subprocess
 import time
@@ -268,6 +270,25 @@ def claimed_files(text, files):
     return active
 
 
+def validate_contract(root, name, text, legacy=False):
+    """Validate one authority without computing inter-task conflicts."""
+    state = status(text, legacy)
+    files = paths_in(text, "## Modified files")
+    allowed = paths_in(text, "## Allowed paths")
+    if name not in files:
+        raise ValueError(f"Modified files must include its own contract: {name}")
+    for value in files:
+        safe_path(root, value)
+        if value.startswith("tasks/") and value != name:
+            raise ValueError(f"task cannot reserve another contract: {name}: {value}")
+        if value not in allowed and not any(matches(value, pattern) for pattern in allowed):
+            raise ValueError(f"reserved file is outside Allowed paths: {name}: {value}")
+    active = claimed_files(text, files)
+    if state == "completed" and files - active:
+        raise ValueError(f"completed task has Deferred files: {name}: {', '.join(sorted(files - active))}")
+    return Reservation(state, files, active, {})
+
+
 def reservations(root, records):
     identities = {None, worktree_identity(root), directory_identity(root)}
     records = {name: text for name, text in records.items() if worktree_owner(text) in identities}
@@ -281,20 +302,9 @@ def reservations(root, records):
         if legacy and not section(text, "## Modified files"):
             result[name] = Reservation(state, None, None, {})
             continue
-        files = paths_in(text, "## Modified files")
-        allowed = paths_in(text, "## Allowed paths")
-        if name not in files:
-            raise ValueError(f"Modified files must include its own contract: {name}")
-        for value in files:
-            safe_path(root, value)
-            if value.startswith("tasks/") and value != name:
-                raise ValueError(f"task cannot reserve another contract: {name}: {value}")
-            if value not in allowed and not any(matches(value, pattern) for pattern in allowed):
-                raise ValueError(f"reserved file is outside Allowed paths: {name}: {value}")
-        active = claimed_files(text, files)
-        if state == "completed" and files - active:
-            raise ValueError(f"completed task has Deferred files: {name}: {', '.join(sorted(files - active))}")
-        result[name] = Reservation(state, files, active, {})
+        entry = validate_contract(root, name, text, legacy)
+        result[name] = entry
+        active = entry.active
         if state == "running":
             for value in active:
                 claims.setdefault(value, []).append(name)
@@ -309,7 +319,105 @@ def reservations(root, records):
     return result
 
 
+# One process-local authority snapshot, never a cache of reservation results.
+_managed_cache = None
+
+
+def authority_stamp(paths, task_directory):
+    result = []
+    for path in paths:
+        try:
+            info = path.lstat()
+            identity = (info.st_dev, info.st_ino, info.st_mode)
+            # Output publication changes directory timestamps, not task authority.
+            result.append(identity if stat.S_ISDIR(info.st_mode) and path != task_directory else
+                          (*identity, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+        except FileNotFoundError:
+            result.append(None)
+    return tuple(result)
+
+
+def managed_authority(root):
+    """Revalidate on external changes; the hot path only stats authority inputs."""
+    global _managed_cache
+    cached = _managed_cache
+    environment = tuple(sorted((k, v) for k, v in os.environ.items() if k.startswith("GIT_")))
+    if cached and cached["root"] == root:
+        if cached["environment"] == environment and authority_stamp(cached["watch"], root / "tasks") == cached["stamp"]:
+            return cached
+    else:
+        cached = None
+    from worktree_task import managed_state
+    found = managed_state(root)
+    if found is None:
+        if cached:
+            raise ValueError("managed worktree authority disappeared; retain work for review")
+        return None
+    state, metadata, gitdir, common = found
+    directory = root / "tasks"
+    watch = [root, root / ".git", directory, metadata, *list(metadata.parents)[:3],
+             gitdir, common, common / "config", common / "worktrees",
+             common / "packed-refs", common / "refs" / "heads" / state["branch"]]
+    watch += [gitdir / name for name in ("HEAD", "commondir", "gitdir", "index", "locked",
+              "config.worktree", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
+              "rebase-merge", "rebase-apply", "sequencer")]
+    if directory.is_dir():
+        watch += sorted(directory.iterdir())
+    before = authority_stamp(watch, directory)
+    if json.loads(metadata.read_text(encoding="utf-8")) != state:
+        raise ValueError("managed metadata changed during validation; retry explicitly")
+    if (gitdir / "HEAD").read_text(encoding="utf-8").strip() != "ref: refs/heads/" + state["branch"]:
+        raise ValueError("managed worktree branch changed during validation")
+    records = contracts(root, include_foreign=True)
+    identities = {None, state["identity"], directory_identity(root)}
+    for name, text in records.items():
+        if worktree_owner(text) in identities and name != state["task_file"]:
+            raise ValueError("managed worktree contains another local task; retain work for review")
+    entry = None
+    if state["task_file"] in records:
+        text = records[state["task_file"]]
+        if worktree_owner(text) != state["identity"]:
+            raise ValueError("managed task Worktree identity mismatch; explicit refresh required")
+        entry = validate_contract(root, state["task_file"], text)
+        entry = entry._replace(deferred={value: () for value in entry.files - entry.active})
+    if authority_stamp(watch, directory) != before:
+        raise ValueError("managed authority changed during validation; retry explicitly")
+    _managed_cache = dict(root=root, state=state, records=records, entry=entry,
+                          watch=watch, stamp=before, environment=environment)
+    return _managed_cache
+
+
+def authorizations(root, records=None):
+    managed = managed_authority(root)
+    if managed is not None:
+        name = managed["state"]["task_file"]
+        if records is not None and records != managed["records"]:
+            # Callers may pass only local records, but never stale or proposed grants.
+            if records != {name: managed["records"].get(name)}:
+                raise ValueError("managed task records changed; reread authority")
+        return {name: managed["entry"]} if managed["entry"] is not None else {}
+    return reservations(root, contracts(root, include_foreign=True) if records is None else records)
+
+
+def managed_selection(managed, selected):
+    name = managed["state"]["task_file"]
+    if selected and selected != name:
+        raise ValueError("selected task does not match managed task_file")
+    if managed["entry"] is None:
+        raise ValueError("selected task contract missing: " + name)
+    return name
+
+
 def task_path(root, selected=None):
+    managed = managed_authority(root)
+    if managed is not None:
+        selected = selected or os.environ.get(SELECTOR)
+        if not managed["records"] and not selected:
+            return root / "tasks/active.md"
+        name = managed_selection(managed, selected)
+        if managed["entry"].state == "suspend":
+            raise ValueError("suspend task cannot execute; use --resume")
+        return root / name
     all_records = contracts(root, include_foreign=True)
     selected = selected or os.environ.get(SELECTOR)
     if selected:
@@ -332,10 +440,14 @@ def task_path(root, selected=None):
 
 
 def task_changes(root, changed, selected=None):
-    all_records = contracts(root, include_foreign=True)
+    managed = managed_authority(root)
+    all_records = managed["records"] if managed is not None else contracts(root, include_foreign=True)
     if selected is not None:
-        selected_text(root, all_records, selected)
-    reserved = reservations(root, all_records)
+        if managed is not None:
+            managed_selection(managed, selected)
+        else:
+            selected_text(root, all_records, selected)
+    reserved = authorizations(root, all_records) if managed is not None else reservations(root, all_records)
     changed = changed - (all_records.keys() - reserved.keys())
     if selected == "tasks/active.md" and reserved[selected].files is None:
         return changed
@@ -355,6 +467,22 @@ def task_changes(root, changed, selected=None):
 
 
 def require_writable(root, paths, selected=None):
+    managed = managed_authority(root)
+    if managed is not None:
+        if not managed["records"] and not selected and not os.environ.get(SELECTOR):
+            return
+        name = managed_selection(managed, selected or os.environ.get(SELECTOR))
+        entry = managed["entry"]
+        if entry.state != "running":
+            raise ValueError(f"{entry.state} task cannot write: {name}")
+        if entry.deferred:
+            raise ValueError("managed task has Deferred files; explicit refresh required")
+        requested = {path.relative_to(root).as_posix() for path in paths}
+        for value in requested:
+            safe_path(root, value)
+        if requested - entry.files:
+            raise ValueError("output has no selected task reservation: " + ", ".join(sorted(requested - entry.files)))
+        return
     records = contracts(root, include_foreign=True)
     if not records and not selected and not os.environ.get(SELECTOR):
         return  # Preserve the existing explicit-target generation API on contract-free inputs.
@@ -383,6 +511,11 @@ def reserved_batches(root, jobs, sleeper=None, task_file=None):
     The caller finishes each yielded job before requesting the next. Jobs map keys
     to exact output paths; a multi-file job is never split. Exhaustion is not failure.
     """
+    if managed_authority(root) is not None:
+        for key, paths in jobs.items():
+            require_writable(root, paths, task_file)
+            yield key
+        return
     pending = {key: set(paths) for key, paths in jobs.items()}
     selected = task_path(root, task_file)
     name = selected.relative_to(root).as_posix() if selected.is_file() else None
@@ -426,6 +559,14 @@ def reserved_batches(root, jobs, sleeper=None, task_file=None):
 
 def wait_deferred(root, name, sleeper=None):
     """Agent entrypoint after Active work: return as soon as any Deferred file is acquired."""
+    managed = managed_authority(root)
+    if managed is not None:
+        managed_selection(managed, name)
+        if managed["entry"].state != "running":
+            raise ValueError("only a running task can wait for Deferred files")
+        if managed["entry"].deferred:
+            raise ValueError("managed task has Deferred files; explicit refresh required")
+        return set()
     records = contracts(root, include_foreign=True)
     selected_text(root, records, name)
     entry = reservations(root, records)[name]
@@ -454,11 +595,28 @@ def registration_lock(root):
         lock.rmdir()
 
 
+def validate_registration(root, name, text, records):
+    managed = managed_authority(root)
+    if managed is None:
+        reservations(root, {**records, name: text})
+    else:
+        if name != managed["state"]["task_file"]:
+            raise ValueError("selected task does not match managed task_file")
+        validate_contract(root, name, text)
+
+
 def acquire(root, name, text, records):
-    reserved = reservations(root, {key: value for key, value in records.items() if key != name})
-    blocked = set().union(*(claimed_files(records[key], entry.files) for key, entry in reserved.items()
-                            if entry.state == "running" and entry.files is not None))
-    own = reservations(root, {name: text})[name]
+    managed = managed_authority(root)
+    if managed is not None:
+        if name != managed["state"]["task_file"]:
+            raise ValueError("selected task does not match managed task_file")
+        own = validate_contract(root, name, text)
+        blocked = set()
+    else:
+        reserved = reservations(root, {key: value for key, value in records.items() if key != name})
+        blocked = set().union(*(claimed_files(records[key], entry.files) for key, entry in reserved.items()
+                                if entry.state == "running" and entry.files is not None))
+        own = reservations(root, {name: text})[name]
     if own.files is None:
         return bind_worktree(root, text)
     active = own.files - blocked
@@ -483,7 +641,7 @@ def start(root, name, text):
         if status(text) != "running":
             raise ValueError("new task must have running status")
         # Validate the combined contracts (including legacy concurrency) before publication.
-        reservations(root, {**records, name: text})
+        validate_registration(root, name, text, records)
         text = acquire(root, name, text, records)
         destination = safe_path(root, name)
         destination.parent.mkdir(exist_ok=True)
@@ -500,7 +658,7 @@ def refresh(root, name, resuming=False):
         if state == "completed":
             if resuming:
                 raise ValueError("completed task cannot resume")
-            reservations(root, records)
+            authorizations(root, records)
             return
         text = acquire(root, name, set_status(text, "running"), records)
         if text != records[name]:
@@ -511,7 +669,7 @@ def complete(root, name):
     with registration_lock(root):
         records = contracts(root, include_foreign=True)
         text = selected_text(root, records, name)
-        entry = reservations(root, records)[name]
+        entry = authorizations(root, records)[name]
         if entry.state != "running":
             raise ValueError("only a running task can complete")
         if entry.deferred:
@@ -599,7 +757,7 @@ def main():
             refresh(root, args.task_file)
         selected = task_path(root, args.task_file)
         print(f"Task contract: {selected.relative_to(root)}")
-        entry = reservations(root, contracts(root))[args.task_file]
+        entry = authorizations(root)[args.task_file]
         if entry.files is not None:
             print("Active: " + ", ".join(sorted(entry.active)))
             for value, owners in entry.deferred.items():

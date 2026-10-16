@@ -758,8 +758,48 @@ def check_automatic_retry(tmp_path):
 
 
 
+def check_managed_authority_integration():
+    from support.worktree_task_fixtures import fixture, start, wt, git
+    from sync_files import atomic_files
+    with fixture() as primary, patch.dict(os.environ, {}, clear=True):
+        with patch.object(tasks, "reservations", side_effect=AssertionError("managed conflict calculation")):
+            root, state = start(primary, files=("file.txt", "second.txt"))
+            name = state["task_file"]
+            tasks.require_writable(root, [root / "file.txt"], name)
+            with patch.object(tasks, "contracts", side_effect=AssertionError("hot contract scan")), \
+                    patch.object(tasks.subprocess, "run", side_effect=AssertionError("hot Git subprocess")), \
+                    patch.object(tasks.time, "sleep", side_effect=AssertionError("managed wait")):
+                for _ in range(20):
+                    tasks.require_writable(root, [root / "file.txt"], name)
+                assert list(tasks.reserved_batches(root, {"pair": [root / "file.txt", root / "second.txt"]}, task_file=name)) == ["pair"]
+            # Publication still rolls back the whole job if the second replace fails.
+            (root / "second.txt").write_text("second original\n")
+            before = {path: path.read_bytes() for path in (root / "file.txt", root / "second.txt")}
+            replace = os.replace
+            def fail_second(source, destination):
+                if Path(destination) == root / "second.txt":
+                    raise OSError("injected publication failure")
+                return replace(source, destination)
+            with patch("os.replace", side_effect=fail_second), pytest.raises(OSError):
+                atomic_files({root / "file.txt": "new first", root / "second.txt": "new second"}, staging_directory=root)
+            assert all(path.read_bytes() == value for path, value in before.items())
+            # A different process changes the contract; an already warm writer must stop.
+            script = "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import task_contract as t; t.suspend(Path(sys.argv[2]), sys.argv[3], 'external stop: file.txt')"
+            subprocess.run([sys.executable, "-B", "-c", script, str(Path(tasks.__file__).parent), str(root), name], check=True)
+            blocked(lambda: tasks.require_writable(root, [root / "file.txt"], name), "suspend")
+            tasks.resume(root, name)
+            # Git state changes invalidate the cached authorization, even without contract edits.
+            tasks.require_writable(root, [root / "file.txt"], name)
+            git(root, "checkout", "--detach", "-q")
+            blocked(lambda: tasks.require_writable(root, [root / "file.txt"], name), "switched")
+            git(root, "checkout", "-q", state["branch"])
+            tasks.require_writable(root, [root / "file.txt"], name)
+            tasks.complete(root, name)
+            assert wt.integration_task(root, state).state == "completed"
+
+
 def main():
-    return run(__file__, ['check_identity_changes', 'check_identity_fallback', 'check_identity_environment', 'check_atomic_contract_reads', 'check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
+    return run(__file__, ['check_managed_authority_integration', 'check_identity_changes', 'check_identity_fallback', 'check_identity_environment', 'check_atomic_contract_reads', 'check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
 
 
 if __name__ == "__main__":
