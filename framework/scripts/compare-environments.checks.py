@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parameter comparison checks using repository inputs and disposable copies."""
+"""Parameter comparison checks using authored disposable inputs."""
 
 import importlib.util
 import json
@@ -30,12 +30,24 @@ def path(root, environment, service="vpc", target="cde"):
 
 
 def copy_inputs(root, services=("vpc",)):
-    shutil.copyfile(ROOT / "project.json", root / "project.json")
+    project = {"projectName":"fixture", "targets":[
+        {"environment":env, "alias":alias, "awsAccountId":account, "awsRegion":"ap-northeast-1", "iacEngine":"cloudformation"}
+        for env in ("dev","stg","prod") for alias,account in (("cde","123456789012"),("non-cde","210987654321"))]}
+    (root/"project.json").write_text(json.dumps(project),encoding="utf-8")
     for environment in ("dev", "stg"):
         for service in services:
-            destination = path(root, environment, service)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path(ROOT, environment, service), destination)
+            if (service,environment) in (("datazone","stg"),("data-firehose","dev")):
+                continue
+            parameters = {"parameters":{"ResourceMode":"CREATE" if environment=="dev" else "IMPORT"}} if service=="vpc" else (
+                {"instances":{"build":{"parameters":{"SourceBranch":"main" if environment=="dev" else "stg"}}}} if service=="codepipeline" else
+                {"instances":{"ec2-vpcendpoint-sts-01" if environment=="dev" else "ec2-vpc-endpoint-sts-01":{"parameters":{}}}} if service=="security-group" else {"instances":{}})
+            destination = path(root,environment,service)
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            destination.write_text(yaml.safe_dump(parameters),encoding="utf-8")
+        if "cloudformation-stacks" in services:
+            destination=path(root,environment,"cloudformation-stacks","non-cde")
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            destination.write_text(yaml.safe_dump({"parameters":{"MaxConcurrentStacks":2 if environment=="dev" else 4}}),encoding="utf-8")
 
 
 def cli(root, *args):
@@ -48,12 +60,13 @@ def cli(root, *args):
     return result.returncode, report, result.stdout
 
 
-def check_real_parameters():
+def check_fixture_parameters(tmp_path):
+    copy_inputs(tmp_path, ("vpc","codepipeline","datazone","data-firehose","security-group","cloudformation-stacks"))
     args = ("--pair", "dev-stg", "--target", "cde", "--service", "vpc", "--service", "codepipeline",
             "--service", "datazone", "--service", "data-firehose", "--service", "security-group")
-    code, report, output = cli(ROOT, *args)
+    code, report, output = cli(tmp_path, *args)
     assert code == 0
-    assert cli(ROOT, *args)[2] == output
+    assert cli(tmp_path, *args)[2] == output
     pair = report["comparisons"][0]
     assert pair["status"] == "complete"
     differences = {(item["service"], item["key_path"]): item for item in pair["differences"]}
@@ -69,15 +82,15 @@ def check_real_parameters():
     for identity, kind in (("ec2-vpcendpoint-sts-01", "only_left"), ("ec2-vpc-endpoint-sts-01", "only_right")):
         assert differences["security-group", f"instances.{identity}"]["kind"] == kind
     assert mode["pair"] == "dev-stg" and mode["alias"] == "cde"
-    assert mode["source_paths"] == {side: path(ROOT, env).relative_to(ROOT).as_posix()
+    assert mode["source_paths"] == {side: path(tmp_path, env).relative_to(tmp_path).as_posix()
                                     for side, env in (("left", "dev"), ("right", "stg"))}
-    code, report, _ = cli(ROOT, "--pair", "dev-stg", "--target", "non-cde", "--service", "cloudformation-stacks")
+    code, report, _ = cli(tmp_path, "--pair", "dev-stg", "--target", "non-cde", "--service", "cloudformation-stacks")
     assert code == 0
-    expected = tuple(yaml.safe_load(path(ROOT, env, "cloudformation-stacks", "non-cde").read_text(encoding="utf-8"))["parameters"]["MaxConcurrentStacks"] for env in ("dev", "stg"))
+    expected = tuple(yaml.safe_load(path(tmp_path, env, "cloudformation-stacks", "non-cde").read_text(encoding="utf-8"))["parameters"]["MaxConcurrentStacks"] for env in ("dev", "stg"))
     differences = [item for item in report["comparisons"][0]["differences"]
                    if item["key_path"] == "parameters.MaxConcurrentStacks"]
     assert [(item["left"], item["right"]) for item in differences] == ([expected] if expected[0] != expected[1] else [])
-    code, report, _ = cli(ROOT, "--pair", "stg-prod", "--target", "cde", "--service", "vpc")
+    code, report, _ = cli(tmp_path, "--pair", "stg-prod", "--target", "cde", "--service", "vpc")
     pair = report["comparisons"][0]
     assert code == 1 and pair["status"] == "incomplete"
     assert {item["kind"] for item in pair["differences"]} == {"incomplete"}
@@ -167,7 +180,8 @@ def check_scope_reads_and_templates(tmp_path):
         for env in ("dev", "stg", "prod"):
             destination = path(tmp_path, env, target=target)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path(ROOT, "dev"), destination)
+            if destination != path(tmp_path, "dev"):
+                shutil.copyfile(path(tmp_path, "dev"), destination)
     reads = Counter()
     original_read = Path.read_text
 

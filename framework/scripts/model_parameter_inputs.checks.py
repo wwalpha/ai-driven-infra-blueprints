@@ -331,14 +331,18 @@ def check_declared_instance_inputs(root):
             mutate(invalid)
             rejected(lambda:expand(invalid),phrase)
     from model_parameter_inputs import human_instances
-    for environment in ('dev', 'stg'):
-        _, template, directory = t.source_paths(ROOT/'model'/environment/'cde/iam.properties')
-        human = yaml_read((directory/'parameters.yaml').read_text(encoding='utf-8'))
-        bindings = t.json_read((directory/'bindings.json').read_text(encoding='utf-8'))
-        assert type(human['instances']['service']['parameters']['UseStgIdentityCenterTrust']) is bool
-        instances, _ = human_instances(template,human,bindings,t.parse_template(template)[0],environment,
-                                       resolve_references=False)
-        assert any(item['id']=='service' for item in instances['instances'])
+    from test_support.service_fixtures import typed_services
+    with tempfile.TemporaryDirectory(prefix='iam-inputs-') as directory:
+        source = Path(directory)
+        typed_services(source)
+        for environment in ('dev', 'stg'):
+            _, template, directory = t.source_paths(source/'model'/environment/'team/iam.properties')
+            human = yaml_read((directory/'parameters.yaml').read_text(encoding='utf-8'))
+            bindings = t.json_read((directory/'bindings.json').read_text(encoding='utf-8'))
+            assert type(human['instances']['service']['parameters']['UseStgIdentityCenterTrust']) is bool
+            instances, _ = human_instances(template,human,bindings,t.parse_template(template)[0],environment,
+                                           resolve_references=False)
+            assert any(item['id']=='service' for item in instances['instances'])
     print('Declared instance inputs: PASS (dev/stg IAM service; legal IDs; empty optional/default; Value name; six invalid-input classes)')
 
 

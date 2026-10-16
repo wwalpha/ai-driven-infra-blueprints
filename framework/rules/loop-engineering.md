@@ -184,6 +184,12 @@ Validate multiple targets and multiple services within the same target with at m
 
 Framework-only governance/catalog-maintenance/migration may explicitly specify ``- `framework` ``. Validate actual designs for all services only with explicit `--all` or a sole ``- `all` `` Validation scope entry. If scope is missing, stop even in `full`; do not fall back to overall validation. Daily overall validation runs on a separately configured schedule. Do not add overall validation “just in case” after scoped validation.
 
+Framework scope must not inspect repository `project.json` or `model/`, including
+existence checks, directory discovery and cache inputs. Consumer-scope validation
+retains its required Model directories and project checks. Framework regression uses
+explicit synthetic consumer inputs in temporary directories, never the framework
+checkout's project or Model data.
+
 
 `framework/scripts/validate-blueprint.py` remains the CLI, ordered runner, cache/worker
 coordinator and compatibility entrypoint for selective callers. Its internal `validation/`

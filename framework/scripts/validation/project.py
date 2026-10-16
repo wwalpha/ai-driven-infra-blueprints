@@ -27,6 +27,9 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
     scope = contract_scope if contract_scope is not None else scope
     if scope is None:
         return
+    if not scope:
+        findings.check(not any(path.startswith('model/') for path in changed_paths),
+                       'Model source changes require service Validation scope')
     for environment, target, service in sorted(scope):
         findings.check((environment, target) in accounts, f"validation target is not defined in project.json: {environment}/{target}")
         from model_templates import service_source
@@ -39,7 +42,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             findings.check((root / relative).is_file(), f"validation input missing: {relative}")
     from model_templates import affected
     try:
-        for entry in affected(root, changed_paths):
+        for entry in affected(root, changed_paths) if scope else ():
             findings.check(entry in scope, f"template source change requires affected validation scope: {'/'.join(entry)}")
     except (OSError, ValueError) as error:
         findings.check(False, f'invalid Model source scope: {error}')

@@ -55,7 +55,7 @@ class Validator:
         self.task_iac_paths = task_iac_paths
         self.workers = workers
         self.model_check = model_check
-        self.cache = PassCache(root, fresh) if cache else None
+        self.cache = PassCache(root, fresh, include_project=scope != set()) if cache else None
         self.relative_paths = self.findings.relative_paths
         self.scope = scope
         self.contract_scope = contract_scope
@@ -91,7 +91,7 @@ class Validator:
         if self.scope is None:
             self.check_designs()
             self.check_observed_values()
-        elif not self.errors:
+        elif self.scope and not self.errors:
             self.check_scoped_designs()
         if self.infrastructure_phase != "destroy":
             self.check_iac_selection()
@@ -263,7 +263,7 @@ class Validator:
 
 
     def check_structure(self) -> None:
-        return framework_contracts.check_structure(self.findings, self.root)
+        return framework_contracts.check_structure(self.findings, self.root, consumer=self.scope != set())
 
     def check_framework_active_task_transition(self) -> None:
         return framework_contracts.check_framework_active_task_transition(self.findings, self.root)
@@ -296,6 +296,8 @@ class Validator:
         return framework_contracts.check_framework_cfn_lint_validation(self.findings, self.root)
 
     def check_project_topology(self) -> None:
+        if self.scope == set():
+            return
         self.template_mode = not (self.root / "project.json").is_file()
         project.check_project_topology(self.accounts, self.findings, self.root, self.template_mode)
 

@@ -59,17 +59,20 @@ def digest_files(root, paths):
 
 
 class PassCache:
-    def __init__(self, root, fresh=False, directory=None):
+    def __init__(self, root, fresh=False, directory=None, *, include_project=True):
         self.root = root
         self.fresh = fresh
         self.common = None
+        self.include_project = include_project
         self.directory = Path(directory or os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR") or
                               Path(tempfile.gettempdir()) / "blueprint-validation-cache").resolve()
         if self.directory == root or root in self.directory.parents:
             raise ValueError("validation cache must be outside the repository")
 
     def common_key(self):
-        paths = [self.root / "project.json", self.root / "AGENTS.md", self.root / "README.md"]
+        paths = [self.root / "AGENTS.md", self.root / "README.md"]
+        if self.include_project:
+            paths.append(self.root / "project.json")
         paths.extend(path for directory in ("framework", ".agents")
                      for path in (self.root / directory).rglob("*") if (path.is_file() or path.is_symlink()) and not (path.suffix == ".pyc" and "__pycache__" in path.parts))
         inputs = [digest_files(self.root, paths)]

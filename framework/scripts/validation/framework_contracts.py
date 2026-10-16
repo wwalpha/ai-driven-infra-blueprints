@@ -21,8 +21,6 @@ REQUIRED_RULES = {
 }
 REQUIRED_DIRECTORIES = (
     "docs/designs",
-    "model/parameters",
-    "model/templates",
     "infra",
     "tests/scenarios",
     "tests/results",
@@ -30,7 +28,7 @@ REQUIRED_DIRECTORIES = (
 CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 
 
-def check_structure(findings, root):
+def check_structure(findings, root, *, consumer=True):
     for filename in (
         "AGENTS.md",
         "README.md",
@@ -53,6 +51,9 @@ def check_structure(findings, root):
         findings.check((root / filename).is_file(), f"required file missing: {filename}")
     for directory in REQUIRED_DIRECTORIES:
         findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
+    if consumer:
+        for directory in ("model/parameters", "model/templates"):
+            findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
     codex_prompt_names = sorted(
         path.name
         for path in (root / "framework" / "prompts" / "codex").glob("*")

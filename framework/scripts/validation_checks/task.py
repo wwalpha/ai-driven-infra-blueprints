@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import io
+import os
 from contextlib import ExitStack, redirect_stdout
 from unittest.mock import patch
 from test_support.validator import MODULE, SCRIPT, project, git_project, commit, write
@@ -140,6 +141,20 @@ def check_destroy_phase() -> None:
 
 
 def check_task_type_dispatch() -> None:
+    from test_support.model_sources import write_model
+    with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/active.md'}):
+        write(root/'tasks/active.md', '## Task contract\n- Task type: `design`\n')
+        for service, kind, prop in (('vpc', 'EC2.VPC', 'Name'), ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName')):
+            write_model(root/'model/dev/cde'/(service+'.properties'), {
+                'desired.resource.001.resourceType': kind,
+                'desired.resource.001.anchor': service+'-fixture',
+                'desired.row.001-001.property': kind+'.'+prop,
+                'desired.row.001-001.value': '`fixture`',
+            })
+        check_task_type_cases(root)
+
+
+def check_task_type_cases(root) -> None:
     valid = {
         "initialization": {"project.json"},
         "design": {"docs/designs/dev/cde/vpc.md", "model/parameters/dev/cde/vpc/parameters.yaml"},
@@ -150,14 +165,14 @@ def check_task_type_dispatch() -> None:
         "migration": {"project.json"},
     }
     for task_type, changed in valid.items():
-        validator = MODULE.Validator(SCRIPT.parents[2])
+        validator = MODULE.Validator(root)
         validator.task_type = task_type
         validator.infrastructure_phase = "implement" if task_type == "infrastructure" else ""
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()
         assert not validator.errors, (task_type, validator.errors)
 
-    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator = MODULE.Validator(root)
     validator.task_type = "infrastructure"
     validator.infrastructure_phase = "deploy"
     validator.changed_paths = {"tasks/active.md"}
@@ -168,7 +183,7 @@ def check_task_type_dispatch() -> None:
     validator.check_task_type_requirements()
     assert any("infrastructure deploy phase must not change IaC" in error for error in validator.errors)
 
-    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator = MODULE.Validator(root)
     validator.task_type = "infrastructure"
     validator.infrastructure_phase = "update"
     validator.changed_paths = {
@@ -180,7 +195,7 @@ def check_task_type_dispatch() -> None:
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
 
-    validator = MODULE.Validator(SCRIPT.parents[2])
+    validator = MODULE.Validator(root)
     validator.task_type = "design"
     validator.changed_paths = {
         "docs/designs/dev/cde/iam/role01-policy.json",
@@ -201,7 +216,7 @@ def check_task_type_dispatch() -> None:
         {"docs/designs/dev/cde/iam/role01-policy.json"},
         set(),
     ):
-        validator = MODULE.Validator(SCRIPT.parents[2])
+        validator = MODULE.Validator(root)
         validator.task_type = "design"
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()

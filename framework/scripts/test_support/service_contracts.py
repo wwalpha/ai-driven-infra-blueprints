@@ -1,6 +1,8 @@
-"""Current typed service contracts; former one-time migration checks, without writes."""
+"""Typed service contracts over authored, disposable authorities."""
 import copy
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import model_templates as t
 from model_files import load_model, resource_row_index
 from model_parameter_inputs import yaml_read, literal
@@ -397,6 +399,15 @@ def check_responsibilities():
 
 @input_scope
 def check():
+    from test_support.service_fixtures import typed_services
+    with TemporaryDirectory(prefix="typed-services-") as directory:
+        root = Path(directory)
+        typed_services(root)
+        with patch(__name__+".ROOT", root):
+            check_fixtures()
+
+
+def check_fixtures():
     check_responsibilities()
     check_kms()
     check_security_group()

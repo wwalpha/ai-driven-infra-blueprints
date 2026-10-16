@@ -1,7 +1,10 @@
-"""Current suffix, export/import and Model naming contracts; offline, without writes."""
+"""Suffix, export/import and Model naming contracts over authored offline inputs."""
 import json
 from functools import cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from test_support.model_sources import write_model
 from cfnlint.decode import decode
 from cloudformation_inputs import checked_parameters, resolve_value, load_target
 from model_core import entries, literal
@@ -127,8 +130,50 @@ def check_flow_logs(collection, pseudo):
         assert arn == f"arn:aws:logs:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:log-group:{group}"
 
 
+def fixture(root):
+    target = {'environment':'dev','awsRegion':'ap-northeast-1','awsAccountId':'123456789012','iacEngine':'cloudformation'}
+    (root/'project.json').write_text(json.dumps({'projectName':'fixture','targets':[target]}),encoding='utf-8')
+    parameters = {'Suffix':{'Type':'String','Default':''},'FlowLogSuffix':{'Type':'String','Default':''}}
+    def export(resource, attribute, key):
+        return {'Value':{'Ref':resource} if attribute=='Name' else {'Fn::GetAtt':[resource,attribute]},'Export':{'Name':{'Fn::Sub':key+'${Suffix}'}}}
+    templates = {
+        's3.yaml':{'Parameters':parameters,'Resources':{'Bucket':{'Type':'AWS::S3::Bucket'}},'Outputs':{
+            'BucketName':export('Bucket','Name','BucketName'),'BucketArn':export('Bucket','Arn','BucketArn')}},
+        'vpc.yaml':{'Parameters':parameters,'Resources':{'Vpc01':{'Type':'AWS::EC2::VPC'},'VpcFlowLogGroup01':{
+            'Type':'AWS::Logs::LogGroup','Properties':{'LogGroupName':{'Fn::Sub':'/aws/vpc/flow-logs${FlowLogSuffix}'}}}},
+            'Outputs':{'VpcId':{'Value':{'Ref':'Vpc01'},'Export':{'Name':{'Fn::Sub':'VpcId${Suffix}'}}}}},
+        'consumer.yaml':{'Parameters':parameters,'Resources':{'Role':{'Type':'AWS::IAM::Role','Properties':{
+            'RoleName':{'Fn::Sub':'venusinf-${Environment}-VulnerabilityScan02Role${Suffix}'},
+            'Vpc':{'Fn::ImportValue':{'Fn::Join':['',['VpcId',{'Ref':'Suffix'}]]}},
+            'Bucket':{'Fn::ImportValue':{'Fn::Sub':'BucketName${Suffix}'}}}}}},
+        'kms.yaml':{'Parameters':parameters,'Resources':{'LogKey':{'Type':'AWS::KMS::Key','Properties':{
+            'KeyPolicy':{'Statement':[{}, {'Condition':{'ArnLike':{'kms:EncryptionContext:aws:logs:arn':[
+                {'Fn::Sub':'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vpc/flow-logs${FlowLogSuffix}'}]}}}]}}}}}}
+    templates['consumer.yaml']['Parameters'] = {**parameters,'Environment':{'Type':'String','Default':'dev'}}
+    stacks = {}
+    for number,(name,document) in enumerate(templates.items(),1):
+        source=root/'infra/cloudformation/templates/123456789012'/name
+        params=root/'infra/cloudformation/parameters/dev/123456789012'/name.replace('.yaml','.json')
+        source.parent.mkdir(parents=True,exist_ok=True);params.parent.mkdir(parents=True,exist_ok=True)
+        source.write_text(json.dumps(document),encoding='utf-8')
+        params.write_text(json.dumps([{'ParameterKey':'Suffix','ParameterValue':'-fixture'}, {'ParameterKey':'FlowLogSuffix','ParameterValue':''}]),encoding='utf-8')
+        stacks.update({f'desired.stack.{number}.template':name,f'desired.stack.{number}.parameters':params.name})
+    write_model(root/'model/dev/123456789012/cloudformation-stacks.properties',stacks)
+    write_model(root/'model/dev/123456789012/iam.properties',{
+        'desired.resource.001.resourceType':'IAM.Role','desired.resource.001.anchor':'role',
+        'desired.row.001-001.property':'IAM.Role.RoleName','desired.row.001-001.value':'`venusinf-dev-VulnerabilityScan02Role-fixture`'})
+
+
 @input_scope
 def check():
+    with TemporaryDirectory(prefix='naming-contracts-') as directory:
+        root = Path(directory)
+        fixture(root)
+        with patch(__name__+'.ROOT', root):
+            check_fixtures()
+
+
+def check_fixtures():
     # Preserve the former standalone checks' dev scope; other environments remain covered by the normal validator.
     paths = [p for p in model_paths(ROOT) if p.stem == 'cloudformation-stacks' and p.parent.parent.name == 'dev']
     assert paths, 'no naming contract targets'

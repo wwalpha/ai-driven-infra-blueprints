@@ -201,8 +201,13 @@ def check(root, alias, SERVICE):
 
 
 def run(service):
-    aliases = [p.parent.name for p in sorted((ROOT/'model/templates').glob('*/'+service+'.properties.tpl'))]
-    assert aliases, 'no service template test cases'
-    for alias in aliases:
-        with tempfile.TemporaryDirectory(prefix=service+'-inputs-') as directory, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE':'tasks/active.md'}):
-            check(Path(directory), alias, service)
+    from test_support.service_fixtures import input_templates
+    with tempfile.TemporaryDirectory(prefix='input-templates-') as source:
+        source = Path(source)
+        input_templates(source)
+        with patch(__name__+'.ROOT', source):
+            aliases = [p.parent.name for p in sorted((source/'model/templates').glob('*/'+service+'.properties.tpl'))]
+            assert aliases, 'no service template test cases'
+            for alias in aliases:
+                with tempfile.TemporaryDirectory(prefix=service+'-inputs-') as directory, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE':'tasks/active.md'}):
+                    check(Path(directory), alias, service)

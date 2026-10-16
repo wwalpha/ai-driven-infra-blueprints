@@ -246,7 +246,7 @@ def check(root, alias, service):
     print(alias,service,'PASS (strict inputs; fragments/types; refs/Policy; identity; hash/impact/trace; repeat save)')
 
 
-def check_declared_inputs():
+def check_declared_inputs(service="cloudtrail"):
     from unittest.mock import patch
     specs = {
         'Value1': {'type':'integer', 'constraints':{'minimum':2.5, 'maximum':4.5}},
@@ -273,15 +273,14 @@ def check_declared_inputs():
                  'desired.note.inputs.document='+t.json_text({'Statement':[], 'local':'<<ValueLocal>>', 'flag':'<<ValueLocalFlag>>', **{n:'<<'+n+'>>' for n in inputs if n != 'ValueServiceOnly'}}),
                  '# end-definition', '# definition: SharedOnly',
                  'desired.note.shared.document={"Statement":[],"value":"<<ValueServiceOnly>>"}', '# end-definition']
-        write_fixture_files({source/'model/templates/team/cloudtrail.properties.tpl':'\n'.join(text)+'\n'})
+        kind = {'cloudtrail':'CloudTrail.Trail', 'secrets-manager':'SecretsManager.Secret', 'vpc-endpoint':'EC2.VPCEndpoint'}[service]
+        text = [line.replace('CloudTrail.Trail',kind).replace('.TrailName', '.Name' if service=='secrets-manager' else '.ServiceName' if service=='vpc-endpoint' else '.TrailName') for line in text]
+        write_fixture_files({source/'model/templates/team'/(service+'.properties.tpl'):'\n'.join(text)+'\n'})
         with patch(__name__+'.ROOT', source):
-            check(Path(output), 'team', 'cloudtrail')
+            check(Path(output), 'team', service)
     print('Declared group-05 inputs: PASS (new names; types; enum/range/default; optional removal)')
 
 
 if __name__=='__main__':
-    units=sorted({(p.parts[-3],p.parent.name) for p in (ROOT/'model/parameters').glob('*/*/*/parameters.yaml') if p.parent.name in SERVICES})
-    for alias,service in units:
-        with tempfile.TemporaryDirectory() as directory:
-            check(Path(directory).resolve(),alias,service)
-    check_declared_inputs()
+    for service in sorted(SERVICES):
+        check_declared_inputs(service)

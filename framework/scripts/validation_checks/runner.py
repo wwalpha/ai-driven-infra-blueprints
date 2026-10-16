@@ -18,12 +18,12 @@ def check_dispatch():
         (None, '', '', False, ['check_designs', 'check_observed_values', 'check_iac_selection',
                              'check_cloudformation_yaml_rules', 'check_cloudformation_environment_parameters',
                              'check_scenarios', 'check_results', 'check_scenario_changes']),
-        (set(), 'governance', '', False, ['check_scoped_designs', 'check_iac_selection']),
+        (set(), 'governance', '', False, ['check_iac_selection']),
         ({('dev', 'target', 'ec2')}, 'design', '', True, ['check_iac_selection']),
-        (set(), 'infrastructure', 'implement', False, ['check_scoped_designs', 'check_iac_selection',
+        (set(), 'infrastructure', 'implement', False, ['check_iac_selection',
                 'check_cloudformation_yaml_rules', 'check_cloudformation_environment_parameters']),
-        (set(), 'infrastructure', 'destroy', False, ['check_scoped_designs']),
-        (set(), 'scenario-test', '', False, ['check_scoped_designs', 'check_iac_selection',
+        (set(), 'infrastructure', 'destroy', False, []),
+        (set(), 'scenario-test', '', False, ['check_iac_selection',
                                            'check_scenarios', 'check_results', 'check_scenario_changes']),
     ]
     methods = set(common + ['check_task_type_requirements', 'check_acceptance_checks'])
@@ -76,6 +76,7 @@ def check_boundaries():
         assert not first.acceptance_results and first.deferred_acceptance == ['R3:changed:pending.md']
         # A failed read keeps Project's already-determined mode and propagates failure.
         write(root / 'project.json', '{}\n')
+        second.scope = None
         with patch.object(Path, 'read_text', side_effect=OSError('cannot read')) as read:
             try:
                 second.check_project_topology()

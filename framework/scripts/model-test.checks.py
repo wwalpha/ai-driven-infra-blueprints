@@ -18,6 +18,7 @@ import tempfile
 from unittest.mock import patch
 
 from script_loader import module
+from test_support.model_sources import write_model
 from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,17 +84,33 @@ class CLI:
 
 @input_scope
 def check():
-    # Current authorities are read in place, never copied to fixture repositories.
+    # Generation uses authored authorities; the framework checkout has no consumer data.
     real_run = subprocess.run
     def offline_run(command, **kwargs):
         assert command[0] == 'git', 'generation launched an external process: ' + command[0]
         return real_run(command, **kwargs)
-    with patch.object(socket, 'create_connection', side_effect=AssertionError('network forbidden')), \
+    with tempfile.TemporaryDirectory(prefix='audit-generation-') as directory, \
+         patch.object(socket, 'create_connection', side_effect=AssertionError('network forbidden')), \
          patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')), \
          patch.object(subprocess, 'run', side_effect=offline_run):
-        sources = {service: generator.generate(ROOT, 'dev', 'cde', service)[0] for service in ('vpc', 'iam')}
+        root = Path(directory)
+        (root/'project.json').write_text(json.dumps({'projectName':'fixture','targets':[
+            {'environment':'dev','alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}
+            for alias,account in [('cde','123456789012'),('other','210987654321')]]}),encoding='utf-8')
+        iam = fixture({}, 'iam', [
+            ('001','IAM.Role','role',[('RoleName','`fixture-role`',None),('AssumeRolePolicyDocument','[trust](iam/trust.json)',POLICY),
+                ('Policies[].PolicyName','`inline`',None),('Policies[].PolicyDocument','[inline](iam/inline.json)',POLICY),
+                ('ManagedPolicyArns','`[]`',None),('PermissionsBoundary','`arn:aws:iam::123456789012:policy/boundary`',None)]),
+            ('002','IAM.ManagedPolicy','managed',[('ManagedPolicyName','`managed`',None),('PolicyDocument','[managed](iam/managed.json)',POLICY)])])
+        vpc = fixture({}, 'vpc', [
+            ('001','EC2.VPC','main-vpc',[('Name','`fixture-vpc`',None),('CidrBlock','`10.10.0.0/23`',None),('EnableDnsSupport','`true`',None),('VpcId','`vpc-fixture`',None)]),
+            ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','[main](#main-vpc)',None)]),
+            ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','[role](iam.md#role)',None)])])
+        for service, data in [('vpc',vpc),('iam',iam)]:
+            write_model(root/'model/dev/cde'/(service+'.properties'),data['models'][service])
+        sources = {service: generator.generate(root, 'dev', 'cde', service)[0] for service in ('vpc', 'iam')}
         for service, source in sources.items():
-            assert generator.generate(ROOT, 'dev', 'cde', service)[0] == source
+            assert generator.generate(root, 'dev', 'cde', service)[0] == source
             compile(source, service + '.py', 'exec')
     snapshots = {service: snapshot(source) for service, source in sources.items()}
     assert 'iam' in snapshots['vpc']['models'], 'VPC flow-log IAM reference dependency'
