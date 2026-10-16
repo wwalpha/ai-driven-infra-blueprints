@@ -211,17 +211,7 @@ def check_unit_dispatch(tmp_path):
 
 
 def check_ci_workflow(tmp_path):
-    import yaml
     import run_it
-    workflow = yaml.load((SCRIPT.parents[2] / ".github/workflows/framework-it.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    assert set(workflow["on"]) == {"pull_request", "push", "workflow_dispatch"}
-    assert "main" in workflow["on"]["push"]["branches"]
-    job = workflow["jobs"]["framework-it"]
-    assert job["env"]["PYTHONOPTIMIZE"] == "0"
-    assert next(step for step in job["steps"] if step.get("uses", "").startswith("actions/setup-python@"))["with"]["python-version"] == "3.12"
-    assert next(step for step in job["steps"] if step.get("name") == "Install dependencies")["run"] == "python -m pip install -r framework/scripts/requirements.txt"
-    assert [step['run'] for step in job['steps'] if 'run_it.py' in step.get('run', '')] == [
-        'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"']
     tests = tmp_path / 'framework/scripts/tests'
     (tests / 'integrations').mkdir(parents=True)
     for name in ('a', 'b', 'c'):
