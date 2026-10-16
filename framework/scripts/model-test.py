@@ -17,7 +17,7 @@ from model_files import load_model
 from model_references import catalog_outputs
 from model_templates import model_paths, publication_lock
 from script_loader import module
-from task_contract import require_writable, SELECTOR
+from task_contract import writable_batch, task_revision, SELECTOR
 from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -226,26 +226,29 @@ def main():
         require_no_issues(root, active_scope(root))
         output = root / 'tests' / args.environment / args.target / (args.service + '.py')
         # Resolve selectors through topology before constructing any write directories.
+        expected_task = task_revision(root, args.task_file)
         source, inputs, unsupported = generate(root, args.environment, args.target, args.service)
         if not output.resolve().is_relative_to(root / 'tests') or any(p.is_symlink() for p in [output, *output.parents] if p != root.parent):
             raise ValueError('unsafe output path')
-        require_writable(root, [output], args.task_file)
         with publication_lock(root):
             for relative, content in inputs.items():
                 file = root / relative
                 actual = file.read_bytes().decode('utf-8') if file.is_file() else None
                 if actual != content:
                     raise ValueError('Model inputs changed during generation; regenerate')
-            require_writable(root, [output], args.task_file)
-            if not output.exists() or output.read_text(encoding='utf-8') != source:
-                output.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=output.parent, delete=False) as handle:
-                    temporary = Path(handle.name)
-                    handle.write(source)
-                try:
-                    temporary.replace(output)
-                finally:
-                    temporary.unlink(missing_ok=True)
+            changed = not output.exists() or output.read_text(encoding='utf-8') != source
+            with writable_batch(root, [output] if changed else [], args.task_file):
+                if task_revision(root, args.task_file) != expected_task:
+                    raise ValueError('task scope changed during generation; regenerate')
+                if changed:
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=output.parent, delete=False) as handle:
+                        temporary = Path(handle.name)
+                        handle.write(source)
+                    try:
+                        temporary.replace(output)
+                    finally:
+                        temporary.unlink(missing_ok=True)
         print(f'Generated: {output.relative_to(root)} (syntax OK; AWS not contacted)')
         for key, reason in unsupported:
             print(f'  ERROR check: {key}: {reason}')

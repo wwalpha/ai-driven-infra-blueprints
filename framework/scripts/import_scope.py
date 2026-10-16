@@ -20,7 +20,7 @@ def selected(root):
     if not records:
         return None
     name = task_path(root).relative_to(root).as_posix()
-    # Revalidate task/reservations above; only parsing of immutable text is reused.
+    # Select current task identity/scope; reservation conflicts belong to publication.
     return _selection(root, name, records.get(name, ''))
 
 

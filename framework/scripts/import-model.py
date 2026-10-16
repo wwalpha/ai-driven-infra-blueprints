@@ -19,7 +19,7 @@ from model_files import model_file_contents, model_parts, resource_row_index
 from model_parameter_inputs import yaml_read
 from model_templates import publication_lock, json_read, json_text, publish, service_source, parse_template, bound_definition, variables
 from model_references import catalog_outputs
-from task_contract import require_writable, reserved_batches, task_path, section, DeferredExhausted
+from task_contract import reserved_batches, task_path, section, DeferredExhausted
 from validation_scope import active_scope
 from validation_cache import input_scope, memo_table
 from script_loader import module as load_script
@@ -620,7 +620,8 @@ def contract_scope(root, scope):
     from import_scope import selected
     if len(scope) != 1 or selected(root) not in scope or declared is None or not scope <= declared:
         raise ValueError('IMPORT requires one fixed environment/target/service within Validation scope')
-    require_writable(root, {task_path(root)})
+    if task_contract.status(text, task_path(root).name == 'active.md') != 'running':
+        raise ValueError('IMPORT requires a running Task Contract')
 
 
 def reserve_outputs(root, identity, sources, views, consumers=None):
@@ -734,7 +735,6 @@ def refresh_selected(root, target, service, dry_run, cli_runner):
     for _ in reserved_batches(root, {'import-model': set(output)}):
         with publication_lock(root):
             contract_scope(root, scope)
-            require_writable(root, set(output))
             unchanged(snapshot)
             from import_guard import proof_path
             evidence = proof_path(root)
@@ -759,7 +759,6 @@ def refresh_selected(root, target, service, dry_run, cli_runner):
         for _ in reserved_batches(root, {'import-views': set(publication)}):
             with publication_lock(root):
                 contract_scope(root, scope)
-                require_writable(root, set(publication))
                 unchanged(snapshot)
                 unchanged(view_inputs)
                 publish(root, publication, inputs={**snapshot, **view_inputs})

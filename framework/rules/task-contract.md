@@ -45,6 +45,45 @@ finalize/commit/rebase/ff-only merge/cleanup checks remain mandatory. The follow
 reservation-specific rules apply to ordinary/manual checkouts; their authorization,
 task boundary and completion requirements also apply to managed worktrees.
 
+### Ordinary check boundaries
+
+Task selection (`task_path()`), IMPORT scope selection, Model expansion, generated
+Markdown/JSON and link readers do not calculate reservation conflicts or inspect
+historical reservation paths. Selection still checks current Task identity, status,
+local ownership and declared scope/Allowed paths; it never grants write permission.
+IMPORT source selection uses contract ownership without conflicts; the mechanical
+configuration-authority guard is unchanged. Explicit Validation through
+`task_changes()` and `authorizations()` retains full contract/path/ownership checks.
+Completed contracts are validated but never claim running reservations.
+
+Registration validates the combined current-checkout contracts once under
+`registration_lock()`. `start()`, `validate_registration()` and `acquire()` reuse that
+result to publish all available Active grants and only conflicting Deferred grants
+atomically. Invalid admission creates no partial contract.
+
+Ordinary saves use `writable_batch()` at the publication boundary. One transaction
+reads the latest reservations once and reuses that result for its exact destinations;
+separate successful transactions each take a new snapshot. Only actual destinations
+(and explicitly coupled output permissions) receive filesystem safety checks during
+saving; old unrelated reservation paths are not repeatedly checked with `safe_path()`.
+Allowed paths, status, identity, current grants, symlink/root/directory checks and
+contract-change detection remain mandatory. An unchanged job needs no conflict scan;
+any newly discovered output change is authorized at its actual save boundary.
+
+Lock order is publication mutex, then registration mutex. Retain the registration
+mutex through atomic publication, verification and rollback so another Task cannot
+acquire an output between permission checking and saving. Nested save guards reuse
+only the current thread's locked transaction; `require_writable()` alone is an
+immediate check and does not lock a later write. Model expansion and candidate
+validation run before this short registration-lock interval. Release both locks
+before Deferred waiting, and reacquire fresh reservations on every attempt.
+Planning snapshots exclude only refreshable Active/Deferred grant sections; Task,
+scope or contract changes invalidate the plan. No permission snapshot survives a
+transaction. Managed worktrees retain their existing authority snapshot and immediate
+`reserved_batches()` behavior with zero reservation conflict scans.
+Only reservation workers refresh grants automatically; direct publication checks the
+existing grants without rewriting the contract or changing a pinned session digest.
+
 ### Common transitions and ordinary reservations
 
 - Only `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, and `migration` are permitted task types. The active prompt is the contract for this change, not the long-term design authority.
@@ -56,9 +95,9 @@ task boundary and completion requirements also apply to managed worktrees.
 
 - Each process selects the contract with `BLUEPRINT_TASK_FILE`; the local loop/validator can also use `--task-file`. Explicit selection is mandatory only when multiple current-worktree tasks are running. Before adding or changing planned files, update Modified files/Allowed paths and run `task_contract.py --task-file tasks/<task-name>.md`. This refresh acquires available files under the registration lock, reports Active/Deferred paths and their owners, and leaves conflicts Deferred without stopping the task. Do not write Deferred files; process Active files separately. A Deferred write denial is pending work, not a task-wide check failure; do not suspend solely for deferral. Keep indivisible multi-file publications intact when one of their files is Deferred.
 - Registration records a `Worktree identity` fingerprint from the canonical worktree-specific `git rev-parse --absolute-git-dir`. It distinguishes main and linked worktrees, does not use branch names, and supports detached HEAD. Do not store machine-specific absolute paths in contracts. Before Git initialization, use a canonical directory fingerprint; refresh binds it to Git metadata after initialization. Unbound legacy contracts belong to their containing checkout until registration/resume/refresh binds them; bind before carrying running legacy contracts to another worktree. Git owns merge conflicts between worktrees.
-- `## Modified files` remains the requested scope. Registration/refresh maintains `## Active files` (acquired paths) and `## Deferred files` (remaining paths); do not manually grant files. New requested paths have no write permission until refresh. A file has at most one running owner in one worktree; inconsistent manual/legacy overlapping claims deny only the overlapping file to every contender. Read-only ownership checks never acquire files implicitly; normal write workers refresh available grants automatically before scheduling work. Existing contracts without grant sections retain legacy grants until refresh. Staged validation rebinds source-local contracts only inside its disposable snapshot; original and foreign contracts remain unchanged.
-- Process all runnable Active work before waiting. The shared `task_contract.reserved_batches()` helper schedules independent write units first and keeps existing indivisible output batches together. `require_writable()` remains an immediate file-level guard; a `DeferredWrite` is pending work, not validation failure. Never write a Deferred file or retry a whole operation that has already performed external mutations.
-- After Active work is exhausted, automatically refresh Deferred reservations every **30 seconds**, for at most **20 waiting attempts** (approximately **10 minutes**). Each attempt refreshes only reservation state under the existing registration mutex, then releases it before sleeping or processing. Acquire any free files atomically; process newly Active work immediately, including partial acquisitions, before returning to the remaining Deferred work. Different-worktree reservations cause no Deferred state, retry, sleep or warning.
+- `## Modified files` remains the requested scope. Registration/refresh maintains `## Active files` (acquired paths) and `## Deferred files` (remaining paths); do not manually grant files. New requested paths have no write permission until refresh. A file has at most one running owner in one worktree; inconsistent manual/legacy overlapping claims deny only the overlapping file to every contender. Read-only ownership checks never acquire files implicitly; normal write workers acquire available grants automatically at the locked save boundary. Existing contracts without grant sections retain legacy grants until refresh. Staged validation rebinds source-local contracts only inside its disposable snapshot; original and foreign contracts remain unchanged.
+- Process all runnable Active work before waiting. The shared `task_contract.reserved_batches()` helper enters each independent write transaction with `writable_batch()` and keeps existing indivisible output batches together. `require_writable()` remains an immediate file-level guard; a `DeferredWrite` is pending work, not validation failure. Never write a Deferred file or retry a whole operation that has already performed external mutations.
+- After Active work is exhausted, automatically refresh Deferred reservations every **30 seconds**, for at most **20 waiting attempts** (approximately **10 minutes**). Each attempt refreshes reservation state under the existing registration mutex, retains it only for a ready publication, and releases it before sleeping or further Model processing. Acquire any free files atomically; process newly Active work immediately, including partial acquisitions, before returning to the remaining Deferred work. Different-worktree reservations cause no Deferred state, retry, sleep or warning.
 - Python write workers use `reserved_batches()` and continue each yielded unit in the same invocation. For agent-driven edits, the agent itself runs `task_contract.py --task-file tasks/<task-name>.md --wait` after finishing Active work, then immediately processes the acquired files. This command returns on any acquisition so work precedes further waiting; call it again only after the new Active work is done. Do not ask the human to monitor ownership, run resume, or run an acquire command during the retry period. Registration and ordinary refresh do not wait while Active work is still available.
 - Python workers use one total 20-attempt budget across their waiting phases; progress always runs immediately even on attempt 20. Agent waiting permits 20 attempts per Deferred-only phase, returning as soon as acquisition makes progress; each successful phase reduces the finite unfinished file set. Do not reset a budget merely because ownership remains unchanged. Retry exhaustion exits the current execution cleanly, preserves Deferred files and `running`, and marks neither failure nor completion. The next normal write execution refreshes available grants automatically. Exhaustion must not produce a saved-output claim or a full-task success claim for unfinished work.
 - Reservation waiting is separate from the implementation-error retry limit below. Real validation/input/I/O/ownership errors retain existing failure handling. Do not rerun generation, investigation or framework validation at every poll. Log entering wait, acquired files and exhaustion; avoid a log every 30 seconds. Never forcibly steal or release a reservation because ten minutes elapsed. There is no automatic stale-owner or crashed-registration-lock recovery; preserve ownership until a safe explicit status transition/recovery.

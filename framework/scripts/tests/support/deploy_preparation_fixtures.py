@@ -51,7 +51,7 @@ from support.it_workspace import copy_framework
 
 def fixture(root):
     (root / "framework/scripts").mkdir(parents=True)
-    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "requirements.txt"):
+    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "worktree_task.py", "worktree_python.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "requirements.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
     copy_framework(root / 'framework/scripts/deployment', relative='scripts/deployment')
     copy_framework(root / 'framework/rules', relative='rules')

@@ -1629,3 +1629,22 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `service-parameter-inputs.checks.py` | `__module__` | IT | [group](integrations/service-parameter-inputs.checks.py) | module / 1 |
 | `validate-blueprint.checks.py` | `main` | IT | [group](integrations/validate-blueprint.checks.py) | direct_group / 1 |
 | `validation_cache.checks.py` | `main` | IT | [group](integrations/validation_cache.checks.py) | direct_group / 1 |
+## 予約確認の保存境界への集約
+
+既存Task/Managed Worktree・同時登録・Deferred・publication rollback・shared consumer・生成互換ITを継続使用する。UTの追加fixtureは43契約・2,361パスと2,550リンクを合成し、consumerデータを参照しない。
+
+| 配置 / ケース | 入口 / 展開数 | 検証責務 |
+|---|---|---|
+| [task-contract-unit.checks.py](units/task-contract-unit.checks.py) / `check_scale_reads_do_not_reserve` | pytest / 2 | IMPORTあり/なし、実Model読込と2,550リンク検査、予約走査0・safe_path 0・登録lock 0 |
+| 同上 / `check_registration_and_publication_counts` | pytest / 1 | 登録1・10ファイル一括1・個別10・無変更0、過去の予約パスを再検査しない |
+| 同上 / `check_explicit_validation_keeps_contract_checks` | pytest / 1 | 完了契約の過去パスは通常保存で走査せず、明示Validationではsymlink不整合を検出 |
+| 同上 / `check_publication_rejects_changed_authority` | pytest / 5 | status・Allowed・Validation scope・identity・新規競合による保存拒否、登録後競合検出 |
+| 同上 / `check_authority_change_rolls_back_publication` | pytest / 1 | 保存結果検証中の契約変更を検出し出力rollback、外部契約変更は保持 |
+| 同上 / `check_registration_excluded_through_publication` | pytest / 1 | 確認から保存完了まで別Task登録を排除、解放後は正しくDeferred |
+| 同上 / `check_scope_change_during_planning_and_wait` | pytest / 1 | 生成後/Deferred待機中のscope変更拒否、待機中はpublication/registration lockを解放 |
+| 同上 / `check_source_guard_precedes_registration_lock` | pytest / 1 | Model展開を伴うIMPORT保護を登録lockの前に実行し、guard中のscope変更を保存前に検出 |
+| 同上 / `check_legacy_publication_preserves_contract` | pytest / 2 | 旧形式契約のstatus互換、直接保存で契約本文/digestを変えない |
+
+`check_live_selection`のsymlink検証は選択時から実保存先の`require_writable()`へ移動し、拒否assertを保持する。`check_worktree_isolation`はstartup refresh回数の代わりに手動Worktreeの保存時予約走査1回を直接検証する。`check_automatic_retry`は20回待機・Active先行・部分取得・完了拒否を保持し、保存中の状態遷移は登録lockで拒否、待機中の完了はDeferredで拒否する。
+
+`model_templates.checks.py::check_expansion` also checks a substantive shared trust-policy change in both consumer outputs and unchanged regeneration bytes/exit status.

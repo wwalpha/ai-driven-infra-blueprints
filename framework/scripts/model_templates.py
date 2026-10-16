@@ -129,10 +129,12 @@ def publication_lock(root):
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
-def publish(root, output, obsolete=(), inputs=None, *, verify=None):
+def publish(root, output, obsolete=(), inputs=None, *, verify=None, authorization_paths=(), expected_task=None):
     """One transaction; readers cannot see a partial authority switch."""
     obsolete = set(obsolete) | {path for path, text in output.items() if text is None}
     output = {path: text for path, text in output.items() if text is not None}
+    from task_contract import writable_batch, require_writable, task_revision
+    expected_task = expected_task if expected_task is not None else task_revision(root)
     with publication_lock(root) as journal:
         if inputs is not None and any((p.read_bytes() if p.is_file() else None) != data for p, data in inputs.items()):
             raise ValueError('Model sources changed after validation; rerun generation/migration')
@@ -142,32 +144,36 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None):
         if any(p.relative_to(root).as_posix().startswith(('model/templates/', 'model/parameters/')) for p in paths):
             from import_guard import require_import_changes
             require_import_changes(root, output={**output, **{p: None for p in obsolete}})
-        originals = {p: p.read_bytes() if p.is_file() else None for p in paths}
-        record = {'root': str(root.resolve()), 'originals': {p.relative_to(root).as_posix():
-                  None if data is None else base64.b64encode(data).decode() for p, data in originals.items()}}
-        # fsync the recovery journal before the first repository write.
-        temporary = journal.with_suffix('.pending')
-        with temporary.open('w', encoding='utf-8') as stream:
-            stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temporary, journal)
-        if memo_table() is not None:
-            memo_table().clear()
-        try:
-            sync_files.save_files(output)
-            for path in obsolete:
-                path.unlink(missing_ok=True)
-            if verify is not None:
-                verify()
-                expected_inputs = {p: data for p, data in (inputs or {}).items() if p not in paths}
-                expected_inputs.update({p: text.encode('utf-8') for p, text in output.items()})
-                expected_inputs.update({p: None for p in obsolete})
-                if any((p.read_bytes() if p.is_file() else None) != data for p, data in expected_inputs.items()):
-                    raise ValueError('generation inputs changed during publication')
-        except (OSError, ValueError):
-            sync_files.restore_files(originals)
+        with writable_batch(root, paths | set(authorization_paths)):
+            if task_revision(root) != expected_task:
+                raise ValueError("task scope changed after planning; rerun generation")
+            originals = {p: p.read_bytes() if p.is_file() else None for p in paths}
+            record = {'root': str(root.resolve()), 'originals': {p.relative_to(root).as_posix():
+                      None if data is None else base64.b64encode(data).decode() for p, data in originals.items()}}
+            # fsync the recovery journal before the first repository write.
+            temporary = journal.with_suffix('.pending')
+            with temporary.open('w', encoding='utf-8') as stream:
+                stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
+            os.replace(temporary, journal)
+            if memo_table() is not None:
+                memo_table().clear()
+            try:
+                sync_files.save_files(output)
+                for path in obsolete:
+                    path.unlink(missing_ok=True)
+                if verify is not None:
+                    verify()
+                    expected_inputs = {p: data for p, data in (inputs or {}).items() if p not in paths}
+                    expected_inputs.update({p: text.encode('utf-8') for p, text in output.items()})
+                    expected_inputs.update({p: None for p in obsolete})
+                    if any((p.read_bytes() if p.is_file() else None) != data for p, data in expected_inputs.items()):
+                        raise ValueError('generation inputs changed during publication')
+                require_writable(root, paths | set(authorization_paths))
+            except (OSError, ValueError):
+                sync_files.restore_files(originals)
+                journal.unlink()
+                raise
             journal.unlink()
-            raise
-        journal.unlink()
 
 
 def service_source(path):
@@ -271,6 +277,8 @@ def save_parameters(path, parameters):
     if registered is None:
         raise ValueError('parameters require a registered template consumer')
     root = registered[0]
+    from task_contract import task_revision
+    expected_task = task_revision(root)
     with publication_lock(root):
         _, template, directory = service_source(path)
         from model_files import load_model
@@ -282,9 +290,7 @@ def save_parameters(path, parameters):
         bindings = json_read(inputs[directory/'bindings.json'].decode('utf-8'))
         expand(template, parameters, observed, bindings, path.parent.parent.name)
         text = parameter_text(parameters, definitions, bindings)
-        from task_contract import require_writable
-        require_writable(root, {target})
-        publish(root, {target:text}, inputs=inputs)
+        publish(root, {target:text}, inputs=inputs, expected_task=expected_task)
 
 
 def create_service(path):

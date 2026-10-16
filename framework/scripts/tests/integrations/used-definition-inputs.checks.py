@@ -82,8 +82,9 @@ def check(root):
         directory / 'parameters.yaml': serialized,
         directory / 'bindings.json': t.json_text(plain),
         directory / 'observed.json': t.json_text(observed)})
-    def writable(repository, paths):
+    def writable(repository, paths, selected=None):
         assert repository == root and paths == {directory / 'parameters.yaml'}
+        assert selected is None
     with patch('task_contract.require_writable', writable):
         t.save_parameters(path, human)
         first = (directory / 'parameters.yaml').read_bytes()

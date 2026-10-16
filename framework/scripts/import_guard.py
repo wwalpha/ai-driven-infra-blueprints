@@ -75,7 +75,8 @@ def changed_sources(root, supplied=None):
         if contracts(root):
             name = task_path(root).relative_to(root).as_posix()
             supplied |= committed_task_paths(root, name) or set()
-            supplied = task_changes(root, supplied, name)
+            # This selects changed sources for the mechanical IMPORT guard, not write permission.
+            supplied = task_changes(root, supplied, name, check_conflicts=False)
     return {str(p) for p in supplied if str(p).startswith(('model/templates/', 'model/parameters/')) or str(p) == 'project.json'}
 
 

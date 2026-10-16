@@ -12,7 +12,7 @@ from cloudformation_inputs import Blocked, condition_active, output_value, load_
 from model_templates import design_source_digest
 from model_templates import model_paths, service_source
 from model_files import read_model, resource_row_index, load_model
-from task_contract import require_writable, task_path, paths_in, matches
+from task_contract import task_path, paths_in, matches, section
 from validation_scope import active_scope
 from issue_gate import require_target_no_issues
 from design_layout import GROUPED, HIDDEN_PROPERTIES
@@ -316,7 +316,7 @@ def sync_successful(backend, units, states):
             states[unit["name"]]["observedSynced"] = True
         return
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
+    publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()}, views=views)
     if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
         raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
     for unit in units:
@@ -378,8 +378,13 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
                 views.add((design.parent / match.group(1)).resolve())
     if not check_scope:
         return destinations, views, sync
-    require_writable(root, set(destinations) | views)
-    contract = task_path(root).read_text(encoding="utf-8")
+    prompt = task_path(root)
+    contract = prompt.read_text(encoding="utf-8")
+    declared = paths_in(contract, "## Modified files") if section(contract, "## Modified files") else set()
+    if prompt.name != 'active.md' or declared:
+        missing = {path.relative_to(root).as_posix() for path in set(destinations) | views} - declared
+        if missing:
+            raise ValueError("output has no selected task reservation: " + ", ".join(sorted(missing)))
     allowed = paths_in(contract, "## Allowed paths")
     if any(not any(matches(path.relative_to(root).as_posix(), p) for p in allowed) for path in set(destinations) | views):
         raise ValueError("task scope violation: observed model/view output outside Allowed paths")
@@ -505,7 +510,7 @@ def sync_destroyed(backend, states, plan):
         destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
         if {path.relative_to(root).as_posix() for path in set(destinations) | views} - set(plan["paths"]):
             raise ValueError("destroy observed output differs from pre-mutation reservations")
-        publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
+        publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()}, views=views)
         if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
             raise ValueError("destroy observed sync failed; resume same session")
     for name in completed:
@@ -561,6 +566,6 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def publish_observed(root, destinations, inputs=None):
+def publish_observed(root, destinations, inputs=None, *, views=()):
     from model_templates import publish
-    publish(root, destinations, inputs=inputs)
+    publish(root, destinations, inputs=inputs, authorization_paths=views)

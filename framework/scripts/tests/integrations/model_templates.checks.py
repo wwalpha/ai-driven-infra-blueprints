@@ -61,6 +61,20 @@ def check_expansion(root):
     content=template.read_text();template.write_text(content.replace('共通の処理権限','共通の新権限'))
     for env,expected in models.items():assert sum(v=='共通の新権限' for v in load_model(root/'model'/env/'team/iam.properties').values.values())==len(entries(expected,'desired.resource.'))
     template.write_text(content)
+    # A substantive shared input must reach both consumers and remain stable on regeneration.
+    template.write_text(content.replace('lambda.amazonaws.com', 'ec2.amazonaws.com'))
+    for env in models:
+        with redirect_stdout(io.StringIO()):
+            assert sync_runtime.sync(root, True, env, 'team', services=['iam']) == 0
+        outputs = {p: p.read_bytes() for p in (root/'docs/designs'/env/'team').rglob('*') if p.is_file()}
+        policies = [p for p in outputs if p.suffix == '.json']
+        assert len(policies) == len(entries(models[env], 'desired.resource.'))
+        assert all(json.loads(outputs[p])['Statement'][0]['Principal']['Service'] == 'ec2.amazonaws.com' for p in policies)
+        with redirect_stdout(io.StringIO()) as diagnostics:
+            assert sync_runtime.sync(root, True, env, 'team', services=['iam']) == 0
+        assert all(p.read_bytes() == data for p, data in outputs.items())
+        assert 'FAIL' not in diagnostics.getvalue()
+    template.write_text(content)
     source=directory/'parameters.yaml';params=yaml_read(source.read_text())
     binding=templates.json_read((directory/'bindings.json').read_text());observed={'version':1,'values':{}}
     first=templates.expand(template,params,observed,binding,'dev')[0]

@@ -16,7 +16,7 @@ from model_projection import JSON_LINK
 from model_files import read_model, load_model
 from model_templates import publish, publication_lock, safe, source_inputs, service_source, model_paths as registered_models
 from policy_tables import rendered_design, unique_object, invalid_constant
-from task_contract import task_path, require_writable, reserved_batches, DeferredExhausted
+from task_contract import task_path, task_revision, require_writable, reserved_batches, writable_batch, DeferredExhausted
 from issue_gate import require_no_issues
 from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
@@ -247,6 +247,7 @@ def sync(
     jobs: int = 4,
 ) -> int:
     root = root.resolve()
+    expected_task = task_revision(root) if write else None
     from import_guard import require_import_changes
     with phase("import-guard"):
         require_import_changes(root, generation=True)
@@ -271,8 +272,8 @@ def sync(
                 inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
                 inputs.setdefault(service_source(model)[2] / 'observed.json', None)
                 output, view_inputs = view_plan(document, expanded.values, root, managed)
-                for _ in reserved_batches(root, {'import-views': set(output)}):
-                    require_writable(root, set(output))
+            for _ in reserved_batches(root, {'import-views': set(output)}, expected_task=expected_task):
+                with publication_lock(root):
                     publish(root, output, inputs={**inputs, **view_inputs})
                     finish_import(root, markdown='generated' if output else 'unchanged')
             consumers({identity})
@@ -342,7 +343,7 @@ def sync(
                                 for path, files in generated.items()}
             source_snapshots = {path: {**configuration, **staged_inputs, **reference_inputs, **model_snapshots[path]} for path in generated}
         pending_error = None
-        batches = reserved_batches(root, {path: set(changed_files(output)) for path, output in expected_outputs.items()}) if write else iter(generated)
+        batches = reserved_batches(root, {path: set(changed_files(output)) for path, output in expected_outputs.items()}, expected_task=expected_task) if write else iter(generated)
         try:
             for path in batches:
                 try:
@@ -403,7 +404,10 @@ def sync(
             if not rejected:
                 break
             for path in sorted(set(rejected)):
-                restore_files(saved.pop(path))
+                originals = saved[path]
+                with writable_batch(root, set(originals)):
+                    restore_files(originals)
+                saved.pop(path)
         if write and saved:
             retained = [path for path in saved_paths if path not in saved]
             for reference, target in sync_views.broken_design_links(root, root, retained).items():

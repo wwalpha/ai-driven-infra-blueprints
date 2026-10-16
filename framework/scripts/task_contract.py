@@ -13,6 +13,7 @@ import stat
 import tempfile
 import subprocess
 import time
+import threading
 from typing import NamedTuple
 
 from sync_files import atomic_files
@@ -270,7 +271,7 @@ def claimed_files(text, files):
     return active
 
 
-def validate_contract(root, name, text, legacy=False):
+def validate_contract(root, name, text, legacy=False, *, check_paths=True):
     """Validate one authority without computing inter-task conflicts."""
     state = status(text, legacy)
     files = paths_in(text, "## Modified files")
@@ -278,7 +279,8 @@ def validate_contract(root, name, text, legacy=False):
     if name not in files:
         raise ValueError(f"Modified files must include its own contract: {name}")
     for value in files:
-        safe_path(root, value)
+        if check_paths:
+            safe_path(root, value)
         if value.startswith("tasks/") and value != name:
             raise ValueError(f"task cannot reserve another contract: {name}: {value}")
         if value not in allowed and not any(matches(value, pattern) for pattern in allowed):
@@ -289,11 +291,11 @@ def validate_contract(root, name, text, legacy=False):
     return Reservation(state, files, active, {})
 
 
-def reservations(root, records):
+def contract_authorities(root, records, *, check_paths=True):
+    """Validate contract scope; conflict calculation is a separate write/validation step."""
     identities = {None, worktree_identity(root), directory_identity(root)}
     records = {name: text for name, text in records.items() if worktree_owner(text) in identities}
     result = {}
-    claims = {}
     for name, text in records.items():
         legacy = name == "tasks/active.md" and len(records) == 1
         if name == "tasks/active.md" and not legacy:
@@ -301,12 +303,18 @@ def reservations(root, records):
         state = status(text, legacy)
         if legacy and not section(text, "## Modified files"):
             result[name] = Reservation(state, None, None, {})
-            continue
-        entry = validate_contract(root, name, text, legacy)
-        result[name] = entry
-        active = entry.active
-        if state == "running":
-            for value in active:
+        else:
+            entry = validate_contract(root, name, text, legacy, check_paths=check_paths)
+            result[name] = entry._replace(deferred={value: () for value in entry.files - entry.active})
+    return result
+
+
+def reservations(root, records, *, check_paths=True):
+    result = contract_authorities(root, records, check_paths=check_paths)
+    claims = {}
+    for name, entry in result.items():
+        if entry.state == "running" and entry.active is not None:
+            for value in entry.active:
                 claims.setdefault(value, []).append(name)
     for name, entry in list(result.items()):
         if entry.state != "running" or entry.files is None:
@@ -387,7 +395,7 @@ def managed_authority(root):
     return _managed_cache
 
 
-def authorizations(root, records=None):
+def authorizations(root, records=None, *, check_conflicts=True):
     managed = managed_authority(root)
     if managed is not None:
         name = managed["state"]["task_file"]
@@ -396,7 +404,13 @@ def authorizations(root, records=None):
             if records != {name: managed["records"].get(name)}:
                 raise ValueError("managed task records changed; reread authority")
         return {name: managed["entry"]} if managed["entry"] is not None else {}
-    return reservations(root, contracts(root, include_foreign=True) if records is None else records)
+    records = contracts(root, include_foreign=True) if records is None else records
+    batch = getattr(_write_local, 'batch', None)
+    if not check_conflicts and batch is not None and batch['root'] == root:
+        if records != batch['records']:
+            raise ValueError("task authority changed during publication")
+        return batch['reserved']
+    return reservations(root, records) if check_conflicts else contract_authorities(root, records, check_paths=False)
 
 
 def managed_selection(managed, selected):
@@ -409,6 +423,9 @@ def managed_selection(managed, selected):
 
 
 def task_path(root, selected=None):
+    batch = getattr(_write_local, 'batch', None)
+    if batch is not None and batch['root'] == root:
+        selected = selected or os.environ.get(SELECTOR) or batch['name']
     managed = managed_authority(root)
     if managed is not None:
         selected = selected or os.environ.get(SELECTOR)
@@ -422,24 +439,40 @@ def task_path(root, selected=None):
     selected = selected or os.environ.get(SELECTOR)
     if selected:
         selected_text(root, all_records, selected)
-    reserved = reservations(root, all_records)
+    identities = {None, worktree_identity(root), directory_identity(root)}
+    local = {name: text for name, text in all_records.items() if worktree_owner(text) in identities}
+    if "tasks/active.md" in local and len(local) != 1:
+        raise ValueError("migrate tasks/active.md before adding concurrent tasks")
+    states = {name: status(text, name == "tasks/active.md") for name, text in local.items()}
+    if not selected:
+        running = [name for name, state in states.items() if state == "running"]
+        if len(running) > 1:
+            raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
+        selected = running[0] if running else ("tasks/active.md" if "tasks/active.md" in local else None)
     if selected:
-        if reserved[selected].state == "suspend":
+        if states[selected] == "suspend":
             raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {selected} --resume")
+        text = local[selected]
+        if selected != "tasks/active.md" or section(text, "## Modified files"):
+            validate_contract(root, selected, text, legacy=selected == "tasks/active.md", check_paths=False)
         return root / selected
-    running = [name for name, entry in reserved.items() if entry.state == "running"]
-    if len(running) > 1:
-        raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
-    if running:
-        return root / running[0]
-    if "tasks/active.md" in reserved and reserved["tasks/active.md"].state == "suspend":
-        raise ValueError("suspend task cannot execute; resume with task_contract.py --task-file tasks/active.md --resume")
-    # Never return an existing foreign legacy contract as an implicit idle selection.
-    return root / ("tasks/.idle" if "tasks/active.md" in all_records and "tasks/active.md" not in reserved
-                   else "tasks/active.md")
+    return root / ("tasks/.idle" if "tasks/active.md" in all_records else "tasks/active.md")
 
 
-def task_changes(root, changed, selected=None):
+def task_revision(root, selected=None):
+    """Pin planning scope, excluding grants that Deferred acquisition may refresh."""
+    path = task_path(root, selected)
+    managed = managed_authority(root)
+    text = managed['records'].get(path.relative_to(root).as_posix()) if managed is not None else (
+        path.read_text(encoding='utf-8') if path.is_file() else None)
+    if text is not None:
+        if worktree_owner(text) is None:
+            text = bind_worktree(root, text)
+        text = re.sub(r'^## (?:Active|Deferred) files\n.*?(?=^## |\Z)', '', text, flags=re.M | re.S).strip()
+    return path.relative_to(root).as_posix(), text
+
+
+def task_changes(root, changed, selected=None, *, check_conflicts=True):
     managed = managed_authority(root)
     all_records = managed["records"] if managed is not None else contracts(root, include_foreign=True)
     if selected is not None:
@@ -447,7 +480,7 @@ def task_changes(root, changed, selected=None):
             managed_selection(managed, selected)
         else:
             selected_text(root, all_records, selected)
-    reserved = authorizations(root, all_records) if managed is not None else reservations(root, all_records)
+    reserved = authorizations(root, all_records, check_conflicts=check_conflicts)
     changed = changed - (all_records.keys() - reserved.keys())
     if selected == "tasks/active.md" and reserved[selected].files is None:
         return changed
@@ -467,8 +500,16 @@ def task_changes(root, changed, selected=None):
 
 
 def require_writable(root, paths, selected=None):
+    paths = set(paths)
+    batch = getattr(_write_local, 'batch', None)
+    if batch is not None and batch['root'] == root:
+        selected = selected or os.environ.get(SELECTOR) or batch['name']
+    for path in paths:
+        safe_path(root, path.relative_to(root).as_posix())
     managed = managed_authority(root)
     if managed is not None:
+        if batch is not None and batch['root'] == root and managed['records'] != batch['records']:
+            raise ValueError("task authority changed during publication")
         if not managed["records"] and not selected and not os.environ.get(SELECTOR):
             return
         name = managed_selection(managed, selected or os.environ.get(SELECTOR))
@@ -478,8 +519,6 @@ def require_writable(root, paths, selected=None):
         if entry.deferred:
             raise ValueError("managed task has Deferred files; explicit refresh required")
         requested = {path.relative_to(root).as_posix() for path in paths}
-        for value in requested:
-            safe_path(root, value)
         if requested - entry.files:
             raise ValueError("output has no selected task reservation: " + ", ".join(sorted(requested - entry.files)))
         return
@@ -488,7 +527,18 @@ def require_writable(root, paths, selected=None):
         return  # Preserve the existing explicit-target generation API on contract-free inputs.
     selected = task_path(root, selected)
     name = selected.relative_to(root).as_posix()
-    reserved = reservations(root, records)
+    if not paths:
+        text = selected_text(root, records, name)
+        state = status(text, name == "tasks/active.md")
+        if state != "running":
+            raise ValueError(f"{state} task cannot write: {name}")
+        return
+    if batch is not None and batch['root'] == root:
+        if records != batch['records'] or name != batch['name']:
+            raise ValueError("task authority changed during publication")
+        reserved = batch['reserved']
+    else:
+        reserved = reservations(root, records, check_paths=False)
     if name not in reserved:
         raise ValueError("active task prompt missing")
     entry = reserved[name]
@@ -505,46 +555,95 @@ def require_writable(root, paths, selected=None):
             raise DeferredWrite(f"Deferred file cannot write: {details}; continue Active files")
 
 
-def reserved_batches(root, jobs, sleeper=None, task_file=None):
-    """Yield writable job keys first; retry pending atomic write units without rerunning work.
+_write_local = threading.local()
 
-    The caller finishes each yielded job before requesting the next. Jobs map keys
-    to exact output paths; a multi-file job is never split. Exhaustion is not failure.
-    """
+
+@contextmanager
+def writable_batch(root, paths, selected=None, *, refresh_grants=False):
+    """Pin current authority through publication; lock order is publication then registration."""
+    from model_templates import publication_lock
+    paths = set(paths)
+    if not paths:
+        require_writable(root, paths, selected)
+        yield
+        return
+    existing = getattr(_write_local, 'batch', None)
+    if existing is not None:
+        if existing['root'] != root:
+            raise ValueError("nested publication must use the same repository")
+        require_writable(root, paths, selected)
+        yield
+        return
+    with publication_lock(root), registration_lock(root):
+        managed = managed_authority(root)
+        if managed is not None:
+            _write_local.batch = dict(root=root, name=managed['state']['task_file'] if managed['entry'] is not None else None,
+                                     records=managed['records'])
+            try:
+                require_writable(root, paths, selected)
+                yield
+                require_writable(root, paths, selected)
+            finally:
+                del _write_local.batch
+            return
+        name = task_path(root, selected).relative_to(root).as_posix()
+        records = contracts(root, include_foreign=True)
+        reserved = reservations(root, records, check_paths=False) if records else {}
+        if (refresh_grants and name in reserved and reserved[name].state == 'running' and
+                (reserved[name].deferred or worktree_owner(records[name]) is None or
+                 '## Active files' not in records[name].splitlines())):
+            if reserved[name].files is not None:
+                validate_contract(root, name, records[name], legacy=name == 'tasks/active.md')
+            text = acquire(root, name, records[name], records, validated=reserved)
+            if text != records[name]:
+                atomic_files({safe_path(root, name): text}, staging_directory=root)
+                records[name] = text
+                own = reserved[name]
+                active = claimed_files(text, own.files)
+                reserved[name] = own._replace(active=active, deferred={p: owners for p, owners in own.deferred.items() if p not in active})
+        _write_local.batch = dict(root=root, name=name if records else None, records=records, reserved=reserved)
+        try:
+            require_writable(root, paths, selected)
+            yield
+            if contracts(root, include_foreign=True) != records:
+                raise ValueError("task authority changed during publication")
+        finally:
+            del _write_local.batch
+
+
+def reserved_batches(root, jobs, sleeper=None, task_file=None, *, expected_task=None):
+    """Yield whole write transactions; release both locks before Deferred waiting."""
+    expected_task = expected_task if expected_task is not None else task_revision(root, task_file)
     if managed_authority(root) is not None:
         for key, paths in jobs.items():
+            if task_revision(root, task_file) != expected_task:
+                raise ValueError("task scope changed after planning; rerun generation")
             require_writable(root, paths, task_file)
             yield key
         return
     pending = {key: set(paths) for key, paths in jobs.items()}
-    selected = task_path(root, task_file)
-    name = selected.relative_to(root).as_posix() if selected.is_file() else None
     sleeper = sleeper or time.sleep
     attempts = 0
     waiting = False
     while pending:
-        try:
-            if name:
-                refresh(root, name)
-        except RegistrationBusy:
-            pass  # No ownership changes; only existing grants may be used this round.
-        ready = []
-        for key, paths in pending.items():
+        ready = False
+        for key, paths in list(pending.items()):
             try:
-                require_writable(root, paths, name)
-            except DeferredWrite:
+                with writable_batch(root, paths, task_file, refresh_grants=True):
+                    if task_revision(root, task_file) != expected_task:
+                        raise ValueError("task scope changed after planning; rerun generation")
+                    if waiting:
+                        print("Acquired deferred reservation: " + ", ".join(sorted(
+                            path.relative_to(root).as_posix() for path in paths)) + "; continuing task.", flush=True)
+                    yield key
+            except (DeferredWrite, RegistrationBusy):
                 continue
-            ready.append(key)
-        for key in ready:
-            if waiting:
-                print("Acquired deferred reservation: " + ", ".join(sorted(
-                    path.relative_to(root).as_posix() for path in pending[key])) + "; continuing task.", flush=True)
-            yield key
             del pending[key]
+            ready = True
         if not pending:
             return
         if ready:
-            continue  # Finish every available unit before any sleep.
+            continue
         if attempts == MAX_RETRIES:
             raise DeferredExhausted("Deferred reservations remain after 20 retries. "
                                     "Task remains unfinished; current execution is ending cleanly.")
@@ -553,8 +652,8 @@ def reserved_batches(root, jobs, sleeper=None, task_file=None):
             waiting = True
         from sync_progress import phase
         with phase("reservation", status="reservation-wait"):
-            sleeper(RETRY_INTERVAL)  # Never hold the service_source lock while sleeping or working.
-        attempts += 1  # One bounded budget across this worker's waiting phases.
+            sleeper(RETRY_INTERVAL)
+        attempts += 1
 
 
 def wait_deferred(root, name, sleeper=None):
@@ -598,14 +697,14 @@ def registration_lock(root):
 def validate_registration(root, name, text, records):
     managed = managed_authority(root)
     if managed is None:
-        reservations(root, {**records, name: text})
+        return reservations(root, {**records, name: text})
     else:
         if name != managed["state"]["task_file"]:
             raise ValueError("selected task does not match managed task_file")
         validate_contract(root, name, text)
 
 
-def acquire(root, name, text, records):
+def acquire(root, name, text, records, *, validated=None):
     managed = managed_authority(root)
     if managed is not None:
         if name != managed["state"]["task_file"]:
@@ -613,10 +712,10 @@ def acquire(root, name, text, records):
         own = validate_contract(root, name, text)
         blocked = set()
     else:
-        reserved = reservations(root, {key: value for key, value in records.items() if key != name})
+        reserved = validated if validated is not None else validate_registration(root, name, text, records)
         blocked = set().union(*(claimed_files(records[key], entry.files) for key, entry in reserved.items()
-                                if entry.state == "running" and entry.files is not None))
-        own = reservations(root, {name: text})[name]
+                                if key != name and entry.state == "running" and entry.files is not None))
+        own = reserved[name]
     if own.files is None:
         return bind_worktree(root, text)
     active = own.files - blocked
@@ -641,8 +740,8 @@ def start(root, name, text):
         if status(text) != "running":
             raise ValueError("new task must have running status")
         # Validate the combined contracts (including legacy concurrency) before publication.
-        validate_registration(root, name, text, records)
-        text = acquire(root, name, text, records)
+        validated = validate_registration(root, name, text, records)
+        text = acquire(root, name, text, records, validated=validated)
         destination = safe_path(root, name)
         destination.parent.mkdir(exist_ok=True)
         atomic_files({destination: text}, staging_directory=root)

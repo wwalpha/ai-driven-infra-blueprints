@@ -496,9 +496,9 @@ def check_worktree_isolation(tmp_path, identity_config):
                     shutil.copyfile(linked / foreign, where / foreign)
                 with patch.dict(os.environ, {tasks.SELECTOR: own}):
                     tasks.require_writable(where, [where / "b.yaml"])
-                    with patch.object(tasks.time, "sleep", side_effect=AssertionError("foreign owner must never wait")), patch.object(tasks, "refresh", wraps=tasks.refresh) as refresh:
+                    with patch.object(tasks.time, "sleep", side_effect=AssertionError("foreign owner must never wait")), patch.object(tasks, "reservations", wraps=tasks.reservations) as scans:
                         assert list(tasks.reserved_batches(where, {"write": [where / "b.yaml"]})) == ["write"]
-                        assert refresh.call_count == 1  # startup refresh, zero retry
+                        assert scans.call_count == 1  # Manual worktrees retain one fresh transaction check.
                 for callback in (lambda: tasks.task_path(where, foreign),
                                  lambda: tasks.task_changes(where, {"b.yaml"}, foreign),
                                  lambda: tasks.refresh(where, foreign), lambda: tasks.resume(where, foreign),
@@ -692,6 +692,7 @@ def check_automatic_retry(tmp_path):
                 tasks.complete(root, one)
             if len(sleeps) == 5:
                 assert events == ["c.md", "a.md"], "partial acquisition must execute immediately"
+                blocked(lambda: tasks.complete(root, worker), "Deferred files")
                 tasks.complete(root, two)
         jobs = {file: [root / file] for file in ("a.md", "b.md", "c.md")}
         for file in tasks.reserved_batches(root, jobs, sleep, worker):
@@ -701,7 +702,7 @@ def check_automatic_retry(tmp_path):
             if file == "a.md":
                 entry = tasks.reservations(root, tasks.contracts(root))[worker]
                 assert "b.md" in entry.deferred
-                blocked(lambda: tasks.complete(root, worker), "Deferred files")
+                blocked(lambda: tasks.complete(root, worker), "service_source is busy")
         assert events == ["c.md", "a.md", "b.md"] and sleeps == [30] * 5
         assert not tasks.reservations(root, tasks.contracts(root))[worker].deferred
         tasks.complete(root, worker)
@@ -722,8 +723,8 @@ def check_automatic_retry(tmp_path):
                     (root / file).write_text("finished Active work")
             assert "unfinished" in str(error.value) and "20 retries" in str(error.value)
             assert sleep.call_count == 20 and all(call.args == (30,) for call in sleep.call_args_list)
-            # Startup and post-Active refresh, then exactly 20 waiting attempts.
-            assert refresh.call_count == 22
+            # Each save attempt acquires under its transaction; no separate refresh scan.
+            assert refresh.call_count == 0
         entry = tasks.reservations(root, tasks.contracts(root))[worker]
         assert entry.state == "running" and entry.deferred == {"busy.md": (owner,)}
         assert (root / owner).read_bytes() == owner_before

@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 from sync_files import atomic_files
 from issue_gate import unresolved_services
-from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section, reserved_batches
+from task_contract import task_path, paths_in, require_writable, writable_batch, safe_path, section, reserved_batches
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
 from iac_values import safe_value, same, selected_same
@@ -552,7 +552,7 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
     return '\n'.join(lines)
 
 
-def save_authority(root, environment, directory, services, filenames, check_write=True):
+def save_authority(root, environment, directory, services, filenames):
     prompt = task_path(root)
     text = prompt.read_text(encoding='utf-8')
     scope = active_scope(root)
@@ -567,8 +567,6 @@ def save_authority(root, environment, directory, services, filenames, check_writ
     paths = [safe_path(root, f'issues/{environment}/{directory}/{name}') for name in filenames]
     if any(path.relative_to(root).as_posix() not in allowed for path in paths):
         raise ValueError('report is outside Allowed paths')
-    if check_write:
-        require_writable(root, set(paths))
     return paths
 
 
@@ -577,16 +575,17 @@ def save_authority(root, environment, directory, services, filenames, check_writ
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
-    outputs = save_authority(root, environment, directory, services, names, check_write=False)
+    outputs = save_authority(root, environment, directory, services, names)
     for _ in reserved_batches(root, {'reports': outputs}):
         # Merge the latest saved service blocks only after acquisition. Keep the
         # existing publication mutex and indivisible report batch; never sleep here.
-        with registration_lock(root):
+        with writable_batch(root, outputs):
             paths = save_authority(root, environment, directory, services, names)
             contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
             if iac is not None:
                 contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp)
             if guard:
                 guard()  # Check after formatting, immediately before publication; never repeat comparison.
+            require_writable(root, paths)
             atomic_files(contents)
     return paths

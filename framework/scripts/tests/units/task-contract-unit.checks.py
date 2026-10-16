@@ -72,6 +72,15 @@ def check_managed_lifecycle_and_hot_path(managed):
         assert tasks.task_changes(root, {'file.txt'}, name) == {'file.txt'}
         with pytest.raises(ValueError, match='no task reservation'):
             tasks.task_changes(root, {'outside.txt'}, name)
+        from model_templates import publish
+        before = (root / 'file.txt').read_bytes()
+        text = (root / name).read_text()
+        def change_scope():
+            (root / name).write_text(text.replace('`framework`', '`dev/team/iam`'))
+        with pytest.raises(ValueError, match='authority changed'):
+            publish(root, {root / 'file.txt': 'changed'}, verify=change_scope)
+        assert (root / 'file.txt').read_bytes() == before
+        (root / name).write_text(text)
         tasks.suspend(root, name, 'unit check: file.txt')
         with pytest.raises(ValueError, match='suspend'):
             tasks.require_writable(root, [root / 'file.txt'], name)
@@ -249,13 +258,245 @@ def check_live_selection(tmp_path):
             (tmp_path / one).write_text(original)
             (tmp_path / 'external').write_text('safe')
             (tmp_path / 'output.txt').symlink_to(tmp_path / 'external')
+            assert import_scope.selected(tmp_path) is None
             with pytest.raises(ValueError, match='symlinks'):
-                import_scope.selected(tmp_path)
+                tasks.require_writable(tmp_path, [tmp_path / 'output.txt'])
             (tmp_path / 'output.txt').unlink()
             (tmp_path / one).write_text(original.replace('`running`', '`suspend`')+'## Suspension reason\nExplicit test stop\n')
             with pytest.raises(ValueError, match='suspend task'):
                 import_scope.selected(tmp_path)
     exercise()
+
+
+
+def ordinary_scale(root):
+    """43 independent synthetic contracts, exactly 2,361 requested paths."""
+    (root / 'tasks').mkdir()
+    outputs = [root / f'output/{index}.txt' for index in range(10)]
+    total = 0
+    for index in range(43):
+        task_id = f'owner-{index}'
+        name = f'tasks/{task_id}.md'
+        count = 55 if index < 42 else 51
+        files = [file.relative_to(root).as_posix() for file in outputs] if index == 0 else []
+        files += [f'past/{index}/{item}.txt' for item in range(count - 1 - len(files))]
+        text = tasks.bind_worktree(root, contract(task_id, files))
+        text += '\n## Active files\n' + ''.join(f'- `{file}`\n' for file in [name, *files]) + '\n## Deferred files\n'
+        (root / name).write_text(text, encoding='utf-8')
+        total += len(files) + 1
+    assert total == 2361
+    return 'tasks/owner-0.md', outputs
+
+
+@pytest.mark.parametrize('imported', [False, True])
+def check_scale_reads_do_not_reserve(tmp_path, monkeypatch, imported):
+    from types import SimpleNamespace
+    from support.model_sources import write_model
+    from model_files import load_model
+    from validation.design_links import check_design_links
+    name, _ = ordinary_scale(tmp_path)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    text = (tmp_path / name).read_text().replace('- `framework`', '- `dev/team/iam`')
+    if imported:
+        text = text.replace('## Task contract\n', '## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/iam`\n')
+    (tmp_path / name).write_text(text)
+    values = {'desired.service.iam.serviceId': 'iam', 'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
+              'display.service.title': '# IAM 詳細設計'}
+    model = write_model(tmp_path / 'model/dev/team/iam.properties', values)
+    document = tmp_path / 'docs/designs/dev/team/iam.md'
+    document.parent.mkdir(parents=True)
+    document.write_text('# IAM 詳細設計\n<a id="target"></a>\n' + '[target](#target)\n' * 2550)
+    errors, checks = [], []
+    findings = SimpleNamespace(relative=lambda path: path.relative_to(tmp_path).as_posix(),
+                               check=lambda valid, message: (checks.append(valid), errors.append(message) if not valid else None))
+
+    @input_scope
+    def read():
+        assert tasks.task_path(tmp_path) == tmp_path / name
+        assert import_scope.selected(tmp_path) == (('dev', 'team', 'iam') if imported else None)
+        assert load_model(model).values == values
+        check_design_links({}, [document], design_sources={document: values}, findings=findings,
+                           root=tmp_path, scope={('dev', 'team', 'iam')})
+
+    with patch.object(tasks, 'reservations', side_effect=AssertionError('read must not scan reservations')), \
+            patch.object(tasks, 'registration_lock', side_effect=AssertionError('read must not hold registration lock')), \
+            patch.object(tasks, 'safe_path', wraps=tasks.safe_path) as paths:
+        read()
+        assert paths.call_count == 0
+    assert not errors, errors
+    assert len(checks) >= 2550
+
+
+def check_registration_and_publication_counts(tmp_path, monkeypatch):
+    from model_templates import publish
+    name, outputs = ordinary_scale(tmp_path)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    with patch.object(tasks, 'reservations', wraps=tasks.reservations) as scans:
+        tasks.start(tmp_path, 'tasks/new.md', contract('new', ['new.txt']))
+        assert scans.call_count == 1
+    with patch.object(tasks, 'reservations', wraps=tasks.reservations) as scans, \
+            patch.object(tasks, 'safe_path', wraps=tasks.safe_path) as paths:
+        for _ in tasks.reserved_batches(tmp_path, {'all': outputs}):
+            tasks.require_writable(tmp_path, outputs)
+            publish(tmp_path, {file: 'batch' for file in outputs})
+        assert scans.call_count == 1
+        assert {call.args[1] for call in paths.call_args_list} == {file.relative_to(tmp_path).as_posix() for file in outputs}
+        scans.reset_mock()
+        for file in tasks.reserved_batches(tmp_path, {file: [file] for file in outputs}):
+            tasks.require_writable(tmp_path, [file])
+            publish(tmp_path, {file: 'single'})
+        assert scans.call_count == 10
+        scans.reset_mock()
+        for _ in tasks.reserved_batches(tmp_path, {'unchanged': []}):
+            tasks.require_writable(tmp_path, [])
+        assert scans.call_count == 0
+    assert all(file.read_text() == 'single' for file in outputs)
+
+
+def check_explicit_validation_keeps_contract_checks(tmp_path, monkeypatch):
+    name, outputs = ordinary_scale(tmp_path)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    old = tmp_path / 'tasks/owner-1.md'
+    old.write_text(tasks.set_status(old.read_text(), 'completed'))
+    past = tmp_path / 'past/1/0.txt'
+    past.parent.mkdir(parents=True)
+    past.symlink_to(tmp_path / 'unrelated')
+    # Historical paths are not a write destination; explicit validation still checks them.
+    tasks.require_writable(tmp_path, outputs)
+    for validate in (lambda: tasks.authorizations(tmp_path),
+                     lambda: tasks.task_changes(tmp_path, set(), name)):
+        with pytest.raises(ValueError, match='symlinks'):
+            validate()
+        with tasks.writable_batch(tmp_path, outputs):
+            with pytest.raises(ValueError, match='symlinks'):
+                validate()
+
+
+@pytest.mark.parametrize('change', ['status', 'allowed', 'scope', 'identity', 'conflict'])
+def check_publication_rejects_changed_authority(tmp_path, monkeypatch, change):
+    from model_templates import publish
+    name = 'tasks/owner.md'
+    file = tmp_path / 'file.txt'
+    file.write_text('original')
+    tasks.start(tmp_path, name, contract('owner', ['file.txt']))
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    with tasks.writable_batch(tmp_path, [file]):
+        own = tmp_path / name
+        text = own.read_text()
+        if change == 'status':
+            own.write_text(tasks.set_status(text, 'completed'))
+        elif change == 'allowed':
+            own.write_text(text.replace('## Allowed paths\n- `tasks/owner.md`\n- `file.txt`', '## Allowed paths\n- `tasks/owner.md`'))
+        elif change == 'scope':
+            own.write_text(text.replace('- `framework`', '- `dev/team/iam`'))
+        elif change == 'identity':
+            own.write_text(text.replace(tasks.worktree_identity(tmp_path), 'f' * 64))
+        else:
+            (tmp_path / 'tasks/other.md').write_text(contract('other', ['file.txt']))
+        with pytest.raises(ValueError):
+            publish(tmp_path, {file: 'denied'})
+        assert file.read_text() == 'original'
+        # This is fixture restoration, not an authorization refresh.
+        own.write_text(text)
+        if change == 'conflict':
+            (tmp_path / 'tasks/other.md').unlink()
+    # A conflict introduced after registration is also detected on a new transaction.
+    (tmp_path / 'tasks/other.md').write_text(contract('other', ['file.txt']))
+    with pytest.raises(tasks.DeferredWrite):
+        publish(tmp_path, {file: 'denied'})
+    assert file.read_text() == 'original'
+
+
+def check_authority_change_rolls_back_publication(tmp_path, monkeypatch):
+    from model_templates import publish
+    name = 'tasks/owner.md'
+    file = tmp_path / 'file.txt'
+    file.write_text('original')
+    tasks.start(tmp_path, name, contract('owner', ['file.txt']))
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    def changed():
+        own = tmp_path / name
+        own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
+    with pytest.raises(ValueError, match='authority changed'):
+        publish(tmp_path, {file: 'candidate'}, verify=changed)
+    assert file.read_text() == 'original'
+    assert 'dev/team/iam' in (tmp_path / name).read_text(), 'rollback must not undo an external contract edit'
+
+
+def check_registration_excluded_through_publication(tmp_path, monkeypatch):
+    from model_templates import publish
+    name = 'tasks/owner.md'
+    file = tmp_path / 'file.txt'
+    tasks.start(tmp_path, name, contract('owner', ['file.txt']))
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    with tasks.writable_batch(tmp_path, [file]):
+        with pytest.raises(tasks.RegistrationBusy):
+            tasks.start(tmp_path, 'tasks/other.md', contract('other', ['file.txt']))
+        assert not (tmp_path / 'tasks/other.md').exists()
+        publish(tmp_path, {file: 'saved'})
+    tasks.start(tmp_path, 'tasks/other.md', contract('other', ['file.txt']))
+    assert tasks.reservations(tmp_path, tasks.contracts(tmp_path))['tasks/other.md'].deferred == {'file.txt': (name,)}
+
+
+
+def check_scope_change_during_planning_and_wait(tmp_path, monkeypatch):
+    name = 'tasks/owner.md'
+    file = tmp_path / 'file.txt'
+    tasks.start(tmp_path, name, contract('owner', ['file.txt']))
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    expected = tasks.task_revision(tmp_path)
+    own = tmp_path / name
+    own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
+    with pytest.raises(ValueError, match='scope changed'):
+        list(tasks.reserved_batches(tmp_path, {'file': [file]}, expected_task=expected))
+    other = 'tasks/waiter.md'
+    tasks.start(tmp_path, other, contract('waiter', ['file.txt']))
+    def changed(seconds):
+        # The worker must not retain either mutex while waiting.
+        from model_templates import publication_lock
+        with publication_lock(tmp_path), tasks.registration_lock(tmp_path):
+            waiting = tmp_path / other
+            waiting.write_text(waiting.read_text().replace('- `framework`', '- `stg/team/iam`'))
+        tasks.complete(tmp_path, name)
+    with pytest.raises(ValueError, match='scope changed'):
+        list(tasks.reserved_batches(tmp_path, {'file': [file]}, changed, other))
+    assert not file.exists()
+
+
+@pytest.mark.parametrize('explicit_status', [False, True])
+def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, explicit_status):
+    from model_templates import publish
+    name = 'tasks/active.md'
+    text = contract('active', ['file.txt'])
+    if not explicit_status:
+        text = text.replace('- Task status: `running`\n', '')
+    own = tmp_path / name
+    own.parent.mkdir()
+    own.write_text(text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    assert tasks.task_path(tmp_path) == own
+    with tasks.writable_batch(tmp_path, [tmp_path / 'file.txt']):
+        publish(tmp_path, {tmp_path / 'file.txt': 'saved'})
+    assert own.read_text() == text
+    assert (tmp_path / 'file.txt').read_text() == 'saved'
+
+
+def check_source_guard_precedes_registration_lock(tmp_path, monkeypatch):
+    from model_templates import publish
+    import import_guard
+    name = 'tasks/owner.md'
+    source = tmp_path / 'model/parameters/dev/team/iam/parameters.yaml'
+    tasks.start(tmp_path, name, contract('owner', [source.relative_to(tmp_path).as_posix()]))
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    def guard(*args, **kwargs):
+        # Ordinary IMPORT protection may expand Models; it must not hold registration.
+        with tasks.registration_lock(tmp_path):
+            own = tmp_path / name
+            own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
+    with patch.object(import_guard, 'require_import_changes', guard):
+        with pytest.raises(ValueError, match='scope changed'):
+            publish(tmp_path, {source: 'instances: {}\n'})
+    assert not source.exists()
 
 
 
