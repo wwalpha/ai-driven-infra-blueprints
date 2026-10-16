@@ -9,7 +9,7 @@ if not __debug__:
 from support.issues_api_only_fixtures import *
 
 def main_checks():
-    fixtures = load('issues_scan.checks', 'api_only_scan_fixtures')
+    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-api-only-') as temporary:
         root = Path(temporary) / 'project'
         fixtures.fixture(root, services=('s3',))

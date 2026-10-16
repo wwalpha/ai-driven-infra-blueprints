@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.validation_scope_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def check_single_target_cache(root):
     docs, models = root / "docs/designs/dev/cde", root / "model/dev/cde"
     services = {"codecommit": ("CodeCommit.Repository", "RepositoryName", "repo-app-dev-cde"),
@@ -93,7 +95,7 @@ def check_single_target_cache(root):
 
 
 def check_template_consumers(root):
-    source_checks = load('model_templates.checks')
+    from support import model_templates_fixtures as source_checks
     source_checks.fixture(root, ('dev', 'stg'))
     values = source_checks.config_model()
     for env in ('dev', 'stg'):
@@ -154,7 +156,7 @@ def check_template_consumers(root):
 def main():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary).resolve()
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         (root / "tasks").mkdir()
         active = root / "tasks/active.md"
         scope = {(env, target, 'ec2') for env in ('dev', 'stg') for target in ('cde', 'non-cde')}

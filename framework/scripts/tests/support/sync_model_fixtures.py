@@ -49,9 +49,7 @@ SCRIPT = (Path(__file__).resolve().parents[2] / 'sync-model.py')
 
 MODULE = load('sync-model')
 
-@pytest.fixture
-def generated_policy(framework_root):
-    root = framework_root
+def build_generated_policy(root):
     (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{
         'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1',
         'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
@@ -74,7 +72,19 @@ def generated_policy(framework_root):
             'Effect': 'Allow', 'Principal': {'Service': 'lambda.amazonaws.com'}, 'Action': 'sts:AssumeRole'}]}),
     }
     write_model(model, values)
-    MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    if MODULE.sync(root, True, 'dev', '123456789012', ['iam']) != 0:
+        raise RuntimeError('generated_policy fixture initialization failed')
+    return values
+
+
+@pytest.fixture
+def generated_policy(tmp_path):
+    from support.it_workspace import populate
+    root = populate("generated_policy", tmp_path)
+    populate("framework", root)
+    model = root / 'model/dev/123456789012/iam.properties'
+    values = json.loads((root / 'fixture-values.json').read_text(encoding='utf-8'))
+    (root / 'fixture-values.json').unlink()
     design = root / 'docs/designs/dev/123456789012/iam.md'
     artifact = design.with_suffix('') / 'app-role-trust-policy.json'
 

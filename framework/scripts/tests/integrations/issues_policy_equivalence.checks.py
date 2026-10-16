@@ -19,7 +19,7 @@ from support.validator import load
 
 
 def main_checks():
-    fixtures = load('issues_scan.checks', 'policy_equivalence_fixtures')
+    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='policy-equivalence-') as temporary:
         root = Path(temporary) / 'project'
         _, template = fixtures.fixture(root, stacks=2, services=('s3',))

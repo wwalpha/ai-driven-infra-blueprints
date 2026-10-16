@@ -218,10 +218,17 @@ dependencies fall back to all UTs.
 
 IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests,
 pushes to `main`/`master`, and manual dispatch, using Python 3.12 and the existing
-requirements. Each `integrations/**/*.checks.py` runs directly, including top-level
-checks without `__main__`. Independent processes continue after failures, record
-PASS/FAIL and duration, and fail the job if any suite fails. No AWS credentials or
-live AWS resources are required. Do not add fixture pre-generation or a Full loop.
+requirements. Its sole entrypoint is `framework/scripts/tests/run_it.py`, which discovers
+`integrations/**/*.checks.py` and executes their existing pytest/direct entrypoints in
+independent processes. It continues after suite failures, records PASS/FAIL and duration,
+and reconciles runtime verification receipts with `tests/CASES.md`. Missing execution,
+skipped pytest bodies, stale registrations and parameter-count mismatches fail the job.
+The runner owns one immutable authored fixture bundle and its cleanup; modifying cases
+use independent copies. Generation events and before/after content/permission fingerprints
+verify initialization counts and shared-fixture integrity. No real consumer Model inputs,
+AWS credentials or live AWS resources are required. Do not add an extra Full loop.
+Optional manual `baseline_ref` measures before/after once under identical dependencies
+and separate fresh caches; normal CI executes only the current revision.
 Confirm IT PASS for the current PR revision before merging. Pending, canceled,
 unexecuted or failed CI is not completed IT validation. Configure the `Framework IT`
 job as a required status check in GitHub branch protection/rulesets; repository files

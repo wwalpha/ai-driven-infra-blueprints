@@ -9,6 +9,8 @@ if not __debug__:
 from support.design_catalog_fixtures import *
 from validation_cache import input_scope, memo_table
 
+from support.it_workspace import copy_framework
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
@@ -21,7 +23,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         design = root / "docs/designs/dev/123456789012/macie.md"
         # Real sync reads the fixture's actual Mapping.
         import yaml

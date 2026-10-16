@@ -181,5 +181,83 @@ def check_contract_free_and_normal_reservations(tmp_path, monkeypatch):
     tasks.require_writable(tmp_path, [tmp_path / 'file.txt'], second)
 
 
+import import_scope
+from validation_cache import input_scope
+
+
+def selection_contract(name, allowed='output.txt', workflow=''):
+    return (f'## Task contract\n- Task type: `migration`\n- Task status: `running`\n{workflow}'
+            '## Validation scope\n- `dev/team/iam`\n'
+            f'## Modified files\n- `{name}`\n- `output.txt`\n'
+            f'## Allowed paths\n- `{name}`\n- `{allowed}`\n')
+
+
+@pytest.mark.parametrize('allowed,accepted', [('output.txt', True), ('*.txt', True), ('out*', True), ('other.txt', False)])
+def check_allowed_paths(tmp_path, allowed, accepted):
+    name = 'tasks/test.md'
+    records = {name: selection_contract(name, allowed)}
+    if accepted:
+        assert tasks.reservations(tmp_path, records)[name].active == {name, 'output.txt'}
+        if allowed == 'output.txt':
+            with patch.object(tasks, 'matches', side_effect=AssertionError('exact matches need no pattern scan')):
+                tasks.reservations(tmp_path, records)
+    else:
+        with pytest.raises(ValueError, match='outside Allowed paths'):
+            tasks.reservations(tmp_path, records)
+    external = tmp_path / 'external'
+    external.write_text('safe')
+    (tmp_path / 'output.txt').symlink_to(external)
+    with pytest.raises(ValueError, match='symlinks'):
+        tasks.reservations(tmp_path, records)
+
+
+def check_live_selection(tmp_path):
+    (tmp_path / 'tasks').mkdir()
+    one, two = 'tasks/one.md', 'tasks/two.md'
+    original = selection_contract(one)
+    (tmp_path / one).write_text(original)
+    other = tmp_path / 'other'
+    other.mkdir()
+    (other / 'tasks').mkdir()
+    (other / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
+
+    @input_scope
+    def exercise():
+        with patch.dict(os.environ, {tasks.SELECTOR: one}):
+            assert import_scope.selected(tmp_path) is None
+            assert import_scope.selected(tmp_path) is None  # cached negative parsing result
+            from validation_cache import memo_table
+            assert (import_scope._selection.__wrapped__, (tmp_path, one, original)) in memo_table()
+            assert import_scope.selected(other) == ('dev', 'team', 'iam')
+            stat = (tmp_path / one).stat()
+            (tmp_path / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
+            os.utime(tmp_path / one, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            assert import_scope.selected(tmp_path) == ('dev', 'team', 'iam')
+            (tmp_path / one).write_text(original)
+            assert import_scope.selected(tmp_path) is None
+            (tmp_path / two).write_text(selection_contract(two, workflow='- Workflow: `import`\n- IMPORT target: `stg/team/config`\n'))
+            with patch.dict(os.environ, {tasks.SELECTOR: two}):
+                assert import_scope.selected(tmp_path) == ('stg', 'team', 'config')
+            assert import_scope.selected(tmp_path) is None
+            with import_scope.restrict(('dev', 'team', 'vpc')):
+                assert import_scope.selected(tmp_path) == ('dev', 'team', 'vpc')
+            assert import_scope.selected(tmp_path) is None
+            (tmp_path / two).unlink()
+            (tmp_path / one).write_text(selection_contract(one, 'denied'))
+            with pytest.raises(ValueError, match='outside Allowed paths'):
+                import_scope.selected(tmp_path)
+            (tmp_path / one).write_text(original)
+            (tmp_path / 'external').write_text('safe')
+            (tmp_path / 'output.txt').symlink_to(tmp_path / 'external')
+            with pytest.raises(ValueError, match='symlinks'):
+                import_scope.selected(tmp_path)
+            (tmp_path / 'output.txt').unlink()
+            (tmp_path / one).write_text(original.replace('`running`', '`suspend`')+'## Suspension reason\nExplicit test stop\n')
+            with pytest.raises(ValueError, match='suspend task'):
+                import_scope.selected(tmp_path)
+    exercise()
+
+
+
 if __name__ == '__main__':
     raise SystemExit(run(__file__))

@@ -49,13 +49,14 @@ MODULE = importlib.util.module_from_spec(SPEC)
 
 SPEC.loader.exec_module(MODULE)
 
+from support.it_workspace import copy_framework
+
 def events(directory):
     return [json.loads(line) for line in (directory / "timing.jsonl").read_text(encoding="utf-8").splitlines()]
 
 def make_framework_fixture(source, root):
     # Copy framework inputs only; never inherit consumer issues, models or tasks.
-    shutil.copytree(source / "framework", root / "framework",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    copy_framework(root / 'framework', ignore=shutil.ignore_patterns('__pycache__'))
     for name in ("AGENTS.md", "README.md"):
         shutil.copyfile(source / name, root / name)
     for name in ("tasks", "docs/designs", "model", "infra", "tests/scenarios", "tests/results"):

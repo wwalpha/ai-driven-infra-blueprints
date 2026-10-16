@@ -26,12 +26,14 @@ from support.model_sources import write_fixture_files as save_files
 import sync_runtime
 from support.validator import load
 
-INPUTS = load('model_parameter_inputs.checks')
-MODELS = load('model_design.checks')
+from support import model_parameter_inputs_fixtures as INPUTS
+from support import model_design_fixtures as MODELS
 
+
+from support.it_workspace import copy_framework
 
 def check(root):
-    shutil.copytree(Path(__file__).resolve().parents[4] / 'framework', root / 'framework')
+    copy_framework(root / 'framework')
     write_fixture_files({root/'project.json':t.json_text({'projectName':'app', 'targets':[
         {'environment':'preview','alias':alias,'awsAccountId':account,
          'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}

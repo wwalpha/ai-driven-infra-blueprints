@@ -8,11 +8,13 @@ if not __debug__:
 
 from support.glue_datazone_catalog_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def main() -> None:
     import sync_runtime as model
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         glue, datazone = write_designs(root)
         glue_model = model_projection.model_for(glue, root)
         datazone_model = model_projection.model_for(datazone, root)

@@ -445,12 +445,33 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 ### Integration tests in GitHub Actions
 
-[Framework IT](.github/workflows/framework-it.yml) runs all 67 integration suites on PRs,
-pushes to `main`/`master`, and manual dispatch with Python 3.12 and the existing requirements.
-It executes each script independently, including top-level checks, continues after failures,
-and records PASS/FAIL and duration in the Actions log and Summary. Any failed suite fails
-the job. It needs no live AWS resources or credentials and performs no extra Full run.
-Local modifications use UTs; every local mode, including Full and staged snapshots, excludes IT.
+[Framework IT](.github/workflows/framework-it.yml) invokes only
+`python -B framework/scripts/tests/run_it.py` on PRs, pushes to `main`/`master`, and manual
+dispatch with Python 3.12 and the existing requirements. The runner discovers all 66 IT
+suites and retains independent processes for pytest and direct/top-level scripts. It
+continues after suite failures and records PASS/FAIL, duration and runtime case receipts.
+The existing [case ledger](framework/scripts/tests/CASES.md) is checked against actual
+pytest parameter execution and direct function calls; missing, skipped or unregistered
+cases fail the job.
+
+The runner builds one read-only fixture bundle: framework inputs, authored parameter
+templates, typed service inputs and generated IAM policy outputs. Each seed is built once;
+mutating cases receive separate writable copies, with no hardlinks to the seeds. Shared
+content and permissions are fingerprinted before/after execution, and temporary data is
+cleaned on exit. Individual UT/script execution uses process-local seeds. Neither path
+reads consumer `model/` or `project.json` as fixture inputs.
+
+For a one-time before/after measurement, manually dispatch **Framework IT** with
+`baseline_ref` set to the baseline commit (this consolidation uses `2647f97`). The same
+runner executes baseline and current once with the same Python/dependencies, instrumentation,
+and separate fresh validation caches. Summary/logs report actual seed generations, copies,
+subprocess launches and total time. Copy counts include recursive `copytree` and file copy
+audit events; process counts cover launches by the runner and suite processes, not launches
+inside their CLI grandchildren. Baseline reachability defects remain visible; they do not
+turn a failing current run into PASS. Normal CI runs only the current revision.
+
+No live AWS resources, credentials or extra Full run are needed. Local modifications use
+related UTs; every local mode, including Full and staged snapshots, excludes IT.
 
 Before merging a PR, confirm `Framework IT` PASS for its current revision. Pending,
 unexecuted, canceled or failed CI does not count as completed IT validation. In GitHub

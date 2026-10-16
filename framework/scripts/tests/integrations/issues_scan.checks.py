@@ -2126,7 +2126,7 @@ def main():
     if args.benchmark:
         benchmark(args.log_dir or Path(tempfile.mkdtemp(prefix='issues-performance-')))
         return
-    return run(__file__, ['check_aws_standard_comparison', 'check_glue_connection_names', 'check_added_reference_properties', 'check_arn_array_reference_forms', 'check_eventbridge_reference_literals', 'check_reference_diagnostics', 'check_glue_secret_reference', 'check_condition_diagnostics', 'check_nested_membership', 'check_cloudtrail_membership', 'check_scan_workflow', 'check_action_report', 'check_mismatch_display', 'check_state_report', 'check_summary_detail_cli', 'check_comparison_repair', 'check_local_reference', 'check_reference_identity_report', 'check_reference_property_contract', 'check_symbolic_string'], 'Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
+    return run(__file__, message='Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
 
 
 if __name__ == '__main__':

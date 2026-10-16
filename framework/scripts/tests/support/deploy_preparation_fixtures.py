@@ -47,12 +47,14 @@ TARGET = {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap
 
 STACKS = ["cfn-stack-app-dev-one", "cfn-stack-app-dev-two"]
 
+from support.it_workspace import copy_framework
+
 def fixture(root):
     (root / "framework/scripts").mkdir(parents=True)
     for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "requirements.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
-    shutil.copytree(ROOT / "framework/scripts/deployment", root / "framework/scripts/deployment")
-    shutil.copytree(ROOT / "framework/rules", root / "framework/rules")
+    copy_framework(root / 'framework/scripts/deployment', relative='scripts/deployment')
+    copy_framework(root / 'framework/rules', relative='rules')
     (root / "framework/prompts/codex").mkdir(parents=True)
     shutil.copy(ROOT / "framework/prompts/codex/04_deploy.md", root / "framework/prompts/codex/04_deploy.md")
     for name in ("AGENTS.md", "README.md"):

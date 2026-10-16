@@ -212,6 +212,7 @@ def check_unit_dispatch(tmp_path):
 
 def check_ci_workflow(tmp_path):
     import yaml
+    import run_it
     workflow = yaml.load((SCRIPT.parents[2] / ".github/workflows/framework-it.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"pull_request", "push", "workflow_dispatch"}
     assert "main" in workflow["on"]["push"]["branches"]
@@ -219,21 +220,150 @@ def check_ci_workflow(tmp_path):
     assert job["env"]["PYTHONOPTIMIZE"] == "0"
     assert next(step for step in job["steps"] if step.get("uses", "").startswith("actions/setup-python@"))["with"]["python-version"] == "3.12"
     assert next(step for step in job["steps"] if step.get("name") == "Install dependencies")["run"] == "python -m pip install -r framework/scripts/requirements.txt"
-    script = next(step for step in job["steps"] if step.get("shell") == "python")["run"]
-    suites = sorted((SCRIPT.parent / "tests/integrations").rglob("*.checks.py"))
-    assert suites
-    summary = tmp_path / "summary.md"
-    for codes, expected in (([0] * len(suites), 0), ([1] + [0] * (len(suites) - 1), 1)):
-        with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
-             patch.object(Path, "rglob", return_value=iter(suites)), \
-             patch.object(subprocess, "run", side_effect=[subprocess.CompletedProcess([], code) for code in codes]) as run_suite, \
-             redirect_stdout(io.StringIO()), pytest.raises(SystemExit) as result:
-            exec(compile(script, "framework-it.yml", "exec"), {})
-        assert result.value.code == expected
-        assert [call.args[0][-1] for call in run_suite.call_args_list] == [str(suite) for suite in suites]
-        assert all(call.args[0][:4] == [sys.executable, "-B", "-X", "utf8"] for call in run_suite.call_args_list)
-        assert f"FAIL: {expected}" in summary.read_text(encoding="utf-8")
-        summary.unlink()
+    assert [step['run'] for step in job['steps'] if 'run_it.py' in step.get('run', '')] == [
+        'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"']
+    tests = tmp_path / 'framework/scripts/tests'
+    (tests / 'integrations').mkdir(parents=True)
+    for name in ('a', 'b', 'c'):
+        (tests / 'integrations' / (name + '.checks.py')).write_text('assert True\n')
+    output = tmp_path / 'receipts'
+    output.mkdir()
+    for codes in ([0, 0, 0], [1, OSError('injected spawn failure'), 0]):
+        def execute(command, **kwargs):
+            code = codes.pop(0)
+            if isinstance(code, OSError):
+                raise code
+            Path(command[-1]).write_text('{}')
+            return subprocess.CompletedProcess(command, code)
+        summary = io.StringIO()
+        with patch.object(run_it.subprocess, 'run', side_effect=execute) as launch:
+            rows, _ = run_it.execute_suites(tests, output, summary)
+        assert len(rows) == launch.call_count == 3
+        assert rows[-1]['code'] == 0
+        assert 'Suites: 3' in summary.getvalue()
+        assert all(call.args[0][:4] == [sys.executable, '-B', '-X', 'utf8'] for call in launch.call_args_list)
+        for path in output.iterdir():
+            path.unlink()
+    assert [row['code'] for row in rows] == [1, 1, 0]
+
+
+def check_it_reachability(tmp_path):
+    import run_it
+    tests = tmp_path / 'framework/scripts/tests'
+    (tests / 'integrations').mkdir(parents=True)
+    suite = tests / 'integrations/receipt.checks.py'
+    suite.write_text("""import pytest
+from support.pytest_cli import run
+@pytest.mark.parametrize('value', [False, True])
+def check_body(value):
+    assert type(value) is bool
+
+def check_not_called():
+    raise AssertionError('must be detected as unreachable')
+
+if __name__ == '__main__':
+    raise SystemExit(run(__file__, ['check_body']))
+""")
+    (tests / 'pytest.ini').write_text('[pytest]\npython_functions = check_*\naddopts = --import-mode=importlib -p no:cacheprovider\n')
+    receipt = tmp_path / 'receipt.json'
+    result = subprocess.run([sys.executable, '-B', str(Path(run_it.__file__)), '--suite', str(suite),
+                             '--tests', str(tests), '--receipt', str(receipt)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    data = json.loads(receipt.read_text())
+    cases = {('integrations/receipt.checks.py', 'check_body'): ('pytest', 2)}
+    assert not run_it.reachability(cases, [data])
+    assert data['calls']['integrations/receipt.checks.py::check_body'] == 2
+    cases[('integrations/receipt.checks.py', 'check_not_called')] = ('direct', 1)
+    assert 'verification body not reached' in run_it.reachability(cases, [data])[0]
+    cases[('integrations/receipt.checks.py', 'check_body')] = ('pytest', 3)
+    assert 'expected 3, collected 2, passed body 2' in run_it.reachability(cases, [data])[0]
+    assert run_it.reachability(cases, [{**data, 'passed': []}])
+
+
+def check_it_assertion_guards(tmp_path):
+    import run_it
+    run_it.check_assertion_guards(Path(run_it.__file__).parent)
+    path = tmp_path / 'sample.checks.py'
+    guard = "if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\n"
+    path.write_text(guard + 'assert False\n')
+    run_it.check_assertion_guards(tmp_path)
+    for invalid in ('assert False\n', 'print(1)\n' + guard, guard.replace('raise SystemExit', 'print')):
+        path.write_text(invalid)
+        with pytest.raises(ValueError):
+            run_it.check_assertion_guards(tmp_path)
+    result = subprocess.run([sys.executable, '-O', run_it.__file__], capture_output=True, text=True)
+    assert result.returncode != 0 and 'Focused checks require assertions' in result.stderr
+
+
+def check_it_fixture_isolation(tmp_path):
+    from support import it_fixture_bundle as fixtures
+    from support.it_workspace import populate
+    generations = []
+    def build(root, name):
+        generations.append(name)
+        (root / name).mkdir()
+        (root / name / 'value.txt').write_text(name)
+    with patch.object(fixtures, 'build', side_effect=build):
+        with fixtures.bundle() as root, patch.dict(os.environ, {fixtures.ENV: str(root)}):
+            before = fixtures.fingerprint(root)
+            for number, names in enumerate((fixtures.NAMES, tuple(reversed(fixtures.NAMES)))):
+                for name in names:
+                    seed = fixtures.source(name)
+                    assert not seed.stat().st_mode & 0o222
+                    assert not (seed / 'value.txt').stat().st_mode & 0o222
+                    first = populate(name, tmp_path / str(number) / name / 'first')
+                    second = populate(name, tmp_path / str(number) / name / 'second')
+                    (first / 'value.txt').write_text('changed')
+                    (first / 'new.txt').write_text('local')
+                    assert (second / 'value.txt').read_text() == name
+                    assert set(p.name for p in second.iterdir()) == {'value.txt'}
+            assert fixtures.fingerprint(root) == before
+        assert generations == list(fixtures.NAMES)
+    assert not root.exists()
+    with patch.object(fixtures, 'build', side_effect=build), pytest.raises(RuntimeError, match='modified'):
+        with fixtures.bundle() as root:
+            victim = root / 'framework/value.txt'
+            victim.chmod(0o600)
+            victim.write_text('corrupt')
+    assert not root.exists()
+
+
+def check_it_inventory(tmp_path):
+    import run_it
+    cases, errors = run_it.inventory(Path(run_it.__file__).parent)
+    assert not errors, errors
+    assert cases[('integrations/design_layout.checks.py', 'check_quicksight_group_principal_reference')] == ('pytest', 1)
+    assert cases[('integrations/sync-model.checks.py', 'check_incoming_reference_models')] == ('pytest', 2)
+    row = '| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n'
+    (tmp_path / 'CASES.md').write_text(row + row)
+    with pytest.raises(ValueError, match='duplicate'):
+        run_it.registered_cases(tmp_path)
+    assert run_it.reachability({}, [{'collected': ['integrations/example.py::check_one']}])
+
+
+def check_it_run_lifecycle(tmp_path):
+    import run_it
+    from support import it_fixture_bundle as fixtures
+    (tmp_path / 'integrations').mkdir()
+    (tmp_path / 'integrations/example.py').write_text('def check_one():\n    assert True\n')
+    (tmp_path / 'CASES.md').write_text('| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n')
+    def build(root, name):
+        (root / name).mkdir()
+        (root / name / 'seed').write_text(name)
+        sys.audit('blueprint.it_fixture.generated', name)
+    def execute(*args):
+        assert os.environ[fixtures.ENV]
+        assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] != 'previous-cache'
+        return [{'suite': 'example', 'code': 0}], [{'calls': {'integrations/example.py::check_one': 1}}]
+    with patch.dict(os.environ, {fixtures.ENV: 'previous-bundle', 'BLUEPRINT_VALIDATION_CACHE_DIR': 'previous-cache'}), \
+         patch.object(fixtures, 'build', side_effect=build), patch.object(run_it, 'execute_suites', side_effect=execute):
+        result = run_it.run_all(tmp_path, io.StringIO())
+        assert result['bundle_initializations'] == 1
+        assert result['seed_generations'] == dict.fromkeys(fixtures.NAMES, 1)
+        assert not result['reachability_errors']
+        assert os.environ[fixtures.ENV] == 'previous-bundle'
+        assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] == 'previous-cache'
+
 
 if __name__ == '__main__':
     from support.pytest_cli import run

@@ -659,7 +659,7 @@ def check_consumer_coverage():
 
 
 def main():
-    return run(__file__, ['check_domains', 'check_cli_service_names', 'check_consumer_coverage'])
+    return run(__file__)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from support.validator import load
 
 
 def main_checks():
-    fixtures = load('issues_scan.checks', 'ref_returns_scan_fixtures')
+    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-ref-returns-') as temporary:
         root = Path(temporary) / 'project'
         _, template = fixtures.fixture(root, stacks=2, services=('s3',))

@@ -1595,7 +1595,7 @@ def check_reflection_validation_boundary():
 def check_import_worktree_completion():
     import worktree_task
     import task_contract
-    lifecycle = load('worktree_task.checks', 'import_worktree_fixture')
+    from support import worktree_task_fixtures as lifecycle
     with lifecycle.fixture() as root:
         path = fixture(root)
         document = root / 'docs/designs/dev' / ACCOUNT / 'cloudwatch-logs.md'

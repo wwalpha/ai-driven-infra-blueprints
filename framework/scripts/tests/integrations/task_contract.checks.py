@@ -815,7 +815,7 @@ def check_managed_authority_integration():
 
 
 def main():
-    return run(__file__, ['check_managed_authority_integration', 'check_identity_changes', 'check_identity_fallback', 'check_identity_environment', 'check_atomic_contract_reads', 'check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
+    return run(__file__, message='task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
 
 
 if __name__ == "__main__":

@@ -396,9 +396,7 @@ def check_human_approved_validation_failure():
 
 def check_real_loop_integration():
     # Reuse the existing minimal framework fixture, not a new completion engine.
-    spec = importlib.util.spec_from_file_location("loop_checks", SCRIPT.parents[2] / 'framework/scripts/tests/integrations/blueprint-loop.checks.py')
-    loop_checks = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(loop_checks)
+    from support import blueprint_loop_fixtures as loop_checks
     with fixture() as root:
         loop_checks.make_framework_fixture(SCRIPT.parents[2], root)
         for name in ("docs/designs", "model/parameters", "model/templates", "infra", "tests/scenarios", "tests/results"):

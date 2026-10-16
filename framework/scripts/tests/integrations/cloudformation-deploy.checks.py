@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.cloudformation_deploy_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def check_aws_adapter():
     # Case 3: distinct AWS requests with the shared template and separate inputs.
     backend = StubAws()
@@ -525,7 +527,7 @@ def check_delivery(tmp_path):
     spec = importlib.util.spec_from_file_location("delivery_sync", ROOT / "framework/scripts/sync-model.py")
     sync = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sync)
-    shutil.copytree(ROOT / "framework", root / "framework", dirs_exist_ok=True)
+    copy_framework(root / 'framework', dirs_exist_ok=True)
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     values["desired.stack.001.name"] = values["desired.artifact.007.stack"] = "cfn-stack-app-dev-job-01"
     write_model(source_model, "\n".join(f"{key}={value}" for key, value in values.items()))
@@ -828,7 +830,7 @@ def check_session_cli(tmp_path):
     root = (base / "repo").resolve()
     (root / "framework/scripts").mkdir(parents=True)
     shutil.copy(ROOT / "framework/scripts/check-deploy-context.py", root / "framework/scripts/check-deploy-context.py")
-    shutil.copytree(ROOT / "framework/materials/cloudformation-schema", root / "framework/materials/cloudformation-schema")
+    copy_framework(root / 'framework/materials/cloudformation-schema', relative='materials/cloudformation-schema')
     (root / "framework/rules").mkdir()
     (root / "framework/rules/aws-resource-naming.md").write_text(
         "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
@@ -1651,7 +1653,7 @@ def check_integrated_child_mapping(framework_root):
 def check_secretsmanager_arn_identifiers(framework_root):
     from cloudformation_observed import mappings, sync_successful
     from model_references import catalog_outputs
-    rotation = load('rotation_schedule.checks')
+    from support import rotation_schedule_fixtures as rotation
     root = framework_root
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
@@ -1763,10 +1765,10 @@ def check_controlled_repair(tmp_path):
     """Ten requested failure cases use real projection/edit/repair/scheduler/approval code."""
     from deploy_preparation import repair_changes, task_digest
     from cloudformation_inputs import load_template_inputs
-    helpers = load('model_design.checks')
+    from support import model_design_fixtures as helpers
     base = tmp_path
     root = (base / 'repo').resolve()
-    shutil.copytree(ROOT / 'framework', root / 'framework')
+    copy_framework(root / 'framework')
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     modeldir = root / 'model/dev/123456789012'
     modeldir.mkdir(parents=True)
@@ -2165,7 +2167,7 @@ def check_secret_runtime_bootstrap(tmp_path):
     from cloudformation_observed import mappings
     base = tmp_path
     root = base / 'repo'
-    shutil.copytree(ROOT / 'framework/materials', root / 'framework/materials')
+    copy_framework(root / 'framework/materials', relative='materials')
     modeldir = root / 'model/dev/123456789012'
     modeldir.mkdir(parents=True)
     selected = [dict(name=name, template=name.lower() + '.yaml', parameters=name.lower() + '.json', deployOrder=str(order))
@@ -2515,7 +2517,7 @@ def check_secret_runtime_bootstrap(tmp_path):
 
 
 def main():
-    return run(__file__, ['check_import_implementation_mapping', 'check_secret_runtime_bootstrap', 'check_controlled_repair', 'check_api_timing', 'check_aws_adapter', 'check_empty_rollback_recreation', 'check_template_validation', 'check_inputs', 'check_delivery', 'check_delivery_encryption', 'check_session_cli', 'check_parallel_and_restart', 'check_observed_collector', 'check_shared_stack_mapping', 'check_integrated_child_mapping', 'check_secretsmanager_arn_identifiers'], 'CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)')
+    return run(__file__, message='CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)')
 
 
 if __name__ == "__main__":

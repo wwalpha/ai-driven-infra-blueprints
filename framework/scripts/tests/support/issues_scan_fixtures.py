@@ -75,6 +75,8 @@ from issue_gate import issue_errors
 
 ROOT = Path(__file__).resolve().parents[4]
 
+from support.it_workspace import copy_framework
+
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     write_fixture_files({path: text})
@@ -89,8 +91,7 @@ def render_iac(root, path, environment, directory, services, records, display=No
 def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=False):
     # Only immutable framework inputs/runtime; never copy any consumer/task/report.
     for directory in ('materials', 'rules', 'scripts'):
-        shutil.copytree(ROOT / 'framework' / directory, root / 'framework' / directory,
-                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        copy_framework(root / 'framework' / directory, relative=Path('') / directory, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     target = {'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
     write(root / 'project.json', json.dumps({'projectName': 'fixture', 'targets': [target]}) + '\n')
     specs = {'s3': ('S3.Bucket', 'Bucket', 'BucketName', 'bucket', [('VersioningConfiguration.Status', '`Enabled`')]),

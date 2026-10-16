@@ -358,7 +358,7 @@ def grouping_and_settings_checks():
     mapping_cache_checks()
     from policy_tables import START, END
 
-    layout_fixture = load("design_layout.checks")
+    from support import design_layout_fixtures as layout_fixture
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         path = root / "docs/designs/dev/123456789012/kms.md"
@@ -447,7 +447,7 @@ check_grouping_and_settings = grouping_and_settings_checks
 
 
 def main():
-    return run(__file__, ['check_iam', 'check_service_policies', 'check_grouping_and_settings', ])
+    return run(__file__)
 
 
 if __name__ == "__main__":

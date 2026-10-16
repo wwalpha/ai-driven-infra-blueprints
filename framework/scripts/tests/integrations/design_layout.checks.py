@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.design_layout_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def check_secret_rotation_display(tmp_path, catalog) -> None:
     text = """# Secrets Manager 詳細設計
 
@@ -658,7 +660,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     directory = tmp_path / "case-1"
     directory.mkdir()
     root = directory
-    shutil.copytree(REPOSITORY / "framework", root / "framework")
+    copy_framework(root / 'framework')
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
     }]}) + "\n", encoding="utf-8")
@@ -714,7 +716,7 @@ def check_resource_name_headings(tmp_path) -> None:
     metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
     (root / "framework/rules").mkdir(parents=True)
     shutil.copyfile(REPOSITORY / "framework/rules/aws-resource-naming.md", root / "framework/rules/aws-resource-naming.md")
-    shutil.copytree(REPOSITORY / "framework/rules/aws-resource-naming", root / "framework/rules/aws-resource-naming")
+    copy_framework(root / 'framework/rules/aws-resource-naming', relative='rules/aws-resource-naming')
 
     def errors(markdown):
         path.write_text(markdown, encoding="utf-8")
@@ -929,8 +931,8 @@ def check_workflow(tmp_path, catalog) -> None:
     assert "desired.resource.005.parentReference=[KeyTwo](#kms-keytwo)" in moved_model
 
     # A new catalog type cannot silently inherit an independent display decision.
-    shutil.copytree(REPOSITORY / "framework/materials/aws", root / "framework/materials/aws")
-    shutil.copytree(REPOSITORY / "framework/materials/api", root / "framework/materials/api")
+    copy_framework(root / 'framework/materials/aws', relative='materials/aws')
+    copy_framework(root / 'framework/materials/api', relative='materials/api')
     layout_path = root / "framework/rules/resource-layout.json"
     layout_path.parent.mkdir(parents=True)
     layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")
@@ -943,7 +945,7 @@ def check_workflow(tmp_path, catalog) -> None:
 
 
 def main():
-    return run(__file__, ['check_resource_name_headings', 'check_secret_rotation_display', 'check_codebuild_variable_display', 'check_codebuild_vpc_display', 'check_subnet_list_links', 'check_guardduty_feature_display', 'check_cloudtrail_data_resources', 'check_codepipeline_display', 'check_config_firehose_references', 'check_workflow'], 'design-layout: PASS (grouped identities, QuickSight Group Principal reference, parent changes, invalid designs, catalog coverage)')
+    return run(__file__, message='design-layout: PASS (grouped identities, QuickSight Group Principal reference, parent changes, invalid designs, catalog coverage)')
 
 
 if __name__ == "__main__":

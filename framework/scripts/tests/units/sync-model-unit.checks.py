@@ -84,6 +84,45 @@ def check_file_rollback(tmp_path):
     print('File rollback: PASS (first/middle/last partial write, restoration error, no-op)')
 
 
+import threading
+import sync_progress as progress
+
+
+def check_progress_heartbeat_and_waits():
+    output = io.StringIO()
+    reporter = progress.Progress(interval=0.01)
+    with redirect_stderr(output), reporter.worker('dev/team/iam'):
+        progress.consumers({('dev', 'team', 'iam')})
+        with progress.phase('dependency-model', total=2):
+            progress.advance()
+            # Trigger exactly one heartbeat without sleeping or changing production interval.
+            with patch.object(reporter.stop, 'wait', side_effect=[False, True]):
+                reporter.heartbeat()
+        lock = threading.Lock()
+        lock.acquire()
+        original_acquire = lock.acquire
+        class ReleasedLock:
+            def acquire(self, blocking=True):
+                if not blocking:
+                    return False
+                lock.release()
+                return original_acquire()
+            def release(self):
+                lock.release()
+        with progress.thread_lock(ReleasedLock()):
+            pass
+        with progress.phase('reservation', status='reservation-wait'):
+            pass
+        progress.completed(('dev', 'team', 'iam'))
+        with pytest.raises(ValueError), progress.phase('candidate-validation'):
+            raise ValueError('injected')
+    text = output.getvalue()
+    for expected in ['heartbeat', 'items=1/2', 'completed=1/1', 'lock-wait', 'reservation-wait', 'stage-failed', 'remaining=unknown', 'not proof of progress']:
+        assert expected in text
+    assert reporter.states == []
+
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

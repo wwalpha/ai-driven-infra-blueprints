@@ -33,6 +33,8 @@ import sync_runtime
 
 ROOT=Path(__file__).resolve().parents[4]
 
+from support.it_workspace import copy_framework
+
 def rejected(function, phrase=None):
     try:
         function()
@@ -43,7 +45,7 @@ def rejected(function, phrase=None):
     raise AssertionError('invalid input accepted')
 
 def fixture(root, environments=('dev','prod')):
-    shutil.copytree(ROOT/'framework',root/'framework')
+    copy_framework(root / 'framework')
     (root/'project.json').write_text(templates.json_text({'projectName':'app','targets':[
         {'environment':env,'alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'} for env in environments for alias,account in [('other','210987654321'),('team','123456789012')]]})+'\n',encoding='utf-8')
     (root/'tasks').mkdir()

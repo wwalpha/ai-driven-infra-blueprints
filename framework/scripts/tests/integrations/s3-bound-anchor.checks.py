@@ -25,6 +25,8 @@ import sync_runtime
 ROOT = Path(__file__).resolve().parents[4]
 
 
+from support.it_workspace import copy_framework
+
 def rejected(call, phrase):
     try:
         call()
@@ -35,7 +37,7 @@ def rejected(call, phrase):
 
 
 def check(root):
-    shutil.copytree(ROOT / 'framework', root / 'framework')
+    copy_framework(root / 'framework')
     save_files({root / 'project.json': t.json_text({'projectName': 'anchor-fixture', 'targets': [{
         'environment': 'preview', 'alias': 'other', 'awsAccountId': '210987654321',
         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}, {

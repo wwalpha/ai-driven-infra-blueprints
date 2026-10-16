@@ -27,8 +27,6 @@ def main():
     scope.check_deployment_iac_scope()
     scope.check_task_file_gating()
     terraform.check_cli()
-    from support.validator import MODULE, load
-    load("design_document.checks").check_links(MODULE)
     print("Validator integrations: PASS")
 
 

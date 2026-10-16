@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.deploy_preparation_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def check_preparation():
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory).resolve()
@@ -215,7 +217,7 @@ def check_service_generated_equality():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve() / "repo"
         fixture(root)
-        shutil.copytree(ROOT / "framework/materials", root / "framework/materials")
+        copy_framework(root / 'framework/materials', relative='materials')
         sync = M.module("equality_sync", ROOT / "framework/scripts/sync-model.py")
         contract, _, _, _ = M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         start(root, "tasks/deploy-offline.md", contract)

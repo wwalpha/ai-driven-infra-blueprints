@@ -20,8 +20,8 @@ def pytest_configure(config):
 
 @pytest.fixture
 def framework_root(tmp_path):
-    shutil.copytree(Path(__file__).resolve().parents[3] / "framework", tmp_path / "framework")
-    return tmp_path
+    from support.it_workspace import populate
+    return populate("framework", tmp_path)
 
 
 @pytest.fixture

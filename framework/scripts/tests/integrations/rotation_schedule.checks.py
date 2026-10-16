@@ -22,46 +22,15 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
-HELPERS = load('model_design.checks')
+from support import model_design_fixtures as HELPERS
 SYNC = HELPERS.SYNC
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
 
 
-def fixture(count=1):
-    values = {
-        "desired.service.secretsmanager.serviceId": "secretsmanager",
-        "desired.service.secretsmanager.ownedCatalogResourceTypes": SECRET + "," + ROTATION,
-        "display.service.title": "# Secrets Manager 詳細設計",
-    }
-    for number in range(count):
-        parent, child = f"{2 * number + 1:03d}", f"{2 * number + 2:03d}"
-        name, logical = f"app-dev-secret-{number + 1}", f"Secret{number + 1}"
-        child_name, child_id = name + "_rotate", logical + "Rotation"
-        anchor, child_anchor = [resource_anchor("secretsmanager", item) for item in (name, child_name)]
-        for identity, kind, identifier, fragment in ((parent, SECRET, logical, anchor), (child, ROTATION, child_id, child_anchor)):
-            values.update({f"desired.resource.{identity}.resourceType": kind,
-                           f"desired.resource.{identity}.logicalId": identifier,
-                           f"desired.resource.{identity}.anchor": fragment})
-        values.update({f"display.resource.{parent}.comment": "アプリケーション用secret",
-                       f"display.resource.{child}.label": child_name,
-                       f"desired.resource.{child}.parentProperty": ROTATION + ".SecretId",
-                       f"desired.resource.{child}.parentReference": f"[{logical}](#{anchor})"})
-        for identity, kind, rows in (
-            (parent, SECRET, [("Name", f"`{name}`", None)]),
-            (child, ROTATION, [("RotateImmediatelyOnUpdate", "`false`", None),
-                               ("RotationRules.AutomaticallyAfterDays", "`30`", None),
-                               ("SecretId", f"[{logical}](#{anchor})", None)]),
-        ):
-            for index, (field, value, observed) in enumerate(rows, 1):
-                key = f"{identity}-{index:03d}"
-                for namespace, rendered in (("desired", value), ("observed", observed)):
-                    if rendered is not None:
-                        values.update({f"{namespace}.row.{key}.property": kind + "." + field,
-                                       f"{namespace}.row.{key}.value": rendered,
-                                       f"{namespace}.row.{key}.comment": "属性の設定値"})
-    return values
+from support.rotation_schedule_fixtures import fixture
 
+from support.it_workspace import copy_framework
 
 def rejects(action, *messages):
     try:
@@ -75,7 +44,7 @@ def rejects(action, *messages):
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
             {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
         ]}) + "\n")

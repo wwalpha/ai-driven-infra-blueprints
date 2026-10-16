@@ -25,8 +25,8 @@ from support.model_sources import write_fixture_files as save_files
 import sync_runtime
 from support.validator import load, schema_validator
 
-INPUTS = load('model_parameter_inputs.checks')
-MODELS = load('model_design.checks')
+from support import model_parameter_inputs_fixtures as INPUTS
+from support import model_design_fixtures as MODELS
 
 
 def register(root, service, values, edits):

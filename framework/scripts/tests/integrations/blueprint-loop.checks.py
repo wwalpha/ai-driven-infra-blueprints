@@ -698,11 +698,8 @@ def check_windows_exit_propagation(tmp_path):
 
 
 def check_workflow(tmp_path) -> None:
-    for check in (SCRIPT.parent / "tests").rglob("*.checks.py"):
-        optimized = subprocess.run(
-            [sys.executable, "-O", str(check)], capture_output=True, encoding="utf-8"
-        )
-        assert optimized.returncode != 0 and "Focused checks require assertions" in optimized.stderr, check
+    from run_it import check_assertion_guards
+    check_assertion_guards(SCRIPT.parent / "tests")
     root = tmp_path / "repository"
     log_parent = tmp_path / "logs"
     scripts = root / "framework" / "scripts"
@@ -839,7 +836,7 @@ def check_workflow(tmp_path) -> None:
 
 
 def main():
-    return run(__file__, ['check_startup_diagnostics', 'check_windows_exit_propagation', 'check_deploy_scope_isolation', 'check_failure_suspension', 'check_regression_authorization', 'check_parallel_and_selection', 'check_staged_snapshot', 'check_running_and_interruption', 'check_task_service_validation', 'check_workflow'], 'blueprint-loop: PASS')
+    return run(__file__, message='blueprint-loop: PASS')
 
 
 if __name__ == "__main__":

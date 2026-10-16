@@ -117,9 +117,8 @@ def roundtrip(path, values, root):
     return path.read_text(encoding="utf-8")
 
 @pytest.fixture
-def root(tmp_path):
-    shutil.copytree(ROOT / "framework", tmp_path / "framework")
-    return tmp_path.resolve()
+def root(framework_root):
+    return framework_root.resolve()
 
 @pytest.fixture
 def project(root):

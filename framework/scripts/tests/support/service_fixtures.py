@@ -56,7 +56,7 @@ def service(root, name, definitions, *, shared=None, environments=('dev', 'stg')
     return template
 
 
-def typed_services(root):
+def build_typed_services(root):
     integer, boolean, string = input_spec('integer'), input_spec('boolean'), input_spec()
     service(root, 'kms', [('log-key', 'KMS.Key', [('Enabled','`<<Enabled>>`'), ('PendingWindowInDays','`<<PendingWindowInDays>>`')],
         {'Enabled':(True,boolean), 'PendingWindowInDays':(7,integer)}),
@@ -115,7 +115,7 @@ def typed_services(root):
         value=json.loads(bindings.read_text());value['instances']['stack']['resources']={};value['stacks']={'fixture':'fixture'};bindings.write_text(json_text(value),encoding='utf-8')
 
 
-def input_templates(root):
+def build_input_templates(root):
     string, boolean = input_spec(), input_spec('boolean')
     service(root,'codecommit',[('repository','CodeCommit.Repository',[('RepositoryName','`fixture`'),('RepositoryDescription','`<<Description>>`')], {'Description':('fixture',string)})])
     service(root,'security-hub',[('hub','SecurityHub.Hub',[('ControlFindingGenerator','`SECURITY_CONTROL`'),('EnableDefaultStandards','`true`')],{})])
@@ -128,3 +128,13 @@ def input_templates(root):
     template=root/'model/templates/team/sqs.properties.tpl'
     template.write_text(template.read_text().replace('# resource: resource','# internal: Anchor string\n# resource: resource').replace('desired.resource.resource.anchor=sqs-component_queue','desired.resource.resource.anchor=<<Anchor>>').replace('desired.resource.resource.anchor=sqs-component_policy','desired.resource.resource.anchor=<<Anchor>>').replace('# model-template: 1','# model-template: 1\n# input: SourceAccountId {"type": "string", "description": "実行account", "required": true, "source": "consumer.executionAccountId"}'),encoding='utf-8')
     service(root,'datazone',[(f'group_{n}','DataZone.Domain',[('Name',f'`fixture-{n}`')],{}) for n in range(1,7)])
+
+
+def typed_services(root):
+    from support.it_workspace import populate
+    populate("typed_services", root)
+
+
+def input_templates(root):
+    from support.it_workspace import populate
+    populate("input_templates", root)

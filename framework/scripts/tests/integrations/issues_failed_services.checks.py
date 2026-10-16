@@ -19,7 +19,7 @@ from support.validator import load
 
 
 def main_checks():
-    fixture = load('issues_scan.checks', 'failed_service_fixtures')
+    from support import issues_scan_fixtures as fixture
     with tempfile.TemporaryDirectory(prefix='failed-service-comparison-') as temporary:
         root = Path(temporary)
         _, template = fixture.fixture(root, services=('s3', 'sqs'))

@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.model_files_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def check_resource_reading(root):
     source = root / "model/dev/123456789012/kms.properties"
     values = {
@@ -116,7 +118,7 @@ def main():
                    cwd=ROOT / "framework/scripts", check=True)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         source = root / "model/dev/123456789012/config.properties"
         source.parent.mkdir(parents=True)
         check_resource_reading(root)

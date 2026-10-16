@@ -8,6 +8,8 @@ if not __debug__:
 
 from support.sync_model_fixtures import *
 
+from support.it_workspace import copy_framework
+
 @pytest.mark.parametrize('fault', ['missing', 'corrupt', 'omitted', 'source', 'mapping', 'project', 'part', 'consumer', 'extra'])
 def check_publication_readback(generated_policy, fault):
     import sync_files
@@ -348,7 +350,7 @@ def check_required_preflight(framework_root) -> None:
 
 def check_required_property_parents(tmp_path) -> None:
     root = tmp_path
-    shutil.copytree(SCRIPT.parents[1], root / "framework")
+    copy_framework(root / 'framework')
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/glue.properties"
@@ -623,17 +625,131 @@ def check_workflow(tmp_path) -> None:
         assert "YAML Model inputs missing" in str(error.value)
 
 
-def check_projection():
-    load("design_document.checks").check_projection(MODULE)
-
 
 def main():
-    return run(__file__, ['check_publication_readback', 'check_projection', 'check_failure_counts',
-                         'check_required_preflight', 'check_required_property_parents', 'check_workflow',
-                         'check_unchanged_sidecar', 'check_changed_sidecar_requires_reservation',
-                         'check_publication_rechecks_excluded_outputs', 'check_changed_sidecar_publication_rollback',
-                         'check_unchanged_sidecar_path_safety', 'check_unchanged_sidecar_validation'],
-               'sync-model: PASS (generation, changed output reservations, publication drift and rollback)')
+    return run(__file__, message='sync-model: PASS (generation, changed output reservations, publication drift and rollback)')
+
+
+import threading
+import task_contract as tasks
+import sync_progress as progress
+
+
+def check_publication_lock_wait(tmp_path):
+    import model_templates
+    output = io.StringIO()
+    waiting = threading.Event()
+    reporter = progress.Progress()
+    errors = []
+    emit = reporter.emit
+    def notify(state, event):
+        emit(state, event)
+        if state[5] == 'lock-wait':
+            waiting.set()
+    reporter.emit = notify
+    def worker():
+        try:
+            with reporter.worker('dev/team/iam'), model_templates.publication_lock(tmp_path):
+                with model_templates.publication_lock(tmp_path):
+                    pass
+        except BaseException as error:
+            errors.append(error)
+    with redirect_stderr(output):
+        with model_templates.publication_lock(tmp_path):
+            thread = threading.Thread(target=worker)
+            thread.start()
+            observed = waiting.wait(5)
+        thread.join(5)
+    assert observed and not thread.is_alive() and not errors
+    assert 'lock-wait' in output.getvalue()
+
+
+def check_generation_output_compatibility(generated_policy):
+    root, _, _, design, artifact, register = generated_policy
+    before = {p: p.read_bytes() for p in (design, artifact)}
+    plain, observed, diagnostics = io.StringIO(), io.StringIO(), io.StringIO()
+    with patch.dict(os.environ, register([design, artifact])):
+        with redirect_stdout(plain):
+            assert sync_runtime.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+        @progress.reported_main
+        def generate():
+            return sync_runtime.sync(root, True, 'dev', '123456789012', ['iam'])
+        with redirect_stdout(observed), redirect_stderr(diagnostics):
+            assert generate() == 0
+    assert observed.getvalue() == plain.getvalue()
+    assert before == {p: p.read_bytes() for p in before}
+    for stage in ['snapshot', 'dependency-model', 'stage-placement', 'candidate-generation', 'candidate-validation', 'publication', 'completed=1/1']:
+        assert stage in diagnostics.getvalue()
+
+
+def check_two_consumer_cli(generated_policy):
+    import json
+    import shutil
+    import subprocess
+    from support.validator import load
+    root, _, _, design, artifact, register = generated_policy
+    shutil.copytree(root / 'model/parameters/dev', root / 'model/parameters/stg')
+    shutil.copytree(root / 'docs/designs/dev', root / 'docs/designs/stg')
+    project = json.loads((root / 'project.json').read_text())
+    project['targets'].append({**project['targets'][0], 'environment': 'stg'})
+    (root / 'project.json').write_text(json.dumps(project) + '\n')
+    for arguments in [('init', '-q'), ('add', '.'),
+                      ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'baseline')]:
+        subprocess.run(['git', *arguments], cwd=root, check=True, capture_output=True)
+    outputs = [design, artifact, root / 'docs/designs/stg/123456789012/iam.md',
+               root / 'docs/designs/stg/123456789012/iam/app-role-trust-policy.json']
+    environment = register(outputs)
+    name = environment[tasks.SELECTOR]
+    (root / name).write_text((root / name).read_text().replace(
+        '- `dev/123456789012/iam`', '- `dev/123456789012/iam`\n- `stg/123456789012/iam`'))
+    tasks.refresh(root, name)
+    template = root / 'model/templates/123456789012/iam.properties.tpl'
+    template.write_text(template.read_text().replace('アプリケーションの実行権限', '更新後の処理権限'))
+    cli = load('sync-model')
+    arguments = ['sync-model.py', '--repository-root', str(root), '--scope', 'dev/123456789012/iam',
+                 '--scope', 'stg/123456789012/iam', '--jobs', '2']
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with patch.dict(os.environ, environment), redirect_stdout(stdout), redirect_stderr(stderr):
+        with patch.object(sys, 'argv', [*arguments, '--write']):
+            assert cli.main() == 0
+        written = {file: file.read_bytes() for file in outputs}
+        with patch.object(sys, 'argv', arguments):
+            assert cli.main() == 0
+        assert written == {file: file.read_bytes() for file in outputs}
+        with patch.object(sys, 'argv', ['sync-model.py', '--repository-root', str(root), '--scope', 'prod/123456789012/iam']):
+            assert cli.main() == 1
+    assert 'sync-model progress:' not in stdout.getvalue()
+    assert 'stage=impact-scope' in stderr.getvalue()
+    assert 'completed=2/2' in stderr.getvalue()
+    assert 'state=failed' in stderr.getvalue()
+    for document in (outputs[0], outputs[2]):
+        assert '更新後の処理権限' in document.read_text()
+
+
+@pytest.mark.parametrize('filename', ['parameters.yaml', 'bindings.json', 'observed.json', 'template'])
+@pytest.mark.parametrize('mutation', ['change', 'delete', 'add'])
+def check_input_mutation(generated_policy, filename, mutation):
+    root, model, _, design, artifact, register = generated_policy
+    directory = root / 'model/parameters/dev/123456789012/iam'
+    source = root / 'model/templates/123456789012/iam.properties.tpl' if filename == 'template' else directory / filename
+    if mutation == 'add' and filename != 'observed.json':
+        source = (source.with_suffix('') / 'added.properties' if filename == 'template' else directory / 'new' / filename)
+    if filename == 'observed.json' and mutation != 'add' and not source.exists():
+        source.write_text('{"version":1,"values":{}}\n')
+    original = {p: p.read_bytes() for p in (design, artifact)}
+    validate = sync_runtime.validate_candidates
+    def mutate(*args, **kwargs):
+        validate(*args, **kwargs)
+        if mutation == 'delete':
+            source.unlink()
+        else:
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes((source.read_bytes() if source.exists() else b'') + b'\n')
+    with patch.dict(os.environ, register([design, artifact])), patch.object(sync_runtime, 'validate_candidates', side_effect=mutate):
+        with pytest.raises(ValueError, match='inputs changed'):
+            sync_runtime.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert original == {p: p.read_bytes() for p in original}
+
 
 
 if __name__ == "__main__":

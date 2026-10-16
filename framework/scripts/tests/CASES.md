@@ -18,14 +18,29 @@ pytest件数はテスト定義・aliasと設定から算出する。直接実行
 
 ## 配置と入口の件数
 
-| 種別 | ファイル数 | pytest関数 / 展開数 | 直接関数 |
+| 種別 | ファイル数 | 台帳登録pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
-| units | 52 | 84 / 115 | 23 |
-| integrations | 76 | 173 / 262 | 113 |
+| units | 52 | 86 / 107 | 23 |
+| integrations | 76 | 176 / 276 | 113 |
 | unknown | 0 | 0 / 0 | 0 |
-| support | 39 | 0 / 0 | 0 |
+| support | 42 | 0 / 0 | 0 |
 
 supportファイル数は共通fixture/補助のみ。main/moduleの地点数は下表を参照。
+
+## IT統合と到達性
+
+公式入口は `run_it.py`。`.checks.py` は66スイートを自動検出する。上表のファイル数には補助Pythonモジュールも含む。
+ケース台帳を実行時に読み、pytestの収集・成功した検証本体のパラメータ件数、直接実行関数の呼出記録と照合する。未登録の `check_*`、消えた関数、未実行・skip・パターン不足はFAIL。ケース名だけの存在確認でPASSにしない。
+
+基準 `2647f97` は67スイート、IT台帳285関数・374入口パターン（pytest172/261、direct113/113）。未登録のsync-performance 7関数/21パターンとmanaged authority 1関数/1パターンを別途確認した。整理後はIT289関数/389入口パターン。sync-performanceからUTへ3関数/6パターン、ITへ4関数/15パターンをそのまま移管。内部動的ループは従来の詳細表どおりで、入口パターン数には加算しない。
+
+- `check_quicksight_group_principal_reference` 1パターンと `check_incoming_reference_models` のFalse/Trueを通常pytest収集へ復帰。各ITの手書き選択リストも廃止した。
+- `sync-model.check_projection` は `design_document.check_projection` を呼ぶだけだったため削除。`validate-blueprint` の `design_document.check_links` 呼出も削除。両検証本体はdesign_documentの通常入口に存在し、同じ実装モジュールを渡して実行するため完全重複。
+- sync-performanceの7関数には完全重複と証明できるものはなく、全21パターンを保持。小規模な権限/選択/進捗の検証のみ既存UTに移管し、実際の生成・保存・CLI・ロック待機はITに保持する。
+- 他ITへの16ロードは0。issues、Model、layout、worktree、blueprint-loopは既存supportを直接再利用。RotationScheduleのデータ生成だけをsupportへ抽出し、検証本体を他ITから呼ばない。
+- runnerがframework・入力テンプレート・typed services・生成済みIAM policyを各1回初期化。生成イベントを実測し、共通bundleは書込禁止かつ前後の内容/modeハッシュで検査する。ケースは独立コピーを変更し、入力テンプレートの参照元のみ読み取り専用で共有する。
+- `check_it_fixture_isolation` は通常/逆順で独立コピーを変更し、隣接ケースと原本の不変、書込禁止、後片付け、強制汚染時のFAILを検証する。
+- assert無効化ガードは全UT/ITのAST配置・厳密な式・最適化コンパイル時のSystemExitで確認し、runner自体も実際の `python -O` で拒否を検証する。毎スイートの `python -O` 起動は不要。
 
 ## UT 全ケース
 
@@ -45,9 +60,9 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/blueprint-loop.checks.py:68` | `check_process_interruption` | UT | [units/blueprint-loop-unit.checks.py:32](units/blueprint-loop-unit.checks.py#L32) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:413` | `check_parallel_interruption` | UT | [units/blueprint-loop-unit.checks.py:56](units/blueprint-loop-unit.checks.py#L56) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:419` | `check_leaf_selection` | UT | [units/blueprint-loop-unit.checks.py:74](units/blueprint-loop-unit.checks.py#L74) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:437` | `check_dependency_selection` | UT | [units/blueprint-loop-unit.checks.py:92](units/blueprint-loop-unit.checks.py#L92) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:127](units/blueprint-loop-unit.checks.py#L127) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:150](units/blueprint-loop-unit.checks.py#L150) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:437` | `check_dependency_selection` | UT | [units/blueprint-loop-unit.checks.py:96](units/blueprint-loop-unit.checks.py#L96) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
+| `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:131](units/blueprint-loop-unit.checks.py#L131) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:154](units/blueprint-loop-unit.checks.py#L154) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `units/check-model-aws-unit.checks.py:11` | `check_summary_exit_codes` | UT | [units/check-model-aws-unit.checks.py:11](units/check-model-aws-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `units/check-model-aws-unit.checks.py:19` | `check_value_normalization` | UT | [units/check-model-aws-unit.checks.py:19](units/check-model-aws-unit.checks.py#L19) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `units/check-model-aws-unit.checks.py:29` | `check_secret_redaction` | UT | [units/check-model-aws-unit.checks.py:29](units/check-model-aws-unit.checks.py#L29) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
@@ -68,7 +83,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/issue_gate.checks.py:27` | `check_inventory_parser` | UT | [units/issue_gate-unit.checks.py:11](units/issue_gate-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `integrations/issues_api_only.checks.py:62` | `check_api_type_rejection` | UT | [units/issues_api_only-unit.checks.py:11](units/issues_api_only-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1622` | `check_mismatch_rendering` | UT | [units/issues_scan-unit.checks.py:11](units/issues_scan-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/issues_scan.checks.py:1823` | `check_summary_scale` | UT | [units/issues_scan-unit.checks.py:97](units/issues_scan-unit.checks.py#L97) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1823` | `check_summary_scale` | UT | [units/issues_scan-unit.checks.py:167](units/issues_scan-unit.checks.py#L167) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/json-yaml-document-hash.checks.py:48` | `check_json_hash_types` | UT | [units/json-yaml-document-hash-unit.checks.py:11](units/json-yaml-document-hash-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/lambda_permission.checks.py:93` | `check_permission_catalog` | UT | [units/lambda_permission-unit.checks.py:11](units/lambda_permission-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/model_design.checks.py:1208` | `check_design_naming_rules` | UT | [units/model_design-unit.checks.py:11](units/model_design-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
@@ -132,6 +147,14 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/validation_scope.checks.py:196` | `check_active_scope` | UT | [units/validation_scope-unit.checks.py:11](units/validation_scope-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/worktree_python.checks.py:87` | `check_environment` | UT | [units/worktree_python-unit.checks.py:11](units/worktree_python-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/worktree_python.checks.py:279` | `check_pdf_native_optional` | UT | [units/worktree_python-unit.checks.py:19](units/worktree_python-unit.checks.py#L19) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
+| `units/task-contract-unit.checks.py:196` | `check_allowed_paths` | UT | [units/task-contract-unit.checks.py:196](units/task-contract-unit.checks.py#L196) | pytest / 4 | sync-performance: exact/glob/rejection and symlink checks | 検証本体・assertを保持 |
+| `units/task-contract-unit.checks.py:214` | `check_live_selection` | UT | [units/task-contract-unit.checks.py:214](units/task-contract-unit.checks.py#L214) | pytest / 1 | sync-performance: live selection and invalidation | 検証本体・assertを保持 |
+| `units/sync-model-unit.checks.py:91` | `check_progress_heartbeat_and_waits` | UT | [units/sync-model-unit.checks.py:91](units/sync-model-unit.checks.py#L91) | pytest / 1 | sync-performance: heartbeat and lock/reservation/stage diagnostics | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py:250` | `check_it_reachability` | UT | [units/blueprint-loop-unit.checks.py:250](units/blueprint-loop-unit.checks.py#L250) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py:282` | `check_it_assertion_guards` | UT | [units/blueprint-loop-unit.checks.py:283](units/blueprint-loop-unit.checks.py#L283) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py:297` | `check_it_fixture_isolation` | UT | [units/blueprint-loop-unit.checks.py:298](units/blueprint-loop-unit.checks.py#L298) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py:330` | `check_it_inventory` | UT | [units/blueprint-loop-unit.checks.py:331](units/blueprint-loop-unit.checks.py#L331) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py` | `check_it_run_lifecycle` | UT | [units/blueprint-loop-unit.checks.py:344](units/blueprint-loop-unit.checks.py#L344) | pytest / 1 | runner lifecycle: one initialization, measured events and environment restoration | 新規UT |
 
 ### UT 内部パターン
 
@@ -251,19 +274,19 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/auxiliary-model-dependencies.checks.py:76` | `check` | IT | [integrations/auxiliary-model-dependencies.checks.py:75](integrations/auxiliary-model-dependencies.checks.py#L75) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/aws_mapping.checks.py:141` | `check_config` | IT | [integrations/aws_mapping.checks.py:11](integrations/aws_mapping.checks.py#L11) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/aws_mapping_compare.checks.py:32` | `mapping_checks` | IT | [integrations/aws_mapping_compare.checks.py:12](integrations/aws_mapping_compare.checks.py#L12) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/aws_mapping_display.checks.py:50` | `check` | IT | [integrations/aws_mapping_display.checks.py:11](integrations/aws_mapping_display.checks.py#L11) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/aws_mapping_display.checks.py:50` | `check` | IT | [integrations/aws_mapping_display.checks.py:13](integrations/aws_mapping_display.checks.py#L13) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:41` | `check_running_and_interruption` | IT | [integrations/blueprint-loop.checks.py:11](integrations/blueprint-loop.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:108` | `check_deploy_scope_isolation` | IT | [integrations/blueprint-loop.checks.py:52](integrations/blueprint-loop.checks.py#L52) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:235` | `check_task_service_validation` | IT | [integrations/blueprint-loop.checks.py:179](integrations/blueprint-loop.checks.py#L179) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:382` | `check_parallel_and_selection` | IT | [integrations/blueprint-loop.checks.py:326](integrations/blueprint-loop.checks.py#L326) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:493` | `check_staged_snapshot` | IT | [integrations/blueprint-loop.checks.py:354](integrations/blueprint-loop.checks.py#L354) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:602` | `check_regression_authorization` | IT | [integrations/blueprint-loop.checks.py:461](integrations/blueprint-loop.checks.py#L461) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [integrations/blueprint-loop.checks.py:509](integrations/blueprint-loop.checks.py#L509) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:723` | `check_startup_diagnostics` | IT | [integrations/blueprint-loop.checks.py:581](integrations/blueprint-loop.checks.py#L581) | pytest / 11 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | IT | [integrations/blueprint-loop.checks.py:687](integrations/blueprint-loop.checks.py#L687) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [integrations/blueprint-loop.checks.py:699](integrations/blueprint-loop.checks.py#L699) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:235` | `check_task_service_validation` | IT | [integrations/blueprint-loop.checks.py:180](integrations/blueprint-loop.checks.py#L180) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:382` | `check_parallel_and_selection` | IT | [integrations/blueprint-loop.checks.py:327](integrations/blueprint-loop.checks.py#L327) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:493` | `check_staged_snapshot` | IT | [integrations/blueprint-loop.checks.py:355](integrations/blueprint-loop.checks.py#L355) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:602` | `check_regression_authorization` | IT | [integrations/blueprint-loop.checks.py:462](integrations/blueprint-loop.checks.py#L462) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [integrations/blueprint-loop.checks.py:510](integrations/blueprint-loop.checks.py#L510) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:723` | `check_startup_diagnostics` | IT | [integrations/blueprint-loop.checks.py:582](integrations/blueprint-loop.checks.py#L582) | pytest / 11 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | IT | [integrations/blueprint-loop.checks.py:688](integrations/blueprint-loop.checks.py#L688) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [integrations/blueprint-loop.checks.py:700](integrations/blueprint-loop.checks.py#L700) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `integrations/bound-anchor-name-change.checks.py:86` | `check` | IT | [integrations/bound-anchor-name-change.checks.py:86](integrations/bound-anchor-name-change.checks.py#L86) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
-| `integrations/bound-stack-name-change.checks.py:33` | `check` | IT | [integrations/bound-stack-name-change.checks.py:33](integrations/bound-stack-name-change.checks.py#L33) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
+| `integrations/bound-stack-name-change.checks.py:33` | `check` | IT | [integrations/bound-stack-name-change.checks.py:35](integrations/bound-stack-name-change.checks.py#L35) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/check-model-aws.checks.py:272` | `service_checks` | IT | [integrations/check-model-aws.checks.py:11](integrations/check-model-aws.checks.py#L11) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/check-model-aws.checks.py:345` | `cli_checks` | IT | [integrations/check-model-aws.checks.py:77](integrations/check-model-aws.checks.py#L77) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/check-model-aws.checks.py:439` | `check_cli_service_names` | IT | [integrations/check-model-aws.checks.py:171](integrations/check-model-aws.checks.py#L171) | pytest / 8 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -275,27 +298,27 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/check-model-aws.checks.py:865` | `identity_registry_checks` | IT | [integrations/check-model-aws.checks.py:585](integrations/check-model-aws.checks.py#L585) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/check-model-aws.checks.py:893` | `fixture_coverage` | IT | [integrations/check-model-aws.checks.py:613](integrations/check-model-aws.checks.py#L613) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/check-model-aws.checks.py:934` | `check_consumer_coverage` | IT | [integrations/check-model-aws.checks.py:648](integrations/check-model-aws.checks.py#L648) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:229` | `check_aws_adapter` | IT | [integrations/cloudformation-deploy.checks.py:11](integrations/cloudformation-deploy.checks.py#L11) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:331` | `check_empty_rollback_recreation` | IT | [integrations/cloudformation-deploy.checks.py:113](integrations/cloudformation-deploy.checks.py#L113) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:443` | `check_template_validation` | IT | [integrations/cloudformation-deploy.checks.py:225](integrations/cloudformation-deploy.checks.py#L225) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:469` | `check_inputs` | IT | [integrations/cloudformation-deploy.checks.py:251](integrations/cloudformation-deploy.checks.py#L251) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:657` | `check_delivery` | IT | [integrations/cloudformation-deploy.checks.py:353](integrations/cloudformation-deploy.checks.py#L353) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:919` | `check_delivery_encryption` | IT | [integrations/cloudformation-deploy.checks.py:615](integrations/cloudformation-deploy.checks.py#L615) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1129` | `check_session_cli` | IT | [integrations/cloudformation-deploy.checks.py:825](integrations/cloudformation-deploy.checks.py#L825) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1421` | `check_parallel_and_restart` | IT | [integrations/cloudformation-deploy.checks.py:1117](integrations/cloudformation-deploy.checks.py#L1117) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1503` | `check_observed_collector` | IT | [integrations/cloudformation-deploy.checks.py:1199](integrations/cloudformation-deploy.checks.py#L1199) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1640` | `check_shared_stack_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1335](integrations/cloudformation-deploy.checks.py#L1335) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1803` | `check_import_implementation_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1498](integrations/cloudformation-deploy.checks.py#L1498) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1859` | `check_integrated_child_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1554](integrations/cloudformation-deploy.checks.py#L1554) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:1957` | `check_secretsmanager_arn_identifiers` | IT | [integrations/cloudformation-deploy.checks.py:1651](integrations/cloudformation-deploy.checks.py#L1651) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:2051` | `check_api_timing` | IT | [integrations/cloudformation-deploy.checks.py:1746](integrations/cloudformation-deploy.checks.py#L1746) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:2067` | `check_controlled_repair` | IT | [integrations/cloudformation-deploy.checks.py:1762](integrations/cloudformation-deploy.checks.py#L1762) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-deploy.checks.py:2468` | `check_secret_runtime_bootstrap` | IT | [integrations/cloudformation-deploy.checks.py:2163](integrations/cloudformation-deploy.checks.py#L2163) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:134` | `check_order_and_safety` | IT | [integrations/cloudformation-destroy.checks.py:134](integrations/cloudformation-destroy.checks.py#L134) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:208` | `check_unused_export` | IT | [integrations/cloudformation-destroy.checks.py:208](integrations/cloudformation-destroy.checks.py#L208) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:232` | `check_absence` | IT | [integrations/cloudformation-destroy.checks.py:232](integrations/cloudformation-destroy.checks.py#L232) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:321` | `check_controller` | IT | [integrations/cloudformation-destroy.checks.py:321](integrations/cloudformation-destroy.checks.py#L321) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:426` | `check_observed` | IT | [integrations/cloudformation-destroy.checks.py:426](integrations/cloudformation-destroy.checks.py#L426) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:229` | `check_aws_adapter` | IT | [integrations/cloudformation-deploy.checks.py:13](integrations/cloudformation-deploy.checks.py#L13) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:331` | `check_empty_rollback_recreation` | IT | [integrations/cloudformation-deploy.checks.py:115](integrations/cloudformation-deploy.checks.py#L115) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:443` | `check_template_validation` | IT | [integrations/cloudformation-deploy.checks.py:227](integrations/cloudformation-deploy.checks.py#L227) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:469` | `check_inputs` | IT | [integrations/cloudformation-deploy.checks.py:253](integrations/cloudformation-deploy.checks.py#L253) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:657` | `check_delivery` | IT | [integrations/cloudformation-deploy.checks.py:355](integrations/cloudformation-deploy.checks.py#L355) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:919` | `check_delivery_encryption` | IT | [integrations/cloudformation-deploy.checks.py:617](integrations/cloudformation-deploy.checks.py#L617) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1129` | `check_session_cli` | IT | [integrations/cloudformation-deploy.checks.py:827](integrations/cloudformation-deploy.checks.py#L827) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1421` | `check_parallel_and_restart` | IT | [integrations/cloudformation-deploy.checks.py:1119](integrations/cloudformation-deploy.checks.py#L1119) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1503` | `check_observed_collector` | IT | [integrations/cloudformation-deploy.checks.py:1201](integrations/cloudformation-deploy.checks.py#L1201) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1640` | `check_shared_stack_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1337](integrations/cloudformation-deploy.checks.py#L1337) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1803` | `check_import_implementation_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1500](integrations/cloudformation-deploy.checks.py#L1500) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1859` | `check_integrated_child_mapping` | IT | [integrations/cloudformation-deploy.checks.py:1556](integrations/cloudformation-deploy.checks.py#L1556) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:1957` | `check_secretsmanager_arn_identifiers` | IT | [integrations/cloudformation-deploy.checks.py:1653](integrations/cloudformation-deploy.checks.py#L1653) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:2051` | `check_api_timing` | IT | [integrations/cloudformation-deploy.checks.py:1748](integrations/cloudformation-deploy.checks.py#L1748) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:2067` | `check_controlled_repair` | IT | [integrations/cloudformation-deploy.checks.py:1764](integrations/cloudformation-deploy.checks.py#L1764) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-deploy.checks.py:2468` | `check_secret_runtime_bootstrap` | IT | [integrations/cloudformation-deploy.checks.py:2165](integrations/cloudformation-deploy.checks.py#L2165) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:134` | `check_order_and_safety` | IT | [integrations/cloudformation-destroy.checks.py:136](integrations/cloudformation-destroy.checks.py#L136) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:208` | `check_unused_export` | IT | [integrations/cloudformation-destroy.checks.py:210](integrations/cloudformation-destroy.checks.py#L210) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:232` | `check_absence` | IT | [integrations/cloudformation-destroy.checks.py:234](integrations/cloudformation-destroy.checks.py#L234) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:321` | `check_controller` | IT | [integrations/cloudformation-destroy.checks.py:323](integrations/cloudformation-destroy.checks.py#L323) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:426` | `check_observed` | IT | [integrations/cloudformation-destroy.checks.py:428](integrations/cloudformation-destroy.checks.py#L428) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-naming.checks.py:63` | `check_imports` | IT | [integrations/cloudformation-naming.checks.py:63](integrations/cloudformation-naming.checks.py#L63) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-naming.checks.py:102` | `check_names` | IT | [integrations/cloudformation-naming.checks.py:102](integrations/cloudformation-naming.checks.py#L102) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/cloudformation-naming.checks.py:126` | `check_flow_logs` | IT | [integrations/cloudformation-naming.checks.py:126](integrations/cloudformation-naming.checks.py#L126) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -305,23 +328,23 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/compare-environments.checks.py:66` | `check_fixture_parameters` | IT | [integrations/compare-environments.checks.py:11](integrations/compare-environments.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:137` | `check_yaml_errors` | IT | [integrations/compare-environments.checks.py:49](integrations/compare-environments.checks.py#L49) | pytest / 6 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:180` | `check_scope_reads_and_templates` | IT | [integrations/compare-environments.checks.py:59](integrations/compare-environments.checks.py#L59) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py:11](integrations/deploy_preparation.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py:90](integrations/deploy_preparation.checks.py#L90) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py:138](integrations/deploy_preparation.checks.py#L138) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:309` | `check_service_generated_equality` | IT | [integrations/deploy_preparation.checks.py:213](integrations/deploy_preparation.checks.py#L213) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py:13](integrations/deploy_preparation.checks.py#L13) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py:92](integrations/deploy_preparation.checks.py#L92) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py:140](integrations/deploy_preparation.checks.py#L140) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:309` | `check_service_generated_equality` | IT | [integrations/deploy_preparation.checks.py:215](integrations/deploy_preparation.checks.py#L215) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/design_document.checks.py:96` | `check_projection` | IT | [integrations/design_document.checks.py:12](integrations/design_document.checks.py#L12) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/design_document.checks.py:145` | `check_links` | IT | [integrations/design_document.checks.py:61](integrations/design_document.checks.py#L61) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:149` | `check_secret_rotation_display` | IT | [integrations/design_layout.checks.py:11](integrations/design_layout.checks.py#L11) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:244` | `check_codebuild_variable_display` | IT | [integrations/design_layout.checks.py:106](integrations/design_layout.checks.py#L106) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:319` | `check_codebuild_vpc_display` | IT | [integrations/design_layout.checks.py:181](integrations/design_layout.checks.py#L181) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:406` | `check_subnet_list_links` | IT | [integrations/design_layout.checks.py:268](integrations/design_layout.checks.py#L268) | pytest / 16 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:458` | `check_guardduty_feature_display` | IT | [integrations/design_layout.checks.py:320](integrations/design_layout.checks.py#L320) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:487` | `check_cloudtrail_data_resources` | IT | [integrations/design_layout.checks.py:348](integrations/design_layout.checks.py#L348) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:592` | `check_codepipeline_display` | IT | [integrations/design_layout.checks.py:449](integrations/design_layout.checks.py#L449) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:704` | `check_config_firehose_references` | IT | [integrations/design_layout.checks.py:549](integrations/design_layout.checks.py#L549) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:838` | `check_resource_name_headings` | IT | [integrations/design_layout.checks.py:682](integrations/design_layout.checks.py#L682) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:934` | `check_quicksight_group_principal_reference` | IT | [integrations/design_layout.checks.py:773](integrations/design_layout.checks.py#L773) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/design_layout.checks.py:981` | `check_workflow` | IT | [integrations/design_layout.checks.py:820](integrations/design_layout.checks.py#L820) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:149` | `check_secret_rotation_display` | IT | [integrations/design_layout.checks.py:13](integrations/design_layout.checks.py#L13) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:244` | `check_codebuild_variable_display` | IT | [integrations/design_layout.checks.py:108](integrations/design_layout.checks.py#L108) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:319` | `check_codebuild_vpc_display` | IT | [integrations/design_layout.checks.py:183](integrations/design_layout.checks.py#L183) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:406` | `check_subnet_list_links` | IT | [integrations/design_layout.checks.py:270](integrations/design_layout.checks.py#L270) | pytest / 16 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:458` | `check_guardduty_feature_display` | IT | [integrations/design_layout.checks.py:322](integrations/design_layout.checks.py#L322) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:487` | `check_cloudtrail_data_resources` | IT | [integrations/design_layout.checks.py:350](integrations/design_layout.checks.py#L350) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:592` | `check_codepipeline_display` | IT | [integrations/design_layout.checks.py:451](integrations/design_layout.checks.py#L451) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:704` | `check_config_firehose_references` | IT | [integrations/design_layout.checks.py:551](integrations/design_layout.checks.py#L551) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:838` | `check_resource_name_headings` | IT | [integrations/design_layout.checks.py:684](integrations/design_layout.checks.py#L684) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:934` | `check_quicksight_group_principal_reference` | IT | [integrations/design_layout.checks.py:775](integrations/design_layout.checks.py#L775) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/design_layout.checks.py:981` | `check_workflow` | IT | [integrations/design_layout.checks.py:822](integrations/design_layout.checks.py#L822) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/framework-input-isolation.checks.py:23` | `check` | IT | [integrations/framework-input-isolation.checks.py:11](integrations/framework-input-isolation.checks.py#L11) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/human-inputs-group-05.checks.py:253` | `check_declared_inputs` | IT | [integrations/human-inputs-group-05.checks.py:253](integrations/human-inputs-group-05.checks.py#L253) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/import-model.checks.py:202` | `check_cli_preflight` | IT | [integrations/import-model.checks.py:11](integrations/import-model.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -363,21 +386,21 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/issues_scan.checks.py:226` | `checks` | IT | [integrations/issues_scan.checks.py:67](integrations/issues_scan.checks.py#L67) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:398` | `resource_cases` | IT | [integrations/issues_scan.checks.py:239](integrations/issues_scan.checks.py#L239) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:458` | `extended_cases` | IT | [integrations/issues_scan.checks.py:299](integrations/issues_scan.checks.py#L299) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:602` | `check_comparison_repair` | IT | [integrations/issues_scan.checks.py:443](integrations/issues_scan.checks.py#L443) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:717` | `check_local_reference` | IT | [integrations/issues_scan.checks.py:558](integrations/issues_scan.checks.py#L558) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:803` | `check_symbolic_string` | IT | [integrations/issues_scan.checks.py:643](integrations/issues_scan.checks.py#L643) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:903` | `check_reference_property_contract` | IT | [integrations/issues_scan.checks.py:743](integrations/issues_scan.checks.py#L743) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:1003` | `check_reference_diagnostics` | IT | [integrations/issues_scan.checks.py:843](integrations/issues_scan.checks.py#L843) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:1133` | `check_reference_identity_report` | IT | [integrations/issues_scan.checks.py:973](integrations/issues_scan.checks.py#L973) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:1514` | `check_action_report` | IT | [integrations/issues_scan.checks.py:1083](integrations/issues_scan.checks.py#L1083) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:1613` | `check_mismatch_display` | IT | [integrations/issues_scan.checks.py:1182](integrations/issues_scan.checks.py#L1182) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/issues_scan.checks.py:1724` | `check_state_report` | IT | [integrations/issues_scan.checks.py:1213](integrations/issues_scan.checks.py#L1213) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:602` | `check_comparison_repair` | IT | [integrations/issues_scan.checks.py:1556](integrations/issues_scan.checks.py#L1556) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:717` | `check_local_reference` | IT | [integrations/issues_scan.checks.py:1559](integrations/issues_scan.checks.py#L1559) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:803` | `check_symbolic_string` | IT | [integrations/issues_scan.checks.py:1568](integrations/issues_scan.checks.py#L1568) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:903` | `check_reference_property_contract` | IT | [integrations/issues_scan.checks.py:1565](integrations/issues_scan.checks.py#L1565) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1003` | `check_reference_diagnostics` | IT | [integrations/issues_scan.checks.py:970](integrations/issues_scan.checks.py#L970) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1133` | `check_reference_identity_report` | IT | [integrations/issues_scan.checks.py:1562](integrations/issues_scan.checks.py#L1562) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1514` | `check_action_report` | IT | [integrations/issues_scan.checks.py:1530](integrations/issues_scan.checks.py#L1530) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1613` | `check_mismatch_display` | IT | [integrations/issues_scan.checks.py:1533](integrations/issues_scan.checks.py#L1533) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:1724` | `check_state_report` | IT | [integrations/issues_scan.checks.py:1536](integrations/issues_scan.checks.py#L1536) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:1917` | `check_nested_membership` | IT | [integrations/issues_scan.checks.py:1291](integrations/issues_scan.checks.py#L1291) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:1945` | `check_cloudtrail_membership` | IT | [integrations/issues_scan.checks.py:1319](integrations/issues_scan.checks.py#L1319) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2034` | `check_condition_diagnostics` | IT | [integrations/issues_scan.checks.py:1408](integrations/issues_scan.checks.py#L1408) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2147` | `check_scan_workflow` | IT | [integrations/issues_scan.checks.py:1521](integrations/issues_scan.checks.py#L1521) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:1289` | `check_summary_detail_cli` | IT | [integrations/issues_scan.checks.py:1539](integrations/issues_scan.checks.py#L1539) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 関数内抽出 |
-| `unknown/issues_scan.checks.py:2184` | `check_glue_secret_reference` | IT | [integrations/issues_scan.checks.py:1573](integrations/issues_scan.checks.py#L1573) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/issues_scan.checks.py:2184` | `check_glue_secret_reference` | IT | [integrations/issues_scan.checks.py:1659](integrations/issues_scan.checks.py#L1659) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2274` | `check_arn_array_reference_forms` | IT | [integrations/issues_scan.checks.py:1662](integrations/issues_scan.checks.py#L1662) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2337` | `check_eventbridge_reference_literals` | IT | [integrations/issues_scan.checks.py:1725](integrations/issues_scan.checks.py#L1725) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2395` | `check_glue_connection_names` | IT | [integrations/issues_scan.checks.py:1783](integrations/issues_scan.checks.py#L1783) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -415,7 +438,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/model_design.checks.py:1656` | `check_service_failure_protection` | IT | [integrations/model_design.checks.py:1368](integrations/model_design.checks.py#L1368) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_design.checks.py:1970` | `check_service_displays` | IT | [integrations/model_design.checks.py:1681](integrations/model_design.checks.py#L1681) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/model_design.checks.py:2092` | `check_observed_arn_authority` | IT | [integrations/model_design.checks.py:1773](integrations/model_design.checks.py#L1773) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/model_files.checks.py:38` | `check_resource_reading` | IT | [integrations/model_files.checks.py:11](integrations/model_files.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/model_files.checks.py:38` | `check_resource_reading` | IT | [integrations/model_files.checks.py:13](integrations/model_files.checks.py#L13) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:115` | `check_precision` | IT | [integrations/model_impact.checks.py:115](integrations/model_impact.checks.py#L115) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:161` | `check_identity_and_deletion` | IT | [integrations/model_impact.checks.py:161](integrations/model_impact.checks.py#L161) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:180` | `check_shared_environments` | IT | [integrations/model_impact.checks.py:180](integrations/model_impact.checks.py#L180) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -438,13 +461,13 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/model_templates.checks.py:409` | `check_invalid` | IT | [integrations/model_templates.checks.py:306](integrations/model_templates.checks.py#L306) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/model_templates.checks.py:434` | `check_sync` | IT | [integrations/model_templates.checks.py:331](integrations/model_templates.checks.py#L331) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/model_templates.checks.py:462` | `check_common_shape` | IT | [integrations/model_templates.checks.py:359](integrations/model_templates.checks.py#L359) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/policy_tables.checks.py:47` | `check_iam` | IT | [integrations/policy_tables.checks.py:11](integrations/policy_tables.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/policy_tables.checks.py:254` | `check_service_policies` | IT | [integrations/policy_tables.checks.py:218](integrations/policy_tables.checks.py#L218) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/policy_tables.checks.py:387` | `check_grouping_and_settings` | IT | [integrations/policy_tables.checks.py:351](integrations/policy_tables.checks.py#L351) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/policy_tables.checks.py:47` | `check_iam` | IT | [integrations/policy_tables.checks.py:12](integrations/policy_tables.checks.py#L12) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/policy_tables.checks.py:254` | `check_service_policies` | IT | [integrations/policy_tables.checks.py:443](integrations/policy_tables.checks.py#L443) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/policy_tables.checks.py:387` | `check_grouping_and_settings` | IT | [integrations/policy_tables.checks.py:446](integrations/policy_tables.checks.py#L446) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/producer-identifier-reference.checks.py:31` | `check` | IT | [integrations/producer-identifier-reference.checks.py:11](integrations/producer-identifier-reference.checks.py#L11) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `integrations/producer-name-reference.checks.py:29` | `check` | IT | [integrations/producer-name-reference.checks.py:29](integrations/producer-name-reference.checks.py#L29) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/raw-bucket-name-reference.checks.py:29` | `check` | IT | [integrations/raw-bucket-name-reference.checks.py:11](integrations/raw-bucket-name-reference.checks.py#L11) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `integrations/s3-bound-anchor.checks.py:37` | `check` | IT | [integrations/s3-bound-anchor.checks.py:37](integrations/s3-bound-anchor.checks.py#L37) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
+| `integrations/s3-bound-anchor.checks.py:37` | `check` | IT | [integrations/s3-bound-anchor.checks.py:39](integrations/s3-bound-anchor.checks.py#L39) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `integrations/security-group-input-reference.checks.py:29` | `check` | IT | [integrations/security-group-input-reference.checks.py:29](integrations/security-group-input-reference.checks.py#L29) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `support/service_contracts.py:26` | `check_kms` | IT | [integrations/service_contracts.py:25](integrations/service_contracts.py#L25) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/service_contracts.py:53` | `check_security_group` | IT | [integrations/service_contracts.py:52](integrations/service_contracts.py#L52) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -460,19 +483,18 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `support/service_contracts.py:401` | `check` | IT | [integrations/service_contracts.py:400](integrations/service_contracts.py#L400) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/service_contracts.py:410` | `check_fixtures` | IT | [integrations/service_contracts.py:409](integrations/service_contracts.py#L409) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `integrations/sync-existing-files.checks.py:30` | `check_failure_safety` | IT | [integrations/sync-existing-files.checks.py:30](integrations/sync-existing-files.checks.py#L30) | direct / 1 | CLI/subprocessまたはGitとの連携 | 変更不要 |
-| `unknown/sync-model.checks.py:81` | `check_publication_readback` | IT | [integrations/sync-model.checks.py:12](integrations/sync-model.checks.py#L12) | pytest / 9 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:129` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py:60](integrations/sync-model.checks.py#L60) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:157` | `check_changed_sidecar_requires_reservation` | IT | [integrations/sync-model.checks.py:88](integrations/sync-model.checks.py#L88) | pytest / 3 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:177` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py:108](integrations/sync-model.checks.py#L108) | pytest / 4 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:203` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py:134](integrations/sync-model.checks.py#L134) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:238` | `check_unchanged_sidecar_path_safety` | IT | [integrations/sync-model.checks.py:169](integrations/sync-model.checks.py#L169) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:250` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py:181](integrations/sync-model.checks.py#L181) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:330` | `check_failure_counts` | IT | [integrations/sync-model.checks.py:193](integrations/sync-model.checks.py#L193) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:376` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py:239](integrations/sync-model.checks.py#L239) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:402` | `check_required_preflight` | IT | [integrations/sync-model.checks.py:266](integrations/sync-model.checks.py#L266) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:485` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py:349](integrations/sync-model.checks.py#L349) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:552` | `check_workflow` | IT | [integrations/sync-model.checks.py:410](integrations/sync-model.checks.py#L410) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:772` | `check_projection` | IT | [integrations/sync-model.checks.py:626](integrations/sync-model.checks.py#L626) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:81` | `check_publication_readback` | IT | [integrations/sync-model.checks.py:14](integrations/sync-model.checks.py#L14) | pytest / 9 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:129` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py:62](integrations/sync-model.checks.py#L62) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:157` | `check_changed_sidecar_requires_reservation` | IT | [integrations/sync-model.checks.py:90](integrations/sync-model.checks.py#L90) | pytest / 3 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:177` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py:110](integrations/sync-model.checks.py#L110) | pytest / 4 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:203` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py:136](integrations/sync-model.checks.py#L136) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:238` | `check_unchanged_sidecar_path_safety` | IT | [integrations/sync-model.checks.py:171](integrations/sync-model.checks.py#L171) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:250` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py:183](integrations/sync-model.checks.py#L183) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:330` | `check_failure_counts` | IT | [integrations/sync-model.checks.py:195](integrations/sync-model.checks.py#L195) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:376` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py:241](integrations/sync-model.checks.py#L241) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:402` | `check_required_preflight` | IT | [integrations/sync-model.checks.py:268](integrations/sync-model.checks.py#L268) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:485` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py:351](integrations/sync-model.checks.py#L351) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:552` | `check_workflow` | IT | [integrations/sync-model.checks.py:412](integrations/sync-model.checks.py#L412) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:72` | `check_identity_changes` | IT | [integrations/task_contract.checks.py:84](integrations/task_contract.checks.py#L84) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:101` | `check_identity_fallback` | IT | [integrations/task_contract.checks.py:117](integrations/task_contract.checks.py#L117) | pytest / 16 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:145` | `check_identity_environment` | IT | [integrations/task_contract.checks.py:161](integrations/task_contract.checks.py#L161) | pytest / 9 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -489,8 +511,8 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/task_contract.checks.py:627` | `check_deferred_validation` | IT | [integrations/task_contract.checks.py:642](integrations/task_contract.checks.py#L642) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:663` | `check_automatic_retry` | IT | [integrations/task_contract.checks.py:678](integrations/task_contract.checks.py#L678) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/used-definition-inputs.checks.py:29` | `check` | IT | [integrations/used-definition-inputs.checks.py:29](integrations/used-definition-inputs.checks.py#L29) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `support/validation_checks/cloudformation.py:304` | `check_cloudformation_stack_design` | IT | [integrations/validation_checks/cloudformation.py:13](integrations/validation_checks/cloudformation.py#L13) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `support/validation_checks/cloudformation.py:373` | `check_stack_mapping_targets` | IT | [integrations/validation_checks/cloudformation.py:82](integrations/validation_checks/cloudformation.py#L82) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `support/validation_checks/cloudformation.py:304` | `check_cloudformation_stack_design` | IT | [integrations/validation_checks/cloudformation.py:15](integrations/validation_checks/cloudformation.py#L15) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `support/validation_checks/cloudformation.py:373` | `check_stack_mapping_targets` | IT | [integrations/validation_checks/cloudformation.py:84](integrations/validation_checks/cloudformation.py#L84) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `support/validation_checks/design.py:130` | `check_description_design_constraints` | IT | [integrations/validation_checks/design.py:16](integrations/validation_checks/design.py#L16) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:19` | `check_identifier_propagation` | IT | [integrations/validation_checks/references.py:13](integrations/validation_checks/references.py#L13) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:88` | `check_array_source_role_links` | IT | [integrations/validation_checks/references.py:82](integrations/validation_checks/references.py#L82) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -507,8 +529,8 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `support/validation_checks/task.py:143` | `check_task_type_dispatch` | IT | [integrations/validation_checks/task.py:156](integrations/validation_checks/task.py#L156) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `support/validation_checks/task.py:157` | `check_task_type_cases` | IT | [integrations/validation_checks/task.py:170](integrations/validation_checks/task.py#L170) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:191` | `check_cli` | IT | [integrations/validation_checks/terraform.py:28](integrations/validation_checks/terraform.py#L28) | direct / 1 | CLI/subprocessまたはGitとの連携 | 関数内抽出 |
-| `unknown/validation_scope.checks.py:39` | `check_single_target_cache` | IT | [integrations/validation_scope.checks.py:11](integrations/validation_scope.checks.py#L11) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/validation_scope.checks.py:124` | `check_template_consumers` | IT | [integrations/validation_scope.checks.py:95](integrations/validation_scope.checks.py#L95) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/validation_scope.checks.py:39` | `check_single_target_cache` | IT | [integrations/validation_scope.checks.py:13](integrations/validation_scope.checks.py#L13) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/validation_scope.checks.py:124` | `check_template_consumers` | IT | [integrations/validation_scope.checks.py:97](integrations/validation_scope.checks.py#L97) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/worktree_python.checks.py:33` | `check_output_decoding` | IT | [integrations/worktree_python.checks.py:11](integrations/worktree_python.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/worktree_python.checks.py:54` | `check_setup` | IT | [integrations/worktree_python.checks.py:32](integrations/worktree_python.checks.py#L32) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/worktree_python.checks.py:141` | `check_real_global` | IT | [integrations/worktree_python.checks.py:111](integrations/worktree_python.checks.py#L111) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -516,17 +538,22 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/worktree_python.checks.py:236` | `check_parallel_fallback` | IT | [integrations/worktree_python.checks.py:204](integrations/worktree_python.checks.py#L204) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/worktree_python.checks.py:307` | `check_symlink_safety` | IT | [integrations/worktree_python.checks.py:245](integrations/worktree_python.checks.py#L245) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/worktree_task.checks.py:103` | `check_success_and_empty` | IT | [integrations/worktree_task.checks.py:11](integrations/worktree_task.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:132` | `check_finalize_line_endings` | IT | [integrations/worktree_task.checks.py:40](integrations/worktree_task.checks.py#L40) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:157` | `check_incomplete_and_ownership` | IT | [integrations/worktree_task.checks.py:65](integrations/worktree_task.checks.py#L65) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:204` | `check_dirty_base_and_retry` | IT | [integrations/worktree_task.checks.py:112](integrations/worktree_task.checks.py#L112) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:225` | `check_ahead_and_rebase_conflict` | IT | [integrations/worktree_task.checks.py:133](integrations/worktree_task.checks.py#L133) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:252` | `check_collisions_and_base_selection` | IT | [integrations/worktree_task.checks.py:160](integrations/worktree_task.checks.py#L160) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:284` | `check_directory_layout` | IT | [integrations/worktree_task.checks.py:192](integrations/worktree_task.checks.py#L192) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:312` | `check_metadata_storage` | IT | [integrations/worktree_task.checks.py:220](integrations/worktree_task.checks.py#L220) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:365` | `check_cleanup_failure_and_retry` | IT | [integrations/worktree_task.checks.py:267](integrations/worktree_task.checks.py#L267) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:403` | `check_merge_retry_and_commit_failure` | IT | [integrations/worktree_task.checks.py:305](integrations/worktree_task.checks.py#L305) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:454` | `check_human_approved_validation_failure` | IT | [integrations/worktree_task.checks.py:356](integrations/worktree_task.checks.py#L356) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/worktree_task.checks.py:493` | `check_real_loop_integration` | IT | [integrations/worktree_task.checks.py:395](integrations/worktree_task.checks.py#L395) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:132` | `check_finalize_line_endings` | IT | [integrations/worktree_task.checks.py:42](integrations/worktree_task.checks.py#L42) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:157` | `check_incomplete_and_ownership` | IT | [integrations/worktree_task.checks.py:67](integrations/worktree_task.checks.py#L67) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:204` | `check_dirty_base_and_retry` | IT | [integrations/worktree_task.checks.py:114](integrations/worktree_task.checks.py#L114) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:225` | `check_ahead_and_rebase_conflict` | IT | [integrations/worktree_task.checks.py:135](integrations/worktree_task.checks.py#L135) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:252` | `check_collisions_and_base_selection` | IT | [integrations/worktree_task.checks.py:162](integrations/worktree_task.checks.py#L162) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:284` | `check_directory_layout` | IT | [integrations/worktree_task.checks.py:194](integrations/worktree_task.checks.py#L194) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:312` | `check_metadata_storage` | IT | [integrations/worktree_task.checks.py:222](integrations/worktree_task.checks.py#L222) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:365` | `check_cleanup_failure_and_retry` | IT | [integrations/worktree_task.checks.py:269](integrations/worktree_task.checks.py#L269) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:403` | `check_merge_retry_and_commit_failure` | IT | [integrations/worktree_task.checks.py:307](integrations/worktree_task.checks.py#L307) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:454` | `check_human_approved_validation_failure` | IT | [integrations/worktree_task.checks.py:358](integrations/worktree_task.checks.py#L358) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/worktree_task.checks.py:493` | `check_real_loop_integration` | IT | [integrations/worktree_task.checks.py:397](integrations/worktree_task.checks.py#L397) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `integrations/sync-model.checks.py:638` | `check_publication_lock_wait` | IT | [integrations/sync-model.checks.py:638](integrations/sync-model.checks.py#L638) | pytest / 1 | sync-performance: real publication lock contention and reentrancy | 検証本体・assertを保持 |
+| `integrations/sync-model.checks.py:667` | `check_generation_output_compatibility` | IT | [integrations/sync-model.checks.py:667](integrations/sync-model.checks.py#L667) | pytest / 1 | sync-performance: generated bytes and stdout compatibility | 検証本体・assertを保持 |
+| `integrations/sync-model.checks.py:685` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py:685](integrations/sync-model.checks.py#L685) | pytest / 1 | sync-performance: two-consumer CLI write/check and invalid scope | 検証本体・assertを保持 |
+| `integrations/sync-model.checks.py:731` | `check_input_mutation` | IT | [integrations/sync-model.checks.py:731](integrations/sync-model.checks.py#L731) | pytest / 12 | sync-performance: four source kinds x change/delete/add, output preservation | 検証本体・assertを保持 |
+| `integrations/task_contract.checks.py:777` | `check_managed_authority_integration` | IT | [integrations/task_contract.checks.py:777](integrations/task_contract.checks.py#L777) | pytest / 1 | existing current-HEAD integration case; add missing ledger registration | 検証本体・assertを保持 |
 
 | `integrations/check-model-aws.checks.py:644` | `check_domains` | IT | [integrations/check-model-aws.checks.py:644](integrations/check-model-aws.checks.py#L644) | pytest / 9 | 既存callbackを実行するパラメータ化入口。callbackと重複加算しない | 現在の入口 |
 
@@ -763,7 +790,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/sync-model.checks.py::check_required_preflight` | L293: 2 ((False, True))<br>L319: 4 (('', '``', '`""`', '`UNSET`'))<br>L298: 2 ((False, True))<br>L288: 動的 (values.items()) |
 | `integrations/sync-model.checks.py::check_required_property_parents` | L365: 動的 (enumerate((('ConnectionInput.Name', '`sample`'), ('Name', '[Connection](#glue-sample)'), ('CatalogId', '`123456789012`'), ('ConnectionInput.ConnectionType', '`JDBC`'), ('ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone', '`ap-northeast-1a`'), ('ConnectionInput.ValidateCredentials', '`true`')), 1))<br>L396: 2 (('ConnectionInput', 'CatalogId'))<br>L397: 動的 (values.items())<br>L399: 動的 (values.items())<br>L406: 動的 (design_errors(original.replace('`true`', '`not-a-boolean`')))<br>L379: 動的 (values.items())<br>L405: 動的 (design_errors(content))<br>L403: 動的 (original.splitlines()) |
 | `integrations/sync-model.checks.py::check_workflow` | 1（内部パラメータ化なし） |
-| `integrations/sync-model.checks.py::check_projection` | 1（内部パラメータ化なし） |
 | `integrations/task_contract.checks.py::check_identity_changes` | 外部Git設定: 通常→safe設定のfallback→通常復帰。既存identity/呼出回数assertを維持。<br>L106: 3 (('one', str(root / 'two'), 'one')) |
 | `integrations/task_contract.checks.py::check_identity_fallback` | 1（内部パラメータ化なし） |
 | `integrations/task_contract.checks.py::check_identity_environment` | 1（内部パラメータ化なし） |
@@ -1390,6 +1416,9 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `support/issues_scan_fixtures.py` | write, write_report, render_iac, fixture, task, compare, mutate_template, expect_error, concurrency, legacy_mechanical, required_context, baseline_input, worker, benchmark, summary_fixture, protected_sources, scan_project |
 | `support/json_yaml_document_hash_fixtures.py` | import/定数/共通fixture |
 | `support/lambda_permission_fixtures.py` | fixture, rejects |
+| `support/it_fixture_bundle.py` | fingerprint, protect, build, bundle, source |
+| `support/it_workspace.py` | _copy_tree, populate, copy_framework |
+| `support/rotation_schedule_fixtures.py` | fixture |
 | `support/model_design_fixtures.py` | model, text, roundtrip, root, project, main |
 | `support/model_files_fixtures.py` | import/定数/共通fixture |
 | `support/model_parameter_inputs_fixtures.py` | rejected, declaration, fixture, root |
@@ -1403,8 +1432,8 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `support/regression_guard_fixtures.py` | rejected |
 | `support/resource_mode_fixtures.py` | model |
 | `support/security_group_tables_fixtures.py` | import/定数/共通fixture |
-| `support/service_fixtures.py` | input_spec, service, typed_services, input_templates |
-| `support/sync_model_fixtures.py` | generated_policy |
+| `support/service_fixtures.py` | input_spec, service, build_typed_services, build_input_templates, typed_services, input_templates |
+| `support/sync_model_fixtures.py` | build_generated_policy, generated_policy |
 | `support/validation_cache_fixtures.py` | import/定数/共通fixture |
 | `support/validation_scope_fixtures.py` | import/定数/共通fixture |
 | `support/validator.py` | load, project, git_project, commit, write, schema_validator |

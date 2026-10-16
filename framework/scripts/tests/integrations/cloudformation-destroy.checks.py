@@ -39,6 +39,8 @@ SPEC.loader.exec_module(M)
 TARGET = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
 
 
+from support.it_workspace import copy_framework
+
 def rejects(action, fragment):
     with pytest.raises((ValueError, M.Blocked)) as error:
         action()
@@ -265,7 +267,7 @@ def fixture(root, names, models=False):
                        {"name": name, "deployOrder": order, "template": name + ".yaml", "parameters": name + ".json"}.items()})
     write_model(root / "model/dev/123456789012/cloudformation-stacks.properties", "\n".join(key + "=" + value for key, value in values.items()) + "\n")
     if models:
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC,EC2.Subnet",
                   "display.service.title": "# EC2 詳細設計"}
         for number, name in enumerate(names, 1):
@@ -509,7 +511,7 @@ def check_observed(tmp_path):
 
 
 def main():
-    return run(__file__, ['check_order_and_safety', 'check_unused_export', 'check_absence', 'check_controller', 'check_observed'], 'cloudformation-destroy: PASS (D01-D16; fake AWS only)')
+    return run(__file__, message='cloudformation-destroy: PASS (D01-D16; fake AWS only)')
 
 
 if __name__ == "__main__":

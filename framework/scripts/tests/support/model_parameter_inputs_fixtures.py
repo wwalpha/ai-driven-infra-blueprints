@@ -39,6 +39,8 @@ import sync_runtime
 
 ROOT = Path(__file__).resolve().parents[4]
 
+from support.it_workspace import copy_framework
+
 def rejected(function, phrase):
     try:
         function()
@@ -51,7 +53,7 @@ def declaration(name, kind='string', **fields):
     return '# parameter: '+name+' '+t.json_text({'type':kind,'description':'入力 '+name,'required':True,**fields})
 
 def fixture(root):
-    shutil.copytree(ROOT/'framework', root/'framework')
+    copy_framework(root / 'framework')
     environments = ['preview', 'prod']
     (root/'project.json').write_text(json.dumps({'projectName':'app','targets':[
         {'environment':env,'alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}

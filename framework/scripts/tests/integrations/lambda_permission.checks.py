@@ -8,10 +8,12 @@ if not __debug__:
 
 from support.lambda_permission_fixtures import *
 
+from support.it_workspace import copy_framework
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        shutil.copytree(ROOT / "framework", root / "framework")
+        copy_framework(root / 'framework')
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
             {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         path = root / "docs/designs/dev/123456789012/lambda.md"
