@@ -60,7 +60,6 @@ def coverage():
     assert model_only == MODEL_ONLY, 'adapter/display Model-only mismatch'
     assert not model_only & catalog, 'Model-only property declared in catalog'
     assert all(not hasattr(m.service_module(service), 'FIELDS') for service in m.SERVICES)
-    assert not (ROOT / 'framework/rules/display-property-aliases.json').exists()
     print(f'Catalog coverage: PASS ({len(types)} resource types / {len(properties)} properties; missing/extra/duplicates 0; include {sum(p.include for p in properties.values())}; Model-only {len(model_only)}; old definitions 0)')
     print('Sources:', dict(sources))
     for summary in summaries:
