@@ -1,0 +1,116 @@
+version: 3
+service: athena
+getters:
+  base:
+    kind: adapter
+    resources: [Athena.WorkGroup]
+  provider-athena-workgroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Athena.WorkGroup
+    identifier: [/properties/Name]
+resourceTypes:
+  Athena.WorkGroup:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      State:
+        model: {include: true}
+        display: {show: true, name: State}
+        access: [read-write]
+        aws: {getter: base, path: State, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: 'Tags[].Value', normalize: typed}
+      WorkGroupConfiguration:
+        model: {include: false}
+        display: {show: false, name: WorkGroupConfiguration}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration, normalize: typed}
+      WorkGroupConfiguration.BytesScannedCutoffPerQuery:
+        model: {include: false}
+        display: {show: false, name: BytesScannedCutoffPerQuery}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration.BytesScannedCutoffPerQuery, normalize: typed}
+      WorkGroupConfiguration.EnforceWorkGroupConfiguration:
+        model: {include: true}
+        display: {show: true, name: EnforceWorkGroupConfiguration}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.EnforceWorkGroupConfiguration, normalize: typed}
+      WorkGroupConfiguration.EngineVersion:
+        model: {include: false}
+        display: {show: false, name: EngineVersion}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration.EngineVersion, normalize: typed}
+      WorkGroupConfiguration.EngineVersion.SelectedEngineVersion:
+        model: {include: true}
+        display: {show: true, name: EngineVersion.SelectedEngineVersion}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.EngineVersion.SelectedEngineVersion, normalize: typed}
+      WorkGroupConfiguration.PublishCloudWatchMetricsEnabled:
+        model: {include: true}
+        display: {show: true, name: PublishCloudWatchMetricsEnabled}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.PublishCloudWatchMetricsEnabled, normalize: typed}
+      WorkGroupConfiguration.RequesterPaysEnabled:
+        model: {include: true}
+        display: {show: true, name: RequesterPaysEnabled}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.RequesterPaysEnabled, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration:
+        model: {include: false}
+        display: {show: false, name: ResultConfiguration}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration.ResultConfiguration, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration.AclConfiguration.S3AclOption:
+        model: {include: false}
+        display: {show: false, name: ResultConfiguration.AclConfiguration.S3AclOption}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration.ResultConfiguration.AclConfiguration.S3AclOption, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration:
+        model: {include: false}
+        display: {show: false, name: ResultConfiguration.EncryptionConfiguration}
+        access: [read-write]
+        aws: {getter: provider-athena-workgroup, path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.EncryptionOption:
+        model: {include: true}
+        display: {show: true, name: ResultConfiguration.Encryption.Option}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.ResultConfiguration.EncryptionConfiguration.EncryptionOption, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey:
+        model: {include: true}
+        display: {show: true, name: ResultConfiguration.Encryption.KmsKey}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.ResultConfiguration.EncryptionConfiguration.KmsKey, normalize: kms}
+      WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner:
+        model: {include: true}
+        display: {show: true, name: ResultConfiguration.ExpectedBucketOwner}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.ResultConfiguration.ExpectedBucketOwner, normalize: typed}
+      WorkGroupConfiguration.ResultConfiguration.OutputLocation:
+        model: {include: true}
+        display: {show: true, name: ResultConfiguration.OutputLocation}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.ResultConfiguration.OutputLocation, normalize: typed}

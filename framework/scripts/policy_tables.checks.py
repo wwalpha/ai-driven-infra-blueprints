@@ -472,6 +472,21 @@ check_service_policies = service_policy_checks
 check_grouping_and_settings = grouping_and_settings_checks
 
 
+@pytest.mark.parametrize('property_name', ['KMS.Key.KeyPolicy', 'S3.BucketPolicy.PolicyDocument'])
+@pytest.mark.parametrize('version', ['2012-10-17', '2008-10-17'])
+def check_statement_metadata(property_name, version):
+    from policy_tables import Policy, policy_document_lines
+    document = {'Id': 'key-default', 'Version': version,
+                'Statement': [{'Effect': 'Allow', 'Action': 'kms:DescribeKey', 'Resource': '*'}]}
+    original = json.dumps(document)
+    policy = Policy('ResourcePolicy', 'Policy', 'policy.json', 'policy', property_name)
+    rendered = '\n'.join(policy_document_lines(document, policy))
+    assert '| Id |' not in rendered and '| Version |' not in rendered
+    assert '| No. | Effect | Action | Resource |' in rendered
+    assert '`kms:DescribeKey`' in rendered
+    assert json.dumps(document) == original
+
+
 def check_lossless_generation():
     from policy_tables import Policy, policy_document_lines, validate_policy_document
     policy = Policy('ResourcePolicy', 'Policy', 'policy.json', 'policy', 'Logs.ResourcePolicy.PolicyDocument')
@@ -483,7 +498,7 @@ def check_lossless_generation():
 
 
 def main():
-    return run(__file__, ['check_iam_artifact_names', 'check_iam', 'check_service_policies', 'check_grouping_and_settings', 'check_lossless_generation'])
+    return run(__file__, ['check_iam_artifact_names', 'check_iam', 'check_service_policies', 'check_grouping_and_settings', 'check_statement_metadata', 'check_lossless_generation'])
 
 
 if __name__ == "__main__":

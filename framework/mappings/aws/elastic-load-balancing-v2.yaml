@@ -1,0 +1,422 @@
+version: 3
+service: elastic-load-balancing-v2
+getters:
+  provider-elasticloadbalancingv2-listener:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ElasticLoadBalancingV2.Listener
+    identifier: [/properties/ListenerArn]
+  sdk-elasticloadbalancingv2-listenercertificate:
+    kind: sdk
+    service: elbv2
+    operation: describe_listener_certificates
+    result: $
+    resourceType: ElasticLoadBalancingV2.ListenerCertificate
+  provider-elasticloadbalancingv2-listenerrule:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ElasticLoadBalancingV2.ListenerRule
+    identifier: [/properties/RuleArn]
+  provider-elasticloadbalancingv2-loadbalancer:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ElasticLoadBalancingV2.LoadBalancer
+    identifier: [/properties/LoadBalancerArn]
+  provider-elasticloadbalancingv2-targetgroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ElasticLoadBalancingV2.TargetGroup
+    identifier: [/properties/TargetGroupArn]
+resourceTypes:
+  ElasticLoadBalancingV2.Listener:
+    properties:
+      AlpnPolicy[]:
+        model: {include: false}
+        display: {show: false, name: 'AlpnPolicy[]'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'AlpnPolicy[]', normalize: typed}
+      Certificates[].CertificateArn:
+        model: {include: false}
+        display: {show: false, name: 'Certificates[].CertificateArn'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'Certificates[].CertificateArn', normalize: typed}
+      DefaultActions:
+        model: {include: false}
+        display: {show: false, name: DefaultActions}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: DefaultActions, normalize: typed}
+      ListenerAttributes[].Key:
+        model: {include: false}
+        display: {show: false, name: 'ListenerAttributes[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'ListenerAttributes[].Key', normalize: typed}
+      ListenerAttributes[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ListenerAttributes[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'ListenerAttributes[].Value', normalize: typed}
+      LoadBalancerArn:
+        model: {include: false}
+        display: {show: false, name: LoadBalancerArn}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: LoadBalancerArn, normalize: typed}
+      MutualAuthentication.AdvertiseTrustStoreCaNames:
+        model: {include: false}
+        display: {show: false, name: MutualAuthentication.AdvertiseTrustStoreCaNames}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: MutualAuthentication.AdvertiseTrustStoreCaNames, normalize: typed}
+      MutualAuthentication.IgnoreClientCertificateExpiry:
+        model: {include: false}
+        display: {show: false, name: MutualAuthentication.IgnoreClientCertificateExpiry}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: MutualAuthentication.IgnoreClientCertificateExpiry, normalize: typed}
+      MutualAuthentication.Mode:
+        model: {include: false}
+        display: {show: false, name: MutualAuthentication.Mode}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: MutualAuthentication.Mode, normalize: typed}
+      MutualAuthentication.TrustStoreArn:
+        model: {include: false}
+        display: {show: false, name: MutualAuthentication.TrustStoreArn}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: MutualAuthentication.TrustStoreArn, normalize: typed}
+      Port:
+        model: {include: false}
+        display: {show: false, name: Port}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: Port, normalize: typed}
+      Protocol:
+        model: {include: false}
+        display: {show: false, name: Protocol}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: Protocol, normalize: typed}
+      SslPolicy:
+        model: {include: false}
+        display: {show: false, name: SslPolicy}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: SslPolicy, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listener, path: 'Tags[].Value', normalize: typed}
+  ElasticLoadBalancingV2.ListenerCertificate:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        source:
+          kind: provider-output
+          location: provider ElasticLoadBalancingV2.ListenerCertificate Id
+          constraint: Provider-assigned output; this resource has no read handler and the native API does not return this independent resource identifier.
+            Do not substitute a Model display label.
+          classification: sdk_unavailable
+      Certificates[].CertificateArn:
+        model: {include: false}
+        display: {show: false, name: 'Certificates[].CertificateArn'}
+        access: [read-write]
+        aws: {getter: sdk-elasticloadbalancingv2-listenercertificate, path: 'Certificates[].CertificateArn', normalize: typed}
+      ListenerArn:
+        model: {include: false}
+        display: {show: false, name: ListenerArn}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row ListenerArn; describe_listener_certificates request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+  ElasticLoadBalancingV2.ListenerRule:
+    properties:
+      Actions:
+        model: {include: false}
+        display: {show: false, name: Actions}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: Actions, normalize: typed}
+      Conditions:
+        model: {include: false}
+        display: {show: false, name: Conditions}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: Conditions, normalize: typed}
+      ListenerArn:
+        model: {include: false}
+        display: {show: false, name: ListenerArn}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row ElasticLoadBalancingV2.ListenerRule.ListenerArn
+          constraint: Pinned provider schema declares /properties/ListenerArn write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Priority:
+        model: {include: false}
+        display: {show: false, name: Priority}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: Priority, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: 'Tags[].Value', normalize: typed}
+      Transforms:
+        model: {include: false}
+        display: {show: false, name: Transforms}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-listenerrule, path: Transforms, normalize: typed}
+  ElasticLoadBalancingV2.LoadBalancer:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: Name, normalize: typed}
+      EnableCapacityReservationProvisionStabilize:
+        model: {include: false}
+        display: {show: false, name: EnableCapacityReservationProvisionStabilize}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ElasticLoadBalancingV2.LoadBalancer.EnableCapacityReservationProvisionStabilize
+          constraint: Pinned provider schema declares /properties/EnableCapacityReservationProvisionStabilize write-only. Retain the original Model input;
+            a provider read cannot confirm this input.
+          classification: local_metadata
+      EnablePrefixForIpv6SourceNat:
+        model: {include: false}
+        display: {show: false, name: EnablePrefixForIpv6SourceNat}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: EnablePrefixForIpv6SourceNat, normalize: typed}
+      EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic:
+        model: {include: false}
+        display: {show: false, name: EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic, normalize: typed}
+      IpAddressType:
+        model: {include: false}
+        display: {show: false, name: IpAddressType}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: IpAddressType, normalize: typed}
+      Ipv4IpamPoolId:
+        model: {include: false}
+        display: {show: false, name: Ipv4IpamPoolId}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: Ipv4IpamPoolId, normalize: typed}
+      LoadBalancerAttributes[].Key:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancerAttributes[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'LoadBalancerAttributes[].Key', normalize: typed}
+      LoadBalancerAttributes[].Value:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancerAttributes[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'LoadBalancerAttributes[].Value', normalize: typed}
+      MinimumLoadBalancerCapacity.CapacityUnits:
+        model: {include: false}
+        display: {show: false, name: MinimumLoadBalancerCapacity.CapacityUnits}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: MinimumLoadBalancerCapacity.CapacityUnits, normalize: typed}
+      Scheme:
+        model: {include: false}
+        display: {show: false, name: Scheme}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: Scheme, normalize: typed}
+      SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SecurityGroups[]', normalize: typed}
+      SubnetMappings[].AllocationId:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].AllocationId'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SubnetMappings[].AllocationId', normalize: typed}
+      SubnetMappings[].IPv6Address:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].IPv6Address'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SubnetMappings[].IPv6Address', normalize: typed}
+      SubnetMappings[].PrivateIPv4Address:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].PrivateIPv4Address'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SubnetMappings[].PrivateIPv4Address', normalize: typed}
+      SubnetMappings[].SourceNatIpv6Prefix:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].SourceNatIpv6Prefix'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SubnetMappings[].SourceNatIpv6Prefix', normalize: typed}
+      SubnetMappings[].SubnetId:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].SubnetId'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'SubnetMappings[].SubnetId', normalize: typed}
+      Subnets[]:
+        model: {include: false}
+        display: {show: false, name: 'Subnets[]'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'Subnets[]', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: 'Tags[].Value', normalize: typed}
+      Type:
+        model: {include: false}
+        display: {show: false, name: Type}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-loadbalancer, path: Type, normalize: typed}
+  ElasticLoadBalancingV2.TargetGroup:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: Name, normalize: typed}
+      HealthCheckEnabled:
+        model: {include: false}
+        display: {show: false, name: HealthCheckEnabled}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckEnabled, normalize: typed}
+      HealthCheckIntervalSeconds:
+        model: {include: false}
+        display: {show: false, name: HealthCheckIntervalSeconds}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckIntervalSeconds, normalize: typed}
+      HealthCheckPath:
+        model: {include: false}
+        display: {show: false, name: HealthCheckPath}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckPath, normalize: typed}
+      HealthCheckPort:
+        model: {include: false}
+        display: {show: false, name: HealthCheckPort}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckPort, normalize: typed}
+      HealthCheckProtocol:
+        model: {include: false}
+        display: {show: false, name: HealthCheckProtocol}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckProtocol, normalize: typed}
+      HealthCheckTimeoutSeconds:
+        model: {include: false}
+        display: {show: false, name: HealthCheckTimeoutSeconds}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthCheckTimeoutSeconds, normalize: typed}
+      HealthyThresholdCount:
+        model: {include: false}
+        display: {show: false, name: HealthyThresholdCount}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: HealthyThresholdCount, normalize: typed}
+      IpAddressType:
+        model: {include: false}
+        display: {show: false, name: IpAddressType}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: IpAddressType, normalize: typed}
+      Matcher.GrpcCode:
+        model: {include: false}
+        display: {show: false, name: Matcher.GrpcCode}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: Matcher.GrpcCode, normalize: typed}
+      Matcher.HttpCode:
+        model: {include: false}
+        display: {show: false, name: Matcher.HttpCode}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: Matcher.HttpCode, normalize: typed}
+      Port:
+        model: {include: false}
+        display: {show: false, name: Port}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: Port, normalize: typed}
+      Protocol:
+        model: {include: false}
+        display: {show: false, name: Protocol}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: Protocol, normalize: typed}
+      ProtocolVersion:
+        model: {include: false}
+        display: {show: false, name: ProtocolVersion}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: ProtocolVersion, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Tags[].Value', normalize: typed}
+      TargetControlPort:
+        model: {include: false}
+        display: {show: false, name: TargetControlPort}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: TargetControlPort, normalize: typed}
+      TargetGroupAttributes[].Key:
+        model: {include: false}
+        display: {show: false, name: 'TargetGroupAttributes[].Key'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'TargetGroupAttributes[].Key', normalize: typed}
+      TargetGroupAttributes[].Value:
+        model: {include: false}
+        display: {show: false, name: 'TargetGroupAttributes[].Value'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'TargetGroupAttributes[].Value', normalize: typed}
+      TargetType:
+        model: {include: false}
+        display: {show: false, name: TargetType}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: TargetType, normalize: typed}
+      Targets[].AvailabilityZone:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].AvailabilityZone'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Targets[].AvailabilityZone', normalize: typed}
+      Targets[].Id:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Id'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Targets[].Id', normalize: typed}
+      Targets[].Port:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Port'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Targets[].Port', normalize: typed}
+      Targets[].QuicServerId:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].QuicServerId'}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: 'Targets[].QuicServerId', normalize: typed}
+      UnhealthyThresholdCount:
+        model: {include: false}
+        display: {show: false, name: UnhealthyThresholdCount}
+        access: [read-write]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: UnhealthyThresholdCount, normalize: typed}
+      VpcId:
+        model: {include: false}
+        display: {show: false, name: VpcId}
+        access: [create-only]
+        aws: {getter: provider-elasticloadbalancingv2-targetgroup, path: VpcId, normalize: typed}

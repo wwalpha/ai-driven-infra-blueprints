@@ -1,0 +1,120 @@
+version: 3
+service: data-firehose
+getters:
+  base:
+    kind: adapter
+    resources: [KinesisFirehose.DeliveryStream]
+  provider-kinesisfirehose-deliverystream:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: KinesisFirehose.DeliveryStream
+    identifier: [/properties/DeliveryStreamName]
+  destination:
+    kind: adapter
+    resources: [KinesisFirehose.DeliveryStream]
+  sdk-kinesisfirehose-deliverystream:
+    kind: sdk
+    service: firehose
+    operation: describe_delivery_stream
+    result: DeliveryStreamDescription.Destinations[].S3DestinationDescription
+    resourceType: KinesisFirehose.DeliveryStream
+resourceTypes:
+  KinesisFirehose.DeliveryStream:
+    identity:
+      getter: base
+      idPath: DeliveryStreamName
+      arnPath: DeliveryStreamARN
+      nameProperty: DeliveryStreamName
+    properties:
+      DeliveryStreamName:
+        model: {include: true}
+        display: {show: true, name: DeliveryStreamName}
+        access: [create-only]
+        aws: {getter: base, path: DeliveryStreamName, normalize: typed}
+      DeliveryStreamEncryptionConfigurationInput.KeyARN:
+        model: {include: false}
+        display: {show: false, name: DeliveryStreamEncryptionConfigurationInput.KeyARN}
+        access: [read-write]
+        aws: {getter: provider-kinesisfirehose-deliverystream, path: DeliveryStreamEncryptionConfigurationInput.KeyARN, normalize: typed}
+      DeliveryStreamEncryptionConfigurationInput.KeyType:
+        model: {include: true}
+        display: {show: true, name: DeliveryStreamEncryptionConfigurationInput.KeyType}
+        access: [read-write]
+        aws: {getter: base, path: DeliveryStreamEncryptionConfiguration.KeyType, normalize: typed}
+      DeliveryStreamType:
+        model: {include: true}
+        display: {show: true, name: DeliveryStreamType}
+        access: [create-only]
+        aws: {getter: base, path: DeliveryStreamType, normalize: typed}
+      S3DestinationConfiguration.BucketARN:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.BucketARN}
+        access: [write-only]
+        aws: {getter: destination, path: BucketARN, normalize: arn}
+      S3DestinationConfiguration.BufferingHints.IntervalInSeconds:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.BufferingHints.IntervalInSeconds}
+        access: [write-only]
+        aws: {getter: destination, path: BufferingHints.IntervalInSeconds, normalize: typed}
+      S3DestinationConfiguration.BufferingHints.SizeInMBs:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.BufferingHints.SizeInMBs}
+        access: [write-only]
+        aws: {getter: destination, path: BufferingHints.SizeInMBs, normalize: typed}
+      S3DestinationConfiguration.CloudWatchLoggingOptions.Enabled:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.CloudWatchLoggingOptions.Enabled}
+        access: [write-only]
+        aws: {getter: destination, path: CloudWatchLoggingOptions.Enabled, normalize: typed}
+      S3DestinationConfiguration.CloudWatchLoggingOptions.LogGroupName:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.CloudWatchLoggingOptions.LogGroupName}
+        access: [write-only]
+        aws: {getter: destination, path: CloudWatchLoggingOptions.LogGroupName, normalize: name}
+      S3DestinationConfiguration.CloudWatchLoggingOptions.LogStreamName:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.CloudWatchLoggingOptions.LogStreamName}
+        access: [write-only]
+        aws: {getter: destination, path: CloudWatchLoggingOptions.LogStreamName, normalize: typed}
+      S3DestinationConfiguration.CompressionFormat:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.CompressionFormat}
+        access: [write-only]
+        aws: {getter: destination, path: CompressionFormat, normalize: typed}
+      S3DestinationConfiguration.EncryptionConfiguration.KMSEncryptionConfig.AWSKMSKeyARN:
+        model: {include: false}
+        display: {show: false, name: S3DestinationConfiguration.EncryptionConfiguration.KMSEncryptionConfig.AWSKMSKeyARN}
+        access: [write-only]
+        aws: {getter: sdk-kinesisfirehose-deliverystream, path: EncryptionConfiguration.KMSEncryptionConfig.AWSKMSKeyARN, normalize: typed}
+      S3DestinationConfiguration.EncryptionConfiguration.NoEncryptionConfig:
+        model: {include: false}
+        display: {show: false, name: S3DestinationConfiguration.EncryptionConfiguration.NoEncryptionConfig}
+        access: [write-only]
+        aws: {getter: sdk-kinesisfirehose-deliverystream, path: EncryptionConfiguration.NoEncryptionConfig, normalize: typed}
+      S3DestinationConfiguration.ErrorOutputPrefix:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.ErrorOutputPrefix}
+        access: [write-only]
+        aws: {getter: destination, path: ErrorOutputPrefix, normalize: typed}
+      S3DestinationConfiguration.Prefix:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.Prefix}
+        access: [write-only]
+        aws: {getter: destination, path: Prefix, normalize: typed}
+      S3DestinationConfiguration.RoleARN:
+        model: {include: true}
+        display: {show: true, name: S3DestinationConfiguration.RoleARN}
+        access: [write-only]
+        aws: {getter: destination, path: RoleARN, normalize: arn}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-kinesisfirehose-deliverystream, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-kinesisfirehose-deliverystream, path: 'Tags[].Value', normalize: typed}

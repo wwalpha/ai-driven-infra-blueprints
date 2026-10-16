@@ -1,0 +1,272 @@
+version: 3
+service: security-group
+getters:
+  group:
+    kind: adapter
+    resources: [EC2.SecurityGroup]
+  provider-ec2-securitygroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.SecurityGroup
+    identifier: [/properties/Id]
+  rule:
+    kind: adapter
+    resources: [EC2.SecurityGroupEgress, EC2.SecurityGroupIngress]
+  provider-ec2-securitygroupegress:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.SecurityGroupEgress
+    identifier: [/properties/Id]
+  provider-ec2-securitygroupingress:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.SecurityGroupIngress
+    identifier: [/properties/Id]
+resourceTypes:
+  EC2.SecurityGroup:
+    identity:
+      getter: group
+      idPath: GroupId
+      arnPath: null
+      nameProperty: GroupName
+    properties:
+      GroupName:
+        model: {include: true}
+        display: {show: true, name: GroupName}
+        access: [create-only]
+        aws: {getter: group, path: GroupName, normalize: typed}
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: group, path: GroupId, normalize: typed}
+      GroupDescription:
+        model: {include: true}
+        display: {show: true, name: GroupDescription}
+        access: [create-only]
+        aws: {getter: group, path: Description, normalize: typed}
+      SecurityGroupEgress[].CidrIp:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].CidrIp'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].CidrIp', normalize: typed}
+      SecurityGroupEgress[].CidrIpv6:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupEgress[].CidrIpv6'}
+        access: [read-write]
+        aws: {getter: provider-ec2-securitygroup, path: 'SecurityGroupEgress[].CidrIpv6', normalize: typed}
+      SecurityGroupEgress[].Description:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].Description'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].Description', normalize: typed}
+      SecurityGroupEgress[].DestinationPrefixListId:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupEgress[].DestinationPrefixListId'}
+        access: [read-write]
+        aws: {getter: provider-ec2-securitygroup, path: 'SecurityGroupEgress[].DestinationPrefixListId', normalize: typed}
+      SecurityGroupEgress[].DestinationSecurityGroupId:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].DestinationSecurityGroupId'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].DestinationSecurityGroupId', normalize: id}
+      SecurityGroupEgress[].FromPort:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].FromPort'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].FromPort', normalize: typed}
+      SecurityGroupEgress[].IpProtocol:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].IpProtocol'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].IpProtocol', normalize: protocol}
+      SecurityGroupEgress[].ToPort:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupEgress[].ToPort'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupEgress[].ToPort', normalize: typed}
+      SecurityGroupIngress[].CidrIp:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupIngress[].CidrIp'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].CidrIp', normalize: typed}
+      SecurityGroupIngress[].CidrIpv6:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupIngress[].CidrIpv6'}
+        access: [read-write]
+        aws: {getter: provider-ec2-securitygroup, path: 'SecurityGroupIngress[].CidrIpv6', normalize: typed}
+      SecurityGroupIngress[].Description:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupIngress[].Description'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].Description', normalize: typed}
+      SecurityGroupIngress[].FromPort:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupIngress[].FromPort'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].FromPort', normalize: typed}
+      SecurityGroupIngress[].IpProtocol:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupIngress[].IpProtocol'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].IpProtocol', normalize: protocol}
+      SecurityGroupIngress[].SourcePrefixListId:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupIngress[].SourcePrefixListId'}
+        access: [read-write]
+        aws: {getter: provider-ec2-securitygroup, path: 'SecurityGroupIngress[].SourcePrefixListId', normalize: typed}
+      SecurityGroupIngress[].SourceSecurityGroupId:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupIngress[].SourceSecurityGroupId'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].SourceSecurityGroupId', normalize: id}
+      SecurityGroupIngress[].SourceSecurityGroupOwnerId:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupIngress[].SourceSecurityGroupOwnerId'}
+        access: [read-write]
+        aws: {getter: provider-ec2-securitygroup, path: 'SecurityGroupIngress[].SourceSecurityGroupOwnerId', normalize: typed}
+      SecurityGroupIngress[].ToPort:
+        model: {include: true}
+        display: {show: true, name: 'SecurityGroupIngress[].ToPort'}
+        access: [read-write]
+        aws: {getter: group, path: 'SecurityGroupIngress[].ToPort', normalize: typed}
+      Tags[].Key:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: group, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: group, path: 'Tags[].Value', normalize: typed}
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: group, path: VpcId, normalize: id}
+  EC2.SecurityGroupEgress:
+    identity:
+      getter: rule
+      idPath: SecurityGroupRuleId
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: rule, path: SecurityGroupRuleId, normalize: typed}
+      CidrIp:
+        model: {include: true}
+        display: {show: true, name: CidrIp}
+        access: [create-only]
+        aws: {getter: rule, path: CidrIpv4, normalize: typed}
+      CidrIpv6:
+        model: {include: false}
+        display: {show: false, name: CidrIpv6}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupegress, path: CidrIpv6, normalize: typed}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: rule, path: Description, normalize: typed}
+      DestinationPrefixListId:
+        model: {include: false}
+        display: {show: false, name: DestinationPrefixListId}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupegress, path: DestinationPrefixListId, normalize: typed}
+      DestinationSecurityGroupId:
+        model: {include: true}
+        display: {show: true, name: DestinationSecurityGroupId}
+        access: [create-only]
+        aws: {getter: rule, path: ReferencedGroupInfo.GroupId, normalize: id}
+      FromPort:
+        model: {include: true}
+        display: {show: true, name: FromPort}
+        access: [create-only]
+        aws: {getter: rule, path: FromPort, normalize: typed}
+      GroupId:
+        model: {include: false}
+        display: {show: false, name: GroupId}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupegress, path: GroupId, normalize: typed}
+      IpProtocol:
+        model: {include: true}
+        display: {show: true, name: IpProtocol}
+        access: [create-only]
+        aws: {getter: rule, path: IpProtocol, normalize: protocol}
+      ToPort:
+        model: {include: true}
+        display: {show: true, name: ToPort}
+        access: [create-only]
+        aws: {getter: rule, path: ToPort, normalize: typed}
+  EC2.SecurityGroupIngress:
+    identity:
+      getter: rule
+      idPath: SecurityGroupRuleId
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: rule, path: SecurityGroupRuleId, normalize: typed}
+      CidrIp:
+        model: {include: true}
+        display: {show: true, name: CidrIp}
+        access: [create-only]
+        aws: {getter: rule, path: CidrIpv4, normalize: typed}
+      CidrIpv6:
+        model: {include: false}
+        display: {show: false, name: CidrIpv6}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupingress, path: CidrIpv6, normalize: typed}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: rule, path: Description, normalize: typed}
+      FromPort:
+        model: {include: true}
+        display: {show: true, name: FromPort}
+        access: [create-only]
+        aws: {getter: rule, path: FromPort, normalize: typed}
+      GroupId:
+        model: {include: false}
+        display: {show: false, name: GroupId}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupingress, path: GroupId, normalize: typed}
+      IpProtocol:
+        model: {include: true}
+        display: {show: true, name: IpProtocol}
+        access: [create-only]
+        aws: {getter: rule, path: IpProtocol, normalize: protocol}
+      SourcePrefixListId:
+        model: {include: false}
+        display: {show: false, name: SourcePrefixListId}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupingress, path: SourcePrefixListId, normalize: typed}
+      SourceSecurityGroupId:
+        model: {include: true}
+        display: {show: true, name: SourceSecurityGroupId}
+        access: [create-only]
+        aws: {getter: rule, path: ReferencedGroupInfo.GroupId, normalize: id}
+      SourceSecurityGroupOwnerId:
+        model: {include: false}
+        display: {show: false, name: SourceSecurityGroupOwnerId}
+        access: [create-only]
+        aws: {getter: provider-ec2-securitygroupingress, path: SourceSecurityGroupOwnerId, normalize: typed}
+      ToPort:
+        model: {include: true}
+        display: {show: true, name: ToPort}
+        access: [create-only]
+        aws: {getter: rule, path: ToPort, normalize: typed}

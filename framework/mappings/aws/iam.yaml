@@ -1,0 +1,240 @@
+version: 3
+service: iam
+getters:
+  base:
+    kind: adapter
+    resources: [IAM.InstanceProfile, IAM.ManagedPolicy, IAM.Role, IAM.User]
+  provider-iam-instanceprofile:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: IAM.InstanceProfile
+    identifier: [/properties/InstanceProfileName]
+  provider-iam-managedpolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: IAM.ManagedPolicy
+    identifier: [/properties/PolicyArn]
+  document:
+    kind: adapter
+    resources: [IAM.ManagedPolicy]
+  entities:
+    kind: adapter
+    resources: [IAM.ManagedPolicy]
+  attached:
+    kind: adapter
+    resources: [IAM.Role, IAM.User]
+  provider-iam-role:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: IAM.Role
+    identifier: [/properties/RoleName]
+  inline:
+    kind: adapter
+    resources: [IAM.Role, IAM.User]
+  provider-iam-user:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: IAM.User
+    identifier: [/properties/UserName]
+resourceTypes:
+  IAM.InstanceProfile:
+    identity:
+      getter: base
+      idPath: InstanceProfileName
+      arnPath: Arn
+      nameProperty: InstanceProfileName
+    properties:
+      InstanceProfileName:
+        model: {include: true}
+        display: {show: true, name: InstanceProfileName}
+        access: [create-only]
+        aws: {getter: base, path: InstanceProfileName, normalize: typed}
+      Path:
+        model: {include: false}
+        display: {show: false, name: Path}
+        access: [create-only]
+        aws: {getter: provider-iam-instanceprofile, path: Path, normalize: typed}
+      Roles:
+        model: {include: true}
+        display: {show: true, name: Roles}
+        access: [read-write]
+        aws: {getter: base, path: 'Roles[].RoleName', normalize: name}
+  IAM.ManagedPolicy:
+    identity:
+      getter: base
+      idPath: PolicyName
+      arnPath: Arn
+      nameProperty: ManagedPolicyName
+    properties:
+      ManagedPolicyName:
+        model: {include: true}
+        display: {show: true, name: ManagedPolicyName}
+        access: [create-only]
+        aws: {getter: base, path: PolicyName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [create-only]
+        aws: {getter: provider-iam-managedpolicy, path: Description, normalize: typed}
+      Groups:
+        model: {include: false}
+        display: {show: false, name: Groups}
+        access: [read-write]
+        aws: {getter: provider-iam-managedpolicy, path: Groups, normalize: typed}
+      Path:
+        model: {include: false}
+        display: {show: false, name: Path}
+        access: [create-only]
+        aws: {getter: provider-iam-managedpolicy, path: Path, normalize: typed}
+      PolicyDocument:
+        model: {include: true}
+        display: {show: true, name: PolicyDocument}
+        access: [read-write]
+        aws: {getter: document, path: Document, normalize: policy}
+      Roles:
+        model: {include: true}
+        display: {show: true, name: Roles}
+        access: [read-write]
+        aws: {getter: entities, path: Roles, normalize: name}
+      Users:
+        model: {include: false}
+        display: {show: false, name: Users}
+        access: [read-write]
+        aws: {getter: provider-iam-managedpolicy, path: Users, normalize: typed}
+  IAM.Role:
+    identity:
+      getter: base
+      idPath: RoleName
+      arnPath: Arn
+      nameProperty: RoleName
+    properties:
+      RoleName:
+        model: {include: true}
+        display: {show: true, name: RoleName}
+        access: [create-only]
+        aws: {getter: base, path: RoleName, normalize: typed}
+      AssumeRolePolicyDocument:
+        model: {include: true}
+        display: {show: true, name: AssumeRolePolicyDocument}
+        access: [read-write]
+        aws: {getter: base, path: AssumeRolePolicyDocument, normalize: policy}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      ManagedPolicyArns:
+        model: {include: true}
+        display: {show: true, name: ManagedPolicyArns}
+        access: [read-write]
+        aws: {getter: attached, path: Arns, normalize: arn}
+      MaxSessionDuration:
+        model: {include: false}
+        display: {show: false, name: MaxSessionDuration}
+        access: [read-write]
+        aws: {getter: provider-iam-role, path: MaxSessionDuration, normalize: typed}
+      Path:
+        model: {include: false}
+        display: {show: false, name: Path}
+        access: [create-only]
+        aws: {getter: provider-iam-role, path: Path, normalize: typed}
+      PermissionsBoundary:
+        model: {include: false}
+        display: {show: false, name: PermissionsBoundary}
+        access: [read-write]
+        aws: {getter: provider-iam-role, path: PermissionsBoundary, normalize: typed}
+      Policies[].PolicyName:
+        model: {include: true}
+        display: {show: true, name: 'Policies[].PolicyName'}
+        access: [read-write]
+        aws: {getter: inline, path: 'Policies[].PolicyName', normalize: typed}
+      Policies[].PolicyDocument:
+        model: {include: true}
+        display: {show: true, name: 'Policies[].PolicyDocument'}
+        access: [read-write]
+        aws: {getter: inline, path: 'Policies[].PolicyDocument', normalize: policy}
+      Tags[].Key:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-iam-role, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-iam-role, path: 'Tags[].Value', normalize: typed}
+  IAM.User:
+    identity:
+      getter: base
+      idPath: UserName
+      arnPath: Arn
+      nameProperty: UserName
+    properties:
+      UserName:
+        model: {include: true}
+        display: {show: true, name: UserName}
+        access: [create-only]
+        aws: {getter: base, path: UserName, normalize: typed}
+      Groups:
+        model: {include: false}
+        display: {show: false, name: Groups}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: Groups, normalize: typed}
+      LoginProfile.Password:
+        model: {include: false}
+        display: {show: false, name: LoginProfile.Password}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row IAM.User.LoginProfile.Password
+          constraint: Pinned provider schema declares /properties/LoginProfile/Password write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      LoginProfile.PasswordResetRequired:
+        model: {include: false}
+        display: {show: false, name: LoginProfile.PasswordResetRequired}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: LoginProfile.PasswordResetRequired, normalize: typed}
+      ManagedPolicyArns:
+        model: {include: true}
+        display: {show: true, name: ManagedPolicyArns}
+        access: [read-write]
+        aws: {getter: attached, path: Arns, normalize: arn}
+      Path:
+        model: {include: false}
+        display: {show: false, name: Path}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: Path, normalize: typed}
+      PermissionsBoundary:
+        model: {include: false}
+        display: {show: false, name: PermissionsBoundary}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: PermissionsBoundary, normalize: typed}
+      Policies[].PolicyName:
+        model: {include: true}
+        display: {show: true, name: 'Policies[].PolicyName'}
+        access: [read-write]
+        aws: {getter: inline, path: 'Policies[].PolicyName', normalize: typed}
+      Policies[].PolicyDocument:
+        model: {include: true}
+        display: {show: true, name: 'Policies[].PolicyDocument'}
+        access: [read-write]
+        aws: {getter: inline, path: 'Policies[].PolicyDocument', normalize: policy}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-iam-user, path: 'Tags[].Value', normalize: typed}

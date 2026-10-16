@@ -1,0 +1,84 @@
+version: 3
+service: certificate-manager
+getters:
+  provider-certificatemanager-certificate:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CertificateManager.Certificate
+    identifier: [/properties/CertificateArn]
+  sdk-certificatemanager-certificate:
+    kind: sdk
+    service: acm
+    operation: describe_certificate
+    result: Certificate
+    resourceType: CertificateManager.Certificate
+resourceTypes:
+  CertificateManager.Certificate:
+    properties:
+      CertificateAuthorityArn:
+        model: {include: false}
+        display: {show: false, name: CertificateAuthorityArn}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: CertificateAuthorityArn, normalize: typed}
+      CertificateExport:
+        model: {include: false}
+        display: {show: false, name: CertificateExport}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: CertificateExport, normalize: typed}
+      CertificateTransparencyLoggingPreference:
+        model: {include: false}
+        display: {show: false, name: CertificateTransparencyLoggingPreference}
+        access: [read-write]
+        aws: {getter: provider-certificatemanager-certificate, path: CertificateTransparencyLoggingPreference, normalize: typed}
+      DomainName:
+        model: {include: false}
+        display: {show: false, name: DomainName}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: DomainName, normalize: typed}
+      DomainValidationOptions[].DomainName:
+        model: {include: false}
+        display: {show: false, name: 'DomainValidationOptions[].DomainName'}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: 'DomainValidationOptions[].DomainName', normalize: typed}
+      DomainValidationOptions[].HostedZoneId:
+        model: {include: false}
+        display: {show: false, name: 'DomainValidationOptions[].HostedZoneId'}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row CertificateManager.Certificate.DomainValidationOptions[].HostedZoneId
+          constraint: Pinned provider schema declares /properties/DomainValidationOptions/*/HostedZoneId write-only. Retain the original Model input; a
+            provider read cannot confirm this input.
+          classification: local_metadata
+      DomainValidationOptions[].ValidationDomain:
+        model: {include: false}
+        display: {show: false, name: 'DomainValidationOptions[].ValidationDomain'}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: 'DomainValidationOptions[].ValidationDomain', normalize: typed}
+      KeyAlgorithm:
+        model: {include: false}
+        display: {show: false, name: KeyAlgorithm}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: KeyAlgorithm, normalize: typed}
+      SubjectAlternativeNames:
+        model: {include: false}
+        display: {show: false, name: SubjectAlternativeNames}
+        access: [create-only]
+        aws: {getter: provider-certificatemanager-certificate, path: SubjectAlternativeNames, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-certificatemanager-certificate, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-certificatemanager-certificate, path: 'Tags[].Value', normalize: typed}
+      ValidationMethod:
+        model: {include: false}
+        display: {show: false, name: ValidationMethod}
+        access: [write-only]
+        aws: {getter: sdk-certificatemanager-certificate, path: 'DomainValidationOptions[].ValidationMethod', normalize: typed, transform: unique}

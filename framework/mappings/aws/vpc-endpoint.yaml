@@ -1,0 +1,96 @@
+version: 3
+service: vpc-endpoint
+getters:
+  base:
+    kind: adapter
+    resources: [EC2.VPCEndpoint]
+  provider-ec2-vpcendpoint:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPCEndpoint
+    identifier: [/properties/Id]
+resourceTypes:
+  EC2.VPCEndpoint:
+    identity:
+      getter: base
+      idPath: VpcEndpointId
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: base, path: VpcEndpointId, normalize: typed}
+      DnsOptions.DnsRecordIpType:
+        model: {include: false}
+        display: {show: false, name: DnsOptions.DnsRecordIpType}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcendpoint, path: DnsOptions.DnsRecordIpType, normalize: typed}
+      DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint:
+        model: {include: true}
+        display: {show: true, name: DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint}
+        access: [read-write]
+        aws: {getter: base, path: DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint, normalize: typed, default: false}
+      IpAddressType:
+        model: {include: true}
+        display: {show: true, name: IpAddressType}
+        access: [read-write]
+        aws: {getter: base, path: IpAddressType, normalize: typed}
+      PolicyDocument:
+        model: {include: true}
+        display: {show: true, name: PolicyDocument}
+        access: [read-write]
+        aws: {getter: base, path: PolicyDocument, normalize: policy}
+      PrivateDnsEnabled:
+        model: {include: true}
+        display: {show: true, name: PrivateDnsEnabled}
+        access: [read-write]
+        aws: {getter: base, path: PrivateDnsEnabled, normalize: typed}
+      RouteTableIds:
+        model: {include: true}
+        display: {show: true, name: RouteTableIds}
+        access: [read-write]
+        aws: {getter: base, path: RouteTableIds, normalize: id}
+      SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: SecurityGroupIds}
+        access: [read-write]
+        aws: {getter: base, path: 'Groups[].GroupId', normalize: id}
+      ServiceName:
+        model: {include: true}
+        display: {show: true, name: ServiceName}
+        access: [create-only]
+        aws: {getter: base, path: ServiceName, normalize: typed}
+      ServiceRegion:
+        model: {include: false}
+        display: {show: false, name: ServiceRegion}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpcendpoint, path: ServiceRegion, normalize: typed}
+      SubnetIds:
+        model: {include: true}
+        display: {show: true, name: SubnetIds}
+        access: [read-write]
+        aws: {getter: base, path: SubnetIds, normalize: id}
+      Tags[].Key:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: base, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: base, path: 'Tags[].Value', normalize: typed}
+      VpcEndpointType:
+        model: {include: true}
+        display: {show: true, name: VpcEndpointType}
+        access: [create-only]
+        aws: {getter: base, path: VpcEndpointType, normalize: typed}
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: base, path: VpcId, normalize: id}

@@ -1,0 +1,156 @@
+version: 3
+service: route53-resolver
+getters:
+  provider-route53resolver-resolverendpoint:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Route53Resolver.ResolverEndpoint
+    identifier: [/properties/ResolverEndpointId]
+  provider-route53resolver-resolverrule:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Route53Resolver.ResolverRule
+    identifier: [/properties/ResolverRuleId]
+  provider-route53resolver-resolverruleassociation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Route53Resolver.ResolverRuleAssociation
+    identifier: [/properties/ResolverRuleAssociationId]
+resourceTypes:
+  Route53Resolver.ResolverEndpoint:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: Name, normalize: typed}
+      ResolverEndpointId:
+        model: {include: false}
+        display: {show: false, name: ResolverEndpointId}
+        access: [read-only]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: ResolverEndpointId, normalize: typed}
+      Direction:
+        model: {include: false}
+        display: {show: false, name: Direction}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: Direction, normalize: typed}
+      IpAddresses[].Ip:
+        model: {include: false}
+        display: {show: false, name: 'IpAddresses[].Ip'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: 'IpAddresses[].Ip', normalize: typed}
+      IpAddresses[].SubnetId:
+        model: {include: false}
+        display: {show: false, name: 'IpAddresses[].SubnetId'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: 'IpAddresses[].SubnetId', normalize: typed}
+      Protocols:
+        model: {include: false}
+        display: {show: false, name: Protocols}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: Protocols, normalize: typed}
+      ResolverEndpointType:
+        model: {include: false}
+        display: {show: false, name: ResolverEndpointType}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: ResolverEndpointType, normalize: typed}
+      SecurityGroupIds:
+        model: {include: false}
+        display: {show: false, name: SecurityGroupIds}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: SecurityGroupIds, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverendpoint, path: 'Tags[].Value', normalize: typed}
+  Route53Resolver.ResolverRule:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: Name, normalize: typed}
+      ResolverRuleId:
+        model: {include: false}
+        display: {show: false, name: ResolverRuleId}
+        access: [read-only]
+        aws: {getter: provider-route53resolver-resolverrule, path: ResolverRuleId, normalize: typed}
+      DomainName:
+        model: {include: false}
+        display: {show: false, name: DomainName}
+        access: [conditional-create-only]
+        aws: {getter: provider-route53resolver-resolverrule, path: DomainName, normalize: typed}
+      ResolverEndpointId:
+        model: {include: false}
+        display: {show: false, name: ResolverEndpointId}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: ResolverEndpointId, normalize: typed}
+      RuleType:
+        model: {include: false}
+        display: {show: false, name: RuleType}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverrule, path: RuleType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'Tags[].Value', normalize: typed}
+      TargetIps[].Ip:
+        model: {include: false}
+        display: {show: false, name: 'TargetIps[].Ip'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'TargetIps[].Ip', normalize: typed}
+      TargetIps[].Port:
+        model: {include: false}
+        display: {show: false, name: 'TargetIps[].Port'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'TargetIps[].Port', normalize: typed}
+      TargetIps[].Protocol:
+        model: {include: false}
+        display: {show: false, name: 'TargetIps[].Protocol'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'TargetIps[].Protocol', normalize: typed}
+      TargetIps[].ServerNameIndication:
+        model: {include: false}
+        display: {show: false, name: 'TargetIps[].ServerNameIndication'}
+        access: [read-write]
+        aws: {getter: provider-route53resolver-resolverrule, path: 'TargetIps[].ServerNameIndication', normalize: typed}
+  Route53Resolver.ResolverRuleAssociation:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverruleassociation, path: Name, normalize: typed}
+      ResolverRuleAssociationId:
+        model: {include: false}
+        display: {show: false, name: ResolverRuleAssociationId}
+        access: [read-only]
+        aws: {getter: provider-route53resolver-resolverruleassociation, path: ResolverRuleAssociationId, normalize: typed}
+      ResolverRuleId:
+        model: {include: false}
+        display: {show: false, name: ResolverRuleId}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverruleassociation, path: ResolverRuleId, normalize: typed}
+      VPCId:
+        model: {include: false}
+        display: {show: false, name: VPCId}
+        access: [create-only]
+        aws: {getter: provider-route53resolver-resolverruleassociation, path: VPCId, normalize: typed}

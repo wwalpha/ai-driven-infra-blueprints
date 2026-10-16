@@ -1,0 +1,300 @@
+version: 3
+service: codebuild
+getters:
+  base:
+    kind: adapter
+    resources: [CodeBuild.Project]
+  sdk-codebuild-project:
+    kind: sdk
+    service: codebuild
+    operation: batch_get_projects
+    result: projects[]
+    resourceType: CodeBuild.Project
+resourceTypes:
+  CodeBuild.Project:
+    identity:
+      getter: base
+      idPath: name
+      arnPath: arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: name, normalize: typed}
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: base, path: name, normalize: typed}
+      Artifacts.ArtifactIdentifier:
+        model: {include: false}
+        display: {show: false, name: Artifacts.ArtifactIdentifier}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.artifactIdentifier, normalize: typed}
+      Artifacts.EncryptionDisabled:
+        model: {include: false}
+        display: {show: false, name: Artifacts.EncryptionDisabled}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.encryptionDisabled, normalize: typed}
+      Artifacts.Location:
+        model: {include: false}
+        display: {show: false, name: Artifacts.Location}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.location, normalize: typed}
+      Artifacts.Name:
+        model: {include: false}
+        display: {show: false, name: Artifacts.Name}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.name, normalize: typed}
+      Artifacts.NamespaceType:
+        model: {include: false}
+        display: {show: false, name: Artifacts.NamespaceType}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.namespaceType, normalize: typed}
+      Artifacts.OverrideArtifactName:
+        model: {include: false}
+        display: {show: false, name: Artifacts.OverrideArtifactName}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.overrideArtifactName, normalize: typed}
+      Artifacts.Packaging:
+        model: {include: false}
+        display: {show: false, name: Artifacts.Packaging}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.packaging, normalize: typed}
+      Artifacts.Path:
+        model: {include: false}
+        display: {show: false, name: Artifacts.Path}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: artifacts.path, normalize: typed}
+      Artifacts.Type:
+        model: {include: true}
+        display: {show: true, name: Artifacts.Type}
+        access: [read-write]
+        aws: {getter: base, path: artifacts.type, normalize: typed}
+      AutoRetryLimit:
+        model: {include: false}
+        display: {show: false, name: AutoRetryLimit}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: autoRetryLimit, normalize: typed}
+      Cache.Location:
+        model: {include: false}
+        display: {show: false, name: Cache.Location}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: cache.location, normalize: typed}
+      Cache.Modes:
+        model: {include: false}
+        display: {show: false, name: Cache.Modes}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: cache.modes, normalize: typed}
+      Cache.Type:
+        model: {include: true}
+        display: {show: true, name: Cache.Type}
+        access: [read-write]
+        aws: {getter: base, path: cache.type, normalize: typed}
+      ConcurrentBuildLimit:
+        model: {include: true}
+        display: {show: true, name: ConcurrentBuildLimit}
+        access: [read-write]
+        aws: {getter: base, path: concurrentBuildLimit, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: description, normalize: typed}
+      EncryptionKey:
+        model: {include: false}
+        display: {show: false, name: EncryptionKey}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: encryptionKey, normalize: typed}
+      Environment.Certificate:
+        model: {include: false}
+        display: {show: false, name: Environment.Certificate}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: environment.certificate, normalize: typed}
+      Environment.ComputeType:
+        model: {include: true}
+        display: {show: true, name: Environment.ComputeType}
+        access: [read-write]
+        aws: {getter: base, path: environment.computeType, normalize: typed}
+      Environment.EnvironmentVariables[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Environment.EnvironmentVariables[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'environment.environmentVariables[].name', normalize: typed}
+      Environment.EnvironmentVariables[].Type:
+        model: {include: true}
+        display: {show: true, name: 'Environment.EnvironmentVariables[].Type'}
+        access: [read-write]
+        aws: {getter: base, path: 'environment.environmentVariables[].type', normalize: typed}
+      Environment.EnvironmentVariables[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Environment.EnvironmentVariables[].Value'}
+        access: [read-write]
+        aws: {getter: base, path: 'environment.environmentVariables[].value', normalize: name}
+      Environment.Image:
+        model: {include: true}
+        display: {show: true, name: Environment.Image}
+        access: [read-write]
+        aws: {getter: base, path: environment.image, normalize: typed}
+      Environment.ImagePullCredentialsType:
+        model: {include: true}
+        display: {show: true, name: Environment.ImagePullCredentialsType}
+        access: [read-write]
+        aws: {getter: base, path: environment.imagePullCredentialsType, normalize: typed}
+      Environment.PrivilegedMode:
+        model: {include: true}
+        display: {show: true, name: Environment.PrivilegedMode}
+        access: [read-write]
+        aws: {getter: base, path: environment.privilegedMode, normalize: typed}
+      Environment.RegistryCredential.Credential:
+        model: {include: false}
+        display: {show: false, name: Environment.RegistryCredential.Credential}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: environment.registryCredential.credential, normalize: typed}
+      Environment.RegistryCredential.CredentialProvider:
+        model: {include: false}
+        display: {show: false, name: Environment.RegistryCredential.CredentialProvider}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: environment.registryCredential.credentialProvider, normalize: typed}
+      Environment.Type:
+        model: {include: true}
+        display: {show: true, name: Environment.Type}
+        access: [read-write]
+        aws: {getter: base, path: environment.type, normalize: typed}
+      LogsConfig.CloudWatchLogs.GroupName:
+        model: {include: true}
+        display: {show: true, name: LogsConfig.CloudWatchLogs.GroupName}
+        access: [read-write]
+        aws: {getter: base, path: logsConfig.cloudWatchLogs.groupName, normalize: typed}
+      LogsConfig.CloudWatchLogs.Status:
+        model: {include: true}
+        display: {show: true, name: LogsConfig.CloudWatchLogs.Status}
+        access: [read-write]
+        aws: {getter: base, path: logsConfig.cloudWatchLogs.status, normalize: typed}
+      LogsConfig.CloudWatchLogs.StreamName:
+        model: {include: false}
+        display: {show: false, name: LogsConfig.CloudWatchLogs.StreamName}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: logsConfig.cloudWatchLogs.streamName, normalize: typed}
+      LogsConfig.S3Logs.EncryptionDisabled:
+        model: {include: false}
+        display: {show: false, name: LogsConfig.S3Logs.EncryptionDisabled}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: logsConfig.s3Logs.encryptionDisabled, normalize: typed}
+      LogsConfig.S3Logs.Location:
+        model: {include: false}
+        display: {show: false, name: LogsConfig.S3Logs.Location}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: logsConfig.s3Logs.location, normalize: typed}
+      LogsConfig.S3Logs.Status:
+        model: {include: true}
+        display: {show: true, name: LogsConfig.S3Logs.Status}
+        access: [read-write]
+        aws: {getter: base, path: logsConfig.s3Logs.status, normalize: typed}
+      QueuedTimeoutInMinutes:
+        model: {include: true}
+        display: {show: true, name: QueuedTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: base, path: queuedTimeoutInMinutes, normalize: typed}
+      ServiceRole:
+        model: {include: true}
+        display: {show: true, name: ServiceRole}
+        access: [read-write]
+        aws: {getter: base, path: serviceRole, normalize: arn}
+      Source.Auth.Resource:
+        model: {include: false}
+        display: {show: false, name: Source.Auth.Resource}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.auth.resource, normalize: typed}
+      Source.Auth.Type:
+        model: {include: false}
+        display: {show: false, name: Source.Auth.Type}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.auth.type, normalize: typed}
+      Source.BuildSpec:
+        model: {include: true}
+        display: {show: true, name: Source.BuildSpec}
+        access: [read-write]
+        aws: {getter: base, path: source.buildspec, normalize: typed}
+      Source.GitCloneDepth:
+        model: {include: false}
+        display: {show: false, name: Source.GitCloneDepth}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.gitCloneDepth, normalize: typed}
+      Source.GitSubmodulesConfig.FetchSubmodules:
+        model: {include: false}
+        display: {show: false, name: Source.GitSubmodulesConfig.FetchSubmodules}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.gitSubmodulesConfig.fetchSubmodules, normalize: typed}
+      Source.InsecureSsl:
+        model: {include: false}
+        display: {show: false, name: Source.InsecureSsl}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.insecureSsl, normalize: typed}
+      Source.Location:
+        model: {include: false}
+        display: {show: false, name: Source.Location}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.location, normalize: typed}
+      Source.ReportBuildStatus:
+        model: {include: false}
+        display: {show: false, name: Source.ReportBuildStatus}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: source.reportBuildStatus, normalize: typed}
+      Source.Type:
+        model: {include: true}
+        display: {show: true, name: Source.Type}
+        access: [read-write]
+        aws: {getter: base, path: source.type, normalize: typed}
+      SourceVersion:
+        model: {include: false}
+        display: {show: false, name: SourceVersion}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: sourceVersion, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: 'tags[].key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: 'tags[].value', normalize: typed}
+      TimeoutInMinutes:
+        model: {include: true}
+        display: {show: true, name: TimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: base, path: timeoutInMinutes, normalize: typed}
+      Triggers.BuildType:
+        model: {include: false}
+        display: {show: false, name: Triggers.BuildType}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: webhook.buildType, normalize: typed}
+      Triggers.Webhook:
+        model: {include: false}
+        display: {show: false, name: Triggers.Webhook}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: webhook, normalize: typed, transform: present}
+      Visibility:
+        model: {include: false}
+        display: {show: false, name: Visibility}
+        access: [read-write]
+        aws: {getter: sdk-codebuild-project, path: projectVisibility, normalize: typed}
+      VpcConfig.SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.SecurityGroupIds}
+        access: [read-write]
+        aws: {getter: base, path: vpcConfig.securityGroupIds, normalize: id}
+      VpcConfig.Subnets:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.Subnets}
+        access: [read-write]
+        aws: {getter: base, path: vpcConfig.subnets, normalize: id}
+      VpcConfig.VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.VpcId}
+        access: [read-write]
+        aws: {getter: base, path: vpcConfig.vpcId, normalize: id}

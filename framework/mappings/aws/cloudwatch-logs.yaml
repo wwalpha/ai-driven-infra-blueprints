@@ -1,0 +1,183 @@
+version: 3
+service: cloudwatch-logs
+getters:
+  base:
+    kind: adapter
+    resources: [Logs.LogGroup]
+  provider-logs-loggroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Logs.LogGroup
+    identifier: [/properties/LogGroupName]
+  provider-logs-metricfilter:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Logs.MetricFilter
+    identifier: [/properties/LogGroupName, /properties/FilterName]
+  provider-logs-resourcepolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Logs.ResourcePolicy
+    identifier: [/properties/PolicyName]
+  provider-logs-subscriptionfilter:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Logs.SubscriptionFilter
+    identifier: [/properties/FilterName, /properties/LogGroupName]
+resourceTypes:
+  Logs.LogGroup:
+    identity:
+      getter: base
+      idPath: logGroupName
+      arnPath: logGroupArn
+      nameProperty: LogGroupName
+    properties:
+      LogGroupName:
+        model: {include: true}
+        display: {show: true, name: LogGroupName}
+        access: [create-only]
+        aws: {getter: base, path: logGroupName, normalize: typed}
+      LogGroupClass:
+        model: {include: true}
+        display: {show: true, name: LogGroupClass}
+        access: [read-write]
+        aws: {getter: base, path: logGroupClass, normalize: typed, default: STANDARD}
+      RetentionInDays:
+        model: {include: true}
+        display: {show: true, name: RetentionInDays}
+        access: [read-write]
+        aws: {getter: base, path: retentionInDays, normalize: typed}
+      DataProtectionPolicy:
+        model: {include: false}
+        display: {show: false, name: DataProtectionPolicy}
+        access: [read-write]
+        aws: {getter: provider-logs-loggroup, path: DataProtectionPolicy, normalize: typed}
+      KmsKeyId:
+        model: {include: true}
+        display: {show: true, name: KmsKeyId}
+        access: [read-write]
+        aws: {getter: base, path: kmsKeyId, normalize: kms}
+      DeletionProtectionEnabled:
+        model: {include: true}
+        display: {show: true, name: DeletionProtectionEnabled}
+        access: [read-write]
+        aws: {getter: base, path: deletionProtectionEnabled, normalize: typed, default: false}
+      ResourcePolicyDocument:
+        model: {include: false}
+        display: {show: false, name: ResourcePolicyDocument}
+        access: [read-write]
+        aws: {getter: provider-logs-loggroup, path: ResourcePolicyDocument, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-logs-loggroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-logs-loggroup, path: 'Tags[].Value', normalize: typed}
+  Logs.MetricFilter:
+    properties:
+      FilterName:
+        model: {include: false}
+        display: {show: false, name: FilterName}
+        access: [create-only]
+        aws: {getter: provider-logs-metricfilter, path: FilterName, normalize: typed}
+      FilterPattern:
+        model: {include: false}
+        display: {show: false, name: FilterPattern}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: FilterPattern, normalize: typed}
+      LogGroupName:
+        model: {include: false}
+        display: {show: false, name: LogGroupName}
+        access: [create-only]
+        aws: {getter: provider-logs-metricfilter, path: LogGroupName, normalize: typed}
+      MetricTransformations[].DefaultValue:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].DefaultValue'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].DefaultValue', normalize: typed}
+      MetricTransformations[].Dimensions[].Key:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].Dimensions[].Key'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].Dimensions[].Key', normalize: typed}
+      MetricTransformations[].Dimensions[].Value:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].Dimensions[].Value'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].Dimensions[].Value', normalize: typed}
+      MetricTransformations[].MetricName:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].MetricName'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].MetricName', normalize: typed}
+      MetricTransformations[].MetricNamespace:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].MetricNamespace'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].MetricNamespace', normalize: typed}
+      MetricTransformations[].MetricValue:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].MetricValue'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].MetricValue', normalize: typed}
+      MetricTransformations[].Unit:
+        model: {include: false}
+        display: {show: false, name: 'MetricTransformations[].Unit'}
+        access: [read-write]
+        aws: {getter: provider-logs-metricfilter, path: 'MetricTransformations[].Unit', normalize: typed}
+  Logs.ResourcePolicy:
+    properties:
+      PolicyName:
+        model: {include: false}
+        display: {show: false, name: PolicyName}
+        access: [create-only]
+        aws: {getter: provider-logs-resourcepolicy, path: PolicyName, normalize: typed}
+      PolicyDocument:
+        model: {include: false}
+        display: {show: false, name: PolicyDocument}
+        access: [read-write]
+        aws: {getter: provider-logs-resourcepolicy, path: PolicyDocument, normalize: typed}
+  Logs.SubscriptionFilter:
+    properties:
+      FilterName:
+        model: {include: false}
+        display: {show: false, name: FilterName}
+        access: [create-only]
+        aws: {getter: provider-logs-subscriptionfilter, path: FilterName, normalize: typed}
+      DestinationArn:
+        model: {include: false}
+        display: {show: false, name: DestinationArn}
+        access: [read-write]
+        aws: {getter: provider-logs-subscriptionfilter, path: DestinationArn, normalize: typed}
+      Distribution:
+        model: {include: false}
+        display: {show: false, name: Distribution}
+        access: [read-write]
+        aws: {getter: provider-logs-subscriptionfilter, path: Distribution, normalize: typed}
+      FilterPattern:
+        model: {include: false}
+        display: {show: false, name: FilterPattern}
+        access: [read-write]
+        aws: {getter: provider-logs-subscriptionfilter, path: FilterPattern, normalize: typed}
+      LogGroupName:
+        model: {include: false}
+        display: {show: false, name: LogGroupName}
+        access: [create-only]
+        aws: {getter: provider-logs-subscriptionfilter, path: LogGroupName, normalize: typed}
+      RoleArn:
+        model: {include: false}
+        display: {show: false, name: RoleArn}
+        access: [read-write]
+        aws: {getter: provider-logs-subscriptionfilter, path: RoleArn, normalize: typed}

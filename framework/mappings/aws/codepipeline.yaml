@@ -1,0 +1,271 @@
+version: 3
+service: codepipeline
+getters:
+  base:
+    kind: adapter
+    resources: [CodePipeline.Pipeline]
+  provider-codepipeline-pipeline:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CodePipeline.Pipeline
+    identifier: [/properties/Name]
+resourceTypes:
+  CodePipeline.Pipeline:
+    identity:
+      getter: base
+      idPath: name
+      arnPath: PipelineArn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: name, normalize: typed}
+      ArtifactStore.EncryptionKey.Id:
+        model: {include: true}
+        display: {show: true, name: ArtifactStore.EncryptionKey.Id}
+        access: [read-write]
+        aws: {getter: base, path: artifactStore.encryptionKey.id, normalize: kms}
+      ArtifactStore.EncryptionKey.Type:
+        model: {include: true}
+        display: {show: true, name: ArtifactStore.EncryptionKey.Type}
+        access: [read-write]
+        aws: {getter: base, path: artifactStore.encryptionKey.type, normalize: typed}
+      ArtifactStore.Location:
+        model: {include: true}
+        display: {show: true, name: ArtifactStore.Location}
+        access: [read-write]
+        aws: {getter: base, path: artifactStore.location, normalize: name}
+      ArtifactStore.Type:
+        model: {include: true}
+        display: {show: true, name: ArtifactStore.Type}
+        access: [read-write]
+        aws: {getter: base, path: artifactStore.type, normalize: typed}
+      ArtifactStores[].ArtifactStore.EncryptionKey.Id:
+        model: {include: false}
+        display: {show: false, name: 'ArtifactStores[].ArtifactStore.EncryptionKey.Id'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'ArtifactStores[].ArtifactStore.EncryptionKey.Id', normalize: typed}
+      ArtifactStores[].ArtifactStore.EncryptionKey.Type:
+        model: {include: false}
+        display: {show: false, name: 'ArtifactStores[].ArtifactStore.EncryptionKey.Type'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'ArtifactStores[].ArtifactStore.EncryptionKey.Type', normalize: typed}
+      ArtifactStores[].ArtifactStore.Location:
+        model: {include: false}
+        display: {show: false, name: 'ArtifactStores[].ArtifactStore.Location'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'ArtifactStores[].ArtifactStore.Location', normalize: typed}
+      ArtifactStores[].ArtifactStore.Type:
+        model: {include: false}
+        display: {show: false, name: 'ArtifactStores[].ArtifactStore.Type'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'ArtifactStores[].ArtifactStore.Type', normalize: typed}
+      ArtifactStores[].Region:
+        model: {include: false}
+        display: {show: false, name: 'ArtifactStores[].Region'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'ArtifactStores[].Region', normalize: typed}
+      ExecutionMode:
+        model: {include: true}
+        display: {show: true, name: ExecutionMode}
+        access: [read-write]
+        aws: {getter: base, path: executionMode, normalize: typed}
+      PipelineType:
+        model: {include: true}
+        display: {show: true, name: PipelineType}
+        access: [read-write]
+        aws: {getter: base, path: pipelineType, normalize: typed}
+      RestartExecutionOnUpdate:
+        model: {include: false}
+        display: {show: false, name: RestartExecutionOnUpdate}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CodePipeline.Pipeline.RestartExecutionOnUpdate
+          constraint: Pinned provider schema declares /properties/RestartExecutionOnUpdate write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      RoleArn:
+        model: {include: true}
+        display: {show: true, name: RoleArn}
+        access: [read-write]
+        aws: {getter: base, path: roleArn, normalize: arn}
+      Stages[].Actions[].ActionTypeId.Category:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].ActionTypeId.Category'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].actionTypeId.category', normalize: typed}
+      Stages[].Actions[].ActionTypeId.Owner:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].ActionTypeId.Owner'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].actionTypeId.owner', normalize: typed}
+      Stages[].Actions[].ActionTypeId.Provider:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].ActionTypeId.Provider'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].actionTypeId.provider', normalize: typed}
+      Stages[].Actions[].ActionTypeId.Version:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].ActionTypeId.Version'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].actionTypeId.version', normalize: string}
+      Stages[].Actions[].Commands:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].Commands'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].Commands', normalize: typed}
+      Stages[].Actions[].Configuration:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].Configuration'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].configuration', normalize: json}
+      Stages[].Actions[].InputArtifacts[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].InputArtifacts[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].inputArtifacts[].name', normalize: typed}
+      Stages[].Actions[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].name', normalize: typed}
+      Stages[].Actions[].Namespace:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].Namespace'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].Namespace', normalize: typed}
+      Stages[].Actions[].OutputArtifacts[].Files:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].OutputArtifacts[].Files'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].OutputArtifacts[].Files', normalize: typed}
+      Stages[].Actions[].OutputArtifacts[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].OutputArtifacts[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].outputArtifacts[].name', normalize: typed}
+      Stages[].Actions[].OutputVariables:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].OutputVariables'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].OutputVariables', normalize: typed}
+      Stages[].Actions[].Region:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].Region'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].Region', normalize: typed}
+      Stages[].Actions[].RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].RoleArn', normalize: typed}
+      Stages[].Actions[].RunOrder:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].RunOrder'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].actions[].runOrder', normalize: typed}
+      Stages[].Actions[].TimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: 'Stages[].Actions[].TimeoutInMinutes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].TimeoutInMinutes', normalize: typed}
+      Stages[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'stages[].name', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Tags[].Value', normalize: typed}
+      Triggers[].GitConfiguration.PullRequest[].Branches.Excludes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.PullRequest[].Branches.Excludes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.PullRequest[].Branches.Excludes', normalize: typed}
+      Triggers[].GitConfiguration.PullRequest[].Branches.Includes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.PullRequest[].Branches.Includes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.PullRequest[].Branches.Includes', normalize: typed}
+      Triggers[].GitConfiguration.PullRequest[].Events:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.PullRequest[].Events'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.PullRequest[].Events', normalize: typed}
+      Triggers[].GitConfiguration.PullRequest[].FilePaths.Excludes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.PullRequest[].FilePaths.Excludes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.PullRequest[].FilePaths.Excludes', normalize: typed}
+      Triggers[].GitConfiguration.PullRequest[].FilePaths.Includes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.PullRequest[].FilePaths.Includes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.PullRequest[].FilePaths.Includes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].Branches.Excludes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].Branches.Excludes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].Branches.Excludes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].Branches.Includes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].Branches.Includes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].Branches.Includes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].FilePaths.Excludes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].FilePaths.Excludes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].FilePaths.Excludes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].FilePaths.Includes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].FilePaths.Includes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].FilePaths.Includes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].Tags.Excludes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].Tags.Excludes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].Tags.Excludes', normalize: typed}
+      Triggers[].GitConfiguration.Push[].Tags.Includes:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.Push[].Tags.Includes'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.Push[].Tags.Includes', normalize: typed}
+      Triggers[].GitConfiguration.SourceActionName:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].GitConfiguration.SourceActionName'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].GitConfiguration.SourceActionName', normalize: typed}
+      Triggers[].ProviderType:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].ProviderType'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Triggers[].ProviderType', normalize: typed}
+      Variables[].DefaultValue:
+        model: {include: false}
+        display: {show: false, name: 'Variables[].DefaultValue'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Variables[].DefaultValue', normalize: typed}
+      Variables[].Description:
+        model: {include: false}
+        display: {show: false, name: 'Variables[].Description'}
+        access: [read-write]
+        aws: {getter: provider-codepipeline-pipeline, path: 'Variables[].Description', normalize: typed}
+      Variables[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Variables[].Name'}
+        access: [read-write]
+        aws: {getter: base, path: 'variables[].name', normalize: typed}

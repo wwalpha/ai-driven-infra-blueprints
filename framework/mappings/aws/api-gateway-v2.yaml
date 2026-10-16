@@ -1,0 +1,816 @@
+version: 3
+service: api-gateway-v2
+getters:
+  provider-apigatewayv2-api:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Api
+    identifier: [/properties/ApiId]
+  sdk-apigatewayv2-api:
+    kind: sdk
+    service: apigatewayv2
+    operation: get_api
+    result: $
+    resourceType: ApiGatewayV2.Api
+  provider-apigatewayv2-apimapping:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.ApiMapping
+    identifier: [/properties/ApiMappingId, /properties/DomainName]
+  provider-apigatewayv2-authorizer:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Authorizer
+    identifier: [/properties/AuthorizerId, /properties/ApiId]
+  sdk-apigatewayv2-authorizer:
+    kind: sdk
+    service: apigatewayv2
+    operation: get_authorizer
+    result: $
+    resourceType: ApiGatewayV2.Authorizer
+  provider-apigatewayv2-deployment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Deployment
+    identifier: [/properties/ApiId, /properties/DeploymentId]
+  provider-apigatewayv2-domainname:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.DomainName
+    identifier: [/properties/DomainName]
+  provider-apigatewayv2-integration:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Integration
+    identifier: [/properties/ApiId, /properties/IntegrationId]
+  provider-apigatewayv2-integrationresponse:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.IntegrationResponse
+    identifier: [/properties/ApiId, /properties/IntegrationId, /properties/IntegrationResponseId]
+  provider-apigatewayv2-route:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Route
+    identifier: [/properties/ApiId, /properties/RouteId]
+  sdk-apigatewayv2-route:
+    kind: sdk
+    service: apigatewayv2
+    operation: get_route
+    result: $
+    resourceType: ApiGatewayV2.Route
+  provider-apigatewayv2-routeresponse:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.RouteResponse
+    identifier: [/properties/ApiId, /properties/RouteId, /properties/RouteResponseId]
+  provider-apigatewayv2-stage:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.Stage
+    identifier: [/properties/ApiId, /properties/StageName]
+  provider-apigatewayv2-vpclink:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ApiGatewayV2.VpcLink
+    identifier: [/properties/VpcLinkId]
+resourceTypes:
+  ApiGatewayV2.Api:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: Name, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-api, path: ApiId, normalize: typed}
+      ApiKeySelectionExpression:
+        model: {include: false}
+        display: {show: false, name: ApiKeySelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: ApiKeySelectionExpression, normalize: typed}
+      BasePath:
+        model: {include: false}
+        display: {show: false, name: BasePath}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.BasePath
+          constraint: Pinned provider schema declares /properties/BasePath write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Body:
+        model: {include: false}
+        display: {show: false, name: Body}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.Body
+          constraint: Pinned provider schema declares /properties/Body write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      BodyS3Location.Bucket:
+        model: {include: false}
+        display: {show: false, name: BodyS3Location.Bucket}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.BodyS3Location.Bucket
+          constraint: Pinned provider schema declares /properties/BodyS3Location write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      BodyS3Location.Etag:
+        model: {include: false}
+        display: {show: false, name: BodyS3Location.Etag}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.BodyS3Location.Etag
+          constraint: Pinned provider schema declares /properties/BodyS3Location write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      BodyS3Location.Key:
+        model: {include: false}
+        display: {show: false, name: BodyS3Location.Key}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.BodyS3Location.Key
+          constraint: Pinned provider schema declares /properties/BodyS3Location write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      BodyS3Location.Version:
+        model: {include: false}
+        display: {show: false, name: BodyS3Location.Version}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.BodyS3Location.Version
+          constraint: Pinned provider schema declares /properties/BodyS3Location write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      CorsConfiguration.AllowCredentials:
+        model: {include: false}
+        display: {show: false, name: CorsConfiguration.AllowCredentials}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: CorsConfiguration.AllowCredentials, normalize: typed}
+      CorsConfiguration.AllowHeaders[]:
+        model: {include: false}
+        display: {show: false, name: 'CorsConfiguration.AllowHeaders[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: 'CorsConfiguration.AllowHeaders[]', normalize: typed}
+      CorsConfiguration.AllowMethods[]:
+        model: {include: false}
+        display: {show: false, name: 'CorsConfiguration.AllowMethods[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: 'CorsConfiguration.AllowMethods[]', normalize: typed}
+      CorsConfiguration.AllowOrigins[]:
+        model: {include: false}
+        display: {show: false, name: 'CorsConfiguration.AllowOrigins[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: 'CorsConfiguration.AllowOrigins[]', normalize: typed}
+      CorsConfiguration.ExposeHeaders[]:
+        model: {include: false}
+        display: {show: false, name: 'CorsConfiguration.ExposeHeaders[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: 'CorsConfiguration.ExposeHeaders[]', normalize: typed}
+      CorsConfiguration.MaxAge:
+        model: {include: false}
+        display: {show: false, name: CorsConfiguration.MaxAge}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: CorsConfiguration.MaxAge, normalize: typed}
+      CredentialsArn:
+        model: {include: false}
+        display: {show: false, name: CredentialsArn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.CredentialsArn
+          constraint: Pinned provider schema declares /properties/CredentialsArn write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: Description, normalize: typed}
+      DisableExecuteApiEndpoint:
+        model: {include: false}
+        display: {show: false, name: DisableExecuteApiEndpoint}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: DisableExecuteApiEndpoint, normalize: typed}
+      DisableSchemaValidation:
+        model: {include: false}
+        display: {show: false, name: DisableSchemaValidation}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-api, path: DisableSchemaValidation, normalize: typed}
+      FailOnWarnings:
+        model: {include: false}
+        display: {show: false, name: FailOnWarnings}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.FailOnWarnings
+          constraint: Pinned provider schema declares /properties/FailOnWarnings write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      IpAddressType:
+        model: {include: false}
+        display: {show: false, name: IpAddressType}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: IpAddressType, normalize: typed}
+      ProtocolType:
+        model: {include: false}
+        display: {show: false, name: ProtocolType}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-api, path: ProtocolType, normalize: typed}
+      RouteKey:
+        model: {include: false}
+        display: {show: false, name: RouteKey}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.RouteKey
+          constraint: Pinned provider schema declares /properties/RouteKey write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      RouteSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: RouteSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: RouteSelectionExpression, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: Tags, normalize: typed}
+      Target:
+        model: {include: false}
+        display: {show: false, name: Target}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Api.Target
+          constraint: Pinned provider schema declares /properties/Target write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Version:
+        model: {include: false}
+        display: {show: false, name: Version}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-api, path: Version, normalize: typed}
+  ApiGatewayV2.ApiMapping:
+    properties:
+      ApiMappingId:
+        model: {include: false}
+        display: {show: false, name: ApiMappingId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-apimapping, path: ApiMappingId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-apimapping, path: ApiId, normalize: typed}
+      ApiMappingKey:
+        model: {include: false}
+        display: {show: false, name: ApiMappingKey}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-apimapping, path: ApiMappingKey, normalize: typed}
+      DomainName:
+        model: {include: false}
+        display: {show: false, name: DomainName}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-apimapping, path: DomainName, normalize: typed}
+      Stage:
+        model: {include: false}
+        display: {show: false, name: Stage}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-apimapping, path: Stage, normalize: typed}
+  ApiGatewayV2.Authorizer:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: Name, normalize: typed}
+      AuthorizerId:
+        model: {include: false}
+        display: {show: false, name: AuthorizerId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-authorizer, path: AuthorizerId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-authorizer, path: ApiId, normalize: typed}
+      AuthorizerCredentialsArn:
+        model: {include: false}
+        display: {show: false, name: AuthorizerCredentialsArn}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-authorizer, path: AuthorizerCredentialsArn, normalize: typed}
+      AuthorizerPayloadFormatVersion:
+        model: {include: false}
+        display: {show: false, name: AuthorizerPayloadFormatVersion}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-authorizer, path: AuthorizerPayloadFormatVersion, normalize: typed}
+      AuthorizerResultTtlInSeconds:
+        model: {include: false}
+        display: {show: false, name: AuthorizerResultTtlInSeconds}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-authorizer, path: AuthorizerResultTtlInSeconds, normalize: typed}
+      AuthorizerType:
+        model: {include: false}
+        display: {show: false, name: AuthorizerType}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: AuthorizerType, normalize: typed}
+      AuthorizerUri:
+        model: {include: false}
+        display: {show: false, name: AuthorizerUri}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-authorizer, path: AuthorizerUri, normalize: typed}
+      EnableSimpleResponses:
+        model: {include: false}
+        display: {show: false, name: EnableSimpleResponses}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-authorizer, path: EnableSimpleResponses, normalize: typed}
+      IdentitySource[]:
+        model: {include: false}
+        display: {show: false, name: 'IdentitySource[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: 'IdentitySource[]', normalize: typed}
+      IdentityValidationExpression:
+        model: {include: false}
+        display: {show: false, name: IdentityValidationExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: IdentityValidationExpression, normalize: typed}
+      JwtConfiguration.Audience[]:
+        model: {include: false}
+        display: {show: false, name: 'JwtConfiguration.Audience[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: 'JwtConfiguration.Audience[]', normalize: typed}
+      JwtConfiguration.Issuer:
+        model: {include: false}
+        display: {show: false, name: JwtConfiguration.Issuer}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-authorizer, path: JwtConfiguration.Issuer, normalize: typed}
+  ApiGatewayV2.Deployment:
+    properties:
+      DeploymentId:
+        model: {include: false}
+        display: {show: false, name: DeploymentId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-deployment, path: DeploymentId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-deployment, path: ApiId, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-deployment, path: Description, normalize: typed}
+      StageName:
+        model: {include: false}
+        display: {show: false, name: StageName}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ApiGatewayV2.Deployment.StageName
+          constraint: Pinned provider schema declares /properties/StageName write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+  ApiGatewayV2.DomainName:
+    properties:
+      DomainName:
+        model: {include: false}
+        display: {show: false, name: DomainName}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-domainname, path: DomainName, normalize: typed}
+      DomainNameConfigurations[].CertificateArn:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].CertificateArn'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].CertificateArn', normalize: typed}
+      DomainNameConfigurations[].CertificateName:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].CertificateName'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].CertificateName', normalize: typed}
+      DomainNameConfigurations[].EndpointType:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].EndpointType'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].EndpointType', normalize: typed}
+      DomainNameConfigurations[].IpAddressType:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].IpAddressType'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].IpAddressType', normalize: typed}
+      DomainNameConfigurations[].OwnershipVerificationCertificateArn:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].OwnershipVerificationCertificateArn'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].OwnershipVerificationCertificateArn', normalize: typed}
+      DomainNameConfigurations[].SecurityPolicy:
+        model: {include: false}
+        display: {show: false, name: 'DomainNameConfigurations[].SecurityPolicy'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: 'DomainNameConfigurations[].SecurityPolicy', normalize: typed}
+      MutualTlsAuthentication.TruststoreUri:
+        model: {include: false}
+        display: {show: false, name: MutualTlsAuthentication.TruststoreUri}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: MutualTlsAuthentication.TruststoreUri, normalize: typed}
+      MutualTlsAuthentication.TruststoreVersion:
+        model: {include: false}
+        display: {show: false, name: MutualTlsAuthentication.TruststoreVersion}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: MutualTlsAuthentication.TruststoreVersion, normalize: typed}
+      RoutingMode:
+        model: {include: false}
+        display: {show: false, name: RoutingMode}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: RoutingMode, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-domainname, path: Tags, normalize: typed}
+  ApiGatewayV2.Integration:
+    properties:
+      IntegrationId:
+        model: {include: false}
+        display: {show: false, name: IntegrationId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-integration, path: IntegrationId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-integration, path: ApiId, normalize: typed}
+      ConnectionId:
+        model: {include: false}
+        display: {show: false, name: ConnectionId}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: ConnectionId, normalize: typed}
+      ConnectionType:
+        model: {include: false}
+        display: {show: false, name: ConnectionType}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: ConnectionType, normalize: typed}
+      ContentHandlingStrategy:
+        model: {include: false}
+        display: {show: false, name: ContentHandlingStrategy}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: ContentHandlingStrategy, normalize: typed}
+      CredentialsArn:
+        model: {include: false}
+        display: {show: false, name: CredentialsArn}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: CredentialsArn, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: Description, normalize: typed}
+      IntegrationMethod:
+        model: {include: false}
+        display: {show: false, name: IntegrationMethod}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: IntegrationMethod, normalize: typed}
+      IntegrationSubtype:
+        model: {include: false}
+        display: {show: false, name: IntegrationSubtype}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: IntegrationSubtype, normalize: typed}
+      IntegrationType:
+        model: {include: false}
+        display: {show: false, name: IntegrationType}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: IntegrationType, normalize: typed}
+      IntegrationUri:
+        model: {include: false}
+        display: {show: false, name: IntegrationUri}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: IntegrationUri, normalize: typed}
+      PassthroughBehavior:
+        model: {include: false}
+        display: {show: false, name: PassthroughBehavior}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: PassthroughBehavior, normalize: typed}
+      PayloadFormatVersion:
+        model: {include: false}
+        display: {show: false, name: PayloadFormatVersion}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: PayloadFormatVersion, normalize: typed}
+      RequestParameters:
+        model: {include: false}
+        display: {show: false, name: RequestParameters}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: RequestParameters, normalize: typed}
+      RequestTemplates:
+        model: {include: false}
+        display: {show: false, name: RequestTemplates}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: RequestTemplates, normalize: typed}
+      ResponseParameters:
+        model: {include: false}
+        display: {show: false, name: ResponseParameters}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: ResponseParameters, normalize: typed}
+      TemplateSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: TemplateSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: TemplateSelectionExpression, normalize: typed}
+      TimeoutInMillis:
+        model: {include: false}
+        display: {show: false, name: TimeoutInMillis}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: TimeoutInMillis, normalize: typed}
+      TlsConfig.ServerNameToVerify:
+        model: {include: false}
+        display: {show: false, name: TlsConfig.ServerNameToVerify}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integration, path: TlsConfig.ServerNameToVerify, normalize: typed}
+  ApiGatewayV2.IntegrationResponse:
+    properties:
+      IntegrationResponseId:
+        model: {include: false}
+        display: {show: false, name: IntegrationResponseId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: IntegrationResponseId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: ApiId, normalize: typed}
+      ContentHandlingStrategy:
+        model: {include: false}
+        display: {show: false, name: ContentHandlingStrategy}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: ContentHandlingStrategy, normalize: typed}
+      IntegrationId:
+        model: {include: false}
+        display: {show: false, name: IntegrationId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: IntegrationId, normalize: typed}
+      IntegrationResponseKey:
+        model: {include: false}
+        display: {show: false, name: IntegrationResponseKey}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: IntegrationResponseKey, normalize: typed}
+      ResponseParameters:
+        model: {include: false}
+        display: {show: false, name: ResponseParameters}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: ResponseParameters, normalize: typed}
+      ResponseTemplates:
+        model: {include: false}
+        display: {show: false, name: ResponseTemplates}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: ResponseTemplates, normalize: typed}
+      TemplateSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: TemplateSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-integrationresponse, path: TemplateSelectionExpression, normalize: typed}
+  ApiGatewayV2.Route:
+    properties:
+      RouteId:
+        model: {include: false}
+        display: {show: false, name: RouteId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-route, path: RouteId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-route, path: ApiId, normalize: typed}
+      ApiKeyRequired:
+        model: {include: false}
+        display: {show: false, name: ApiKeyRequired}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: ApiKeyRequired, normalize: typed}
+      AuthorizationScopes[]:
+        model: {include: false}
+        display: {show: false, name: 'AuthorizationScopes[]'}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: 'AuthorizationScopes[]', normalize: typed}
+      AuthorizationType:
+        model: {include: false}
+        display: {show: false, name: AuthorizationType}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: AuthorizationType, normalize: typed}
+      AuthorizerId:
+        model: {include: false}
+        display: {show: false, name: AuthorizerId}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-route, path: AuthorizerId, normalize: typed}
+      ModelSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: ModelSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: ModelSelectionExpression, normalize: typed}
+      OperationName:
+        model: {include: false}
+        display: {show: false, name: OperationName}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: OperationName, normalize: typed}
+      RequestModels:
+        model: {include: false}
+        display: {show: false, name: RequestModels}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: RequestModels, normalize: typed}
+      RequestParameters:
+        model: {include: false}
+        display: {show: false, name: RequestParameters}
+        access: [write-only]
+        aws: {getter: sdk-apigatewayv2-route, path: RequestParameters, normalize: typed}
+      RouteKey:
+        model: {include: false}
+        display: {show: false, name: RouteKey}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: RouteKey, normalize: typed}
+      RouteResponseSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: RouteResponseSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: RouteResponseSelectionExpression, normalize: typed}
+      Target:
+        model: {include: false}
+        display: {show: false, name: Target}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-route, path: Target, normalize: typed}
+  ApiGatewayV2.RouteResponse:
+    properties:
+      RouteResponseId:
+        model: {include: false}
+        display: {show: false, name: RouteResponseId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: RouteResponseId, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: ApiId, normalize: typed}
+      ModelSelectionExpression:
+        model: {include: false}
+        display: {show: false, name: ModelSelectionExpression}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: ModelSelectionExpression, normalize: typed}
+      ResponseModels:
+        model: {include: false}
+        display: {show: false, name: ResponseModels}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: ResponseModels, normalize: typed}
+      ResponseParameters:
+        model: {include: false}
+        display: {show: false, name: ResponseParameters}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: ResponseParameters, normalize: typed}
+      RouteId:
+        model: {include: false}
+        display: {show: false, name: RouteId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: RouteId, normalize: typed}
+      RouteResponseKey:
+        model: {include: false}
+        display: {show: false, name: RouteResponseKey}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-routeresponse, path: RouteResponseKey, normalize: typed}
+  ApiGatewayV2.Stage:
+    properties:
+      StageName:
+        model: {include: false}
+        display: {show: false, name: StageName}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-stage, path: StageName, normalize: typed}
+      AccessLogSettings.DestinationArn:
+        model: {include: false}
+        display: {show: false, name: AccessLogSettings.DestinationArn}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: AccessLogSettings.DestinationArn, normalize: typed}
+      AccessLogSettings.Format:
+        model: {include: false}
+        display: {show: false, name: AccessLogSettings.Format}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: AccessLogSettings.Format, normalize: typed}
+      ApiId:
+        model: {include: false}
+        display: {show: false, name: ApiId}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-stage, path: ApiId, normalize: typed}
+      AutoDeploy:
+        model: {include: false}
+        display: {show: false, name: AutoDeploy}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: AutoDeploy, normalize: typed}
+      ClientCertificateId:
+        model: {include: false}
+        display: {show: false, name: ClientCertificateId}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: ClientCertificateId, normalize: typed}
+      DefaultRouteSettings.DataTraceEnabled:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteSettings.DataTraceEnabled}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DefaultRouteSettings.DataTraceEnabled, normalize: typed}
+      DefaultRouteSettings.DetailedMetricsEnabled:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteSettings.DetailedMetricsEnabled}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DefaultRouteSettings.DetailedMetricsEnabled, normalize: typed}
+      DefaultRouteSettings.LoggingLevel:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteSettings.LoggingLevel}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DefaultRouteSettings.LoggingLevel, normalize: typed}
+      DefaultRouteSettings.ThrottlingBurstLimit:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteSettings.ThrottlingBurstLimit}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DefaultRouteSettings.ThrottlingBurstLimit, normalize: typed}
+      DefaultRouteSettings.ThrottlingRateLimit:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteSettings.ThrottlingRateLimit}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DefaultRouteSettings.ThrottlingRateLimit, normalize: typed}
+      DeploymentId:
+        model: {include: false}
+        display: {show: false, name: DeploymentId}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: DeploymentId, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: Description, normalize: typed}
+      RouteSettings:
+        model: {include: false}
+        display: {show: false, name: RouteSettings}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: RouteSettings, normalize: typed}
+      StageVariables:
+        model: {include: false}
+        display: {show: false, name: StageVariables}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: StageVariables, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-stage, path: Tags, normalize: typed}
+  ApiGatewayV2.VpcLink:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-vpclink, path: Name, normalize: typed}
+      VpcLinkId:
+        model: {include: false}
+        display: {show: false, name: VpcLinkId}
+        access: [read-only]
+        aws: {getter: provider-apigatewayv2-vpclink, path: VpcLinkId, normalize: typed}
+      SecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'SecurityGroupIds[]'}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-vpclink, path: 'SecurityGroupIds[]', normalize: typed}
+      SubnetIds[]:
+        model: {include: false}
+        display: {show: false, name: 'SubnetIds[]'}
+        access: [create-only]
+        aws: {getter: provider-apigatewayv2-vpclink, path: 'SubnetIds[]', normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-apigatewayv2-vpclink, path: Tags, normalize: typed}

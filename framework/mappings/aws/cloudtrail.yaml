@@ -1,0 +1,172 @@
+version: 3
+service: cloudtrail
+getters:
+  base:
+    kind: adapter
+    resources: [CloudTrail.Trail]
+  provider-cloudtrail-trail:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudTrail.Trail
+    identifier: [/properties/TrailName]
+  selectors:
+    kind: adapter
+    resources: [CloudTrail.Trail]
+  status:
+    kind: adapter
+    resources: [CloudTrail.Trail]
+resourceTypes:
+  CloudTrail.Trail:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: TrailARN
+      nameProperty: TrailName
+    properties:
+      TrailName:
+        model: {include: true}
+        display: {show: true, name: TrailName}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].EndsWith:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].EndsWith'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].EndsWith', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].Equals:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].Equals'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].Equals', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].Field:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].Field'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].Field', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].NotEndsWith:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].NotEndsWith'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].NotEndsWith', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].NotEquals:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].NotEquals'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].NotEquals', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].NotStartsWith:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].NotStartsWith'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].NotStartsWith', normalize: typed}
+      AdvancedEventSelectors[].FieldSelectors[].StartsWith:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].FieldSelectors[].StartsWith'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].FieldSelectors[].StartsWith', normalize: typed}
+      AdvancedEventSelectors[].Name:
+        model: {include: false}
+        display: {show: false, name: 'AdvancedEventSelectors[].Name'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'AdvancedEventSelectors[].Name', normalize: typed}
+      CloudWatchLogsLogGroupArn:
+        model: {include: true}
+        display: {show: true, name: CloudWatchLogsLogGroupArn}
+        access: [read-write]
+        aws: {getter: base, path: CloudWatchLogsLogGroupArn, normalize: log_group_arn}
+      CloudWatchLogsRoleArn:
+        model: {include: true}
+        display: {show: true, name: CloudWatchLogsRoleArn}
+        access: [read-write]
+        aws: {getter: base, path: CloudWatchLogsRoleArn, normalize: arn}
+      EnableLogFileValidation:
+        model: {include: true}
+        display: {show: true, name: EnableLogFileValidation}
+        access: [read-write]
+        aws: {getter: base, path: LogFileValidationEnabled, normalize: typed}
+      EventSelectors[].DataResources[].Type:
+        model: {include: true}
+        display: {show: true, name: 'EventSelectors[].DataResources[].Type'}
+        access: [read-write]
+        aws: {getter: selectors, path: 'EventSelectors[].DataResources[].Type', normalize: typed}
+      EventSelectors[].DataResources[].Values:
+        model: {include: true}
+        display: {show: true, name: 'EventSelectors[].DataResources[].Values'}
+        access: [read-write]
+        aws: {getter: selectors, path: 'EventSelectors[].DataResources[].Values', normalize: arn}
+      EventSelectors[].ExcludeManagementEventSources:
+        model: {include: false}
+        display: {show: false, name: 'EventSelectors[].ExcludeManagementEventSources'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'EventSelectors[].ExcludeManagementEventSources', normalize: typed}
+      EventSelectors[].IncludeManagementEvents:
+        model: {include: true}
+        display: {show: true, name: EventSelectors.IncludeManagementEvents}
+        access: [read-write]
+        aws: {getter: selectors, path: 'EventSelectors[].IncludeManagementEvents', normalize: typed}
+      EventSelectors[].ReadWriteType:
+        model: {include: true}
+        display: {show: true, name: EventSelectors.ReadWriteType}
+        access: [read-write]
+        aws: {getter: selectors, path: 'EventSelectors[].ReadWriteType', normalize: typed}
+      IncludeGlobalServiceEvents:
+        model: {include: true}
+        display: {show: true, name: IncludeGlobalServiceEvents}
+        access: [read-write]
+        aws: {getter: base, path: IncludeGlobalServiceEvents, normalize: typed}
+      InsightSelectors[].EventCategories:
+        model: {include: false}
+        display: {show: false, name: 'InsightSelectors[].EventCategories'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'InsightSelectors[].EventCategories', normalize: typed}
+      InsightSelectors[].InsightType:
+        model: {include: false}
+        display: {show: false, name: 'InsightSelectors[].InsightType'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'InsightSelectors[].InsightType', normalize: typed}
+      IsLogging:
+        model: {include: true}
+        display: {show: true, name: IsLogging}
+        access: [read-write]
+        aws: {getter: status, path: IsLogging, normalize: typed}
+      IsMultiRegionTrail:
+        model: {include: true}
+        display: {show: true, name: IsMultiRegionTrail}
+        access: [read-write]
+        aws: {getter: base, path: IsMultiRegionTrail, normalize: typed}
+      IsOrganizationTrail:
+        model: {include: false}
+        display: {show: false, name: IsOrganizationTrail}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: IsOrganizationTrail, normalize: typed}
+      KMSKeyId:
+        model: {include: true}
+        display: {show: true, name: KMSKeyId}
+        access: [read-write]
+        aws: {getter: base, path: KmsKeyId, normalize: kms}
+      S3BucketName:
+        model: {include: true}
+        display: {show: true, name: S3BucketName}
+        access: [read-write]
+        aws: {getter: base, path: S3BucketName, normalize: name}
+      S3KeyPrefix:
+        model: {include: false}
+        display: {show: false, name: S3KeyPrefix}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: S3KeyPrefix, normalize: typed}
+      SnsTopicName:
+        model: {include: false}
+        display: {show: false, name: SnsTopicName}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: SnsTopicName, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudtrail-trail, path: 'Tags[].Value', normalize: typed}

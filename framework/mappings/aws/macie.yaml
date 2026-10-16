@@ -1,0 +1,115 @@
+version: 3
+service: macie
+getters:
+  job:
+    kind: adapter
+    resources: [Macie.ClassificationJob]
+  sdk-macie-classificationjob:
+    kind: sdk
+    service: macie2
+    operation: describe_classification_job
+    result: $
+    resourceType: Macie.ClassificationJob
+  session:
+    kind: adapter
+    resources: [Macie.Session]
+resourceTypes:
+  Macie.ClassificationJob:
+    identity:
+      getter: job
+      idPath: jobId
+      arnPath: jobArn
+      nameProperty: name
+    properties:
+      name:
+        model: {include: true}
+        display: {show: true, name: name}
+        access: [api]
+        aws: {getter: job, path: name, normalize: typed}
+      jobId:
+        model: {include: true}
+        display: {show: true, name: jobId}
+        access: [api]
+        aws: {getter: job, path: jobId, normalize: typed}
+      allowListIds:
+        model: {include: false}
+        display: {show: false, name: allowListIds}
+        access: [api]
+        aws: {getter: sdk-macie-classificationjob, path: allowListIds, normalize: typed}
+      customDataIdentifierIds:
+        model: {include: false}
+        display: {show: false, name: customDataIdentifierIds}
+        access: [api]
+        aws: {getter: sdk-macie-classificationjob, path: customDataIdentifierIds, normalize: typed}
+      description:
+        model: {include: false}
+        display: {show: false, name: description}
+        access: [api]
+        aws: {getter: sdk-macie-classificationjob, path: description, normalize: typed}
+      initialRun:
+        model: {include: true}
+        display: {show: true, name: initialRun}
+        access: [api]
+        aws: {getter: job, path: initialRun, normalize: typed}
+      jobType:
+        model: {include: true}
+        display: {show: true, name: jobType}
+        access: [api]
+        aws: {getter: job, path: jobType, normalize: typed}
+      managedDataIdentifierIds:
+        model: {include: true}
+        display: {show: true, name: managedDataIdentifierIds}
+        access: [api]
+        aws: {getter: job, path: managedDataIdentifierIds, normalize: set}
+      managedDataIdentifierSelector:
+        model: {include: true}
+        display: {show: true, name: managedDataIdentifierSelector}
+        access: [api]
+        aws: {getter: job, path: managedDataIdentifierSelector, normalize: typed}
+      s3JobDefinition:
+        model: {include: true}
+        display: {show: true, name: s3JobDefinition}
+        access: [api]
+        aws: {getter: job, path: s3JobDefinition, normalize: json}
+      samplingPercentage:
+        model: {include: true}
+        display: {show: true, name: samplingPercentage}
+        access: [api]
+        aws: {getter: job, path: samplingPercentage, normalize: typed}
+      scheduleFrequency:
+        model: {include: true}
+        display: {show: true, name: scheduleFrequency}
+        access: [api]
+        aws: {getter: job, path: scheduleFrequency, normalize: typed}
+      tags:
+        model: {include: false}
+        display: {show: false, name: tags}
+        access: [api]
+        aws: {getter: sdk-macie-classificationjob, path: tags, normalize: typed}
+  Macie.Session:
+    identity:
+      getter: session
+      idPath: AwsAccountId
+      arnPath: null
+      nameProperty: null
+    properties:
+      AwsAccountId:
+        model: {include: true}
+        display: {show: true, name: AwsAccountId}
+        access: [read-only]
+        source:
+          kind: target
+          location: project.json target.awsExecutionAccountId or target.awsAccountId
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: session, path: AwsAccountId, normalize: typed}
+      FindingPublishingFrequency:
+        model: {include: true}
+        display: {show: true, name: FindingPublishingFrequency}
+        access: [read-write]
+        aws: {getter: session, path: findingPublishingFrequency, normalize: typed}
+      Status:
+        model: {include: true}
+        display: {show: true, name: Status}
+        access: [read-write]
+        aws: {getter: session, path: status, normalize: typed}

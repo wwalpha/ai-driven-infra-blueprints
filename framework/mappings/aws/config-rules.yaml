@@ -1,0 +1,109 @@
+version: 3
+service: config-rules
+getters:
+  provider-config-configrule:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Config.ConfigRule
+    identifier: [/properties/ConfigRuleName]
+  sdk-config-configrule:
+    kind: sdk
+    service: config
+    operation: describe_config_rules
+    result: ConfigRules[]
+    resourceType: Config.ConfigRule
+resourceTypes:
+  Config.ConfigRule:
+    properties:
+      ConfigRuleId:
+        model: {include: false}
+        display: {show: false, name: ConfigRuleId}
+        access: [read-only]
+        aws: {getter: provider-config-configrule, path: ConfigRuleId, normalize: typed}
+      ConfigRuleName:
+        model: {include: false}
+        display: {show: false, name: ConfigRuleName}
+        access: [create-only]
+        aws: {getter: provider-config-configrule, path: ConfigRuleName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Description, normalize: typed}
+      Scope.TagKey:
+        model: {include: false}
+        display: {show: false, name: Scope.TagKey}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Scope.TagKey, normalize: typed}
+      Scope.ComplianceResourceTypes:
+        model: {include: false}
+        display: {show: false, name: Scope.ComplianceResourceTypes}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Scope.ComplianceResourceTypes, normalize: typed}
+      Scope.TagValue:
+        model: {include: false}
+        display: {show: false, name: Scope.TagValue}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Scope.TagValue, normalize: typed}
+      Scope.ComplianceResourceId:
+        model: {include: false}
+        display: {show: false, name: Scope.ComplianceResourceId}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Scope.ComplianceResourceId, normalize: typed}
+      MaximumExecutionFrequency:
+        model: {include: false}
+        display: {show: false, name: MaximumExecutionFrequency}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: MaximumExecutionFrequency, normalize: typed}
+      Source.CustomPolicyDetails.EnableDebugLogDelivery:
+        model: {include: false}
+        display: {show: false, name: Source.CustomPolicyDetails.EnableDebugLogDelivery}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Source.CustomPolicyDetails.EnableDebugLogDelivery, normalize: typed}
+      Source.CustomPolicyDetails.PolicyText:
+        model: {include: false}
+        display: {show: false, name: Source.CustomPolicyDetails.PolicyText}
+        access: [write-only]
+        aws: {getter: sdk-config-configrule, path: Source.CustomPolicyDetails.PolicyText, normalize: typed}
+      Source.CustomPolicyDetails.PolicyRuntime:
+        model: {include: false}
+        display: {show: false, name: Source.CustomPolicyDetails.PolicyRuntime}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Source.CustomPolicyDetails.PolicyRuntime, normalize: typed}
+      Source.SourceIdentifier:
+        model: {include: false}
+        display: {show: false, name: Source.SourceIdentifier}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Source.SourceIdentifier, normalize: typed}
+      Source.Owner:
+        model: {include: false}
+        display: {show: false, name: Source.Owner}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: Source.Owner, normalize: typed}
+      Source.SourceDetails[].EventSource:
+        model: {include: false}
+        display: {show: false, name: 'Source.SourceDetails[].EventSource'}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: 'Source.SourceDetails[].EventSource', normalize: typed}
+      Source.SourceDetails[].MaximumExecutionFrequency:
+        model: {include: false}
+        display: {show: false, name: 'Source.SourceDetails[].MaximumExecutionFrequency'}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: 'Source.SourceDetails[].MaximumExecutionFrequency', normalize: typed}
+      Source.SourceDetails[].MessageType:
+        model: {include: false}
+        display: {show: false, name: 'Source.SourceDetails[].MessageType'}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: 'Source.SourceDetails[].MessageType', normalize: typed}
+      InputParameters:
+        model: {include: false}
+        display: {show: false, name: InputParameters}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: InputParameters, normalize: typed}
+      EvaluationModes[].Mode:
+        model: {include: false}
+        display: {show: false, name: 'EvaluationModes[].Mode'}
+        access: [read-write]
+        aws: {getter: provider-config-configrule, path: 'EvaluationModes[].Mode', normalize: typed}

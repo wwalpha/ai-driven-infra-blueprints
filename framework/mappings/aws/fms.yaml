@@ -1,0 +1,253 @@
+version: 3
+service: fms
+getters:
+  provider-fms-policy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: FMS.Policy
+    identifier: [/properties/Id]
+resourceTypes:
+  FMS.Policy:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-fms-policy, path: Id, normalize: typed}
+      PolicyName:
+        model: {include: false}
+        display: {show: false, name: PolicyName}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: PolicyName, normalize: typed}
+      ExcludeMap.ACCOUNT:
+        model: {include: false}
+        display: {show: false, name: ExcludeMap.ACCOUNT}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ExcludeMap.ACCOUNT, normalize: typed}
+      ExcludeMap.ORGUNIT:
+        model: {include: false}
+        display: {show: false, name: ExcludeMap.ORGUNIT}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ExcludeMap.ORGUNIT, normalize: typed}
+      ExcludeResourceTags:
+        model: {include: false}
+        display: {show: false, name: ExcludeResourceTags}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ExcludeResourceTags, normalize: typed}
+      IncludeMap.ACCOUNT:
+        model: {include: false}
+        display: {show: false, name: IncludeMap.ACCOUNT}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: IncludeMap.ACCOUNT, normalize: typed}
+      IncludeMap.ORGUNIT:
+        model: {include: false}
+        display: {show: false, name: IncludeMap.ORGUNIT}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: IncludeMap.ORGUNIT, normalize: typed}
+      PolicyDescription:
+        model: {include: false}
+        display: {show: false, name: PolicyDescription}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: PolicyDescription, normalize: typed}
+      RemediationEnabled:
+        model: {include: false}
+        display: {show: false, name: RemediationEnabled}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: RemediationEnabled, normalize: typed}
+      ResourceTags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'ResourceTags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'ResourceTags[].Key', normalize: typed}
+      ResourceTags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ResourceTags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'ResourceTags[].Value', normalize: typed}
+      ResourceTagLogicalOperator:
+        model: {include: false}
+        display: {show: false, name: ResourceTagLogicalOperator}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ResourceTagLogicalOperator, normalize: typed}
+      ResourceType:
+        model: {include: false}
+        display: {show: false, name: ResourceType}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ResourceType, normalize: typed}
+      ResourceTypeList:
+        model: {include: false}
+        display: {show: false, name: ResourceTypeList}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ResourceTypeList, normalize: typed}
+      ResourceSetIds:
+        model: {include: false}
+        display: {show: false, name: ResourceSetIds}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ResourceSetIds, normalize: typed}
+      SecurityServicePolicyData.ManagedServiceData:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.ManagedServiceData}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.ManagedServiceData, normalize: typed}
+      SecurityServicePolicyData.Type:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.Type}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.Type, normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkFirewallPolicy.FirewallDeploymentModel:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.PolicyOption.NetworkFirewallPolicy.FirewallDeploymentModel}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.PolicyOption.NetworkFirewallPolicy.FirewallDeploymentModel, normalize: typed}
+      SecurityServicePolicyData.PolicyOption.ThirdPartyFirewallPolicy.FirewallDeploymentModel:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.PolicyOption.ThirdPartyFirewallPolicy.FirewallDeploymentModel}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.PolicyOption.ThirdPartyFirewallPolicy.FirewallDeploymentModel, normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].CidrBlock:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].CidrBlock'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].CidrBlock',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Egress:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Egress'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Egress',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Code:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Code'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Code',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Type:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Type'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Type',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Ipv6CidrBlock:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Ipv6CidrBlock'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Ipv6CidrBlock',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.From:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.From'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.From',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.To:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.To'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.To',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Protocol:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Protocol'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Protocol',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].RuleAction:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].RuleAction'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].RuleAction',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForFirstEntries:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForFirstEntries}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForFirstEntries,
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].CidrBlock:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].CidrBlock'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].CidrBlock',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Egress:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Egress'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Egress',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Code:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Code'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Code',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Type:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Type'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Type',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Ipv6CidrBlock:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Ipv6CidrBlock'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Ipv6CidrBlock',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.From:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.From'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.From',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.To:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.To'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.To',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Protocol:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Protocol'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Protocol',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].RuleAction:
+        model: {include: false}
+        display: {show: false, name: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].RuleAction'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].RuleAction',
+          normalize: typed}
+      SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForLastEntries:
+        model: {include: false}
+        display: {show: false, name: SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForLastEntries}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForLastEntries,
+          normalize: typed}
+      DeleteAllPolicyResources:
+        model: {include: false}
+        display: {show: false, name: DeleteAllPolicyResources}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row FMS.Policy.DeleteAllPolicyResources
+          constraint: Pinned provider schema declares /properties/DeleteAllPolicyResources write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ResourcesCleanUp:
+        model: {include: false}
+        display: {show: false, name: ResourcesCleanUp}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: ResourcesCleanUp, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-fms-policy, path: 'Tags[].Value', normalize: typed}

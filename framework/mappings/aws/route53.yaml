@@ -1,0 +1,191 @@
+version: 3
+service: route53
+getters:
+  zone:
+    kind: adapter
+    resources: [Route53.HostedZone]
+  provider-route53-hostedzone:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Route53.HostedZone
+    identifier: [/properties/Id]
+  vpcs:
+    kind: adapter
+    resources: [Route53.HostedZone]
+  record:
+    kind: adapter
+    resources: [Route53.RecordSet]
+  provider-route53-recordset:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Route53.RecordSet
+    identifier: [/properties/Name, /properties/HostedZoneId, /properties/Type, /properties/SetIdentifier]
+resourceTypes:
+  Route53.HostedZone:
+    identity:
+      getter: zone
+      idPath: Id
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: zone, path: Name, normalize: dns}
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: zone, path: Id, normalize: typed}
+      HostedZoneConfig.Comment:
+        model: {include: true}
+        display: {show: true, name: HostedZoneConfig.Comment}
+        access: [read-write]
+        aws: {getter: zone, path: Config.Comment, normalize: typed}
+      HostedZoneTags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'HostedZoneTags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-route53-hostedzone, path: 'HostedZoneTags[].Key', normalize: typed}
+      HostedZoneTags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'HostedZoneTags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-route53-hostedzone, path: 'HostedZoneTags[].Value', normalize: typed}
+      QueryLoggingConfig.CloudWatchLogsLogGroupArn:
+        model: {include: false}
+        display: {show: false, name: QueryLoggingConfig.CloudWatchLogsLogGroupArn}
+        access: [read-write]
+        aws: {getter: provider-route53-hostedzone, path: QueryLoggingConfig.CloudWatchLogsLogGroupArn, normalize: typed}
+      VPCs[].VPCId:
+        model: {include: true}
+        display: {show: true, name: 'VPCs[].VPCId'}
+        access: [read-write]
+        aws: {getter: vpcs, path: 'VPCs[].VPCId', normalize: id}
+      VPCs[].VPCRegion:
+        model: {include: true}
+        display: {show: true, name: 'VPCs[].VPCRegion'}
+        access: [read-write]
+        aws: {getter: vpcs, path: 'VPCs[].VPCRegion', normalize: typed}
+  Route53.RecordSet:
+    identity:
+      getter: record
+      idPath: Name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-write]
+        aws: {getter: record, path: Name, normalize: dns}
+      AliasTarget.DNSName:
+        model: {include: true}
+        display: {show: true, name: AliasTarget.DNSName}
+        access: [read-write]
+        aws: {getter: record, path: AliasTarget.DNSName, normalize: dns}
+      AliasTarget.EvaluateTargetHealth:
+        model: {include: true}
+        display: {show: true, name: AliasTarget.EvaluateTargetHealth}
+        access: [read-write]
+        aws: {getter: record, path: AliasTarget.EvaluateTargetHealth, normalize: typed}
+      AliasTarget.HostedZoneId:
+        model: {include: true}
+        display: {show: true, name: AliasTarget.HostedZoneId}
+        access: [read-write]
+        aws: {getter: record, path: AliasTarget.HostedZoneId, normalize: typed}
+      Comment:
+        model: {include: false}
+        display: {show: false, name: Comment}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Route53.RecordSet.Comment
+          constraint: Pinned provider schema declares /properties/Comment write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Failover:
+        model: {include: false}
+        display: {show: false, name: Failover}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: Failover, normalize: typed}
+      GeoLocation.ContinentCode:
+        model: {include: false}
+        display: {show: false, name: GeoLocation.ContinentCode}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: GeoLocation.ContinentCode, normalize: typed}
+      GeoLocation.CountryCode:
+        model: {include: false}
+        display: {show: false, name: GeoLocation.CountryCode}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: GeoLocation.CountryCode, normalize: typed}
+      GeoLocation.SubdivisionCode:
+        model: {include: false}
+        display: {show: false, name: GeoLocation.SubdivisionCode}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: GeoLocation.SubdivisionCode, normalize: typed}
+      HealthCheckId:
+        model: {include: false}
+        display: {show: false, name: HealthCheckId}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: HealthCheckId, normalize: typed}
+      HostedZoneId:
+        model: {include: true}
+        display: {show: true, name: HostedZoneId}
+        access: [create-only]
+        source:
+          kind: model
+          location: parent HostedZone current Id; list_resource_record_sets request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: record, path: HostedZoneId, normalize: id}
+      HostedZoneName:
+        model: {include: false}
+        display: {show: false, name: HostedZoneName}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row Route53.RecordSet.HostedZoneName
+          constraint: Pinned provider schema declares /properties/HostedZoneName write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      MultiValueAnswer:
+        model: {include: false}
+        display: {show: false, name: MultiValueAnswer}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: MultiValueAnswer, normalize: typed}
+      Region:
+        model: {include: false}
+        display: {show: false, name: Region}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: Region, normalize: typed}
+      ResourceRecords:
+        model: {include: true}
+        display: {show: true, name: ResourceRecords}
+        access: [read-write]
+        aws: {getter: record, path: 'ResourceRecords[].Value', normalize: set}
+      SetIdentifier:
+        model: {include: false}
+        display: {show: false, name: SetIdentifier}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: SetIdentifier, normalize: typed}
+      TTL:
+        model: {include: true}
+        display: {show: true, name: TTL}
+        access: [read-write]
+        aws: {getter: record, path: TTL, normalize: typed}
+      Type:
+        model: {include: true}
+        display: {show: true, name: Type}
+        access: [read-write]
+        aws: {getter: record, path: Type, normalize: typed}
+      Weight:
+        model: {include: false}
+        display: {show: false, name: Weight}
+        access: [read-write]
+        aws: {getter: provider-route53-recordset, path: Weight, normalize: typed}

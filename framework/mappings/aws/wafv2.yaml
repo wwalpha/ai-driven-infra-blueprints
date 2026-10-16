@@ -1,0 +1,284 @@
+version: 3
+service: wafv2
+getters:
+  provider-wafv2-ipset:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: WAFv2.IPSet
+    identifier: [/properties/Name, /properties/Id, /properties/Scope]
+  provider-wafv2-loggingconfiguration:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: WAFv2.LoggingConfiguration
+    identifier: [/properties/ResourceArn]
+  provider-wafv2-rulegroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: WAFv2.RuleGroup
+    identifier: [/properties/Name, /properties/Id, /properties/Scope]
+  provider-wafv2-webacl:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: WAFv2.WebACL
+    identifier: [/properties/Name, /properties/Id, /properties/Scope]
+  provider-wafv2-webaclassociation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: WAFv2.WebACLAssociation
+    identifier: [/properties/ResourceArn, /properties/WebACLArn]
+resourceTypes:
+  WAFv2.IPSet:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-wafv2-ipset, path: Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-wafv2-ipset, path: Id, normalize: typed}
+      Addresses[]:
+        model: {include: false}
+        display: {show: false, name: 'Addresses[]'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-ipset, path: 'Addresses[]', normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-wafv2-ipset, path: Description, normalize: typed}
+      IPAddressVersion:
+        model: {include: false}
+        display: {show: false, name: IPAddressVersion}
+        access: [read-write]
+        aws: {getter: provider-wafv2-ipset, path: IPAddressVersion, normalize: typed}
+      Scope:
+        model: {include: false}
+        display: {show: false, name: Scope}
+        access: [create-only]
+        aws: {getter: provider-wafv2-ipset, path: Scope, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-ipset, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-ipset, path: 'Tags[].Value', normalize: typed}
+  WAFv2.LoggingConfiguration:
+    properties:
+      LogDestinationConfigs[]:
+        model: {include: false}
+        display: {show: false, name: 'LogDestinationConfigs[]'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-loggingconfiguration, path: 'LogDestinationConfigs[]', normalize: typed}
+      LoggingFilter:
+        model: {include: false}
+        display: {show: false, name: LoggingFilter}
+        access: [read-write]
+        aws: {getter: provider-wafv2-loggingconfiguration, path: LoggingFilter, normalize: typed}
+      RedactedFields:
+        model: {include: false}
+        display: {show: false, name: RedactedFields}
+        access: [read-write]
+        aws: {getter: provider-wafv2-loggingconfiguration, path: RedactedFields, normalize: typed}
+      ResourceArn:
+        model: {include: false}
+        display: {show: false, name: ResourceArn}
+        access: [create-only]
+        aws: {getter: provider-wafv2-loggingconfiguration, path: ResourceArn, normalize: typed}
+  WAFv2.RuleGroup:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-wafv2-rulegroup, path: Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-wafv2-rulegroup, path: Id, normalize: typed}
+      Capacity:
+        model: {include: false}
+        display: {show: false, name: Capacity}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: Capacity, normalize: typed}
+      CustomResponseBodies:
+        model: {include: false}
+        display: {show: false, name: CustomResponseBodies}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: CustomResponseBodies, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: Description, normalize: typed}
+      MonetizationConfig:
+        model: {include: false}
+        display: {show: false, name: MonetizationConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: MonetizationConfig, normalize: typed}
+      Rules:
+        model: {include: false}
+        display: {show: false, name: Rules}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: Rules, normalize: typed}
+      Scope:
+        model: {include: false}
+        display: {show: false, name: Scope}
+        access: [create-only]
+        aws: {getter: provider-wafv2-rulegroup, path: Scope, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: 'Tags[].Value', normalize: typed}
+      VisibilityConfig.CloudWatchMetricsEnabled:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.CloudWatchMetricsEnabled}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: VisibilityConfig.CloudWatchMetricsEnabled, normalize: typed}
+      VisibilityConfig.MetricName:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.MetricName}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: VisibilityConfig.MetricName, normalize: typed}
+      VisibilityConfig.SampledRequestsEnabled:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.SampledRequestsEnabled}
+        access: [read-write]
+        aws: {getter: provider-wafv2-rulegroup, path: VisibilityConfig.SampledRequestsEnabled, normalize: typed}
+  WAFv2.WebACL:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-wafv2-webacl, path: Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-wafv2-webacl, path: Id, normalize: typed}
+      ApplicationConfig:
+        model: {include: false}
+        display: {show: false, name: ApplicationConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: ApplicationConfig, normalize: typed}
+      AssociationConfig:
+        model: {include: false}
+        display: {show: false, name: AssociationConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: AssociationConfig, normalize: typed}
+      CaptchaConfig.ImmunityTimeProperty.ImmunityTime:
+        model: {include: false}
+        display: {show: false, name: CaptchaConfig.ImmunityTimeProperty.ImmunityTime}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: CaptchaConfig.ImmunityTimeProperty.ImmunityTime, normalize: typed}
+      ChallengeConfig.ImmunityTimeProperty.ImmunityTime:
+        model: {include: false}
+        display: {show: false, name: ChallengeConfig.ImmunityTimeProperty.ImmunityTime}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: ChallengeConfig.ImmunityTimeProperty.ImmunityTime, normalize: typed}
+      CustomResponseBodies:
+        model: {include: false}
+        display: {show: false, name: CustomResponseBodies}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: CustomResponseBodies, normalize: typed}
+      DataProtectionConfig:
+        model: {include: false}
+        display: {show: false, name: DataProtectionConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: DataProtectionConfig, normalize: typed}
+      DefaultAction:
+        model: {include: false}
+        display: {show: false, name: DefaultAction}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: DefaultAction, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: Description, normalize: typed}
+      MonetizationConfig:
+        model: {include: false}
+        display: {show: false, name: MonetizationConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: MonetizationConfig, normalize: typed}
+      OnSourceDDoSProtectionConfig:
+        model: {include: false}
+        display: {show: false, name: OnSourceDDoSProtectionConfig}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: OnSourceDDoSProtectionConfig, normalize: typed}
+      Rules:
+        model: {include: false}
+        display: {show: false, name: Rules}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: Rules, normalize: typed}
+      Scope:
+        model: {include: false}
+        display: {show: false, name: Scope}
+        access: [create-only]
+        aws: {getter: provider-wafv2-webacl, path: Scope, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: 'Tags[].Value', normalize: typed}
+      TokenDomains[]:
+        model: {include: false}
+        display: {show: false, name: 'TokenDomains[]'}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: 'TokenDomains[]', normalize: typed}
+      VisibilityConfig.CloudWatchMetricsEnabled:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.CloudWatchMetricsEnabled}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: VisibilityConfig.CloudWatchMetricsEnabled, normalize: typed}
+      VisibilityConfig.MetricName:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.MetricName}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: VisibilityConfig.MetricName, normalize: typed}
+      VisibilityConfig.SampledRequestsEnabled:
+        model: {include: false}
+        display: {show: false, name: VisibilityConfig.SampledRequestsEnabled}
+        access: [read-write]
+        aws: {getter: provider-wafv2-webacl, path: VisibilityConfig.SampledRequestsEnabled, normalize: typed}
+  WAFv2.WebACLAssociation:
+    properties:
+      ResourceArn:
+        model: {include: false}
+        display: {show: false, name: ResourceArn}
+        access: [create-only]
+        aws: {getter: provider-wafv2-webaclassociation, path: ResourceArn, normalize: typed}
+      WebACLArn:
+        model: {include: false}
+        display: {show: false, name: WebACLArn}
+        access: [create-only]
+        aws: {getter: provider-wafv2-webaclassociation, path: WebACLArn, normalize: typed}

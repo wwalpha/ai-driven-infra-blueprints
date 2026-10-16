@@ -1,0 +1,775 @@
+version: 3
+service: glue
+getters:
+  base:
+    kind: adapter
+    resources: [Glue.Catalog, Glue.Connection, Glue.Database, Glue.Job, Glue.SecurityConfiguration, Glue.Table]
+  provider-glue-catalog:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Catalog
+    identifier: [/properties/ResourceArn]
+  provider-glue-connection:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Connection
+    identifier: [/properties/CatalogId, /properties/Name]
+  sdk-glue-connection:
+    kind: sdk
+    service: glue
+    operation: get_connection
+    result: Connection
+    resourceType: Glue.Connection
+  provider-glue-crawler:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Crawler
+    identifier: [/properties/Name]
+  provider-glue-database:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Database
+    identifier: [/properties/DatabaseName]
+  provider-glue-job:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Job
+    identifier: [/properties/Name]
+  provider-glue-securityconfiguration:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.SecurityConfiguration
+    identifier: [/properties/Name]
+  sdk-glue-table:
+    kind: sdk
+    service: glue
+    operation: get_table
+    result: Table
+    resourceType: Glue.Table
+resourceTypes:
+  Glue.Catalog:
+    identity:
+      getter: base
+      idPath: CatalogId
+      arnPath: ResourceArn
+      nameProperty: Name
+    properties:
+      CatalogId:
+        model: {include: true}
+        display: {show: true, name: CatalogId}
+        access: [read-only]
+        aws: {getter: base, path: CatalogId, normalize: typed}
+      AllowFullTableExternalDataAccess:
+        model: {include: false}
+        display: {show: false, name: AllowFullTableExternalDataAccess}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: AllowFullTableExternalDataAccess, normalize: typed}
+      CatalogProperties.DataLakeAccessProperties.AllowFullTableExternalDataAccess:
+        model: {include: false}
+        display: {show: false, name: CatalogProperties.DataLakeAccessProperties.AllowFullTableExternalDataAccess}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Glue.Catalog.CatalogProperties.DataLakeAccessProperties.AllowFullTableExternalDataAccess
+          constraint: Pinned provider schema declares /properties/CatalogProperties/DataLakeAccessProperties/AllowFullTableExternalDataAccess write-only.
+            Retain the original Model input; a provider read cannot confirm this input.
+          classification: local_metadata
+      CatalogProperties.DataLakeAccessProperties.CatalogType:
+        model: {include: false}
+        display: {show: false, name: CatalogProperties.DataLakeAccessProperties.CatalogType}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CatalogProperties.DataLakeAccessProperties.CatalogType, normalize: typed}
+      CatalogProperties.DataLakeAccessProperties.DataLakeAccess:
+        model: {include: false}
+        display: {show: false, name: CatalogProperties.DataLakeAccessProperties.DataLakeAccess}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CatalogProperties.DataLakeAccessProperties.DataLakeAccess, normalize: typed}
+      CatalogProperties.DataLakeAccessProperties.DataTransferRole:
+        model: {include: false}
+        display: {show: false, name: CatalogProperties.DataLakeAccessProperties.DataTransferRole}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CatalogProperties.DataLakeAccessProperties.DataTransferRole, normalize: typed}
+      CatalogProperties.DataLakeAccessProperties.KmsKey:
+        model: {include: false}
+        display: {show: false, name: CatalogProperties.DataLakeAccessProperties.KmsKey}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CatalogProperties.DataLakeAccessProperties.KmsKey, normalize: typed}
+      CreateDatabaseDefaultPermissions:
+        model: {include: false}
+        display: {show: false, name: CreateDatabaseDefaultPermissions}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CreateDatabaseDefaultPermissions, normalize: typed}
+      CreateTableDefaultPermissions:
+        model: {include: false}
+        display: {show: false, name: CreateTableDefaultPermissions}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: CreateTableDefaultPermissions, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: Description, normalize: typed}
+      FederatedCatalog:
+        model: {include: false}
+        display: {show: false, name: FederatedCatalog}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: FederatedCatalog, normalize: typed}
+      FederatedCatalog.ConnectionName:
+        model: {include: true}
+        display: {show: true, name: FederatedCatalog.ConnectionName}
+        access: [read-write]
+        aws: {getter: base, path: FederatedCatalog.ConnectionName, normalize: typed}
+      FederatedCatalog.Identifier:
+        model: {include: true}
+        display: {show: true, name: FederatedCatalog.Identifier}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: FederatedCatalog.Identifier, normalize: typed}
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      OverwriteChildResourcePermissionsWithDefault:
+        model: {include: false}
+        display: {show: false, name: OverwriteChildResourcePermissionsWithDefault}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Glue.Catalog.OverwriteChildResourcePermissionsWithDefault
+          constraint: Pinned provider schema declares /properties/OverwriteChildResourcePermissionsWithDefault write-only. Retain the original Model input;
+            a provider read cannot confirm this input.
+          classification: local_metadata
+      Parameters:
+        model: {include: false}
+        display: {show: false, name: Parameters}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: Parameters, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: 'Tags[].Value', normalize: typed}
+      TargetRedshiftCatalog.CatalogArn:
+        model: {include: false}
+        display: {show: false, name: TargetRedshiftCatalog.CatalogArn}
+        access: [read-write]
+        aws: {getter: provider-glue-catalog, path: TargetRedshiftCatalog.CatalogArn, normalize: typed}
+  Glue.Connection:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: ConnectionInput.Name
+    properties:
+      ConnectionInput:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput}
+        access: [read-write]
+        aws: {getter: provider-glue-connection, path: ConnectionInput, normalize: typed}
+      ConnectionInput.Name:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-only]
+        aws: {getter: base, path: Name, normalize: name}
+      CatalogId:
+        model: {include: true}
+        display: {show: true, name: CatalogId}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row CatalogId; get_connection request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: base, path: CatalogId, normalize: typed}
+      ConnectionInput.AthenaProperties:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.AthenaProperties}
+        access: [read-write]
+        aws: {getter: provider-glue-connection, path: ConnectionInput.AthenaProperties, normalize: typed}
+      ConnectionInput.AuthenticationConfiguration:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput.AuthenticationConfiguration}
+        access: [write-only]
+        aws: {getter: sdk-glue-connection, path: AuthenticationConfiguration, normalize: typed}
+      ConnectionInput.AuthenticationConfiguration.AuthenticationType:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.AuthenticationConfiguration.AuthenticationType}
+        access: [write-only]
+        aws: {getter: base, path: AuthenticationConfiguration.AuthenticationType, normalize: typed}
+      ConnectionInput.AuthenticationConfiguration.KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput.AuthenticationConfiguration.KmsKeyArn}
+        access: [write-only]
+        aws: {getter: sdk-glue-connection, path: AuthenticationConfiguration.KmsKeyArn, normalize: typed}
+      ConnectionInput.AuthenticationConfiguration.SecretArn:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.AuthenticationConfiguration.SecretArn}
+        access: [write-only]
+        aws: {getter: base, path: AuthenticationConfiguration.SecretArn, normalize: arn}
+      ConnectionInput.ConnectionProperties:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.ConnectionProperties}
+        access: [read-write]
+        aws: {getter: base, path: ConnectionProperties, normalize: json}
+      ConnectionInput.ConnectionType:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.ConnectionType}
+        access: [read-write]
+        aws: {getter: base, path: ConnectionType, normalize: typed}
+      ConnectionInput.Description:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      ConnectionInput.MatchCriteria:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput.MatchCriteria}
+        access: [read-write]
+        aws: {getter: provider-glue-connection, path: ConnectionInput.MatchCriteria, normalize: typed}
+      ConnectionInput.PhysicalConnectionRequirements:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput.PhysicalConnectionRequirements}
+        access: [read-write]
+        aws: {getter: provider-glue-connection, path: ConnectionInput.PhysicalConnectionRequirements, normalize: typed}
+      ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone}
+        access: [read-write]
+        aws: {getter: base, path: PhysicalConnectionRequirements.AvailabilityZone, normalize: typed}
+      ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList}
+        access: [read-write]
+        aws: {getter: base, path: PhysicalConnectionRequirements.SecurityGroupIdList, normalize: id}
+      ConnectionInput.PhysicalConnectionRequirements.SubnetId:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.PhysicalConnectionRequirements.SubnetId}
+        access: [read-write]
+        aws: {getter: base, path: PhysicalConnectionRequirements.SubnetId, normalize: id}
+      ConnectionInput.ValidateCredentials:
+        model: {include: false}
+        display: {show: false, name: ConnectionInput.ValidateCredentials}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Glue.Connection.ConnectionInput.ValidateCredentials
+          constraint: Pinned provider schema declares /properties/ConnectionInput/ValidateCredentials write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      ConnectionInput.ValidateForComputeEnvironments:
+        model: {include: true}
+        display: {show: true, name: ConnectionInput.ValidateForComputeEnvironments}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Glue.Connection.ConnectionInput.ValidateForComputeEnvironments
+          constraint: CreateConnection validation request input is not returned by GetConnection; CompatibleComputeEnvironments is a different, derived
+            capability.
+          classification: sdk_unavailable
+  Glue.Crawler:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-glue-crawler, path: Name, normalize: typed}
+      Classifiers:
+        model: {include: false}
+        display: {show: false, name: Classifiers}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Classifiers, normalize: typed}
+      Configuration:
+        model: {include: false}
+        display: {show: false, name: Configuration}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Configuration, normalize: typed}
+      CrawlerSecurityConfiguration:
+        model: {include: false}
+        display: {show: false, name: CrawlerSecurityConfiguration}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: CrawlerSecurityConfiguration, normalize: typed}
+      DatabaseName:
+        model: {include: false}
+        display: {show: false, name: DatabaseName}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: DatabaseName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Description, normalize: typed}
+      LakeFormationConfiguration.AccountId:
+        model: {include: false}
+        display: {show: false, name: LakeFormationConfiguration.AccountId}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: LakeFormationConfiguration.AccountId, normalize: typed}
+      LakeFormationConfiguration.UseLakeFormationCredentials:
+        model: {include: false}
+        display: {show: false, name: LakeFormationConfiguration.UseLakeFormationCredentials}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: LakeFormationConfiguration.UseLakeFormationCredentials, normalize: typed}
+      RecrawlPolicy.RecrawlBehavior:
+        model: {include: false}
+        display: {show: false, name: RecrawlPolicy.RecrawlBehavior}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: RecrawlPolicy.RecrawlBehavior, normalize: typed}
+      Role:
+        model: {include: false}
+        display: {show: false, name: Role}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Role, normalize: typed}
+      Schedule.ScheduleExpression:
+        model: {include: false}
+        display: {show: false, name: Schedule.ScheduleExpression}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Schedule.ScheduleExpression, normalize: typed}
+      SchemaChangePolicy.DeleteBehavior:
+        model: {include: false}
+        display: {show: false, name: SchemaChangePolicy.DeleteBehavior}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: SchemaChangePolicy.DeleteBehavior, normalize: typed}
+      SchemaChangePolicy.UpdateBehavior:
+        model: {include: false}
+        display: {show: false, name: SchemaChangePolicy.UpdateBehavior}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: SchemaChangePolicy.UpdateBehavior, normalize: typed}
+      TablePrefix:
+        model: {include: false}
+        display: {show: false, name: TablePrefix}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: TablePrefix, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: Tags, normalize: typed}
+      Targets.JdbcTargets[].ConnectionName:
+        model: {include: false}
+        display: {show: false, name: 'Targets.JdbcTargets[].ConnectionName'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.JdbcTargets[].ConnectionName', normalize: typed}
+      Targets.JdbcTargets[].Exclusions:
+        model: {include: false}
+        display: {show: false, name: 'Targets.JdbcTargets[].Exclusions'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.JdbcTargets[].Exclusions', normalize: typed}
+      Targets.JdbcTargets[].Path:
+        model: {include: false}
+        display: {show: false, name: 'Targets.JdbcTargets[].Path'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.JdbcTargets[].Path', normalize: typed}
+      Targets.S3Targets[].ConnectionName:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].ConnectionName'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].ConnectionName', normalize: typed}
+      Targets.S3Targets[].DlqEventQueueArn:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].DlqEventQueueArn'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].DlqEventQueueArn', normalize: typed}
+      Targets.S3Targets[].EventQueueArn:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].EventQueueArn'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].EventQueueArn', normalize: typed}
+      Targets.S3Targets[].Exclusions:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].Exclusions'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].Exclusions', normalize: typed}
+      Targets.S3Targets[].Path:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].Path'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].Path', normalize: typed}
+      Targets.S3Targets[].SampleSize:
+        model: {include: false}
+        display: {show: false, name: 'Targets.S3Targets[].SampleSize'}
+        access: [read-write]
+        aws: {getter: provider-glue-crawler, path: 'Targets.S3Targets[].SampleSize', normalize: typed}
+  Glue.Database:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: DatabaseInput.Name
+    properties:
+      DatabaseName:
+        model: {include: false}
+        display: {show: false, name: DatabaseName}
+        access: [create-only]
+        aws: {getter: provider-glue-database, path: DatabaseName, normalize: typed}
+      DatabaseInput.Name:
+        model: {include: true}
+        display: {show: true, name: DatabaseInput.Name}
+        access: [read-write]
+        aws: {getter: base, path: Name, normalize: typed}
+      CatalogId:
+        model: {include: true}
+        display: {show: true, name: CatalogId}
+        access: [read-write]
+        source:
+          kind: model
+          location: desired row CatalogId; get_database request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: base, path: CatalogId, normalize: typed}
+      DatabaseInput.Description:
+        model: {include: true}
+        display: {show: true, name: DatabaseInput.Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      DatabaseInput.LocationUri:
+        model: {include: false}
+        display: {show: false, name: DatabaseInput.LocationUri}
+        access: [read-write]
+        aws: {getter: provider-glue-database, path: DatabaseInput.LocationUri, normalize: typed}
+      DatabaseInput.Parameters:
+        model: {include: false}
+        display: {show: false, name: DatabaseInput.Parameters}
+        access: [read-write]
+        aws: {getter: provider-glue-database, path: DatabaseInput.Parameters, normalize: typed}
+  Glue.Job:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      Command.Name:
+        model: {include: true}
+        display: {show: true, name: Command.Name}
+        access: [read-write]
+        aws: {getter: base, path: Command.Name, normalize: typed}
+      Command.PythonVersion:
+        model: {include: true}
+        display: {show: true, name: Command.PythonVersion}
+        access: [read-write]
+        aws: {getter: base, path: Command.PythonVersion, normalize: typed}
+      Command.Runtime:
+        model: {include: false}
+        display: {show: false, name: Command.Runtime}
+        access: [read-write]
+        aws: {getter: provider-glue-job, path: Command.Runtime, normalize: typed}
+      Command.ScriptLocation:
+        model: {include: true}
+        display: {show: true, name: Command.ScriptLocation}
+        access: [read-write]
+        aws: {getter: base, path: Command.ScriptLocation, normalize: typed}
+      Connections.Connections:
+        model: {include: true}
+        display: {show: true, name: Connections.Connections}
+        access: [read-write]
+        aws: {getter: base, path: Connections.Connections, normalize: name}
+      DefaultArguments:
+        model: {include: true}
+        display: {show: true, name: DefaultArguments}
+        access: [read-write]
+        aws: {getter: base, path: DefaultArguments, normalize: json}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      ExecutionClass:
+        model: {include: true}
+        display: {show: true, name: ExecutionClass}
+        access: [read-write]
+        aws: {getter: base, path: ExecutionClass, normalize: typed}
+      ExecutionProperty.MaxConcurrentRuns:
+        model: {include: true}
+        display: {show: true, name: ExecutionProperty.MaxConcurrentRuns}
+        access: [read-write]
+        aws: {getter: base, path: ExecutionProperty.MaxConcurrentRuns, normalize: typed}
+      GlueVersion:
+        model: {include: true}
+        display: {show: true, name: GlueVersion}
+        access: [read-write]
+        aws: {getter: base, path: GlueVersion, normalize: typed}
+      JobMode:
+        model: {include: false}
+        display: {show: false, name: JobMode}
+        access: [read-write]
+        aws: {getter: provider-glue-job, path: JobMode, normalize: typed}
+      JobRunQueuingEnabled:
+        model: {include: true}
+        display: {show: true, name: JobRunQueuingEnabled}
+        access: [read-write]
+        aws: {getter: base, path: JobRunQueuingEnabled, normalize: typed}
+      MaintenanceWindow:
+        model: {include: false}
+        display: {show: false, name: MaintenanceWindow}
+        access: [read-write]
+        aws: {getter: provider-glue-job, path: MaintenanceWindow, normalize: typed}
+      MaxRetries:
+        model: {include: true}
+        display: {show: true, name: MaxRetries}
+        access: [read-write]
+        aws: {getter: base, path: MaxRetries, normalize: typed}
+      NonOverridableArguments:
+        model: {include: true}
+        display: {show: true, name: NonOverridableArguments}
+        access: [read-write]
+        aws: {getter: base, path: NonOverridableArguments, normalize: json}
+      NotificationProperty.NotifyDelayAfter:
+        model: {include: false}
+        display: {show: false, name: NotificationProperty.NotifyDelayAfter}
+        access: [read-write]
+        aws: {getter: provider-glue-job, path: NotificationProperty.NotifyDelayAfter, normalize: typed}
+      NumberOfWorkers:
+        model: {include: true}
+        display: {show: true, name: NumberOfWorkers}
+        access: [read-write]
+        aws: {getter: base, path: NumberOfWorkers, normalize: typed}
+      Role:
+        model: {include: true}
+        display: {show: true, name: Role}
+        access: [read-write]
+        aws: {getter: base, path: Role, normalize: iam_role}
+      SecurityConfiguration:
+        model: {include: true}
+        display: {show: true, name: SecurityConfiguration}
+        access: [read-write]
+        aws: {getter: base, path: SecurityConfiguration, normalize: name}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-glue-job, path: Tags, normalize: typed}
+      Timeout:
+        model: {include: true}
+        display: {show: true, name: Timeout}
+        access: [read-write]
+        aws: {getter: base, path: Timeout, normalize: typed}
+      WorkerType:
+        model: {include: true}
+        display: {show: true, name: WorkerType}
+        access: [read-write]
+        aws: {getter: base, path: WorkerType, normalize: typed}
+  Glue.SecurityConfiguration:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode:
+        model: {include: true}
+        display: {show: true, name: EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode}
+        access: [read-write]
+        aws: {getter: base, path: EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode, normalize: typed}
+      EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn:
+        model: {include: true}
+        display: {show: true, name: EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn}
+        access: [read-write]
+        aws: {getter: base, path: EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn, normalize: kms}
+      EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode:
+        model: {include: false}
+        display: {show: false, name: EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode}
+        access: [read-write]
+        aws: {getter: provider-glue-securityconfiguration, path: EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode, normalize: typed}
+      EncryptionConfiguration.JobBookmarksEncryption.KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: EncryptionConfiguration.JobBookmarksEncryption.KmsKeyArn}
+        access: [read-write]
+        aws: {getter: provider-glue-securityconfiguration, path: EncryptionConfiguration.JobBookmarksEncryption.KmsKeyArn, normalize: typed}
+      EncryptionConfiguration.S3Encryptions[].KmsKeyArn:
+        model: {include: true}
+        display: {show: true, name: 'EncryptionConfiguration.S3Encryptions[].KmsKeyArn'}
+        access: [read-write]
+        aws: {getter: base, path: 'EncryptionConfiguration.S3Encryption[].KmsKeyArn', normalize: kms}
+      EncryptionConfiguration.S3Encryptions[].S3EncryptionMode:
+        model: {include: true}
+        display: {show: true, name: 'EncryptionConfiguration.S3Encryptions[].S3EncryptionMode'}
+        access: [read-write]
+        aws: {getter: base, path: 'EncryptionConfiguration.S3Encryption[].S3EncryptionMode', normalize: typed}
+  Glue.Table:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: null
+      nameProperty: TableInput.Name
+    properties:
+      TableInput.Name:
+        model: {include: true}
+        display: {show: true, name: TableInput.Name}
+        access: [read-write]
+        aws: {getter: base, path: Name, normalize: typed}
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      CatalogId:
+        model: {include: true}
+        display: {show: true, name: CatalogId}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row CatalogId; get_table request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: base, path: CatalogId, normalize: typed}
+      DatabaseName:
+        model: {include: true}
+        display: {show: true, name: DatabaseName}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row DatabaseName; get_table request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: base, path: DatabaseName, normalize: typed}
+      TableInput.Description:
+        model: {include: false}
+        display: {show: false, name: TableInput.Description}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: Description, normalize: typed}
+      TableInput.Owner:
+        model: {include: false}
+        display: {show: false, name: TableInput.Owner}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: Owner, normalize: typed}
+      TableInput.Parameters:
+        model: {include: true}
+        display: {show: true, name: TableInput.Parameters}
+        access: [read-write]
+        aws: {getter: base, path: Parameters, normalize: json}
+      TableInput.PartitionKeys[].Comment:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.PartitionKeys[].Comment'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'PartitionKeys[].Comment', normalize: typed}
+      TableInput.PartitionKeys[].Name:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.PartitionKeys[].Name'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'PartitionKeys[].Name', normalize: typed}
+      TableInput.PartitionKeys[].Type:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.PartitionKeys[].Type'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'PartitionKeys[].Type', normalize: typed}
+      TableInput.Retention:
+        model: {include: false}
+        display: {show: false, name: TableInput.Retention}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: Retention, normalize: typed}
+      TableInput.StorageDescriptor.BucketColumns:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.BucketColumns}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.BucketColumns, normalize: typed}
+      TableInput.StorageDescriptor.Columns[].Comment:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.StorageDescriptor.Columns[].Comment'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'StorageDescriptor.Columns[].Comment', normalize: typed}
+      TableInput.StorageDescriptor.Columns[].Name:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.StorageDescriptor.Columns[].Name'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'StorageDescriptor.Columns[].Name', normalize: typed}
+      TableInput.StorageDescriptor.Columns[].Type:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.StorageDescriptor.Columns[].Type'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'StorageDescriptor.Columns[].Type', normalize: typed}
+      TableInput.StorageDescriptor.Compressed:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.Compressed}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.Compressed, normalize: typed}
+      TableInput.StorageDescriptor.InputFormat:
+        model: {include: true}
+        display: {show: true, name: TableInput.StorageDescriptor.InputFormat}
+        access: [read-write]
+        aws: {getter: base, path: StorageDescriptor.InputFormat, normalize: typed}
+      TableInput.StorageDescriptor.Location:
+        model: {include: true}
+        display: {show: true, name: TableInput.StorageDescriptor.Location}
+        access: [read-write]
+        aws: {getter: base, path: StorageDescriptor.Location, normalize: typed}
+      TableInput.StorageDescriptor.NumberOfBuckets:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.NumberOfBuckets}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.NumberOfBuckets, normalize: typed}
+      TableInput.StorageDescriptor.OutputFormat:
+        model: {include: true}
+        display: {show: true, name: TableInput.StorageDescriptor.OutputFormat}
+        access: [read-write]
+        aws: {getter: base, path: StorageDescriptor.OutputFormat, normalize: typed}
+      TableInput.StorageDescriptor.Parameters:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.Parameters}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.Parameters, normalize: typed}
+      TableInput.StorageDescriptor.SerdeInfo.Name:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.SerdeInfo.Name}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.SerdeInfo.Name, normalize: typed}
+      TableInput.StorageDescriptor.SerdeInfo.Parameters:
+        model: {include: true}
+        display: {show: true, name: TableInput.StorageDescriptor.SerdeInfo.Parameters}
+        access: [read-write]
+        aws: {getter: base, path: StorageDescriptor.SerdeInfo.Parameters, normalize: json}
+      TableInput.StorageDescriptor.SerdeInfo.SerializationLibrary:
+        model: {include: true}
+        display: {show: true, name: TableInput.StorageDescriptor.SerdeInfo.SerializationLibrary}
+        access: [read-write]
+        aws: {getter: base, path: StorageDescriptor.SerdeInfo.SerializationLibrary, normalize: typed}
+      TableInput.StorageDescriptor.SortColumns[].Column:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.StorageDescriptor.SortColumns[].Column'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'StorageDescriptor.SortColumns[].Column', normalize: typed}
+      TableInput.StorageDescriptor.SortColumns[].SortOrder:
+        model: {include: false}
+        display: {show: false, name: 'TableInput.StorageDescriptor.SortColumns[].SortOrder'}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: 'StorageDescriptor.SortColumns[].SortOrder', normalize: typed}
+      TableInput.StorageDescriptor.StoredAsSubDirectories:
+        model: {include: false}
+        display: {show: false, name: TableInput.StorageDescriptor.StoredAsSubDirectories}
+        access: [read-write]
+        aws: {getter: sdk-glue-table, path: StorageDescriptor.StoredAsSubDirectories, normalize: typed}
+      TableInput.TableType:
+        model: {include: true}
+        display: {show: true, name: TableInput.TableType}
+        access: [read-write]
+        aws: {getter: base, path: TableType, normalize: typed}

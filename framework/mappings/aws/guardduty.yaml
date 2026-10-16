@@ -1,0 +1,133 @@
+version: 3
+service: guardduty
+getters:
+  detector:
+    kind: adapter
+    resources: [GuardDuty.Detector]
+  provider-guardduty-detector:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: GuardDuty.Detector
+    identifier: [/properties/Id]
+  plan:
+    kind: adapter
+    resources: [GuardDuty.MalwareProtectionPlan]
+  provider-guardduty-malwareprotectionplan:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: GuardDuty.MalwareProtectionPlan
+    identifier: [/properties/MalwareProtectionPlanId]
+resourceTypes:
+  GuardDuty.Detector:
+    identity:
+      getter: detector
+      idPath: DetectorId
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: detector, path: DetectorId, normalize: typed}
+      DataSources.Kubernetes.AuditLogs.Enable:
+        model: {include: true}
+        display: {show: true, name: DataSources.Kubernetes.AuditLogs.Enable}
+        access: [read-write]
+        aws: {getter: detector, path: DataSources.Kubernetes.AuditLogs.Enable, normalize: typed}
+      DataSources.MalwareProtection.ScanEc2InstanceWithFindings.EbsVolumes:
+        model: {include: true}
+        display: {show: true, name: DataSources.MalwareProtection.ScanEc2InstanceWithFindings.EbsVolumes}
+        access: [read-write]
+        aws: {getter: detector, path: DataSources.MalwareProtection.ScanEc2InstanceWithFindings.EbsVolumes, normalize: typed}
+      DataSources.S3Logs.Enable:
+        model: {include: true}
+        display: {show: true, name: DataSources.S3Logs.Enable}
+        access: [read-write]
+        aws: {getter: detector, path: DataSources.S3Logs.Enable, normalize: typed}
+      Enable:
+        model: {include: true}
+        display: {show: true, name: Enable}
+        access: [read-write]
+        aws: {getter: detector, path: Enabled, normalize: typed}
+      Features[].AdditionalConfiguration[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Features[].AdditionalConfiguration[].Name'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-detector, path: 'Features[].AdditionalConfiguration[].Name', normalize: typed}
+      Features[].AdditionalConfiguration[].Status:
+        model: {include: false}
+        display: {show: false, name: 'Features[].AdditionalConfiguration[].Status'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-detector, path: 'Features[].AdditionalConfiguration[].Status', normalize: typed}
+      Features[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Features[].Name'}
+        access: [read-write]
+        aws: {getter: detector, path: 'Features[].Name', normalize: typed}
+      Features[].Status:
+        model: {include: true}
+        display: {show: true, name: 'Features[].Status'}
+        access: [read-write]
+        aws: {getter: detector, path: 'Features[].Status', normalize: typed}
+      FindingPublishingFrequency:
+        model: {include: true}
+        display: {show: true, name: FindingPublishingFrequency}
+        access: [read-write]
+        aws: {getter: detector, path: FindingPublishingFrequency, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-detector, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-detector, path: 'Tags[].Value', normalize: typed}
+  GuardDuty.MalwareProtectionPlan:
+    identity:
+      getter: plan
+      idPath: MalwareProtectionPlanId
+      arnPath: Arn
+      nameProperty: null
+    properties:
+      MalwareProtectionPlanId:
+        model: {include: true}
+        display: {show: true, name: MalwareProtectionPlanId}
+        access: [read-only]
+        aws: {getter: plan, path: MalwareProtectionPlanId, normalize: typed}
+      Actions.Tagging.Status:
+        model: {include: true}
+        display: {show: true, name: Actions.Tagging.Status}
+        access: [read-write]
+        aws: {getter: plan, path: Actions.Tagging.Status, normalize: typed}
+      ProtectedResource.S3Bucket.BucketName:
+        model: {include: true}
+        display: {show: true, name: ProtectedResource.S3Bucket.BucketName}
+        access: [read-write]
+        aws: {getter: plan, path: ProtectedResource.S3Bucket.BucketName, normalize: name}
+      ProtectedResource.S3Bucket.ObjectPrefixes[]:
+        model: {include: true}
+        display: {show: true, name: 'ProtectedResource.S3Bucket.ObjectPrefixes[]'}
+        access: [read-write]
+        aws: {getter: plan, path: 'ProtectedResource.S3Bucket.ObjectPrefixes[]', normalize: typed}
+      Role:
+        model: {include: true}
+        display: {show: true, name: Role}
+        access: [read-write]
+        aws: {getter: plan, path: Role, normalize: arn}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-malwareprotectionplan, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-guardduty-malwareprotectionplan, path: 'Tags[].Value', normalize: typed}

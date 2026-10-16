@@ -1,0 +1,738 @@
+version: 3
+service: auto-scaling
+getters:
+  provider-autoscaling-autoscalinggroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: AutoScaling.AutoScalingGroup
+    identifier: [/properties/AutoScalingGroupName]
+  provider-autoscaling-lifecyclehook:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: AutoScaling.LifecycleHook
+    identifier: [/properties/AutoScalingGroupName, /properties/LifecycleHookName]
+  provider-autoscaling-scalingpolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: AutoScaling.ScalingPolicy
+    identifier: [/properties/Arn]
+  provider-autoscaling-scheduledaction:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: AutoScaling.ScheduledAction
+    identifier: [/properties/ScheduledActionName, /properties/AutoScalingGroupName]
+resourceTypes:
+  AutoScaling.AutoScalingGroup:
+    properties:
+      AutoScalingGroupName:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupName}
+        access: [create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: AutoScalingGroupName, normalize: typed}
+      AvailabilityZoneDistribution.CapacityDistributionStrategy:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZoneDistribution.CapacityDistributionStrategy}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: AvailabilityZoneDistribution.CapacityDistributionStrategy, normalize: typed}
+      AvailabilityZoneIds[]:
+        model: {include: false}
+        display: {show: false, name: 'AvailabilityZoneIds[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'AvailabilityZoneIds[]', normalize: typed}
+      AvailabilityZoneImpairmentPolicy.ImpairedZoneHealthCheckBehavior:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZoneImpairmentPolicy.ImpairedZoneHealthCheckBehavior}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: AvailabilityZoneImpairmentPolicy.ImpairedZoneHealthCheckBehavior, normalize: typed}
+      AvailabilityZoneImpairmentPolicy.ZonalShiftEnabled:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZoneImpairmentPolicy.ZonalShiftEnabled}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: AvailabilityZoneImpairmentPolicy.ZonalShiftEnabled, normalize: typed}
+      AvailabilityZones[]:
+        model: {include: false}
+        display: {show: false, name: 'AvailabilityZones[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'AvailabilityZones[]', normalize: typed}
+      CapacityRebalance:
+        model: {include: false}
+        display: {show: false, name: CapacityRebalance}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: CapacityRebalance, normalize: typed}
+      CapacityReservationSpecification.CapacityReservationPreference:
+        model: {include: false}
+        display: {show: false, name: CapacityReservationSpecification.CapacityReservationPreference}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: CapacityReservationSpecification.CapacityReservationPreference, normalize: typed}
+      CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationIds[]:
+        model: {include: false}
+        display: {show: false, name: 'CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationIds[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationIds[]',
+          normalize: typed}
+      CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArns[]:
+        model: {include: false}
+        display: {show: false, name: 'CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArns[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArns[]',
+          normalize: typed}
+      Context:
+        model: {include: false}
+        display: {show: false, name: Context}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: Context, normalize: typed}
+      Cooldown:
+        model: {include: false}
+        display: {show: false, name: Cooldown}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: Cooldown, normalize: typed}
+      DefaultInstanceWarmup:
+        model: {include: false}
+        display: {show: false, name: DefaultInstanceWarmup}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: DefaultInstanceWarmup, normalize: typed}
+      DeletionProtection:
+        model: {include: false}
+        display: {show: false, name: DeletionProtection}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: DeletionProtection, normalize: typed}
+      DesiredCapacity:
+        model: {include: false}
+        display: {show: false, name: DesiredCapacity}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: DesiredCapacity, normalize: typed}
+      DesiredCapacityType:
+        model: {include: false}
+        display: {show: false, name: DesiredCapacityType}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: DesiredCapacityType, normalize: typed}
+      HealthCheckGracePeriod:
+        model: {include: false}
+        display: {show: false, name: HealthCheckGracePeriod}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: HealthCheckGracePeriod, normalize: typed}
+      HealthCheckType:
+        model: {include: false}
+        display: {show: false, name: HealthCheckType}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: HealthCheckType, normalize: typed}
+      InstanceId:
+        model: {include: false}
+        display: {show: false, name: InstanceId}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row AutoScaling.AutoScalingGroup.InstanceId
+          constraint: Pinned provider schema declares /properties/InstanceId write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon:
+        model: {include: false}
+        display: {show: false, name: InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon, normalize: typed}
+      InstanceMaintenancePolicy.MaxHealthyPercentage:
+        model: {include: false}
+        display: {show: false, name: InstanceMaintenancePolicy.MaxHealthyPercentage}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: InstanceMaintenancePolicy.MaxHealthyPercentage, normalize: typed}
+      InstanceMaintenancePolicy.MinHealthyPercentage:
+        model: {include: false}
+        display: {show: false, name: InstanceMaintenancePolicy.MinHealthyPercentage}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: InstanceMaintenancePolicy.MinHealthyPercentage, normalize: typed}
+      LaunchConfigurationName:
+        model: {include: false}
+        display: {show: false, name: LaunchConfigurationName}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: LaunchConfigurationName, normalize: typed}
+      LaunchTemplate.LaunchTemplateId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplate.LaunchTemplateId}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: LaunchTemplate.LaunchTemplateId, normalize: typed}
+      LaunchTemplate.LaunchTemplateName:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplate.LaunchTemplateName}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: LaunchTemplate.LaunchTemplateName, normalize: typed}
+      LaunchTemplate.Version:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplate.Version}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: LaunchTemplate.Version, normalize: typed}
+      LifecycleHookSpecificationList[].DefaultResult:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].DefaultResult'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].DefaultResult', normalize: typed}
+      LifecycleHookSpecificationList[].HeartbeatTimeout:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].HeartbeatTimeout'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].HeartbeatTimeout', normalize: typed}
+      LifecycleHookSpecificationList[].LifecycleHookName:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].LifecycleHookName'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].LifecycleHookName', normalize: typed}
+      LifecycleHookSpecificationList[].LifecycleTransition:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].LifecycleTransition'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].LifecycleTransition', normalize: typed}
+      LifecycleHookSpecificationList[].NotificationMetadata:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].NotificationMetadata'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].NotificationMetadata', normalize: typed}
+      LifecycleHookSpecificationList[].NotificationTargetARN:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].NotificationTargetARN'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].NotificationTargetARN', normalize: typed}
+      LifecycleHookSpecificationList[].RoleARN:
+        model: {include: false}
+        display: {show: false, name: 'LifecycleHookSpecificationList[].RoleARN'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LifecycleHookSpecificationList[].RoleARN', normalize: typed}
+      LoadBalancerNames[]:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancerNames[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'LoadBalancerNames[]', normalize: typed}
+      MaxInstanceLifetime:
+        model: {include: false}
+        display: {show: false, name: MaxInstanceLifetime}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MaxInstanceLifetime, normalize: typed}
+      MaxSize:
+        model: {include: false}
+        display: {show: false, name: MaxSize}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MaxSize, normalize: typed}
+      MetricsCollection[].Granularity:
+        model: {include: false}
+        display: {show: false, name: 'MetricsCollection[].Granularity'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MetricsCollection[].Granularity', normalize: typed}
+      MetricsCollection[].Metrics[]:
+        model: {include: false}
+        display: {show: false, name: 'MetricsCollection[].Metrics[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MetricsCollection[].Metrics[]', normalize: typed}
+      MinSize:
+        model: {include: false}
+        display: {show: false, name: MinSize}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MinSize, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.OnDemandAllocationStrategy:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.OnDemandAllocationStrategy}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.OnDemandAllocationStrategy, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.SpotInstancePools:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.SpotInstancePools}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.SpotInstancePools, normalize: typed}
+      MixedInstancesPolicy.InstancesDistribution.SpotMaxPrice:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.InstancesDistribution.SpotMaxPrice}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.InstancesDistribution.SpotMaxPrice, normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId, normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateName:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateName}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateName, normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version:
+        model: {include: false}
+        display: {show: false, name: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version, normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].ImageId:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].ImageId'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].ImageId', normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorCount.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorManufacturers[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorManufacturers[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorNames[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorNames[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorNames[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTotalMemoryMiB.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTypes[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AcceleratorTypes[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AllowedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AllowedInstanceTypes[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.AllowedInstanceTypes[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BareMetal:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BareMetal'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BareMetal', normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselineEbsBandwidthMbps.Min',
+          normalize: typed}
+      ? MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily
+      : model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BurstablePerformance:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BurstablePerformance'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.BurstablePerformance',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.CpuManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.CpuManufacturers[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.CpuManufacturers[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.ExcludedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.ExcludedInstanceTypes[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.ExcludedInstanceTypes[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.InstanceGenerations[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.InstanceGenerations[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.InstanceGenerations[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorage:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorage'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorage',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorageTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorageTypes[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.LocalStorageTypes[]',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryGiBPerVCpu.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.MemoryMiB.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkBandwidthGbps.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.NetworkInterfaceCount.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.RequireHibernateSupport:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.RequireHibernateSupport'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.RequireHibernateSupport',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.SpotMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.SpotMaxPricePercentageOverLowestPrice'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.SpotMaxPricePercentageOverLowestPrice',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.TotalLocalStorageGB.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Max:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Max'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Max',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Min:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Min'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements.VCpuCount.Min',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceType:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceType'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceType', normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateId:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateId'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateId',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateName:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateName'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.LaunchTemplateName',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.Version:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.Version'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].LaunchTemplateSpecification.Version',
+          normalize: typed}
+      MixedInstancesPolicy.LaunchTemplate.Overrides[].WeightedCapacity:
+        model: {include: false}
+        display: {show: false, name: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].WeightedCapacity'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'MixedInstancesPolicy.LaunchTemplate.Overrides[].WeightedCapacity', normalize: typed}
+      NewInstancesProtectedFromScaleIn:
+        model: {include: false}
+        display: {show: false, name: NewInstancesProtectedFromScaleIn}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: NewInstancesProtectedFromScaleIn, normalize: typed}
+      NotificationConfigurations[].NotificationTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'NotificationConfigurations[].NotificationTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'NotificationConfigurations[].NotificationTypes[]', normalize: typed}
+      NotificationConfigurations[].TopicARN:
+        model: {include: false}
+        display: {show: false, name: 'NotificationConfigurations[].TopicARN'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'NotificationConfigurations[].TopicARN', normalize: typed}
+      PlacementGroup:
+        model: {include: false}
+        display: {show: false, name: PlacementGroup}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: PlacementGroup, normalize: typed}
+      ServiceLinkedRoleARN:
+        model: {include: false}
+        display: {show: false, name: ServiceLinkedRoleARN}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: ServiceLinkedRoleARN, normalize: typed}
+      SkipZonalShiftValidation:
+        model: {include: false}
+        display: {show: false, name: SkipZonalShiftValidation}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row AutoScaling.AutoScalingGroup.SkipZonalShiftValidation
+          constraint: Pinned provider schema declares /properties/SkipZonalShiftValidation write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].PropagateAtLaunch:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].PropagateAtLaunch'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'Tags[].PropagateAtLaunch', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'Tags[].Value', normalize: typed}
+      TargetGroupARNs[]:
+        model: {include: false}
+        display: {show: false, name: 'TargetGroupARNs[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'TargetGroupARNs[]', normalize: typed}
+      TerminationPolicies[]:
+        model: {include: false}
+        display: {show: false, name: 'TerminationPolicies[]'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'TerminationPolicies[]', normalize: typed}
+      TrafficSources[].Identifier:
+        model: {include: false}
+        display: {show: false, name: 'TrafficSources[].Identifier'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'TrafficSources[].Identifier', normalize: typed}
+      TrafficSources[].Type:
+        model: {include: false}
+        display: {show: false, name: 'TrafficSources[].Type'}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'TrafficSources[].Type', normalize: typed}
+      VPCZoneIdentifier[]:
+        model: {include: false}
+        display: {show: false, name: 'VPCZoneIdentifier[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-autoscaling-autoscalinggroup, path: 'VPCZoneIdentifier[]', normalize: typed}
+  AutoScaling.LifecycleHook:
+    properties:
+      LifecycleHookName:
+        model: {include: false}
+        display: {show: false, name: LifecycleHookName}
+        access: [create-only]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: LifecycleHookName, normalize: typed}
+      AutoScalingGroupName:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupName}
+        access: [create-only]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: AutoScalingGroupName, normalize: typed}
+      DefaultResult:
+        model: {include: false}
+        display: {show: false, name: DefaultResult}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: DefaultResult, normalize: typed}
+      HeartbeatTimeout:
+        model: {include: false}
+        display: {show: false, name: HeartbeatTimeout}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: HeartbeatTimeout, normalize: typed}
+      LifecycleTransition:
+        model: {include: false}
+        display: {show: false, name: LifecycleTransition}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: LifecycleTransition, normalize: typed}
+      NotificationMetadata:
+        model: {include: false}
+        display: {show: false, name: NotificationMetadata}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: NotificationMetadata, normalize: typed}
+      NotificationTargetARN:
+        model: {include: false}
+        display: {show: false, name: NotificationTargetARN}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: NotificationTargetARN, normalize: typed}
+      RoleARN:
+        model: {include: false}
+        display: {show: false, name: RoleARN}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-lifecyclehook, path: RoleARN, normalize: typed}
+  AutoScaling.ScalingPolicy:
+    properties:
+      AdjustmentType:
+        model: {include: false}
+        display: {show: false, name: AdjustmentType}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: AdjustmentType, normalize: typed}
+      AutoScalingGroupName:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupName}
+        access: [create-only]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: AutoScalingGroupName, normalize: typed}
+      Cooldown:
+        model: {include: false}
+        display: {show: false, name: Cooldown}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: Cooldown, normalize: typed}
+      EstimatedInstanceWarmup:
+        model: {include: false}
+        display: {show: false, name: EstimatedInstanceWarmup}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: EstimatedInstanceWarmup, normalize: typed}
+      MetricAggregationType:
+        model: {include: false}
+        display: {show: false, name: MetricAggregationType}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: MetricAggregationType, normalize: typed}
+      MinAdjustmentMagnitude:
+        model: {include: false}
+        display: {show: false, name: MinAdjustmentMagnitude}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: MinAdjustmentMagnitude, normalize: typed}
+      PolicyType:
+        model: {include: false}
+        display: {show: false, name: PolicyType}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: PolicyType, normalize: typed}
+      PredictiveScalingConfiguration:
+        model: {include: false}
+        display: {show: false, name: PredictiveScalingConfiguration}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: PredictiveScalingConfiguration, normalize: typed}
+      ScalingAdjustment:
+        model: {include: false}
+        display: {show: false, name: ScalingAdjustment}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: ScalingAdjustment, normalize: typed}
+      StepAdjustments:
+        model: {include: false}
+        display: {show: false, name: StepAdjustments}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: StepAdjustments, normalize: typed}
+      TargetTrackingConfiguration:
+        model: {include: false}
+        display: {show: false, name: TargetTrackingConfiguration}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scalingpolicy, path: TargetTrackingConfiguration, normalize: typed}
+  AutoScaling.ScheduledAction:
+    properties:
+      ScheduledActionName:
+        model: {include: false}
+        display: {show: false, name: ScheduledActionName}
+        access: [read-only]
+        aws: {getter: provider-autoscaling-scheduledaction, path: ScheduledActionName, normalize: typed}
+      AutoScalingGroupName:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupName}
+        access: [create-only]
+        aws: {getter: provider-autoscaling-scheduledaction, path: AutoScalingGroupName, normalize: typed}
+      DesiredCapacity:
+        model: {include: false}
+        display: {show: false, name: DesiredCapacity}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: DesiredCapacity, normalize: typed}
+      EndTime:
+        model: {include: false}
+        display: {show: false, name: EndTime}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: EndTime, normalize: typed}
+      MaxSize:
+        model: {include: false}
+        display: {show: false, name: MaxSize}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: MaxSize, normalize: typed}
+      MinSize:
+        model: {include: false}
+        display: {show: false, name: MinSize}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: MinSize, normalize: typed}
+      Recurrence:
+        model: {include: false}
+        display: {show: false, name: Recurrence}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: Recurrence, normalize: typed}
+      StartTime:
+        model: {include: false}
+        display: {show: false, name: StartTime}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: StartTime, normalize: typed}
+      TimeZone:
+        model: {include: false}
+        display: {show: false, name: TimeZone}
+        access: [read-write]
+        aws: {getter: provider-autoscaling-scheduledaction, path: TimeZone, normalize: typed}

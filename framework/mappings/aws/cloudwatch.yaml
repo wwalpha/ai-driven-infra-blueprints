@@ -1,0 +1,222 @@
+version: 3
+service: cloudwatch
+getters:
+  provider-cloudwatch-alarm:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudWatch.Alarm
+    identifier: [/properties/AlarmName]
+  provider-cloudwatch-dashboard:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudWatch.Dashboard
+    identifier: [/properties/DashboardName]
+resourceTypes:
+  CloudWatch.Alarm:
+    properties:
+      AlarmName:
+        model: {include: false}
+        display: {show: false, name: AlarmName}
+        access: [create-only]
+        aws: {getter: provider-cloudwatch-alarm, path: AlarmName, normalize: typed}
+      ActionsEnabled:
+        model: {include: false}
+        display: {show: false, name: ActionsEnabled}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: ActionsEnabled, normalize: typed}
+      AlarmActions:
+        model: {include: false}
+        display: {show: false, name: AlarmActions}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: AlarmActions, normalize: typed}
+      AlarmDescription:
+        model: {include: false}
+        display: {show: false, name: AlarmDescription}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: AlarmDescription, normalize: typed}
+      ComparisonOperator:
+        model: {include: false}
+        display: {show: false, name: ComparisonOperator}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: ComparisonOperator, normalize: typed}
+      DatapointsToAlarm:
+        model: {include: false}
+        display: {show: false, name: DatapointsToAlarm}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: DatapointsToAlarm, normalize: typed}
+      Dimensions[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Dimensions[].Name'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Dimensions[].Name', normalize: typed}
+      Dimensions[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Dimensions[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Dimensions[].Value', normalize: typed}
+      EvaluateLowSampleCountPercentile:
+        model: {include: false}
+        display: {show: false, name: EvaluateLowSampleCountPercentile}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: EvaluateLowSampleCountPercentile, normalize: typed}
+      EvaluationPeriods:
+        model: {include: false}
+        display: {show: false, name: EvaluationPeriods}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: EvaluationPeriods, normalize: typed}
+      ExtendedStatistic:
+        model: {include: false}
+        display: {show: false, name: ExtendedStatistic}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: ExtendedStatistic, normalize: typed}
+      InsufficientDataActions:
+        model: {include: false}
+        display: {show: false, name: InsufficientDataActions}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: InsufficientDataActions, normalize: typed}
+      MetricName:
+        model: {include: false}
+        display: {show: false, name: MetricName}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: MetricName, normalize: typed}
+      Metrics[].AccountId:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].AccountId'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].AccountId', normalize: typed}
+      Metrics[].Expression:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].Expression'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].Expression', normalize: typed}
+      Metrics[].Id:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].Id'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].Id', normalize: typed}
+      Metrics[].Label:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].Label'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].Label', normalize: typed}
+      Metrics[].MetricStat.Metric.Dimensions[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Metric.Dimensions[].Name'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Metric.Dimensions[].Name', normalize: typed}
+      Metrics[].MetricStat.Metric.Dimensions[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Metric.Dimensions[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Metric.Dimensions[].Value', normalize: typed}
+      Metrics[].MetricStat.Metric.MetricName:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Metric.MetricName'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Metric.MetricName', normalize: typed}
+      Metrics[].MetricStat.Metric.Namespace:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Metric.Namespace'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Metric.Namespace', normalize: typed}
+      Metrics[].MetricStat.Period:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Period'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Period', normalize: typed}
+      Metrics[].MetricStat.Stat:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Stat'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Stat', normalize: typed}
+      Metrics[].MetricStat.Unit:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].MetricStat.Unit'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].MetricStat.Unit', normalize: typed}
+      Metrics[].Period:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].Period'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].Period', normalize: typed}
+      Metrics[].ReturnData:
+        model: {include: false}
+        display: {show: false, name: 'Metrics[].ReturnData'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Metrics[].ReturnData', normalize: typed}
+      Namespace:
+        model: {include: false}
+        display: {show: false, name: Namespace}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: Namespace, normalize: typed}
+      OKActions:
+        model: {include: false}
+        display: {show: false, name: OKActions}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: OKActions, normalize: typed}
+      Period:
+        model: {include: false}
+        display: {show: false, name: Period}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: Period, normalize: typed}
+      Statistic:
+        model: {include: false}
+        display: {show: false, name: Statistic}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: Statistic, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: 'Tags[].Value', normalize: typed}
+      Threshold:
+        model: {include: false}
+        display: {show: false, name: Threshold}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: Threshold, normalize: typed}
+      ThresholdMetricId:
+        model: {include: false}
+        display: {show: false, name: ThresholdMetricId}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: ThresholdMetricId, normalize: typed}
+      TreatMissingData:
+        model: {include: false}
+        display: {show: false, name: TreatMissingData}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: TreatMissingData, normalize: typed}
+      Unit:
+        model: {include: false}
+        display: {show: false, name: Unit}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-alarm, path: Unit, normalize: typed}
+  CloudWatch.Dashboard:
+    properties:
+      DashboardName:
+        model: {include: false}
+        display: {show: false, name: DashboardName}
+        access: [create-only]
+        aws: {getter: provider-cloudwatch-dashboard, path: DashboardName, normalize: typed}
+      DashboardBody:
+        model: {include: false}
+        display: {show: false, name: DashboardBody}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-dashboard, path: DashboardBody, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-dashboard, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudwatch-dashboard, path: 'Tags[].Value', normalize: typed}

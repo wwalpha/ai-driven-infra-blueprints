@@ -1,0 +1,1321 @@
+version: 3
+service: sagemaker
+getters:
+  provider-sagemaker-domain:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SageMaker.Domain
+    identifier: [/properties/DomainId]
+  provider-sagemaker-space:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SageMaker.Space
+    identifier: [/properties/DomainId, /properties/SpaceName]
+  sdk-sagemaker-space:
+    kind: sdk
+    service: sagemaker
+    operation: describe_space
+    result: $
+    resourceType: SageMaker.Space
+  provider-sagemaker-userprofile:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SageMaker.UserProfile
+    identifier: [/properties/UserProfileName, /properties/DomainId]
+resourceTypes:
+  SageMaker.Domain:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainId, normalize: typed}
+      AppNetworkAccessType:
+        model: {include: false}
+        display: {show: false, name: AppNetworkAccessType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: AppNetworkAccessType, normalize: typed}
+      AppSecurityGroupManagement:
+        model: {include: false}
+        display: {show: false, name: AppSecurityGroupManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: AppSecurityGroupManagement, normalize: typed}
+      AuthMode:
+        model: {include: false}
+        display: {show: false, name: AuthMode}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: AuthMode, normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId', normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath', normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId', normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath', normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath', normalize: typed}
+      DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri', normalize: typed}
+      DefaultSpaceSettings.CustomPosixUserConfig.Gid:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.CustomPosixUserConfig.Gid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.CustomPosixUserConfig.Gid, normalize: typed}
+      DefaultSpaceSettings.CustomPosixUserConfig.Uid:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.CustomPosixUserConfig.Uid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.CustomPosixUserConfig.Uid, normalize: typed}
+      DefaultSpaceSettings.ExecutionRole:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.ExecutionRole}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.ExecutionRole, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement,
+          normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl', normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultSpaceSettings.JupyterLabAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterLabAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterLabAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultSpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultSpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultSpaceSettings.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultSpaceSettings.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultSpaceSettings.SecurityGroups[]', normalize: typed}
+      DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb, normalize: typed}
+      DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultSpaceSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb, normalize: typed}
+      DefaultUserSettings.AutoMountHomeEFS:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.AutoMountHomeEFS}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.AutoMountHomeEFS, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement,
+          normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultUserSettings.CodeEditorAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CodeEditorAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CodeEditorAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath', normalize: typed}
+      DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri', normalize: typed}
+      DefaultUserSettings.CustomPosixUserConfig.Gid:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CustomPosixUserConfig.Gid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CustomPosixUserConfig.Gid, normalize: typed}
+      DefaultUserSettings.CustomPosixUserConfig.Uid:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.CustomPosixUserConfig.Uid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.CustomPosixUserConfig.Uid, normalize: typed}
+      DefaultUserSettings.DefaultLandingUri:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.DefaultLandingUri}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.DefaultLandingUri, normalize: typed}
+      DefaultUserSettings.ExecutionRole:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.ExecutionRole}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.ExecutionRole, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement,
+          normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes,
+          normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl', normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultUserSettings.JupyterLabAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterLabAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterLabAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultUserSettings.JupyterServerAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.JupyterServerAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.JupyterServerAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultUserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]', normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageName', normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.RSessionAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RSessionAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DefaultUserSettings.RStudioServerProAppSettings.AccessStatus:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RStudioServerProAppSettings.AccessStatus}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RStudioServerProAppSettings.AccessStatus, normalize: typed}
+      DefaultUserSettings.RStudioServerProAppSettings.UserGroup:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.RStudioServerProAppSettings.UserGroup}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.RStudioServerProAppSettings.UserGroup, normalize: typed}
+      DefaultUserSettings.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.SecurityGroups[]', normalize: typed}
+      DefaultUserSettings.SharingSettings.NotebookOutputOption:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.SharingSettings.NotebookOutputOption}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.SharingSettings.NotebookOutputOption, normalize: typed}
+      DefaultUserSettings.SharingSettings.S3KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.SharingSettings.S3KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.SharingSettings.S3KmsKeyId, normalize: typed}
+      DefaultUserSettings.SharingSettings.S3OutputPath:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.SharingSettings.S3OutputPath}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.SharingSettings.S3OutputPath, normalize: typed}
+      DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb, normalize: typed}
+      DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb, normalize: typed}
+      DefaultUserSettings.StudioWebPortal:
+        model: {include: false}
+        display: {show: false, name: DefaultUserSettings.StudioWebPortal}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DefaultUserSettings.StudioWebPortal, normalize: typed}
+      DefaultUserSettings.StudioWebPortalSettings.HiddenAppTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.StudioWebPortalSettings.HiddenAppTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.StudioWebPortalSettings.HiddenAppTypes[]', normalize: typed}
+      DefaultUserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]', normalize: typed}
+      DefaultUserSettings.StudioWebPortalSettings.HiddenMlTools[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.StudioWebPortalSettings.HiddenMlTools[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.StudioWebPortalSettings.HiddenMlTools[]', normalize: typed}
+      DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName',
+          normalize: typed}
+      DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]:
+        model: {include: false}
+        display: {show: false, name: 'DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DefaultUserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]',
+          normalize: typed}
+      DomainName:
+        model: {include: false}
+        display: {show: false, name: DomainName}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainName, normalize: typed}
+      DomainSettings.DockerSettings.EnableDockerAccess:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.DockerSettings.EnableDockerAccess}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.DockerSettings.EnableDockerAccess, normalize: typed}
+      DomainSettings.DockerSettings.VpcOnlyTrustedAccounts[]:
+        model: {include: false}
+        display: {show: false, name: 'DomainSettings.DockerSettings.VpcOnlyTrustedAccounts[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DomainSettings.DockerSettings.VpcOnlyTrustedAccounts[]', normalize: typed}
+      DomainSettings.ExecutionRoleIdentityConfig:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.ExecutionRoleIdentityConfig}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.ExecutionRoleIdentityConfig, normalize: typed}
+      DomainSettings.IpAddressType:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.IpAddressType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.IpAddressType, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.InstanceType}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.DomainExecutionRoleArn:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.DomainExecutionRoleArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.DomainExecutionRoleArn, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.RStudioConnectUrl:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.RStudioConnectUrl}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.RStudioConnectUrl, normalize: typed}
+      DomainSettings.RStudioServerProDomainSettings.RStudioPackageManagerUrl:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.RStudioServerProDomainSettings.RStudioPackageManagerUrl}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.RStudioServerProDomainSettings.RStudioPackageManagerUrl, normalize: typed}
+      DomainSettings.SecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'DomainSettings.SecurityGroupIds[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'DomainSettings.SecurityGroupIds[]', normalize: typed}
+      DomainSettings.UnifiedStudioSettings.DomainAccountId:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.DomainAccountId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.DomainAccountId, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.DomainId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.DomainId, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.DomainRegion:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.DomainRegion}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.DomainRegion, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.EnvironmentId:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.EnvironmentId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.EnvironmentId, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.ProjectId:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.ProjectId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.ProjectId, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.ProjectS3Path:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.ProjectS3Path}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.ProjectS3Path, normalize: typed}
+      DomainSettings.UnifiedStudioSettings.StudioWebPortalAccess:
+        model: {include: false}
+        display: {show: false, name: DomainSettings.UnifiedStudioSettings.StudioWebPortalAccess}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: DomainSettings.UnifiedStudioSettings.StudioWebPortalAccess, normalize: typed}
+      KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: KmsKeyId}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-domain, path: KmsKeyId, normalize: typed}
+      SubnetIds[]:
+        model: {include: false}
+        display: {show: false, name: 'SubnetIds[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'SubnetIds[]', normalize: typed}
+      TagPropagation:
+        model: {include: false}
+        display: {show: false, name: TagPropagation}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: TagPropagation, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-domain, path: 'Tags[].Value', normalize: typed}
+      VpcId:
+        model: {include: false}
+        display: {show: false, name: VpcId}
+        access: [conditional-create-only]
+        aws: {getter: provider-sagemaker-domain, path: VpcId, normalize: typed}
+  SageMaker.Space:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-space, path: DomainId, normalize: typed}
+      OwnershipSettings.OwnerUserProfileName:
+        model: {include: false}
+        display: {show: false, name: OwnershipSettings.OwnerUserProfileName}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-space, path: OwnershipSettings.OwnerUserProfileName, normalize: typed}
+      SpaceDisplayName:
+        model: {include: false}
+        display: {show: false, name: SpaceDisplayName}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-space, path: SpaceDisplayName, normalize: typed}
+      SpaceName:
+        model: {include: false}
+        display: {show: false, name: SpaceName}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-space, path: SpaceName, normalize: typed}
+      SpaceSettings.AppType:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.AppType}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.AppType, normalize: typed}
+      SpaceSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes, normalize: typed}
+      SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      SpaceSettings.CustomFileSystems[].EFSFileSystem.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.CustomFileSystems[].EFSFileSystem.FileSystemId'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.CustomFileSystems[].EFSFileSystem.FileSystemId', normalize: typed}
+      SpaceSettings.CustomFileSystems[].FSxLustreFileSystem.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.CustomFileSystems[].FSxLustreFileSystem.FileSystemId'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.CustomFileSystems[].FSxLustreFileSystem.FileSystemId', normalize: typed}
+      SpaceSettings.CustomFileSystems[].S3FileSystem.S3Uri:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.CustomFileSystems[].S3FileSystem.S3Uri'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.CustomFileSystems[].S3FileSystem.S3Uri', normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes, normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl', normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      SpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.JupyterServerAppSettings.LifecycleConfigArns[]', normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageName', normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      SpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'SpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]'}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: 'SpaceSettings.KernelGatewayAppSettings.LifecycleConfigArns[]', normalize: typed}
+      SpaceSettings.RemoteAccess:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.RemoteAccess}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.RemoteAccess, normalize: typed}
+      SpaceSettings.SpaceManagedResources:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.SpaceManagedResources}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.SpaceManagedResources, normalize: typed}
+      SpaceSettings.SpaceStorageSettings.EbsStorageSettings.EbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: SpaceSettings.SpaceStorageSettings.EbsStorageSettings.EbsVolumeSizeInGb}
+        access: [write-only]
+        aws: {getter: sdk-sagemaker-space, path: SpaceSettings.SpaceStorageSettings.EbsStorageSettings.EbsVolumeSizeInGb, normalize: typed}
+      SpaceSharingSettings.SharingType:
+        model: {include: false}
+        display: {show: false, name: SpaceSharingSettings.SharingType}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-space, path: SpaceSharingSettings.SharingType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-space, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-space, path: 'Tags[].Value', normalize: typed}
+  SageMaker.UserProfile:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: DomainId, normalize: typed}
+      SingleSignOnUserIdentifier:
+        model: {include: false}
+        display: {show: false, name: SingleSignOnUserIdentifier}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: SingleSignOnUserIdentifier, normalize: typed}
+      SingleSignOnUserValue:
+        model: {include: false}
+        display: {show: false, name: SingleSignOnUserValue}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: SingleSignOnUserValue, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'Tags[].Value', normalize: typed}
+      UserProfileName:
+        model: {include: false}
+        display: {show: false, name: UserProfileName}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: UserProfileName, normalize: typed}
+      UserSettings.AutoMountHomeEFS:
+        model: {include: false}
+        display: {show: false, name: UserSettings.AutoMountHomeEFS}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.AutoMountHomeEFS, normalize: typed}
+      UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement,
+          normalize: typed}
+      UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.BuiltInLifecycleConfigArn, normalize: typed}
+      UserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CodeEditorAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      UserSettings.CodeEditorAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CodeEditorAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CodeEditorAppSettings.CustomImages[].ImageName', normalize: typed}
+      UserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CodeEditorAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      UserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      UserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CodeEditorAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      UserSettings.CodeEditorAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CodeEditorAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CodeEditorAppSettings.LifecycleConfigArns[]', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemId', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].EFSFileSystemConfig.FileSystemPath', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemId', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].FSxLustreFileSystemConfig.FileSystemPath', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.MountPath', normalize: typed}
+      UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.CustomFileSystemConfigs[].S3FileSystemConfig.S3Uri', normalize: typed}
+      UserSettings.CustomPosixUserConfig.Gid:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CustomPosixUserConfig.Gid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CustomPosixUserConfig.Gid, normalize: typed}
+      UserSettings.CustomPosixUserConfig.Uid:
+        model: {include: false}
+        display: {show: false, name: UserSettings.CustomPosixUserConfig.Uid}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.CustomPosixUserConfig.Uid, normalize: typed}
+      UserSettings.DefaultLandingUri:
+        model: {include: false}
+        display: {show: false, name: UserSettings.DefaultLandingUri}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.DefaultLandingUri, normalize: typed}
+      UserSettings.ExecutionRole:
+        model: {include: false}
+        display: {show: false, name: UserSettings.ExecutionRole}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.ExecutionRole, normalize: typed}
+      UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.IdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.LifecycleManagement,
+          normalize: typed}
+      UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MaxIdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.AppLifecycleManagement.IdleSettings.MinIdleTimeoutInMinutes,
+          normalize: typed}
+      UserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.BuiltInLifecycleConfigArn, normalize: typed}
+      UserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.CodeRepositories[].RepositoryUrl', normalize: typed}
+      UserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      UserSettings.JupyterLabAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.CustomImages[].ImageName', normalize: typed}
+      UserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      UserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      UserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterLabAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      UserSettings.JupyterLabAppSettings.EmrSettings.AssumableRoleArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.EmrSettings.AssumableRoleArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.EmrSettings.AssumableRoleArns[]', normalize: typed}
+      UserSettings.JupyterLabAppSettings.EmrSettings.ExecutionRoleArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.EmrSettings.ExecutionRoleArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.EmrSettings.ExecutionRoleArns[]', normalize: typed}
+      UserSettings.JupyterLabAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterLabAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterLabAppSettings.LifecycleConfigArns[]', normalize: typed}
+      UserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      UserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.JupyterServerAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      UserSettings.JupyterServerAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.JupyterServerAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.JupyterServerAppSettings.LifecycleConfigArns[]', normalize: typed}
+      UserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.KernelGatewayAppSettings.CustomImages[].AppImageConfigName', normalize: typed}
+      UserSettings.KernelGatewayAppSettings.CustomImages[].ImageName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.KernelGatewayAppSettings.CustomImages[].ImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.KernelGatewayAppSettings.CustomImages[].ImageName', normalize: typed}
+      UserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.KernelGatewayAppSettings.CustomImages[].ImageVersionNumber', normalize: typed}
+      UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType:
+        model: {include: false}
+        display: {show: false, name: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.InstanceType, normalize: typed}
+      UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.LifecycleConfigArn, normalize: typed}
+      UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageArn, normalize: typed}
+      UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn:
+        model: {include: false}
+        display: {show: false, name: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.KernelGatewayAppSettings.DefaultResourceSpec.SageMakerImageVersionArn, normalize: typed}
+      UserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.KernelGatewayAppSettings.LifecycleConfigArns[]', normalize: typed}
+      UserSettings.RStudioServerProAppSettings.AccessStatus:
+        model: {include: false}
+        display: {show: false, name: UserSettings.RStudioServerProAppSettings.AccessStatus}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.RStudioServerProAppSettings.AccessStatus, normalize: typed}
+      UserSettings.RStudioServerProAppSettings.UserGroup:
+        model: {include: false}
+        display: {show: false, name: UserSettings.RStudioServerProAppSettings.UserGroup}
+        access: [create-only]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.RStudioServerProAppSettings.UserGroup, normalize: typed}
+      UserSettings.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.SecurityGroups[]', normalize: typed}
+      UserSettings.SharingSettings.NotebookOutputOption:
+        model: {include: false}
+        display: {show: false, name: UserSettings.SharingSettings.NotebookOutputOption}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.SharingSettings.NotebookOutputOption, normalize: typed}
+      UserSettings.SharingSettings.S3KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: UserSettings.SharingSettings.S3KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.SharingSettings.S3KmsKeyId, normalize: typed}
+      UserSettings.SharingSettings.S3OutputPath:
+        model: {include: false}
+        display: {show: false, name: UserSettings.SharingSettings.S3OutputPath}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.SharingSettings.S3OutputPath, normalize: typed}
+      UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.DefaultEbsVolumeSizeInGb, normalize: typed}
+      UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb:
+        model: {include: false}
+        display: {show: false, name: UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.SpaceStorageSettings.DefaultEbsStorageSettings.MaximumEbsVolumeSizeInGb, normalize: typed}
+      UserSettings.StudioWebPortal:
+        model: {include: false}
+        display: {show: false, name: UserSettings.StudioWebPortal}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: UserSettings.StudioWebPortal, normalize: typed}
+      UserSettings.StudioWebPortalSettings.HiddenAppTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.StudioWebPortalSettings.HiddenAppTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.StudioWebPortalSettings.HiddenAppTypes[]', normalize: typed}
+      UserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.StudioWebPortalSettings.HiddenInstanceTypes[]', normalize: typed}
+      UserSettings.StudioWebPortalSettings.HiddenMlTools[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.StudioWebPortalSettings.HiddenMlTools[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.StudioWebPortalSettings.HiddenMlTools[]', normalize: typed}
+      UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].SageMakerImageName',
+          normalize: typed}
+      UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]:
+        model: {include: false}
+        display: {show: false, name: 'UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]'}
+        access: [read-write]
+        aws: {getter: provider-sagemaker-userprofile, path: 'UserSettings.StudioWebPortalSettings.HiddenSageMakerImageVersionAliases[].VersionAliases[]',
+          normalize: typed}

@@ -1,0 +1,778 @@
+version: 3
+service: quicksight
+getters:
+  sdk-quicksight-group:
+    kind: sdk
+    service: quicksight
+    operation: describe_group
+    result: Group
+    resourceType: QuickSight.Group
+  provider-quicksight-analysis:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: QuickSight.Analysis
+    identifier: [/properties/AnalysisId, /properties/AwsAccountId]
+  provider-quicksight-dashboard:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: QuickSight.Dashboard
+    identifier: [/properties/AwsAccountId, /properties/DashboardId]
+  sdk-quicksight-dashboard:
+    kind: sdk
+    service: quicksight
+    operation: describe_dashboard_definition
+    result: $
+    resourceType: QuickSight.Dashboard
+  provider-quicksight-dataset:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: QuickSight.DataSet
+    identifier: [/properties/AwsAccountId, /properties/DataSetId]
+  sdk-quicksight-dataset:
+    kind: sdk
+    service: quicksight
+    operation: describe_data_set
+    result: DataSet
+    resourceType: QuickSight.DataSet
+  base:
+    kind: adapter
+    resources: [QuickSight.DataSource]
+  provider-quicksight-datasource:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: QuickSight.DataSource
+    identifier: [/properties/AwsAccountId, /properties/DataSourceId]
+  permissions:
+    kind: adapter
+    resources: [QuickSight.DataSource]
+  vpc:
+    kind: adapter
+    resources: [QuickSight.VPCConnection]
+  provider-quicksight-vpcconnection:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: QuickSight.VPCConnection
+    identifier: [/properties/AwsAccountId, /properties/VPCConnectionId]
+resourceTypes:
+  QuickSight.Group:
+    properties:
+      AwsAccountId:
+        model: {include: true}
+        display: {show: true, name: AwsAccountId}
+        access: [api]
+        source:
+          kind: model
+          location: desired row AwsAccountId; describe_group request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+      Namespace:
+        model: {include: true}
+        display: {show: true, name: Namespace}
+        access: [api]
+        source:
+          kind: model
+          location: desired row Namespace; describe_group request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+      GroupName:
+        model: {include: true}
+        display: {show: true, name: GroupName}
+        access: [api]
+        aws: {getter: sdk-quicksight-group, path: GroupName, normalize: typed}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [api]
+        aws: {getter: sdk-quicksight-group, path: Description, normalize: typed}
+      Arn:
+        model: {include: false}
+        display: {show: false, name: Arn}
+        access: [api]
+        aws: {getter: sdk-quicksight-group, path: Arn, normalize: typed}
+      PrincipalId:
+        model: {include: true}
+        display: {show: true, name: PrincipalId}
+        access: [api]
+        aws: {getter: sdk-quicksight-group, path: PrincipalId, normalize: typed}
+  QuickSight.Analysis:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: Name, normalize: typed}
+      AnalysisId:
+        model: {include: false}
+        display: {show: false, name: AnalysisId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-analysis, path: AnalysisId, normalize: typed}
+      AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: AwsAccountId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-analysis, path: AwsAccountId, normalize: typed}
+      FolderArns:
+        model: {include: false}
+        display: {show: false, name: FolderArns}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Analysis.FolderArns
+          constraint: Pinned provider schema declares /properties/FolderArns write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Permissions[].Actions:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Actions'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: 'Permissions[].Actions', normalize: typed}
+      Permissions[].Principal:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Principal'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: 'Permissions[].Principal', normalize: typed}
+      SourceEntity.SourceTemplate.Arn:
+        model: {include: false}
+        display: {show: false, name: SourceEntity.SourceTemplate.Arn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Analysis.SourceEntity.SourceTemplate.Arn
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn:
+        model: {include: false}
+        display: {show: false, name: 'SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Analysis.SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder:
+        model: {include: false}
+        display: {show: false, name: 'SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Analysis.SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: 'Tags[].Value', normalize: typed}
+      ThemeArn:
+        model: {include: false}
+        display: {show: false, name: ThemeArn}
+        access: [read-write]
+        aws: {getter: provider-quicksight-analysis, path: ThemeArn, normalize: typed}
+      ValidationStrategy.Mode:
+        model: {include: false}
+        display: {show: false, name: ValidationStrategy.Mode}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Analysis.ValidationStrategy.Mode
+          constraint: Pinned provider schema declares /properties/ValidationStrategy write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+  QuickSight.Dashboard:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: Name, normalize: typed}
+      AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: AwsAccountId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-dashboard, path: AwsAccountId, normalize: typed}
+      DashboardId:
+        model: {include: false}
+        display: {show: false, name: DashboardId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-dashboard, path: DashboardId, normalize: typed}
+      DashboardPublishOptions.AdHocFilteringOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.AdHocFilteringOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.AdHocFilteringOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.DataPointDrillUpDownOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.DataPointDrillUpDownOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.DataPointDrillUpDownOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.DataPointMenuLabelOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.DataPointMenuLabelOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.DataPointMenuLabelOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.DataPointTooltipOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.DataPointTooltipOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.DataPointTooltipOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.DataQAEnabledOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.DataQAEnabledOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.DataQAEnabledOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.ExportToCSVOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.ExportToCSVOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.ExportToCSVOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.ExportWithHiddenFieldsOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.ExportWithHiddenFieldsOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.ExportWithHiddenFieldsOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.SheetControlsOption.VisibilityState:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.SheetControlsOption.VisibilityState}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.SheetControlsOption.VisibilityState, normalize: typed}
+      DashboardPublishOptions.SheetLayoutElementMaximizationOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.SheetLayoutElementMaximizationOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.SheetLayoutElementMaximizationOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.VisualAxisSortOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.VisualAxisSortOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.VisualAxisSortOption.AvailabilityStatus, normalize: typed}
+      DashboardPublishOptions.VisualMenuOption.AvailabilityStatus:
+        model: {include: false}
+        display: {show: false, name: DashboardPublishOptions.VisualMenuOption.AvailabilityStatus}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: DashboardPublishOptions.VisualMenuOption.AvailabilityStatus, normalize: typed}
+      FolderArns:
+        model: {include: false}
+        display: {show: false, name: FolderArns}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.FolderArns
+          constraint: Pinned provider schema declares /properties/FolderArns write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      LinkEntities:
+        model: {include: false}
+        display: {show: false, name: LinkEntities}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: LinkEntities, normalize: typed}
+      LinkSharingConfiguration.Permissions[].Actions:
+        model: {include: false}
+        display: {show: false, name: 'LinkSharingConfiguration.Permissions[].Actions'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.LinkSharingConfiguration.Permissions[].Actions
+          constraint: Pinned provider schema declares /properties/LinkSharingConfiguration write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      LinkSharingConfiguration.Permissions[].Principal:
+        model: {include: false}
+        display: {show: false, name: 'LinkSharingConfiguration.Permissions[].Principal'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.LinkSharingConfiguration.Permissions[].Principal
+          constraint: Pinned provider schema declares /properties/LinkSharingConfiguration write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      Permissions[].Actions:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Actions'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: 'Permissions[].Actions', normalize: typed}
+      Permissions[].Principal:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Principal'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: 'Permissions[].Principal', normalize: typed}
+      SourceEntity.SourceTemplate.Arn:
+        model: {include: false}
+        display: {show: false, name: SourceEntity.SourceTemplate.Arn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.SourceEntity.SourceTemplate.Arn
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn:
+        model: {include: false}
+        display: {show: false, name: 'SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.SourceEntity.SourceTemplate.DataSetReferences[].DataSetArn
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder:
+        model: {include: false}
+        display: {show: false, name: 'SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.SourceEntity.SourceTemplate.DataSetReferences[].DataSetPlaceholder
+          constraint: Pinned provider schema declares /properties/SourceEntity write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dashboard, path: 'Tags[].Value', normalize: typed}
+      ThemeArn:
+        model: {include: false}
+        display: {show: false, name: ThemeArn}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dashboard, path: ThemeArn, normalize: typed}
+      ValidationStrategy.Mode:
+        model: {include: false}
+        display: {show: false, name: ValidationStrategy.Mode}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.ValidationStrategy.Mode
+          constraint: Pinned provider schema declares /properties/ValidationStrategy write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      VersionDescription:
+        model: {include: false}
+        display: {show: false, name: VersionDescription}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.Dashboard.VersionDescription
+          constraint: Pinned provider schema declares /properties/VersionDescription write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+  QuickSight.DataSet:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: Name, normalize: typed}
+      AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: AwsAccountId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-dataset, path: AwsAccountId, normalize: typed}
+      DataSetId:
+        model: {include: false}
+        display: {show: false, name: DataSetId}
+        access: [create-only]
+        aws: {getter: provider-quicksight-dataset, path: DataSetId, normalize: typed}
+      DataSetRefreshProperties.FailureConfiguration.EmailAlert.AlertStatus:
+        model: {include: false}
+        display: {show: false, name: DataSetRefreshProperties.FailureConfiguration.EmailAlert.AlertStatus}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetRefreshProperties.FailureConfiguration.EmailAlert.AlertStatus, normalize: typed}
+      DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.ColumnName:
+        model: {include: false}
+        display: {show: false, name: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.ColumnName}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.ColumnName, normalize: typed}
+      DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.Size:
+        model: {include: false}
+        display: {show: false, name: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.Size}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.Size, normalize: typed}
+      DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.SizeUnit:
+        model: {include: false}
+        display: {show: false, name: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.SizeUnit}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetRefreshProperties.RefreshConfiguration.IncrementalRefresh.LookbackWindow.SizeUnit, normalize: typed}
+      DataSetUsageConfiguration.DisableUseAsDirectQuerySource:
+        model: {include: false}
+        display: {show: false, name: DataSetUsageConfiguration.DisableUseAsDirectQuerySource}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetUsageConfiguration.DisableUseAsDirectQuerySource, normalize: typed}
+      DataSetUsageConfiguration.DisableUseAsImportedSource:
+        model: {include: false}
+        display: {show: false, name: DataSetUsageConfiguration.DisableUseAsImportedSource}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: DataSetUsageConfiguration.DisableUseAsImportedSource, normalize: typed}
+      FieldFolders:
+        model: {include: false}
+        display: {show: false, name: FieldFolders}
+        access: [write-only]
+        aws: {getter: sdk-quicksight-dataset, path: FieldFolders, normalize: typed}
+      FolderArns:
+        model: {include: false}
+        display: {show: false, name: FolderArns}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSet.FolderArns
+          constraint: Pinned provider schema declares /properties/FolderArns write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      ImportMode:
+        model: {include: false}
+        display: {show: false, name: ImportMode}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: ImportMode, normalize: typed}
+      IngestionWaitPolicy.IngestionWaitTimeInHours:
+        model: {include: false}
+        display: {show: false, name: IngestionWaitPolicy.IngestionWaitTimeInHours}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSet.IngestionWaitPolicy.IngestionWaitTimeInHours
+          constraint: Pinned provider schema declares /properties/IngestionWaitPolicy write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      IngestionWaitPolicy.WaitForSpiceIngestion:
+        model: {include: false}
+        display: {show: false, name: IngestionWaitPolicy.WaitForSpiceIngestion}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSet.IngestionWaitPolicy.WaitForSpiceIngestion
+          constraint: Pinned provider schema declares /properties/IngestionWaitPolicy write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      PerformanceConfiguration.UniqueKeys[].ColumnNames:
+        model: {include: false}
+        display: {show: false, name: 'PerformanceConfiguration.UniqueKeys[].ColumnNames'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: 'PerformanceConfiguration.UniqueKeys[].ColumnNames', normalize: typed}
+      Permissions[].Actions:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Actions'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: 'Permissions[].Actions', normalize: typed}
+      Permissions[].Principal:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Principal'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: 'Permissions[].Principal', normalize: typed}
+      PhysicalTableMap:
+        model: {include: false}
+        display: {show: false, name: PhysicalTableMap}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: PhysicalTableMap, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: 'Tags[].Value', normalize: typed}
+      UseAs:
+        model: {include: false}
+        display: {show: false, name: UseAs}
+        access: [read-write]
+        aws: {getter: provider-quicksight-dataset, path: UseAs, normalize: typed}
+  QuickSight.DataSource:
+    identity:
+      getter: base
+      idPath: DataSourceId
+      arnPath: Arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-write]
+        aws: {getter: base, path: Name, normalize: typed}
+      Type:
+        model: {include: true}
+        display: {show: true, name: Type}
+        access: [create-only]
+        aws: {getter: base, path: Type, normalize: typed}
+      AwsAccountId:
+        model: {include: true}
+        display: {show: true, name: AwsAccountId}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row AwsAccountId; checked against target.awsAccountId
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: base, path: AwsAccountId, normalize: typed}
+      Credentials.CredentialPair:
+        model: {include: false}
+        display: {show: false, name: Credentials.CredentialPair}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.CredentialPair
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.CredentialPair.Username:
+        model: {include: true}
+        display: {show: true, name: Credentials.CredentialPair.Username}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.CredentialPair.Username
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.CredentialPair.Password:
+        model: {include: true}
+        display: {show: true, name: Credentials.CredentialPair.Password}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.CredentialPair.Password
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.SecretArn:
+        model: {include: true}
+        display: {show: true, name: Credentials.SecretArn}
+        access: [write-only]
+        aws: {getter: base, path: SecretArn, normalize: arn}
+      Credentials.KeyPairCredentials:
+        model: {include: false}
+        display: {show: false, name: Credentials.KeyPairCredentials}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.KeyPairCredentials
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.KeyPairCredentials.KeyPairUsername:
+        model: {include: false}
+        display: {show: false, name: Credentials.KeyPairCredentials.KeyPairUsername}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.KeyPairCredentials.KeyPairUsername
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.KeyPairCredentials.PrivateKey:
+        model: {include: false}
+        display: {show: false, name: Credentials.KeyPairCredentials.PrivateKey}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.KeyPairCredentials.PrivateKey
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Credentials.KeyPairCredentials.PrivateKeyPassphrase:
+        model: {include: false}
+        display: {show: false, name: Credentials.KeyPairCredentials.PrivateKeyPassphrase}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row QuickSight.DataSource.Credentials.KeyPairCredentials.PrivateKeyPassphrase
+          constraint: Pinned provider schema declares /properties/Credentials write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      DataSourceId:
+        model: {include: true}
+        display: {show: true, name: DataSourceId}
+        access: [create-only]
+        aws: {getter: base, path: DataSourceId, normalize: typed}
+      DataSourceParameters.AthenaParameters.IdentityCenterConfiguration.EnableIdentityPropagation:
+        model: {include: false}
+        display: {show: false, name: AthenaParameters.IdentityCenterConfiguration.EnableIdentityPropagation}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.AthenaParameters.IdentityCenterConfiguration.EnableIdentityPropagation,
+          normalize: typed}
+      DataSourceParameters.AthenaParameters.RoleArn:
+        model: {include: true}
+        display: {show: true, name: AthenaParameters.RoleArn}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.AthenaParameters.RoleArn, normalize: arn}
+      DataSourceParameters.AthenaParameters.WorkGroup:
+        model: {include: true}
+        display: {show: true, name: AthenaParameters.WorkGroup}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.AthenaParameters.WorkGroup, normalize: typed}
+      DataSourceParameters.S3Parameters.ManifestFileLocation.Bucket:
+        model: {include: false}
+        display: {show: false, name: S3Parameters.ManifestFileLocation.Bucket}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.S3Parameters.ManifestFileLocation.Bucket, normalize: typed}
+      DataSourceParameters.S3Parameters.ManifestFileLocation.Key:
+        model: {include: false}
+        display: {show: false, name: S3Parameters.ManifestFileLocation.Key}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.S3Parameters.ManifestFileLocation.Key, normalize: typed}
+      DataSourceParameters.S3Parameters.RoleArn:
+        model: {include: false}
+        display: {show: false, name: S3Parameters.RoleArn}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.S3Parameters.RoleArn, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.AuthenticationType:
+        model: {include: true}
+        display: {show: true, name: SnowflakeParameters.AuthenticationType}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.SnowflakeParameters.AuthenticationType, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.Database:
+        model: {include: true}
+        display: {show: true, name: SnowflakeParameters.Database}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.SnowflakeParameters.Database, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.DatabaseAccessControlRole:
+        model: {include: false}
+        display: {show: false, name: SnowflakeParameters.DatabaseAccessControlRole}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.SnowflakeParameters.DatabaseAccessControlRole, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.Host:
+        model: {include: true}
+        display: {show: true, name: SnowflakeParameters.Host}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.SnowflakeParameters.Host, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.OAuthParameters.IdentityProviderResourceUri:
+        model: {include: false}
+        display: {show: false, name: SnowflakeParameters.OAuthParameters.IdentityProviderResourceUri}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.SnowflakeParameters.OAuthParameters.IdentityProviderResourceUri, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.OAuthParameters.IdentityProviderVpcConnectionProperties.VpcConnectionArn:
+        model: {include: false}
+        display: {show: false, name: SnowflakeParameters.OAuthParameters.IdentityProviderVpcConnectionProperties.VpcConnectionArn}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.SnowflakeParameters.OAuthParameters.IdentityProviderVpcConnectionProperties.VpcConnectionArn,
+          normalize: typed}
+      DataSourceParameters.SnowflakeParameters.OAuthParameters.OAuthScope:
+        model: {include: false}
+        display: {show: false, name: SnowflakeParameters.OAuthParameters.OAuthScope}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.SnowflakeParameters.OAuthParameters.OAuthScope, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.OAuthParameters.TokenProviderUrl:
+        model: {include: false}
+        display: {show: false, name: SnowflakeParameters.OAuthParameters.TokenProviderUrl}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: DataSourceParameters.SnowflakeParameters.OAuthParameters.TokenProviderUrl, normalize: typed}
+      DataSourceParameters.SnowflakeParameters.Warehouse:
+        model: {include: true}
+        display: {show: true, name: SnowflakeParameters.Warehouse}
+        access: [read-write]
+        aws: {getter: base, path: DataSourceParameters.SnowflakeParameters.Warehouse, normalize: typed}
+      Permissions[].Actions:
+        model: {include: true}
+        display: {show: true, name: 'Permissions[].Actions'}
+        access: [read-write]
+        aws: {getter: permissions, path: 'Permissions[].Actions', normalize: typed}
+      Permissions[].Principal:
+        model: {include: true}
+        display: {show: true, name: 'Permissions[].Principal'}
+        access: [read-write]
+        aws: {getter: permissions, path: 'Permissions[].Principal', normalize: typed}
+      Permissions[].Resource:
+        model: {include: false}
+        display: {show: false, name: 'Permissions[].Resource'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: 'Permissions[].Resource', normalize: typed}
+      SslProperties.DisableSsl:
+        model: {include: true}
+        display: {show: true, name: SslProperties.DisableSsl}
+        access: [read-write]
+        aws: {getter: base, path: SslProperties.DisableSsl, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-datasource, path: 'Tags[].Value', normalize: typed}
+      VpcConnectionProperties.VpcConnectionArn:
+        model: {include: true}
+        display: {show: true, name: VpcConnectionProperties.VpcConnectionArn}
+        access: [read-write]
+        aws: {getter: base, path: VpcConnectionProperties.VpcConnectionArn, normalize: arn}
+  QuickSight.VPCConnection:
+    identity:
+      getter: vpc
+      idPath: VPCConnectionId
+      arnPath: Arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-write]
+        aws: {getter: vpc, path: Name, normalize: typed}
+      AwsAccountId:
+        model: {include: true}
+        display: {show: true, name: AwsAccountId}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row AwsAccountId; checked against target.awsAccountId
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: vpc, path: AwsAccountId, normalize: typed}
+      DnsResolvers:
+        model: {include: true}
+        display: {show: true, name: DnsResolvers}
+        access: [read-write]
+        aws: {getter: provider-quicksight-vpcconnection, path: DnsResolvers, normalize: typed}
+      RoleArn:
+        model: {include: true}
+        display: {show: true, name: RoleArn}
+        access: [read-write]
+        aws: {getter: vpc, path: RoleArn, normalize: arn}
+      SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: SecurityGroupIds}
+        access: [read-write]
+        aws: {getter: vpc, path: SecurityGroupIds, normalize: id}
+      SubnetIds:
+        model: {include: true}
+        display: {show: true, name: SubnetIds}
+        access: [write-only]
+        aws: {getter: vpc, path: 'NetworkInterfaces[].SubnetId', normalize: id}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-vpcconnection, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-quicksight-vpcconnection, path: 'Tags[].Value', normalize: typed}
+      VPCConnectionId:
+        model: {include: true}
+        display: {show: true, name: VPCConnectionId}
+        access: [create-only]
+        aws: {getter: vpc, path: VPCConnectionId, normalize: typed}

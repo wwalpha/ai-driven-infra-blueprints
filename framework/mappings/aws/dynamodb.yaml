@@ -1,0 +1,797 @@
+version: 3
+service: dynamodb
+getters:
+  provider-dynamodb-globaltable:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DynamoDB.GlobalTable
+    identifier: [/properties/TableName]
+  provider-dynamodb-table:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DynamoDB.Table
+    identifier: [/properties/TableName]
+resourceTypes:
+  DynamoDB.GlobalTable:
+    properties:
+      TableName:
+        model: {include: false}
+        display: {show: false, name: TableName}
+        access: [create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: TableName, normalize: typed}
+      AttributeDefinitions[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'AttributeDefinitions[].AttributeName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'AttributeDefinitions[].AttributeName', normalize: typed}
+      AttributeDefinitions[].AttributeType:
+        model: {include: false}
+        display: {show: false, name: 'AttributeDefinitions[].AttributeType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'AttributeDefinitions[].AttributeType', normalize: typed}
+      BillingMode:
+        model: {include: false}
+        display: {show: false, name: BillingMode}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: BillingMode, normalize: typed}
+      GlobalSecondaryIndexes[].IndexName:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].IndexName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].IndexName', normalize: typed}
+      GlobalSecondaryIndexes[].KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].KeySchema[].AttributeName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].KeySchema[].AttributeName', normalize: typed}
+      GlobalSecondaryIndexes[].KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].KeySchema[].KeyType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].KeySchema[].KeyType', normalize: typed}
+      GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]', normalize: typed}
+      GlobalSecondaryIndexes[].Projection.ProjectionType:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].Projection.ProjectionType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].Projection.ProjectionType', normalize: typed}
+      GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits', normalize: typed}
+      GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits', normalize: typed}
+      GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond', normalize: typed}
+      GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond', normalize: typed}
+      GlobalSecondaryIndexes[].WriteOnDemandThroughputSettings.MaxWriteRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteOnDemandThroughputSettings.MaxWriteRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteOnDemandThroughputSettings.MaxWriteRequestUnits', normalize: typed}
+      GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity',
+          normalize: typed}
+      GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity',
+          normalize: typed}
+      GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.GlobalTable.GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity
+          constraint: Pinned provider schema declares /properties/GlobalSecondaryIndexes/*/WriteProvisionedThroughputSettings/WriteCapacityAutoScalingSettings/SeedCapacity
+            write-only. Retain the original Model input; a provider read cannot confirm this input.
+          classification: local_metadata
+      ? GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn
+      : model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn',
+          normalize: typed}
+      ? GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown
+      : model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown',
+          normalize: typed}
+      ? GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown
+      : model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown',
+          normalize: typed}
+      ? GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue
+      : model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalSecondaryIndexes[].WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue',
+          normalize: typed}
+      GlobalTableSourceArn:
+        model: {include: false}
+        display: {show: false, name: GlobalTableSourceArn}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.GlobalTable.GlobalTableSourceArn
+          constraint: Pinned provider schema declares /properties/GlobalTableSourceArn write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      GlobalTableWitnesses[].Region:
+        model: {include: false}
+        display: {show: false, name: 'GlobalTableWitnesses[].Region'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'GlobalTableWitnesses[].Region', normalize: typed}
+      KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'KeySchema[].AttributeName'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'KeySchema[].AttributeName', normalize: typed}
+      KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'KeySchema[].KeyType'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'KeySchema[].KeyType', normalize: typed}
+      LocalSecondaryIndexes[].IndexName:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].IndexName'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'LocalSecondaryIndexes[].IndexName', normalize: typed}
+      LocalSecondaryIndexes[].KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].KeySchema[].AttributeName'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'LocalSecondaryIndexes[].KeySchema[].AttributeName', normalize: typed}
+      LocalSecondaryIndexes[].KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].KeySchema[].KeyType'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'LocalSecondaryIndexes[].KeySchema[].KeyType', normalize: typed}
+      LocalSecondaryIndexes[].Projection.NonKeyAttributes[]:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].Projection.NonKeyAttributes[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'LocalSecondaryIndexes[].Projection.NonKeyAttributes[]', normalize: typed}
+      LocalSecondaryIndexes[].Projection.ProjectionType:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].Projection.ProjectionType'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-globaltable, path: 'LocalSecondaryIndexes[].Projection.ProjectionType', normalize: typed}
+      MultiRegionConsistency:
+        model: {include: false}
+        display: {show: false, name: MultiRegionConsistency}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: MultiRegionConsistency, normalize: typed}
+      ReadOnDemandThroughputSettings.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: ReadOnDemandThroughputSettings.MaxReadRequestUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: ReadOnDemandThroughputSettings.MaxReadRequestUnits, normalize: typed}
+      ReadProvisionedThroughputSettings.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: ReadProvisionedThroughputSettings.ReadCapacityUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: ReadProvisionedThroughputSettings.ReadCapacityUnits, normalize: typed}
+      Replicas[].ContributorInsightsSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ContributorInsightsSpecification.Enabled'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ContributorInsightsSpecification.Enabled', normalize: typed}
+      Replicas[].ContributorInsightsSpecification.Mode:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ContributorInsightsSpecification.Mode'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ContributorInsightsSpecification.Mode', normalize: typed}
+      Replicas[].DeletionProtectionEnabled:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].DeletionProtectionEnabled'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].DeletionProtectionEnabled', normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled', normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode', normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].IndexName:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].IndexName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].IndexName', normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadOnDemandThroughputSettings.MaxReadRequestUnits', normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity',
+          normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity',
+          normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.GlobalTable.Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity
+          constraint: Pinned provider schema declares /properties/Replicas/*/GlobalSecondaryIndexes/*/ReadProvisionedThroughputSettings/ReadCapacityAutoScalingSettings/SeedCapacity
+            write-only. Retain the original Model input; a provider read cannot confirm this input.
+          classification: local_metadata
+      ? Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn',
+          normalize: typed}
+      ? Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown',
+          normalize: typed}
+      ? Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown',
+          normalize: typed}
+      ? Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue',
+          normalize: typed}
+      Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalSecondaryIndexes[].ReadProvisionedThroughputSettings.ReadCapacityUnits', normalize: typed}
+      Replicas[].GlobalTableSettingsReplicationMode:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].GlobalTableSettingsReplicationMode'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].GlobalTableSettingsReplicationMode', normalize: typed}
+      Replicas[].KinesisStreamSpecification.ApproximateCreationDateTimePrecision:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].KinesisStreamSpecification.ApproximateCreationDateTimePrecision'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].KinesisStreamSpecification.ApproximateCreationDateTimePrecision', normalize: typed}
+      Replicas[].KinesisStreamSpecification.StreamArn:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].KinesisStreamSpecification.StreamArn'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].KinesisStreamSpecification.StreamArn', normalize: typed}
+      Replicas[].PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled', normalize: typed}
+      Replicas[].PointInTimeRecoverySpecification.RecoveryPeriodInDays:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].PointInTimeRecoverySpecification.RecoveryPeriodInDays'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].PointInTimeRecoverySpecification.RecoveryPeriodInDays', normalize: typed}
+      Replicas[].ReadOnDemandThroughputSettings.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadOnDemandThroughputSettings.MaxReadRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadOnDemandThroughputSettings.MaxReadRequestUnits', normalize: typed}
+      Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MaxCapacity', normalize: typed}
+      Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.MinCapacity', normalize: typed}
+      Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.GlobalTable.Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.SeedCapacity
+          constraint: Pinned provider schema declares /properties/Replicas/*/ReadProvisionedThroughputSettings/ReadCapacityAutoScalingSettings/SeedCapacity
+            write-only. Retain the original Model input; a provider read cannot confirm this input.
+          classification: local_metadata
+      ? Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn',
+          normalize: typed}
+      ? Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown',
+          normalize: typed}
+      ? Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown',
+          normalize: typed}
+      ? Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue
+      : model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue',
+          normalize: typed}
+      Replicas[].ReadProvisionedThroughputSettings.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReadProvisionedThroughputSettings.ReadCapacityUnits', normalize: typed}
+      Replicas[].Region:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].Region'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].Region', normalize: typed}
+      Replicas[].ReplicaStreamSpecification.ResourcePolicy.PolicyDocument:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ReplicaStreamSpecification.ResourcePolicy.PolicyDocument'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ReplicaStreamSpecification.ResourcePolicy.PolicyDocument', normalize: typed}
+      Replicas[].ResourcePolicy.PolicyDocument:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].ResourcePolicy.PolicyDocument'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].ResourcePolicy.PolicyDocument', normalize: typed}
+      Replicas[].SSESpecification.KMSMasterKeyId:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].SSESpecification.KMSMasterKeyId'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].SSESpecification.KMSMasterKeyId', normalize: typed}
+      Replicas[].TableClass:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].TableClass'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].TableClass', normalize: typed}
+      Replicas[].Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].Tags[].Key', normalize: typed}
+      Replicas[].Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Replicas[].Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: 'Replicas[].Tags[].Value', normalize: typed}
+      SSESpecification.SSEEnabled:
+        model: {include: false}
+        display: {show: false, name: SSESpecification.SSEEnabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: SSESpecification.SSEEnabled, normalize: typed}
+      SSESpecification.SSEType:
+        model: {include: false}
+        display: {show: false, name: SSESpecification.SSEType}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: SSESpecification.SSEType, normalize: typed}
+      StreamSpecification.StreamViewType:
+        model: {include: false}
+        display: {show: false, name: StreamSpecification.StreamViewType}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: StreamSpecification.StreamViewType, normalize: typed}
+      TimeToLiveSpecification.AttributeName:
+        model: {include: false}
+        display: {show: false, name: TimeToLiveSpecification.AttributeName}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: TimeToLiveSpecification.AttributeName, normalize: typed}
+      TimeToLiveSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: TimeToLiveSpecification.Enabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: TimeToLiveSpecification.Enabled, normalize: typed}
+      WarmThroughput.ReadUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: WarmThroughput.ReadUnitsPerSecond}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WarmThroughput.ReadUnitsPerSecond, normalize: typed}
+      WarmThroughput.WriteUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: WarmThroughput.WriteUnitsPerSecond}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WarmThroughput.WriteUnitsPerSecond, normalize: typed}
+      WriteOnDemandThroughputSettings.MaxWriteRequestUnits:
+        model: {include: false}
+        display: {show: false, name: WriteOnDemandThroughputSettings.MaxWriteRequestUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteOnDemandThroughputSettings.MaxWriteRequestUnits, normalize: typed}
+      WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MaxCapacity, normalize: typed}
+      WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.MinCapacity, normalize: typed}
+      WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity:
+        model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.GlobalTable.WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.SeedCapacity
+          constraint: Pinned provider schema declares /properties/WriteProvisionedThroughputSettings/WriteCapacityAutoScalingSettings/SeedCapacity write-only.
+            Retain the original Model input; a provider read cannot confirm this input.
+          classification: local_metadata
+      ? WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn
+      : model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.DisableScaleIn,
+          normalize: typed}
+      ? WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown
+      : model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleInCooldown,
+          normalize: typed}
+      ? WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown
+      : model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.ScaleOutCooldown,
+          normalize: typed}
+      WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue:
+        model: {include: false}
+        display: {show: false, name: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-globaltable, path: WriteProvisionedThroughputSettings.WriteCapacityAutoScalingSettings.TargetTrackingScalingPolicyConfiguration.TargetValue,
+          normalize: typed}
+  DynamoDB.Table:
+    properties:
+      TableName:
+        model: {include: false}
+        display: {show: false, name: TableName}
+        access: [create-only]
+        aws: {getter: provider-dynamodb-table, path: TableName, normalize: typed}
+      AttributeDefinitions[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'AttributeDefinitions[].AttributeName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'AttributeDefinitions[].AttributeName', normalize: typed}
+      AttributeDefinitions[].AttributeType:
+        model: {include: false}
+        display: {show: false, name: 'AttributeDefinitions[].AttributeType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'AttributeDefinitions[].AttributeType', normalize: typed}
+      BillingMode:
+        model: {include: false}
+        display: {show: false, name: BillingMode}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: BillingMode, normalize: typed}
+      ContributorInsightsSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: ContributorInsightsSpecification.Enabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: ContributorInsightsSpecification.Enabled, normalize: typed}
+      ContributorInsightsSpecification.Mode:
+        model: {include: false}
+        display: {show: false, name: ContributorInsightsSpecification.Mode}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: ContributorInsightsSpecification.Mode, normalize: typed}
+      DeletionProtectionEnabled:
+        model: {include: false}
+        display: {show: false, name: DeletionProtectionEnabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: DeletionProtectionEnabled, normalize: typed}
+      GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].ContributorInsightsSpecification.Enabled', normalize: typed}
+      GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].ContributorInsightsSpecification.Mode', normalize: typed}
+      GlobalSecondaryIndexes[].IndexName:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].IndexName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].IndexName', normalize: typed}
+      GlobalSecondaryIndexes[].KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].KeySchema[].AttributeName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].KeySchema[].AttributeName', normalize: typed}
+      GlobalSecondaryIndexes[].KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].KeySchema[].KeyType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].KeySchema[].KeyType', normalize: typed}
+      GlobalSecondaryIndexes[].OnDemandThroughput.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].OnDemandThroughput.MaxReadRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].OnDemandThroughput.MaxReadRequestUnits', normalize: typed}
+      GlobalSecondaryIndexes[].OnDemandThroughput.MaxWriteRequestUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].OnDemandThroughput.MaxWriteRequestUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].OnDemandThroughput.MaxWriteRequestUnits', normalize: typed}
+      GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].Projection.NonKeyAttributes[]', normalize: typed}
+      GlobalSecondaryIndexes[].Projection.ProjectionType:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].Projection.ProjectionType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].Projection.ProjectionType', normalize: typed}
+      GlobalSecondaryIndexes[].ProvisionedThroughput.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ProvisionedThroughput.ReadCapacityUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].ProvisionedThroughput.ReadCapacityUnits', normalize: typed}
+      GlobalSecondaryIndexes[].ProvisionedThroughput.WriteCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].ProvisionedThroughput.WriteCapacityUnits'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].ProvisionedThroughput.WriteCapacityUnits', normalize: typed}
+      GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].WarmThroughput.ReadUnitsPerSecond', normalize: typed}
+      GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: 'GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'GlobalSecondaryIndexes[].WarmThroughput.WriteUnitsPerSecond', normalize: typed}
+      ImportSourceSpecification.InputCompressionType:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.InputCompressionType}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.InputCompressionType
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.InputFormat:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.InputFormat}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.InputFormat
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.InputFormatOptions.Csv.Delimiter:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.InputFormatOptions.Csv.Delimiter}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.InputFormatOptions.Csv.Delimiter
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.InputFormatOptions.Csv.HeaderList[]:
+        model: {include: false}
+        display: {show: false, name: 'ImportSourceSpecification.InputFormatOptions.Csv.HeaderList[]'}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.InputFormatOptions.Csv.HeaderList[]
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.S3BucketSource.S3Bucket:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.S3BucketSource.S3Bucket}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.S3BucketSource.S3Bucket
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.S3BucketSource.S3BucketOwner:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.S3BucketSource.S3BucketOwner}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.S3BucketSource.S3BucketOwner
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ImportSourceSpecification.S3BucketSource.S3KeyPrefix:
+        model: {include: false}
+        display: {show: false, name: ImportSourceSpecification.S3BucketSource.S3KeyPrefix}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DynamoDB.Table.ImportSourceSpecification.S3BucketSource.S3KeyPrefix
+          constraint: Pinned provider schema declares /properties/ImportSourceSpecification write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'KeySchema[].AttributeName'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-table, path: 'KeySchema[].AttributeName', normalize: typed}
+      KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'KeySchema[].KeyType'}
+        access: [conditional-create-only]
+        aws: {getter: provider-dynamodb-table, path: 'KeySchema[].KeyType', normalize: typed}
+      KinesisStreamSpecification.ApproximateCreationDateTimePrecision:
+        model: {include: false}
+        display: {show: false, name: KinesisStreamSpecification.ApproximateCreationDateTimePrecision}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: KinesisStreamSpecification.ApproximateCreationDateTimePrecision, normalize: typed}
+      KinesisStreamSpecification.StreamArn:
+        model: {include: false}
+        display: {show: false, name: KinesisStreamSpecification.StreamArn}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: KinesisStreamSpecification.StreamArn, normalize: typed}
+      LocalSecondaryIndexes[].IndexName:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].IndexName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'LocalSecondaryIndexes[].IndexName', normalize: typed}
+      LocalSecondaryIndexes[].KeySchema[].AttributeName:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].KeySchema[].AttributeName'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'LocalSecondaryIndexes[].KeySchema[].AttributeName', normalize: typed}
+      LocalSecondaryIndexes[].KeySchema[].KeyType:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].KeySchema[].KeyType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'LocalSecondaryIndexes[].KeySchema[].KeyType', normalize: typed}
+      LocalSecondaryIndexes[].Projection.NonKeyAttributes[]:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].Projection.NonKeyAttributes[]'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'LocalSecondaryIndexes[].Projection.NonKeyAttributes[]', normalize: typed}
+      LocalSecondaryIndexes[].Projection.ProjectionType:
+        model: {include: false}
+        display: {show: false, name: 'LocalSecondaryIndexes[].Projection.ProjectionType'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'LocalSecondaryIndexes[].Projection.ProjectionType', normalize: typed}
+      OnDemandThroughput.MaxReadRequestUnits:
+        model: {include: false}
+        display: {show: false, name: OnDemandThroughput.MaxReadRequestUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: OnDemandThroughput.MaxReadRequestUnits, normalize: typed}
+      OnDemandThroughput.MaxWriteRequestUnits:
+        model: {include: false}
+        display: {show: false, name: OnDemandThroughput.MaxWriteRequestUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: OnDemandThroughput.MaxWriteRequestUnits, normalize: typed}
+      PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled:
+        model: {include: false}
+        display: {show: false, name: PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled, normalize: typed}
+      PointInTimeRecoverySpecification.RecoveryPeriodInDays:
+        model: {include: false}
+        display: {show: false, name: PointInTimeRecoverySpecification.RecoveryPeriodInDays}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: PointInTimeRecoverySpecification.RecoveryPeriodInDays, normalize: typed}
+      ProvisionedThroughput.ReadCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: ProvisionedThroughput.ReadCapacityUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: ProvisionedThroughput.ReadCapacityUnits, normalize: typed}
+      ProvisionedThroughput.WriteCapacityUnits:
+        model: {include: false}
+        display: {show: false, name: ProvisionedThroughput.WriteCapacityUnits}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: ProvisionedThroughput.WriteCapacityUnits, normalize: typed}
+      ResourcePolicy:
+        model: {include: false}
+        display: {show: false, name: ResourcePolicy}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: ResourcePolicy, normalize: typed}
+      SSESpecification.KMSMasterKeyId:
+        model: {include: false}
+        display: {show: false, name: SSESpecification.KMSMasterKeyId}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: SSESpecification.KMSMasterKeyId, normalize: typed}
+      SSESpecification.SSEEnabled:
+        model: {include: false}
+        display: {show: false, name: SSESpecification.SSEEnabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: SSESpecification.SSEEnabled, normalize: typed}
+      SSESpecification.SSEType:
+        model: {include: false}
+        display: {show: false, name: SSESpecification.SSEType}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: SSESpecification.SSEType, normalize: typed}
+      StreamSpecification.ResourcePolicy.PolicyDocument:
+        model: {include: false}
+        display: {show: false, name: StreamSpecification.ResourcePolicy.PolicyDocument}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: StreamSpecification.ResourcePolicy.PolicyDocument, normalize: typed}
+      StreamSpecification.StreamViewType:
+        model: {include: false}
+        display: {show: false, name: StreamSpecification.StreamViewType}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: StreamSpecification.StreamViewType, normalize: typed}
+      TableClass:
+        model: {include: false}
+        display: {show: false, name: TableClass}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: TableClass, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: 'Tags[].Value', normalize: typed}
+      TimeToLiveSpecification.AttributeName:
+        model: {include: false}
+        display: {show: false, name: TimeToLiveSpecification.AttributeName}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: TimeToLiveSpecification.AttributeName, normalize: typed}
+      TimeToLiveSpecification.Enabled:
+        model: {include: false}
+        display: {show: false, name: TimeToLiveSpecification.Enabled}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: TimeToLiveSpecification.Enabled, normalize: typed}
+      WarmThroughput.ReadUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: WarmThroughput.ReadUnitsPerSecond}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: WarmThroughput.ReadUnitsPerSecond, normalize: typed}
+      WarmThroughput.WriteUnitsPerSecond:
+        model: {include: false}
+        display: {show: false, name: WarmThroughput.WriteUnitsPerSecond}
+        access: [read-write]
+        aws: {getter: provider-dynamodb-table, path: WarmThroughput.WriteUnitsPerSecond, normalize: typed}

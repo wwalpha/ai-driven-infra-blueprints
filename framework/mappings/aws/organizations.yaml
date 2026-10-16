@@ -1,0 +1,53 @@
+version: 3
+service: organizations
+getters:
+  provider-organizations-policy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Organizations.Policy
+    identifier: [/properties/Id]
+resourceTypes:
+  Organizations.Policy:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-organizations-policy, path: Id, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: Name, normalize: typed}
+      Type:
+        model: {include: false}
+        display: {show: false, name: Type}
+        access: [create-only]
+        aws: {getter: provider-organizations-policy, path: Type, normalize: typed}
+      Content:
+        model: {include: false}
+        display: {show: false, name: Content}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: Content, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: Description, normalize: typed}
+      TargetIds:
+        model: {include: false}
+        display: {show: false, name: TargetIds}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: TargetIds, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-organizations-policy, path: 'Tags[].Value', normalize: typed}

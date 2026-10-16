@@ -1,0 +1,599 @@
+version: 3
+service: ssm
+getters:
+  provider-ssm-association:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.Association
+    identifier: [/properties/AssociationId]
+  provider-ssm-maintenancewindow:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.MaintenanceWindow
+    identifier: [/properties/WindowId]
+  provider-ssm-maintenancewindowtarget:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.MaintenanceWindowTarget
+    identifier: [/properties/WindowId, /properties/WindowTargetId]
+  provider-ssm-maintenancewindowtask:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.MaintenanceWindowTask
+    identifier: [/properties/WindowId, /properties/WindowTaskId]
+  provider-ssm-patchbaseline:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.PatchBaseline
+    identifier: [/properties/Id]
+resourceTypes:
+  SSM.Association:
+    properties:
+      AssociationId:
+        model: {include: false}
+        display: {show: false, name: AssociationId}
+        access: [read-only]
+        aws: {getter: provider-ssm-association, path: AssociationId, normalize: typed}
+      AssociationName:
+        model: {include: false}
+        display: {show: false, name: AssociationName}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: AssociationName, normalize: typed}
+      CalendarNames:
+        model: {include: false}
+        display: {show: false, name: CalendarNames}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: CalendarNames, normalize: typed}
+      ScheduleExpression:
+        model: {include: false}
+        display: {show: false, name: ScheduleExpression}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: ScheduleExpression, normalize: typed}
+      MaxErrors:
+        model: {include: false}
+        display: {show: false, name: MaxErrors}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: MaxErrors, normalize: typed}
+      Parameters:
+        model: {include: false}
+        display: {show: false, name: Parameters}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: Parameters, normalize: typed}
+      InstanceId:
+        model: {include: false}
+        display: {show: false, name: InstanceId}
+        access: [create-only]
+        aws: {getter: provider-ssm-association, path: InstanceId, normalize: typed}
+      AssociationDispatchAssumeRole:
+        model: {include: false}
+        display: {show: false, name: AssociationDispatchAssumeRole}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: AssociationDispatchAssumeRole, normalize: typed}
+      WaitForSuccessTimeoutSeconds:
+        model: {include: false}
+        display: {show: false, name: WaitForSuccessTimeoutSeconds}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Association.WaitForSuccessTimeoutSeconds
+          constraint: Pinned provider schema declares /properties/WaitForSuccessTimeoutSeconds write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      MaxConcurrency:
+        model: {include: false}
+        display: {show: false, name: MaxConcurrency}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: MaxConcurrency, normalize: typed}
+      ComplianceSeverity:
+        model: {include: false}
+        display: {show: false, name: ComplianceSeverity}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: ComplianceSeverity, normalize: typed}
+      Targets[].Values:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Values'}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: 'Targets[].Values', normalize: typed}
+      Targets[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: 'Targets[].Key', normalize: typed}
+      SyncCompliance:
+        model: {include: false}
+        display: {show: false, name: SyncCompliance}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: SyncCompliance, normalize: typed}
+      OutputLocation.S3Location.OutputS3KeyPrefix:
+        model: {include: false}
+        display: {show: false, name: OutputLocation.S3Location.OutputS3KeyPrefix}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: OutputLocation.S3Location.OutputS3KeyPrefix, normalize: typed}
+      OutputLocation.S3Location.OutputS3Region:
+        model: {include: false}
+        display: {show: false, name: OutputLocation.S3Location.OutputS3Region}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: OutputLocation.S3Location.OutputS3Region, normalize: typed}
+      OutputLocation.S3Location.OutputS3BucketName:
+        model: {include: false}
+        display: {show: false, name: OutputLocation.S3Location.OutputS3BucketName}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: OutputLocation.S3Location.OutputS3BucketName, normalize: typed}
+      ScheduleOffset:
+        model: {include: false}
+        display: {show: false, name: ScheduleOffset}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: ScheduleOffset, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: Name, normalize: typed}
+      ApplyOnlyAtCronInterval:
+        model: {include: false}
+        display: {show: false, name: ApplyOnlyAtCronInterval}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: ApplyOnlyAtCronInterval, normalize: typed}
+      DocumentVersion:
+        model: {include: false}
+        display: {show: false, name: DocumentVersion}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: DocumentVersion, normalize: typed}
+      AutomationTargetParameterName:
+        model: {include: false}
+        display: {show: false, name: AutomationTargetParameterName}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: AutomationTargetParameterName, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ssm-association, path: 'Tags[].Value', normalize: typed}
+  SSM.MaintenanceWindow:
+    properties:
+      WindowId:
+        model: {include: false}
+        display: {show: false, name: WindowId}
+        access: [read-only]
+        aws: {getter: provider-ssm-maintenancewindow, path: WindowId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: Name, normalize: typed}
+      StartDate:
+        model: {include: false}
+        display: {show: false, name: StartDate}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: StartDate, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: Description, normalize: typed}
+      AllowUnassociatedTargets:
+        model: {include: false}
+        display: {show: false, name: AllowUnassociatedTargets}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: AllowUnassociatedTargets, normalize: typed}
+      Cutoff:
+        model: {include: false}
+        display: {show: false, name: Cutoff}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: Cutoff, normalize: typed}
+      Schedule:
+        model: {include: false}
+        display: {show: false, name: Schedule}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: Schedule, normalize: typed}
+      Duration:
+        model: {include: false}
+        display: {show: false, name: Duration}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: Duration, normalize: typed}
+      ScheduleOffset:
+        model: {include: false}
+        display: {show: false, name: ScheduleOffset}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: ScheduleOffset, normalize: typed}
+      EndDate:
+        model: {include: false}
+        display: {show: false, name: EndDate}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: EndDate, normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: 'Tags[].Value', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: 'Tags[].Key', normalize: typed}
+      ScheduleTimezone:
+        model: {include: false}
+        display: {show: false, name: ScheduleTimezone}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindow, path: ScheduleTimezone, normalize: typed}
+  SSM.MaintenanceWindowTarget:
+    properties:
+      WindowTargetId:
+        model: {include: false}
+        display: {show: false, name: WindowTargetId}
+        access: [read-only]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: WindowTargetId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: Name, normalize: typed}
+      OwnerInformation:
+        model: {include: false}
+        display: {show: false, name: OwnerInformation}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: OwnerInformation, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: Description, normalize: typed}
+      WindowId:
+        model: {include: false}
+        display: {show: false, name: WindowId}
+        access: [create-only]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: WindowId, normalize: typed}
+      ResourceType:
+        model: {include: false}
+        display: {show: false, name: ResourceType}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: ResourceType, normalize: typed}
+      Targets[].Values:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Values'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: 'Targets[].Values', normalize: typed}
+      Targets[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtarget, path: 'Targets[].Key', normalize: typed}
+  SSM.MaintenanceWindowTask:
+    properties:
+      WindowTaskId:
+        model: {include: false}
+        display: {show: false, name: WindowTaskId}
+        access: [read-only]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: WindowTaskId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: Name, normalize: typed}
+      MaxErrors:
+        model: {include: false}
+        display: {show: false, name: MaxErrors}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: MaxErrors, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: Description, normalize: typed}
+      ServiceRoleArn:
+        model: {include: false}
+        display: {show: false, name: ServiceRoleArn}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: ServiceRoleArn, normalize: typed}
+      Priority:
+        model: {include: false}
+        display: {show: false, name: Priority}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: Priority, normalize: typed}
+      MaxConcurrency:
+        model: {include: false}
+        display: {show: false, name: MaxConcurrency}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: MaxConcurrency, normalize: typed}
+      Targets[].Values:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Values'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: 'Targets[].Values', normalize: typed}
+      Targets[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: 'Targets[].Key', normalize: typed}
+      TaskArn:
+        model: {include: false}
+        display: {show: false, name: TaskArn}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskArn, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Input:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Input}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Input, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Name:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowStepFunctionsParameters.Name, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.TimeoutSeconds:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.TimeoutSeconds}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.TimeoutSeconds, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Comment:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Comment}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Comment, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3KeyPrefix:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3KeyPrefix}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3KeyPrefix, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Parameters:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Parameters}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Parameters, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchOutputEnabled:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchOutputEnabled}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchOutputEnabled,
+          normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchLogGroupName:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchLogGroupName}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.CloudWatchOutputConfig.CloudWatchLogGroupName,
+          normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHashType:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHashType}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHashType, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.ServiceRoleArn:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.ServiceRoleArn}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.ServiceRoleArn, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationEvents:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationEvents}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationEvents,
+          normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationArn:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationArn}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationArn,
+          normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationType:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationType}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.NotificationConfig.NotificationType,
+          normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentVersion:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentVersion}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentVersion, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3BucketName:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3BucketName}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.OutputS3BucketName, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHash:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHash}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowRunCommandParameters.DocumentHash, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowLambdaParameters.Qualifier:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowLambdaParameters.Qualifier}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowLambdaParameters.Qualifier, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowLambdaParameters.Payload:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowLambdaParameters.Payload}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowLambdaParameters.Payload, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowLambdaParameters.ClientContext:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowLambdaParameters.ClientContext}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowLambdaParameters.ClientContext, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowAutomationParameters.Parameters:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowAutomationParameters.Parameters}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowAutomationParameters.Parameters, normalize: typed}
+      TaskInvocationParameters.MaintenanceWindowAutomationParameters.DocumentVersion:
+        model: {include: false}
+        display: {show: false, name: TaskInvocationParameters.MaintenanceWindowAutomationParameters.DocumentVersion}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskInvocationParameters.MaintenanceWindowAutomationParameters.DocumentVersion, normalize: typed}
+      WindowId:
+        model: {include: false}
+        display: {show: false, name: WindowId}
+        access: [create-only]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: WindowId, normalize: typed}
+      TaskParameters:
+        model: {include: false}
+        display: {show: false, name: TaskParameters}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskParameters, normalize: typed}
+      TaskType:
+        model: {include: false}
+        display: {show: false, name: TaskType}
+        access: [create-only]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: TaskType, normalize: typed}
+      CutoffBehavior:
+        model: {include: false}
+        display: {show: false, name: CutoffBehavior}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: CutoffBehavior, normalize: typed}
+      LoggingInfo.Region:
+        model: {include: false}
+        display: {show: false, name: LoggingInfo.Region}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: LoggingInfo.Region, normalize: typed}
+      LoggingInfo.S3Prefix:
+        model: {include: false}
+        display: {show: false, name: LoggingInfo.S3Prefix}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: LoggingInfo.S3Prefix, normalize: typed}
+      LoggingInfo.S3Bucket:
+        model: {include: false}
+        display: {show: false, name: LoggingInfo.S3Bucket}
+        access: [read-write]
+        aws: {getter: provider-ssm-maintenancewindowtask, path: LoggingInfo.S3Bucket, normalize: typed}
+  SSM.PatchBaseline:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-ssm-patchbaseline, path: Id, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: Name, normalize: typed}
+      DefaultBaseline:
+        model: {include: false}
+        display: {show: false, name: DefaultBaseline}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: DefaultBaseline, normalize: typed}
+      OperatingSystem:
+        model: {include: false}
+        display: {show: false, name: OperatingSystem}
+        access: [create-only]
+        aws: {getter: provider-ssm-patchbaseline, path: OperatingSystem, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: Description, normalize: typed}
+      ApprovalRules.PatchRules[].ApproveUntilDate:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].ApproveUntilDate'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].ApproveUntilDate', normalize: typed}
+      ApprovalRules.PatchRules[].EnableNonSecurity:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].EnableNonSecurity'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].EnableNonSecurity', normalize: typed}
+      ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Values:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Values'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Values', normalize: typed}
+      ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Key:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].PatchFilterGroup.PatchFilters[].Key', normalize: typed}
+      ApprovalRules.PatchRules[].ApproveAfterDays:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].ApproveAfterDays'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].ApproveAfterDays', normalize: typed}
+      ApprovalRules.PatchRules[].ComplianceLevel:
+        model: {include: false}
+        display: {show: false, name: 'ApprovalRules.PatchRules[].ComplianceLevel'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'ApprovalRules.PatchRules[].ComplianceLevel', normalize: typed}
+      Sources[].Products:
+        model: {include: false}
+        display: {show: false, name: 'Sources[].Products'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'Sources[].Products', normalize: typed}
+      Sources[].Configuration:
+        model: {include: false}
+        display: {show: false, name: 'Sources[].Configuration'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'Sources[].Configuration', normalize: typed}
+      Sources[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Sources[].Name'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'Sources[].Name', normalize: typed}
+      RejectedPatches:
+        model: {include: false}
+        display: {show: false, name: RejectedPatches}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: RejectedPatches, normalize: typed}
+      ApprovedPatches:
+        model: {include: false}
+        display: {show: false, name: ApprovedPatches}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: ApprovedPatches, normalize: typed}
+      RejectedPatchesAction:
+        model: {include: false}
+        display: {show: false, name: RejectedPatchesAction}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: RejectedPatchesAction, normalize: typed}
+      PatchGroups:
+        model: {include: false}
+        display: {show: false, name: PatchGroups}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: PatchGroups, normalize: typed}
+      ApprovedPatchesComplianceLevel:
+        model: {include: false}
+        display: {show: false, name: ApprovedPatchesComplianceLevel}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: ApprovedPatchesComplianceLevel, normalize: typed}
+      ApprovedPatchesEnableNonSecurity:
+        model: {include: false}
+        display: {show: false, name: ApprovedPatchesEnableNonSecurity}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: ApprovedPatchesEnableNonSecurity, normalize: typed}
+      GlobalFilters.PatchFilters[].Values:
+        model: {include: false}
+        display: {show: false, name: 'GlobalFilters.PatchFilters[].Values'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'GlobalFilters.PatchFilters[].Values', normalize: typed}
+      GlobalFilters.PatchFilters[].Key:
+        model: {include: false}
+        display: {show: false, name: 'GlobalFilters.PatchFilters[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'GlobalFilters.PatchFilters[].Key', normalize: typed}
+      AvailableSecurityUpdatesComplianceStatus:
+        model: {include: false}
+        display: {show: false, name: AvailableSecurityUpdatesComplianceStatus}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: AvailableSecurityUpdatesComplianceStatus, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ssm-patchbaseline, path: 'Tags[].Value', normalize: typed}

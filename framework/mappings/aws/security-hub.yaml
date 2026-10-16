@@ -1,0 +1,65 @@
+version: 3
+service: security-hub
+getters:
+  provider-securityhub-findingaggregator:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SecurityHub.FindingAggregator
+    identifier: [/properties/FindingAggregatorArn]
+  base:
+    kind: adapter
+    resources: [SecurityHub.Hub]
+  provider-securityhub-hub:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SecurityHub.Hub
+    identifier: [/properties/ARN]
+resourceTypes:
+  SecurityHub.FindingAggregator:
+    properties:
+      RegionLinkingMode:
+        model: {include: false}
+        display: {show: false, name: RegionLinkingMode}
+        access: [read-write]
+        aws: {getter: provider-securityhub-findingaggregator, path: RegionLinkingMode, normalize: typed}
+      Regions:
+        model: {include: false}
+        display: {show: false, name: Regions}
+        access: [read-write]
+        aws: {getter: provider-securityhub-findingaggregator, path: Regions, normalize: typed}
+  SecurityHub.Hub:
+    identity:
+      getter: base
+      idPath: HubArn
+      arnPath: HubArn
+      nameProperty: null
+    properties:
+      AutoEnableControls:
+        model: {include: true}
+        display: {show: true, name: AutoEnableControls}
+        access: [read-write]
+        aws: {getter: base, path: AutoEnableControls, normalize: typed}
+      ControlFindingGenerator:
+        model: {include: true}
+        display: {show: true, name: ControlFindingGenerator}
+        access: [read-write]
+        aws: {getter: base, path: ControlFindingGenerator, normalize: typed}
+      EnableDefaultStandards:
+        model: {include: false}
+        display: {show: false, name: EnableDefaultStandards}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SecurityHub.Hub.EnableDefaultStandards
+          constraint: Pinned provider schema declares /properties/EnableDefaultStandards write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-securityhub-hub, path: Tags, normalize: typed}

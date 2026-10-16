@@ -1,0 +1,150 @@
+version: 3
+service: sqs
+getters:
+  queue:
+    kind: adapter
+    resources: [SQS.Queue]
+  provider-sqs-queue:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SQS.Queue
+    identifier: [/properties/QueueUrl]
+  policy:
+    kind: adapter
+    resources: [SQS.QueuePolicy]
+resourceTypes:
+  SQS.Queue:
+    identity:
+      getter: queue
+      idPath: QueueUrl
+      arnPath: Attributes.QueueArn
+      nameProperty: QueueName
+    properties:
+      QueueName:
+        model: {include: true}
+        display: {show: true, name: QueueName}
+        access: [create-only]
+        source:
+          kind: model
+          location: desired row QueueName; get_queue_url request input
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: queue, path: QueueName, normalize: typed}
+      QueueUrl:
+        model: {include: true}
+        display: {show: true, name: QueueUrl}
+        access: [read-only]
+        aws: {getter: queue, path: QueueUrl, normalize: typed}
+      ContentBasedDeduplication:
+        model: {include: false}
+        display: {show: false, name: ContentBasedDeduplication}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: ContentBasedDeduplication, normalize: typed}
+      DeduplicationScope:
+        model: {include: false}
+        display: {show: false, name: DeduplicationScope}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: DeduplicationScope, normalize: typed}
+      DelaySeconds:
+        model: {include: false}
+        display: {show: false, name: DelaySeconds}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: DelaySeconds, normalize: typed}
+      FifoQueue:
+        model: {include: true}
+        display: {show: true, name: FifoQueue}
+        access: [create-only]
+        aws: {getter: queue, path: Attributes.FifoQueue, normalize: boolean, default: 'false'}
+      FifoThroughputLimit:
+        model: {include: false}
+        display: {show: false, name: FifoThroughputLimit}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: FifoThroughputLimit, normalize: typed}
+      KmsDataKeyReusePeriodSeconds:
+        model: {include: false}
+        display: {show: false, name: KmsDataKeyReusePeriodSeconds}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: KmsDataKeyReusePeriodSeconds, normalize: typed}
+      KmsMasterKeyId:
+        model: {include: false}
+        display: {show: false, name: KmsMasterKeyId}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: KmsMasterKeyId, normalize: typed}
+      MaximumMessageSize:
+        model: {include: false}
+        display: {show: false, name: MaximumMessageSize}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: MaximumMessageSize, normalize: typed}
+      MessageRetentionPeriod:
+        model: {include: true}
+        display: {show: true, name: MessageRetentionPeriod}
+        access: [read-write]
+        aws: {getter: queue, path: Attributes.MessageRetentionPeriod, normalize: number}
+      ReceiveMessageWaitTimeSeconds:
+        model: {include: false}
+        display: {show: false, name: ReceiveMessageWaitTimeSeconds}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: ReceiveMessageWaitTimeSeconds, normalize: typed}
+      RedriveAllowPolicy:
+        model: {include: false}
+        display: {show: false, name: RedriveAllowPolicy}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: RedriveAllowPolicy, normalize: typed}
+      RedrivePolicy:
+        model: {include: false}
+        display: {show: false, name: RedrivePolicy}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: RedrivePolicy, normalize: typed}
+      SqsManagedSseEnabled:
+        model: {include: false}
+        display: {show: false, name: SqsManagedSseEnabled}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: SqsManagedSseEnabled, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: 'Tags[].Value', normalize: typed}
+      VisibilityTimeout:
+        model: {include: false}
+        display: {show: false, name: VisibilityTimeout}
+        access: [read-write]
+        aws: {getter: provider-sqs-queue, path: VisibilityTimeout, normalize: typed}
+  SQS.QueuePolicy:
+    identity:
+      getter: policy
+      idPath: Queues
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        source:
+          kind: provider-output
+          location: provider SQS.QueuePolicy Id
+          constraint: SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document.
+          classification: sdk_unavailable
+      PolicyDocument:
+        model: {include: true}
+        display: {show: true, name: PolicyDocument}
+        access: [read-write]
+        aws: {getter: policy, path: Policy, normalize: policy}
+      Queues[]:
+        model: {include: true}
+        display: {show: true, name: 'Queues[]'}
+        access: [read-write]
+        source:
+          kind: model
+          location: desired rows Queues[]; policy getter request inputs
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata
+          extraction: {getter: policy, path: Queues, normalize: id}

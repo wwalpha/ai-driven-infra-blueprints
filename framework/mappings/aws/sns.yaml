@@ -1,0 +1,194 @@
+version: 3
+service: sns
+getters:
+  provider-sns-subscription:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SNS.Subscription
+    identifier: [/properties/Arn]
+  provider-sns-topic:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SNS.Topic
+    identifier: [/properties/TopicArn]
+  sdk-sns-topicpolicy:
+    kind: sdk
+    service: sns
+    operation: get_topic_attributes
+    result: $
+    resourceType: SNS.TopicPolicy
+resourceTypes:
+  SNS.Subscription:
+    properties:
+      DeliveryPolicy:
+        model: {include: false}
+        display: {show: false, name: DeliveryPolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: DeliveryPolicy, normalize: typed}
+      Endpoint:
+        model: {include: false}
+        display: {show: false, name: Endpoint}
+        access: [create-only]
+        aws: {getter: provider-sns-subscription, path: Endpoint, normalize: typed}
+      FilterPolicy:
+        model: {include: false}
+        display: {show: false, name: FilterPolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: FilterPolicy, normalize: typed}
+      FilterPolicyScope:
+        model: {include: false}
+        display: {show: false, name: FilterPolicyScope}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: FilterPolicyScope, normalize: typed}
+      Protocol:
+        model: {include: false}
+        display: {show: false, name: Protocol}
+        access: [create-only]
+        aws: {getter: provider-sns-subscription, path: Protocol, normalize: typed}
+      RawMessageDelivery:
+        model: {include: false}
+        display: {show: false, name: RawMessageDelivery}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: RawMessageDelivery, normalize: typed}
+      RedrivePolicy:
+        model: {include: false}
+        display: {show: false, name: RedrivePolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: RedrivePolicy, normalize: typed}
+      Region:
+        model: {include: false}
+        display: {show: false, name: Region}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row SNS.Subscription.Region
+          constraint: Pinned provider schema declares /properties/Region write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      ReplayPolicy:
+        model: {include: false}
+        display: {show: false, name: ReplayPolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: ReplayPolicy, normalize: typed}
+      SubscriptionRoleArn:
+        model: {include: false}
+        display: {show: false, name: SubscriptionRoleArn}
+        access: [read-write]
+        aws: {getter: provider-sns-subscription, path: SubscriptionRoleArn, normalize: typed}
+      TopicArn:
+        model: {include: false}
+        display: {show: false, name: TopicArn}
+        access: [create-only]
+        aws: {getter: provider-sns-subscription, path: TopicArn, normalize: typed}
+  SNS.Topic:
+    properties:
+      TopicName:
+        model: {include: false}
+        display: {show: false, name: TopicName}
+        access: [create-only]
+        aws: {getter: provider-sns-topic, path: TopicName, normalize: typed}
+      ArchivePolicy:
+        model: {include: false}
+        display: {show: false, name: ArchivePolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: ArchivePolicy, normalize: typed}
+      ContentBasedDeduplication:
+        model: {include: false}
+        display: {show: false, name: ContentBasedDeduplication}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: ContentBasedDeduplication, normalize: typed}
+      DataProtectionPolicy:
+        model: {include: false}
+        display: {show: false, name: DataProtectionPolicy}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: DataProtectionPolicy, normalize: typed}
+      DeliveryStatusLogging[].FailureFeedbackRoleArn:
+        model: {include: false}
+        display: {show: false, name: 'DeliveryStatusLogging[].FailureFeedbackRoleArn'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'DeliveryStatusLogging[].FailureFeedbackRoleArn', normalize: typed}
+      DeliveryStatusLogging[].Protocol:
+        model: {include: false}
+        display: {show: false, name: 'DeliveryStatusLogging[].Protocol'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'DeliveryStatusLogging[].Protocol', normalize: typed}
+      DeliveryStatusLogging[].SuccessFeedbackRoleArn:
+        model: {include: false}
+        display: {show: false, name: 'DeliveryStatusLogging[].SuccessFeedbackRoleArn'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'DeliveryStatusLogging[].SuccessFeedbackRoleArn', normalize: typed}
+      DeliveryStatusLogging[].SuccessFeedbackSampleRate:
+        model: {include: false}
+        display: {show: false, name: 'DeliveryStatusLogging[].SuccessFeedbackSampleRate'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'DeliveryStatusLogging[].SuccessFeedbackSampleRate', normalize: typed}
+      DisplayName:
+        model: {include: false}
+        display: {show: false, name: DisplayName}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: DisplayName, normalize: typed}
+      FifoThroughputScope:
+        model: {include: false}
+        display: {show: false, name: FifoThroughputScope}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: FifoThroughputScope, normalize: typed}
+      FifoTopic:
+        model: {include: false}
+        display: {show: false, name: FifoTopic}
+        access: [create-only]
+        aws: {getter: provider-sns-topic, path: FifoTopic, normalize: typed}
+      KmsMasterKeyId:
+        model: {include: false}
+        display: {show: false, name: KmsMasterKeyId}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: KmsMasterKeyId, normalize: typed}
+      SignatureVersion:
+        model: {include: false}
+        display: {show: false, name: SignatureVersion}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: SignatureVersion, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: 'Tags[].Value', normalize: typed}
+      TracingConfig:
+        model: {include: false}
+        display: {show: false, name: TracingConfig}
+        access: [read-write]
+        aws: {getter: provider-sns-topic, path: TracingConfig, normalize: typed}
+  SNS.TopicPolicy:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        source:
+          kind: provider-output
+          location: provider SNS.TopicPolicy Id
+          constraint: Provider-assigned output; this resource has no read handler and the native API does not return this independent resource identifier.
+            Do not substitute a Model display label.
+          classification: sdk_unavailable
+      PolicyDocument:
+        model: {include: false}
+        display: {show: false, name: PolicyDocument}
+        access: [read-write]
+        aws: {getter: sdk-sns-topicpolicy, path: Attributes.Policy, normalize: policy}
+      Topics:
+        model: {include: false}
+        display: {show: false, name: Topics}
+        access: [read-write]
+        source:
+          kind: model
+          location: desired rows Topics; get_topic_attributes request inputs
+          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
+          classification: local_metadata

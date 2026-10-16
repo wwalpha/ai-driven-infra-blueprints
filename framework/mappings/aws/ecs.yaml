@@ -1,0 +1,963 @@
+version: 3
+service: ecs
+getters:
+  provider-ecs-capacityprovider:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECS.CapacityProvider
+    identifier: [/properties/Name]
+  provider-ecs-cluster:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECS.Cluster
+    identifier: [/properties/ClusterName]
+  sdk-ecs-cluster:
+    kind: sdk
+    service: ecs
+    operation: describe_clusters
+    result: clusters[]
+    resourceType: ECS.Cluster
+  provider-ecs-clustercapacityproviderassociations:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECS.ClusterCapacityProviderAssociations
+    identifier: [/properties/Cluster]
+  provider-ecs-service:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECS.Service
+    identifier: [/properties/ServiceArn, /properties/Cluster]
+  provider-ecs-taskdefinition:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECS.TaskDefinition
+    identifier: [/properties/TaskDefinitionArn]
+resourceTypes:
+  ECS.CapacityProvider:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-ecs-capacityprovider, path: Name, normalize: typed}
+      AutoScalingGroupProvider.AutoScalingGroupArn:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.AutoScalingGroupArn}
+        access: [create-only]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.AutoScalingGroupArn, normalize: typed}
+      AutoScalingGroupProvider.ManagedDraining:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedDraining}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedDraining, normalize: typed}
+      AutoScalingGroupProvider.ManagedScaling.InstanceWarmupPeriod:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedScaling.InstanceWarmupPeriod}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedScaling.InstanceWarmupPeriod, normalize: typed}
+      AutoScalingGroupProvider.ManagedScaling.MaximumScalingStepSize:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedScaling.MaximumScalingStepSize}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedScaling.MaximumScalingStepSize, normalize: typed}
+      AutoScalingGroupProvider.ManagedScaling.MinimumScalingStepSize:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedScaling.MinimumScalingStepSize}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedScaling.MinimumScalingStepSize, normalize: typed}
+      AutoScalingGroupProvider.ManagedScaling.Status:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedScaling.Status}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedScaling.Status, normalize: typed}
+      AutoScalingGroupProvider.ManagedScaling.TargetCapacity:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedScaling.TargetCapacity}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedScaling.TargetCapacity, normalize: typed}
+      AutoScalingGroupProvider.ManagedTerminationProtection:
+        model: {include: false}
+        display: {show: false, name: AutoScalingGroupProvider.ManagedTerminationProtection}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: AutoScalingGroupProvider.ManagedTerminationProtection, normalize: typed}
+      ClusterName:
+        model: {include: false}
+        display: {show: false, name: ClusterName}
+        access: [create-only]
+        aws: {getter: provider-ecs-capacityprovider, path: ClusterName, normalize: typed}
+      ManagedInstancesProvider.AutoRepairConfiguration.ActionsStatus:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.AutoRepairConfiguration.ActionsStatus}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.AutoRepairConfiguration.ActionsStatus, normalize: typed}
+      ManagedInstancesProvider.InfrastructureOptimization.ScaleInAfter:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InfrastructureOptimization.ScaleInAfter}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InfrastructureOptimization.ScaleInAfter, normalize: typed}
+      ManagedInstancesProvider.InfrastructureRoleArn:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InfrastructureRoleArn}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InfrastructureRoleArn, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.CapacityOptionType:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityOptionType}
+        access: [conditional-create-only]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityOptionType, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationGroupArn:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationGroupArn}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationGroupArn, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationPreference:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationPreference}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.CapacityReservations.ReservationPreference, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.Ec2InstanceProfileArn:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.Ec2InstanceProfileArn}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.Ec2InstanceProfileArn, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.FipsEnabled:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.FipsEnabled}
+        access: [create-only]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.FipsEnabled, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceMetadataTagsPropagation:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceMetadataTagsPropagation}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceMetadataTagsPropagation, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Max, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorCount.Min, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorManufacturers[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorManufacturers[]',
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorNames[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorNames[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorNames[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Max,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTotalMemoryMiB.Min,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AcceleratorTypes[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AllowedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AllowedInstanceTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.AllowedInstanceTypes[]',
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BareMetal:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BareMetal}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BareMetal, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Max,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BaselineEbsBandwidthMbps.Min,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BurstablePerformance:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BurstablePerformance}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.BurstablePerformance, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.CpuManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.CpuManufacturers[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.CpuManufacturers[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.ExcludedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.ExcludedInstanceTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.ExcludedInstanceTypes[]',
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.InstanceGenerations[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.InstanceGenerations[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.InstanceGenerations[]',
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorage:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorage}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorage, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorageTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorageTypes[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.LocalStorageTypes[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Max, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryGiBPerVCpu.Min, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Max, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.MemoryMiB.Min, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Max,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkBandwidthGbps.Min,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Max,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.NetworkInterfaceCount.Min,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.RequireHibernateSupport:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.RequireHibernateSupport}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.RequireHibernateSupport,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Max,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.TotalLocalStorageGB.Min,
+          normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Max:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Max}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Max, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Min:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Min}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.InstanceRequirements.VCpuCount.Min, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.LocalStorageConfiguration.UseLocalStorage:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.LocalStorageConfiguration.UseLocalStorage}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.LocalStorageConfiguration.UseLocalStorage, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.Monitoring:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.Monitoring}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.Monitoring, normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.SecurityGroups[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]:
+        model: {include: false}
+        display: {show: false, name: 'ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]', normalize: typed}
+      ManagedInstancesProvider.InstanceLaunchTemplate.StorageConfiguration.StorageSizeGiB:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.InstanceLaunchTemplate.StorageConfiguration.StorageSizeGiB}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.InstanceLaunchTemplate.StorageConfiguration.StorageSizeGiB, normalize: typed}
+      ManagedInstancesProvider.PropagateTags:
+        model: {include: false}
+        display: {show: false, name: ManagedInstancesProvider.PropagateTags}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: ManagedInstancesProvider.PropagateTags, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecs-capacityprovider, path: 'Tags[].Value', normalize: typed}
+  ECS.Cluster:
+    properties:
+      ClusterName:
+        model: {include: false}
+        display: {show: false, name: ClusterName}
+        access: [create-only]
+        aws: {getter: provider-ecs-cluster, path: ClusterName, normalize: typed}
+      CapacityProviders[]:
+        model: {include: false}
+        display: {show: false, name: 'CapacityProviders[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'CapacityProviders[]', normalize: typed}
+      ClusterSettings[].Name:
+        model: {include: false}
+        display: {show: false, name: 'ClusterSettings[].Name'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'ClusterSettings[].Name', normalize: typed}
+      ClusterSettings[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ClusterSettings[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'ClusterSettings[].Value', normalize: typed}
+      Configuration.ExecuteCommandConfiguration.KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.KmsKeyId, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchEncryptionEnabled:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchEncryptionEnabled}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchEncryptionEnabled, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchLogGroupName:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchLogGroupName}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.LogConfiguration.CloudWatchLogGroupName, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.LogConfiguration.S3BucketName:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3BucketName}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3BucketName, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.LogConfiguration.S3EncryptionEnabled:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3EncryptionEnabled}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3EncryptionEnabled, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.LogConfiguration.S3KeyPrefix:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3KeyPrefix}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.LogConfiguration.S3KeyPrefix, normalize: typed}
+      Configuration.ExecuteCommandConfiguration.Logging:
+        model: {include: false}
+        display: {show: false, name: Configuration.ExecuteCommandConfiguration.Logging}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ExecuteCommandConfiguration.Logging, normalize: typed}
+      Configuration.ManagedStorageConfiguration.FargateEphemeralStorageKmsKeyId:
+        model: {include: false}
+        display: {show: false, name: Configuration.ManagedStorageConfiguration.FargateEphemeralStorageKmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ManagedStorageConfiguration.FargateEphemeralStorageKmsKeyId, normalize: typed}
+      Configuration.ManagedStorageConfiguration.KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: Configuration.ManagedStorageConfiguration.KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: Configuration.ManagedStorageConfiguration.KmsKeyId, normalize: typed}
+      DefaultCapacityProviderStrategy[].Base:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].Base'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'DefaultCapacityProviderStrategy[].Base', normalize: typed}
+      DefaultCapacityProviderStrategy[].CapacityProvider:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].CapacityProvider'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'DefaultCapacityProviderStrategy[].CapacityProvider', normalize: typed}
+      DefaultCapacityProviderStrategy[].Weight:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].Weight'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'DefaultCapacityProviderStrategy[].Weight', normalize: typed}
+      ServiceConnectDefaults.Namespace:
+        model: {include: false}
+        display: {show: false, name: ServiceConnectDefaults.Namespace}
+        access: [write-only]
+        aws: {getter: sdk-ecs-cluster, path: serviceConnectDefaults.namespace, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecs-cluster, path: 'Tags[].Value', normalize: typed}
+  ECS.ClusterCapacityProviderAssociations:
+    properties:
+      CapacityProviders[]:
+        model: {include: false}
+        display: {show: false, name: 'CapacityProviders[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-clustercapacityproviderassociations, path: 'CapacityProviders[]', normalize: typed}
+      Cluster:
+        model: {include: false}
+        display: {show: false, name: Cluster}
+        access: [create-only]
+        aws: {getter: provider-ecs-clustercapacityproviderassociations, path: Cluster, normalize: typed}
+      DefaultCapacityProviderStrategy[].Base:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].Base'}
+        access: [read-write]
+        aws: {getter: provider-ecs-clustercapacityproviderassociations, path: 'DefaultCapacityProviderStrategy[].Base', normalize: typed}
+      DefaultCapacityProviderStrategy[].CapacityProvider:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].CapacityProvider'}
+        access: [read-write]
+        aws: {getter: provider-ecs-clustercapacityproviderassociations, path: 'DefaultCapacityProviderStrategy[].CapacityProvider', normalize: typed}
+      DefaultCapacityProviderStrategy[].Weight:
+        model: {include: false}
+        display: {show: false, name: 'DefaultCapacityProviderStrategy[].Weight'}
+        access: [read-write]
+        aws: {getter: provider-ecs-clustercapacityproviderassociations, path: 'DefaultCapacityProviderStrategy[].Weight', normalize: typed}
+  ECS.Service:
+    properties:
+      ServiceName:
+        model: {include: false}
+        display: {show: false, name: ServiceName}
+        access: [create-only]
+        aws: {getter: provider-ecs-service, path: ServiceName, normalize: typed}
+      AvailabilityZoneRebalancing:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZoneRebalancing}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: AvailabilityZoneRebalancing, normalize: typed}
+      CapacityProviderStrategy[].Base:
+        model: {include: false}
+        display: {show: false, name: 'CapacityProviderStrategy[].Base'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'CapacityProviderStrategy[].Base', normalize: typed}
+      CapacityProviderStrategy[].CapacityProvider:
+        model: {include: false}
+        display: {show: false, name: 'CapacityProviderStrategy[].CapacityProvider'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'CapacityProviderStrategy[].CapacityProvider', normalize: typed}
+      CapacityProviderStrategy[].Weight:
+        model: {include: false}
+        display: {show: false, name: 'CapacityProviderStrategy[].Weight'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'CapacityProviderStrategy[].Weight', normalize: typed}
+      Cluster:
+        model: {include: false}
+        display: {show: false, name: Cluster}
+        access: [create-only]
+        aws: {getter: provider-ecs-service, path: Cluster, normalize: typed}
+      DeploymentConfiguration.Alarms.AlarmNames[]:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.Alarms.AlarmNames[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.Alarms.AlarmNames[]', normalize: typed}
+      DeploymentConfiguration.Alarms.Enable:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.Alarms.Enable}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.Alarms.Enable, normalize: typed}
+      DeploymentConfiguration.Alarms.Rollback:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.Alarms.Rollback}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.Alarms.Rollback, normalize: typed}
+      DeploymentConfiguration.BakeTimeInMinutes:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.BakeTimeInMinutes}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.BakeTimeInMinutes, normalize: typed}
+      DeploymentConfiguration.CanaryConfiguration.CanaryBakeTimeInMinutes:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.CanaryConfiguration.CanaryBakeTimeInMinutes}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.CanaryConfiguration.CanaryBakeTimeInMinutes, normalize: typed}
+      DeploymentConfiguration.CanaryConfiguration.CanaryPercent:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.CanaryConfiguration.CanaryPercent}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.CanaryConfiguration.CanaryPercent, normalize: typed}
+      DeploymentConfiguration.DeploymentCircuitBreaker.Enable:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.DeploymentCircuitBreaker.Enable}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.DeploymentCircuitBreaker.Enable, normalize: typed}
+      DeploymentConfiguration.DeploymentCircuitBreaker.ResetOnHealthyTask:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.DeploymentCircuitBreaker.ResetOnHealthyTask}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.DeploymentCircuitBreaker.ResetOnHealthyTask, normalize: typed}
+      DeploymentConfiguration.DeploymentCircuitBreaker.Rollback:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.DeploymentCircuitBreaker.Rollback}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.DeploymentCircuitBreaker.Rollback, normalize: typed}
+      DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Type:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Type}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Type, normalize: typed}
+      DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Value:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Value}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.DeploymentCircuitBreaker.ThresholdConfiguration.Value, normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].HookDetails:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].HookDetails'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].HookDetails', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].HookTargetArn:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].HookTargetArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].HookTargetArn', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].LifecycleStages[]:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].LifecycleStages[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].LifecycleStages[]', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].RoleArn', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].TargetType:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].TargetType'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].TargetType', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.Action:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.Action'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.Action', normalize: typed}
+      DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.TimeoutInMinutes:
+        model: {include: false}
+        display: {show: false, name: 'DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.TimeoutInMinutes'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'DeploymentConfiguration.LifecycleHooks[].TimeoutConfiguration.TimeoutInMinutes', normalize: typed}
+      DeploymentConfiguration.LinearConfiguration.StepBakeTimeInMinutes:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.LinearConfiguration.StepBakeTimeInMinutes}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.LinearConfiguration.StepBakeTimeInMinutes, normalize: typed}
+      DeploymentConfiguration.LinearConfiguration.StepPercent:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.LinearConfiguration.StepPercent}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.LinearConfiguration.StepPercent, normalize: typed}
+      DeploymentConfiguration.MaximumPercent:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.MaximumPercent}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.MaximumPercent, normalize: typed}
+      DeploymentConfiguration.MinimumHealthyPercent:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.MinimumHealthyPercent}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.MinimumHealthyPercent, normalize: typed}
+      DeploymentConfiguration.Strategy:
+        model: {include: false}
+        display: {show: false, name: DeploymentConfiguration.Strategy}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentConfiguration.Strategy, normalize: typed}
+      DeploymentController.Type:
+        model: {include: false}
+        display: {show: false, name: DeploymentController.Type}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DeploymentController.Type, normalize: typed}
+      DesiredCount:
+        model: {include: false}
+        display: {show: false, name: DesiredCount}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: DesiredCount, normalize: typed}
+      EnableECSManagedTags:
+        model: {include: false}
+        display: {show: false, name: EnableECSManagedTags}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: EnableECSManagedTags, normalize: typed}
+      EnableExecuteCommand:
+        model: {include: false}
+        display: {show: false, name: EnableExecuteCommand}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: EnableExecuteCommand, normalize: typed}
+      ForceNewDeployment.EnableForceNewDeployment:
+        model: {include: false}
+        display: {show: false, name: ForceNewDeployment.EnableForceNewDeployment}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.ForceNewDeployment.EnableForceNewDeployment
+          constraint: Pinned provider schema declares /properties/ForceNewDeployment write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      ForceNewDeployment.ForceNewDeploymentNonce:
+        model: {include: false}
+        display: {show: false, name: ForceNewDeployment.ForceNewDeploymentNonce}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.ForceNewDeployment.ForceNewDeploymentNonce
+          constraint: Pinned provider schema declares /properties/ForceNewDeployment write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      HealthCheckGracePeriodSeconds:
+        model: {include: false}
+        display: {show: false, name: HealthCheckGracePeriodSeconds}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: HealthCheckGracePeriodSeconds, normalize: typed}
+      LaunchType:
+        model: {include: false}
+        display: {show: false, name: LaunchType}
+        access: [conditional-create-only]
+        aws: {getter: provider-ecs-service, path: LaunchType, normalize: typed}
+      LoadBalancers[].AdvancedConfiguration.AlternateTargetGroupArn:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].AdvancedConfiguration.AlternateTargetGroupArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].AdvancedConfiguration.AlternateTargetGroupArn', normalize: typed}
+      LoadBalancers[].AdvancedConfiguration.ProductionListenerRule:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].AdvancedConfiguration.ProductionListenerRule'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].AdvancedConfiguration.ProductionListenerRule', normalize: typed}
+      LoadBalancers[].AdvancedConfiguration.RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].AdvancedConfiguration.RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].AdvancedConfiguration.RoleArn', normalize: typed}
+      LoadBalancers[].AdvancedConfiguration.TestListenerRule:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].AdvancedConfiguration.TestListenerRule'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].AdvancedConfiguration.TestListenerRule', normalize: typed}
+      LoadBalancers[].ContainerName:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].ContainerName'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].ContainerName', normalize: typed}
+      LoadBalancers[].ContainerPort:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].ContainerPort'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].ContainerPort', normalize: typed}
+      LoadBalancers[].LoadBalancerName:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].LoadBalancerName'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].LoadBalancerName', normalize: typed}
+      LoadBalancers[].TargetGroupArn:
+        model: {include: false}
+        display: {show: false, name: 'LoadBalancers[].TargetGroupArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'LoadBalancers[].TargetGroupArn', normalize: typed}
+      Monitoring.MetricConfigurations[].MetricNames[]:
+        model: {include: false}
+        display: {show: false, name: 'Monitoring.MetricConfigurations[].MetricNames[]'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.Monitoring.MetricConfigurations[].MetricNames[]
+          constraint: Pinned provider schema declares /properties/Monitoring write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Monitoring.MetricConfigurations[].ResolutionSeconds:
+        model: {include: false}
+        display: {show: false, name: 'Monitoring.MetricConfigurations[].ResolutionSeconds'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.Monitoring.MetricConfigurations[].ResolutionSeconds
+          constraint: Pinned provider schema declares /properties/Monitoring write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp:
+        model: {include: false}
+        display: {show: false, name: NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp, normalize: typed}
+      NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]', normalize: typed}
+      NetworkConfiguration.AwsvpcConfiguration.Subnets[]:
+        model: {include: false}
+        display: {show: false, name: 'NetworkConfiguration.AwsvpcConfiguration.Subnets[]'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'NetworkConfiguration.AwsvpcConfiguration.Subnets[]', normalize: typed}
+      PlacementConstraints[].Expression:
+        model: {include: false}
+        display: {show: false, name: 'PlacementConstraints[].Expression'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'PlacementConstraints[].Expression', normalize: typed}
+      PlacementConstraints[].Type:
+        model: {include: false}
+        display: {show: false, name: 'PlacementConstraints[].Type'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'PlacementConstraints[].Type', normalize: typed}
+      PlacementStrategies[].Field:
+        model: {include: false}
+        display: {show: false, name: 'PlacementStrategies[].Field'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'PlacementStrategies[].Field', normalize: typed}
+      PlacementStrategies[].Type:
+        model: {include: false}
+        display: {show: false, name: 'PlacementStrategies[].Type'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'PlacementStrategies[].Type', normalize: typed}
+      PlatformVersion:
+        model: {include: false}
+        display: {show: false, name: PlatformVersion}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: PlatformVersion, normalize: typed}
+      PropagateTags:
+        model: {include: false}
+        display: {show: false, name: PropagateTags}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: PropagateTags, normalize: typed}
+      Role:
+        model: {include: false}
+        display: {show: false, name: Role}
+        access: [create-only]
+        aws: {getter: provider-ecs-service, path: Role, normalize: typed}
+      SchedulingStrategy:
+        model: {include: false}
+        display: {show: false, name: SchedulingStrategy}
+        access: [create-only]
+        aws: {getter: provider-ecs-service, path: SchedulingStrategy, normalize: typed}
+      ServiceConnectConfiguration:
+        model: {include: false}
+        display: {show: false, name: ServiceConnectConfiguration}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.ServiceConnectConfiguration
+          constraint: Pinned provider schema declares /properties/ServiceConnectConfiguration write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ServiceRegistries[].ContainerName:
+        model: {include: false}
+        display: {show: false, name: 'ServiceRegistries[].ContainerName'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'ServiceRegistries[].ContainerName', normalize: typed}
+      ServiceRegistries[].ContainerPort:
+        model: {include: false}
+        display: {show: false, name: 'ServiceRegistries[].ContainerPort'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'ServiceRegistries[].ContainerPort', normalize: typed}
+      ServiceRegistries[].Port:
+        model: {include: false}
+        display: {show: false, name: 'ServiceRegistries[].Port'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'ServiceRegistries[].Port', normalize: typed}
+      ServiceRegistries[].RegistryArn:
+        model: {include: false}
+        display: {show: false, name: 'ServiceRegistries[].RegistryArn'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'ServiceRegistries[].RegistryArn', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: 'Tags[].Value', normalize: typed}
+      TaskDefinition:
+        model: {include: false}
+        display: {show: false, name: TaskDefinition}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: TaskDefinition, normalize: typed}
+      VolumeConfigurations:
+        model: {include: false}
+        display: {show: false, name: VolumeConfigurations}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECS.Service.VolumeConfigurations
+          constraint: Pinned provider schema declares /properties/VolumeConfigurations write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      VpcLatticeConfigurations:
+        model: {include: false}
+        display: {show: false, name: VpcLatticeConfigurations}
+        access: [read-write]
+        aws: {getter: provider-ecs-service, path: VpcLatticeConfigurations, normalize: typed}
+  ECS.TaskDefinition:
+    properties:
+      Family:
+        model: {include: false}
+        display: {show: false, name: Family}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: Family, normalize: typed}
+      ContainerDefinitions:
+        model: {include: false}
+        display: {show: false, name: ContainerDefinitions}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: ContainerDefinitions, normalize: typed}
+      Cpu:
+        model: {include: false}
+        display: {show: false, name: Cpu}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: Cpu, normalize: typed}
+      EnableFaultInjection:
+        model: {include: false}
+        display: {show: false, name: EnableFaultInjection}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: EnableFaultInjection, normalize: typed}
+      EphemeralStorage.SizeInGiB:
+        model: {include: false}
+        display: {show: false, name: EphemeralStorage.SizeInGiB}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: EphemeralStorage.SizeInGiB, normalize: typed}
+      ExecutionRoleArn:
+        model: {include: false}
+        display: {show: false, name: ExecutionRoleArn}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: ExecutionRoleArn, normalize: typed}
+      IpcMode:
+        model: {include: false}
+        display: {show: false, name: IpcMode}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: IpcMode, normalize: typed}
+      Memory:
+        model: {include: false}
+        display: {show: false, name: Memory}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: Memory, normalize: typed}
+      NetworkMode:
+        model: {include: false}
+        display: {show: false, name: NetworkMode}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: NetworkMode, normalize: typed}
+      PidMode:
+        model: {include: false}
+        display: {show: false, name: PidMode}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: PidMode, normalize: typed}
+      PlacementConstraints[].Expression:
+        model: {include: false}
+        display: {show: false, name: 'PlacementConstraints[].Expression'}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: 'PlacementConstraints[].Expression', normalize: typed}
+      PlacementConstraints[].Type:
+        model: {include: false}
+        display: {show: false, name: 'PlacementConstraints[].Type'}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: 'PlacementConstraints[].Type', normalize: typed}
+      ProxyConfiguration:
+        model: {include: false}
+        display: {show: false, name: ProxyConfiguration}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: ProxyConfiguration, normalize: typed}
+      RequiresCompatibilities[]:
+        model: {include: false}
+        display: {show: false, name: 'RequiresCompatibilities[]'}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: 'RequiresCompatibilities[]', normalize: typed}
+      RuntimePlatform.CpuArchitecture:
+        model: {include: false}
+        display: {show: false, name: RuntimePlatform.CpuArchitecture}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: RuntimePlatform.CpuArchitecture, normalize: typed}
+      RuntimePlatform.OperatingSystemFamily:
+        model: {include: false}
+        display: {show: false, name: RuntimePlatform.OperatingSystemFamily}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: RuntimePlatform.OperatingSystemFamily, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ecs-taskdefinition, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecs-taskdefinition, path: 'Tags[].Value', normalize: typed}
+      TaskRoleArn:
+        model: {include: false}
+        display: {show: false, name: TaskRoleArn}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: TaskRoleArn, normalize: typed}
+      Volumes:
+        model: {include: false}
+        display: {show: false, name: Volumes}
+        access: [create-only]
+        aws: {getter: provider-ecs-taskdefinition, path: Volumes, normalize: typed}

@@ -1,0 +1,206 @@
+version: 3
+service: mwaa
+getters:
+  base:
+    kind: adapter
+    resources: [MWAA.Environment]
+  provider-mwaa-environment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: MWAA.Environment
+    identifier: [/properties/Name]
+resourceTypes:
+  MWAA.Environment:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: Arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      AirflowConfigurationOptions:
+        model: {include: false}
+        display: {show: false, name: AirflowConfigurationOptions}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: AirflowConfigurationOptions, normalize: typed}
+      AirflowVersion:
+        model: {include: true}
+        display: {show: true, name: AirflowVersion}
+        access: [read-write]
+        aws: {getter: base, path: AirflowVersion, normalize: typed}
+      DagS3Path:
+        model: {include: true}
+        display: {show: true, name: DagS3Path}
+        access: [read-write]
+        aws: {getter: base, path: DagS3Path, normalize: typed}
+      EndpointManagement:
+        model: {include: true}
+        display: {show: true, name: EndpointManagement}
+        access: [create-only]
+        aws: {getter: base, path: EndpointManagement, normalize: typed}
+      EnvironmentClass:
+        model: {include: true}
+        display: {show: true, name: EnvironmentClass}
+        access: [read-write]
+        aws: {getter: base, path: EnvironmentClass, normalize: typed}
+      ExecutionRoleArn:
+        model: {include: true}
+        display: {show: true, name: ExecutionRoleArn}
+        access: [read-write]
+        aws: {getter: base, path: ExecutionRoleArn, normalize: arn}
+      KmsKey:
+        model: {include: true}
+        display: {show: true, name: KmsKey}
+        access: [create-only]
+        aws: {getter: base, path: KmsKey, normalize: kms}
+      LoggingConfiguration.DagProcessingLogs.Enabled:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.DagProcessingLogs.Enabled}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.DagProcessingLogs.Enabled, normalize: typed}
+      LoggingConfiguration.DagProcessingLogs.LogLevel:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.DagProcessingLogs.LogLevel}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.DagProcessingLogs.LogLevel, normalize: typed}
+      LoggingConfiguration.SchedulerLogs.Enabled:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.SchedulerLogs.Enabled}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.SchedulerLogs.Enabled, normalize: typed}
+      LoggingConfiguration.SchedulerLogs.LogLevel:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.SchedulerLogs.LogLevel}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.SchedulerLogs.LogLevel, normalize: typed}
+      LoggingConfiguration.TaskLogs.Enabled:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.TaskLogs.Enabled}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.TaskLogs.Enabled, normalize: typed}
+      LoggingConfiguration.TaskLogs.LogLevel:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.TaskLogs.LogLevel}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.TaskLogs.LogLevel, normalize: typed}
+      LoggingConfiguration.WebserverLogs.Enabled:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.WebserverLogs.Enabled}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.WebserverLogs.Enabled, normalize: typed}
+      LoggingConfiguration.WebserverLogs.LogLevel:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.WebserverLogs.LogLevel}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.WebserverLogs.LogLevel, normalize: typed}
+      LoggingConfiguration.WorkerLogs.Enabled:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.WorkerLogs.Enabled}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.WorkerLogs.Enabled, normalize: typed}
+      LoggingConfiguration.WorkerLogs.LogLevel:
+        model: {include: true}
+        display: {show: true, name: LoggingConfiguration.WorkerLogs.LogLevel}
+        access: [read-write]
+        aws: {getter: base, path: LoggingConfiguration.WorkerLogs.LogLevel, normalize: typed}
+      MaxWebservers:
+        model: {include: true}
+        display: {show: true, name: MaxWebservers}
+        access: [read-write]
+        aws: {getter: base, path: MaxWebservers, normalize: typed}
+      MaxWorkers:
+        model: {include: true}
+        display: {show: true, name: MaxWorkers}
+        access: [read-write]
+        aws: {getter: base, path: MaxWorkers, normalize: typed}
+      MinWebservers:
+        model: {include: true}
+        display: {show: true, name: MinWebservers}
+        access: [read-write]
+        aws: {getter: base, path: MinWebservers, normalize: typed}
+      MinWorkers:
+        model: {include: true}
+        display: {show: true, name: MinWorkers}
+        access: [read-write]
+        aws: {getter: base, path: MinWorkers, normalize: typed}
+      NetworkConfiguration.SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: NetworkConfiguration.SecurityGroupIds}
+        access: [read-write]
+        aws: {getter: base, path: NetworkConfiguration.SecurityGroupIds, normalize: id}
+      NetworkConfiguration.SubnetIds:
+        model: {include: true}
+        display: {show: true, name: NetworkConfiguration.SubnetIds}
+        access: [create-only]
+        aws: {getter: base, path: NetworkConfiguration.SubnetIds, normalize: id}
+      PluginsS3ObjectVersion:
+        model: {include: false}
+        display: {show: false, name: PluginsS3ObjectVersion}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: PluginsS3ObjectVersion, normalize: typed}
+      PluginsS3Path:
+        model: {include: false}
+        display: {show: false, name: PluginsS3Path}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: PluginsS3Path, normalize: typed}
+      RequirementsS3ObjectVersion:
+        model: {include: false}
+        display: {show: false, name: RequirementsS3ObjectVersion}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: RequirementsS3ObjectVersion, normalize: typed}
+      RequirementsS3Path:
+        model: {include: true}
+        display: {show: true, name: RequirementsS3Path}
+        access: [read-write]
+        aws: {getter: base, path: RequirementsS3Path, normalize: typed}
+      Schedulers:
+        model: {include: true}
+        display: {show: true, name: Schedulers}
+        access: [read-write]
+        aws: {getter: base, path: Schedulers, normalize: typed}
+      SourceBucketArn:
+        model: {include: true}
+        display: {show: true, name: SourceBucketArn}
+        access: [read-write]
+        aws: {getter: base, path: SourceBucketArn, normalize: arn}
+      StartupScriptS3ObjectVersion:
+        model: {include: false}
+        display: {show: false, name: StartupScriptS3ObjectVersion}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: StartupScriptS3ObjectVersion, normalize: typed}
+      StartupScriptS3Path:
+        model: {include: false}
+        display: {show: false, name: StartupScriptS3Path}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: StartupScriptS3Path, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: Tags, normalize: typed}
+      WebserverAccessMode:
+        model: {include: true}
+        display: {show: true, name: WebserverAccessMode}
+        access: [read-write]
+        aws: {getter: base, path: WebserverAccessMode, normalize: typed}
+      WeeklyMaintenanceWindowStart:
+        model: {include: false}
+        display: {show: false, name: WeeklyMaintenanceWindowStart}
+        access: [read-write]
+        aws: {getter: provider-mwaa-environment, path: WeeklyMaintenanceWindowStart, normalize: typed}
+      WorkerReplacementStrategy:
+        model: {include: false}
+        display: {show: false, name: WorkerReplacementStrategy}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row MWAA.Environment.WorkerReplacementStrategy
+          constraint: Pinned provider schema declares /properties/WorkerReplacementStrategy write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata

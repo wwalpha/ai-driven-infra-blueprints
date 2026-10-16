@@ -1,0 +1,1086 @@
+version: 3
+service: cloudfront
+getters:
+  provider-cloudfront-cachepolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.CachePolicy
+    identifier: [/properties/Id]
+  provider-cloudfront-distribution:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.Distribution
+    identifier: [/properties/Id]
+  provider-cloudfront-function:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.Function
+    identifier: [/properties/FunctionARN]
+  provider-cloudfront-originaccesscontrol:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.OriginAccessControl
+    identifier: [/properties/Id]
+  provider-cloudfront-originrequestpolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.OriginRequestPolicy
+    identifier: [/properties/Id]
+  provider-cloudfront-responseheaderspolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CloudFront.ResponseHeadersPolicy
+    identifier: [/properties/Id]
+resourceTypes:
+  CloudFront.CachePolicy:
+    properties:
+      CachePolicyConfig.Name:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.Name}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-cloudfront-cachepolicy, path: Id, normalize: typed}
+      CachePolicyConfig.Comment:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.Comment}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.Comment, normalize: typed}
+      CachePolicyConfig.DefaultTTL:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.DefaultTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.DefaultTTL, normalize: typed}
+      CachePolicyConfig.MaxTTL:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.MaxTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.MaxTTL, normalize: typed}
+      CachePolicyConfig.MinTTL:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.MinTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.MinTTL, normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.CookieBehavior:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.CookieBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.CookieBehavior, normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.Cookies[]:
+        model: {include: false}
+        display: {show: false, name: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.Cookies[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.CookiesConfig.Cookies[]', normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingBrotli:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingBrotli}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingBrotli, normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingGzip:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingGzip}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.EnableAcceptEncodingGzip, normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.HeaderBehavior:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.HeaderBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.HeaderBehavior, normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers[]:
+        model: {include: false}
+        display: {show: false, name: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers[]', normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStringBehavior:
+        model: {include: false}
+        display: {show: false, name: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStringBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStringBehavior,
+          normalize: typed}
+      CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStrings[]:
+        model: {include: false}
+        display: {show: false, name: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStrings[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-cachepolicy, path: 'CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.QueryStringsConfig.QueryStrings[]',
+          normalize: typed}
+  CloudFront.Distribution:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-cloudfront-distribution, path: Id, normalize: typed}
+      DistributionConfig.Aliases[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Aliases[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Aliases[]', normalize: typed}
+      DistributionConfig.AnycastIpListId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.AnycastIpListId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.AnycastIpListId, normalize: typed}
+      DistributionConfig.CNAMEs[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CNAMEs[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CNAMEs[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].AllowedMethods[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].AllowedMethods[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].AllowedMethods[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].CachePolicyId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].CachePolicyId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].CachePolicyId', normalize: typed}
+      DistributionConfig.CacheBehaviors[].CachedMethods[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].CachedMethods[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].CachedMethods[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].Compress:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].Compress'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].Compress', normalize: typed}
+      DistributionConfig.CacheBehaviors[].DefaultTTL:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].DefaultTTL'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].DefaultTTL', normalize: typed}
+      DistributionConfig.CacheBehaviors[].FieldLevelEncryptionId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].FieldLevelEncryptionId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].FieldLevelEncryptionId', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.Forward:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.Forward'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.Forward', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.WhitelistedNames[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.WhitelistedNames[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Cookies.WhitelistedNames[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ForwardedValues.Headers[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Headers[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ForwardedValues.Headers[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ForwardedValues.QueryString:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ForwardedValues.QueryString'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ForwardedValues.QueryString', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ForwardedValues.QueryStringCacheKeys[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ForwardedValues.QueryStringCacheKeys[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ForwardedValues.QueryStringCacheKeys[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].FunctionAssociations[].EventType:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].FunctionAssociations[].EventType'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].FunctionAssociations[].EventType', normalize: typed}
+      DistributionConfig.CacheBehaviors[].FunctionAssociations[].FunctionARN:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].FunctionAssociations[].FunctionARN'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].FunctionAssociations[].FunctionARN', normalize: typed}
+      DistributionConfig.CacheBehaviors[].GrpcConfig.Enabled:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].GrpcConfig.Enabled'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].GrpcConfig.Enabled', normalize: typed}
+      DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].EventType:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].EventType'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].EventType', normalize: typed}
+      DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].IncludeBody:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].IncludeBody'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].IncludeBody', normalize: typed}
+      DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].LambdaFunctionARN:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].LambdaFunctionARN'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].LambdaFunctionAssociations[].LambdaFunctionARN', normalize: typed}
+      DistributionConfig.CacheBehaviors[].MaxTTL:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].MaxTTL'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].MaxTTL', normalize: typed}
+      DistributionConfig.CacheBehaviors[].MinTTL:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].MinTTL'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].MinTTL', normalize: typed}
+      DistributionConfig.CacheBehaviors[].OriginRequestPolicyId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].OriginRequestPolicyId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].OriginRequestPolicyId', normalize: typed}
+      DistributionConfig.CacheBehaviors[].PathPattern:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].PathPattern'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].PathPattern', normalize: typed}
+      DistributionConfig.CacheBehaviors[].RealtimeLogConfigArn:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].RealtimeLogConfigArn'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].RealtimeLogConfigArn', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ResponseHeadersPolicyId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ResponseHeadersPolicyId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ResponseHeadersPolicyId', normalize: typed}
+      DistributionConfig.CacheBehaviors[].SmoothStreaming:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].SmoothStreaming'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].SmoothStreaming', normalize: typed}
+      DistributionConfig.CacheBehaviors[].TargetOriginId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].TargetOriginId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].TargetOriginId', normalize: typed}
+      DistributionConfig.CacheBehaviors[].TrustedKeyGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].TrustedKeyGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].TrustedKeyGroups[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].TrustedSigners[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].TrustedSigners[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].TrustedSigners[]', normalize: typed}
+      DistributionConfig.CacheBehaviors[].ViewerProtocolPolicy:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CacheBehaviors[].ViewerProtocolPolicy'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CacheBehaviors[].ViewerProtocolPolicy', normalize: typed}
+      DistributionConfig.CacheTagConfig.HeaderName:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.CacheTagConfig.HeaderName}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.CacheTagConfig.HeaderName, normalize: typed}
+      DistributionConfig.Comment:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Comment}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Comment, normalize: typed}
+      DistributionConfig.ConnectionFunctionAssociation.Id:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ConnectionFunctionAssociation.Id}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ConnectionFunctionAssociation.Id, normalize: typed}
+      DistributionConfig.ConnectionMode:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ConnectionMode}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ConnectionMode, normalize: typed}
+      DistributionConfig.ContinuousDeploymentPolicyId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ContinuousDeploymentPolicyId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ContinuousDeploymentPolicyId, normalize: typed}
+      DistributionConfig.CustomErrorResponses[].ErrorCachingMinTTL:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CustomErrorResponses[].ErrorCachingMinTTL'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CustomErrorResponses[].ErrorCachingMinTTL', normalize: typed}
+      DistributionConfig.CustomErrorResponses[].ErrorCode:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CustomErrorResponses[].ErrorCode'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CustomErrorResponses[].ErrorCode', normalize: typed}
+      DistributionConfig.CustomErrorResponses[].ResponseCode:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CustomErrorResponses[].ResponseCode'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CustomErrorResponses[].ResponseCode', normalize: typed}
+      DistributionConfig.CustomErrorResponses[].ResponsePagePath:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CustomErrorResponses[].ResponsePagePath'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CustomErrorResponses[].ResponsePagePath', normalize: typed}
+      DistributionConfig.CustomOrigin.DNSName:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.CustomOrigin.DNSName}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.CustomOrigin.DNSName, normalize: typed}
+      DistributionConfig.CustomOrigin.HTTPPort:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.CustomOrigin.HTTPPort}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.CustomOrigin.HTTPPort, normalize: typed}
+      DistributionConfig.CustomOrigin.HTTPSPort:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.CustomOrigin.HTTPSPort}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.CustomOrigin.HTTPSPort, normalize: typed}
+      DistributionConfig.CustomOrigin.OriginProtocolPolicy:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.CustomOrigin.OriginProtocolPolicy}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.CustomOrigin.OriginProtocolPolicy, normalize: typed}
+      DistributionConfig.CustomOrigin.OriginSSLProtocols[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.CustomOrigin.OriginSSLProtocols[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.CustomOrigin.OriginSSLProtocols[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.AllowedMethods[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.AllowedMethods[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.AllowedMethods[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.CachePolicyId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.CachePolicyId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.CachePolicyId, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.CachedMethods[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.CachedMethods[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.CachedMethods[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.Compress:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.Compress}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.Compress, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.DefaultTTL:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.DefaultTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.DefaultTTL, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.FieldLevelEncryptionId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.FieldLevelEncryptionId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.FieldLevelEncryptionId, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.Forward:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.Forward}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.Forward, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.WhitelistedNames[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.WhitelistedNames[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.Cookies.WhitelistedNames[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ForwardedValues.Headers[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.Headers[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.Headers[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryString:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryString}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryString, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryStringCacheKeys[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryStringCacheKeys[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.ForwardedValues.QueryStringCacheKeys[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].EventType:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].EventType'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].EventType', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].FunctionARN:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].FunctionARN'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations[].FunctionARN', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.GrpcConfig.Enabled:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.GrpcConfig.Enabled}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.GrpcConfig.Enabled, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].EventType:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].EventType'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].EventType', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].IncludeBody:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].IncludeBody'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].IncludeBody', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].LambdaFunctionARN:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].LambdaFunctionARN'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations[].LambdaFunctionARN',
+          normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.MaxTTL:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.MaxTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.MaxTTL, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.MinTTL:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.MinTTL}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.MinTTL, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.OriginRequestPolicyId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.OriginRequestPolicyId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.OriginRequestPolicyId, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.RealtimeLogConfigArn:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.RealtimeLogConfigArn}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.RealtimeLogConfigArn, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.SmoothStreaming:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.SmoothStreaming}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.SmoothStreaming, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.TargetOriginId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.TargetOriginId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.TargetOriginId, normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.TrustedKeyGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.TrustedKeyGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.TrustedKeyGroups[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.TrustedSigners[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.DefaultCacheBehavior.TrustedSigners[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.DefaultCacheBehavior.TrustedSigners[]', normalize: typed}
+      DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy, normalize: typed}
+      DistributionConfig.DefaultRootObject:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.DefaultRootObject}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.DefaultRootObject, normalize: typed}
+      DistributionConfig.Enabled:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Enabled}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Enabled, normalize: typed}
+      DistributionConfig.HttpVersion:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.HttpVersion}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.HttpVersion, normalize: typed}
+      DistributionConfig.IPV6Enabled:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.IPV6Enabled}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.IPV6Enabled, normalize: typed}
+      DistributionConfig.Logging.Bucket:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Logging.Bucket}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Logging.Bucket, normalize: typed}
+      DistributionConfig.Logging.IncludeCookies:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Logging.IncludeCookies}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Logging.IncludeCookies, normalize: typed}
+      DistributionConfig.Logging.Prefix:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Logging.Prefix}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Logging.Prefix, normalize: typed}
+      DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Items[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Items[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Items[]', normalize: typed}
+      DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Quantity:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Quantity'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].FailoverCriteria.StatusCodes.Quantity', normalize: typed}
+      DistributionConfig.OriginGroups.Items[].Id:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].Id'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].Id', normalize: typed}
+      DistributionConfig.OriginGroups.Items[].Members.Items[].OriginId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].Members.Items[].OriginId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].Members.Items[].OriginId', normalize: typed}
+      DistributionConfig.OriginGroups.Items[].Members.Quantity:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].Members.Quantity'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].Members.Quantity', normalize: typed}
+      DistributionConfig.OriginGroups.Items[].SelectionCriteria:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.OriginGroups.Items[].SelectionCriteria'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.OriginGroups.Items[].SelectionCriteria', normalize: typed}
+      DistributionConfig.OriginGroups.Quantity:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.OriginGroups.Quantity}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.OriginGroups.Quantity, normalize: typed}
+      DistributionConfig.Origins[].ConnectionAttempts:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].ConnectionAttempts'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].ConnectionAttempts', normalize: typed}
+      DistributionConfig.Origins[].ConnectionTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].ConnectionTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].ConnectionTimeout', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.HTTPPort:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.HTTPPort'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.HTTPPort', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.HTTPSPort:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.HTTPSPort'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.HTTPSPort', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.IpAddressType:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.IpAddressType'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.IpAddressType', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.OriginKeepaliveTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.OriginKeepaliveTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.OriginKeepaliveTimeout', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.OriginMtlsConfig.ClientCertificateArn:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.OriginMtlsConfig.ClientCertificateArn'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.OriginMtlsConfig.ClientCertificateArn', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.OriginProtocolPolicy:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.OriginProtocolPolicy'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.OriginProtocolPolicy', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.OriginReadTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.OriginReadTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.OriginReadTimeout', normalize: typed}
+      DistributionConfig.Origins[].CustomOriginConfig.OriginSSLProtocols[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].CustomOriginConfig.OriginSSLProtocols[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].CustomOriginConfig.OriginSSLProtocols[]', normalize: typed}
+      DistributionConfig.Origins[].DomainName:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].DomainName'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].DomainName', normalize: typed}
+      DistributionConfig.Origins[].Id:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].Id'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].Id', normalize: typed}
+      DistributionConfig.Origins[].OriginAccessControlId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginAccessControlId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginAccessControlId', normalize: typed}
+      DistributionConfig.Origins[].OriginCustomHeaders[].HeaderName:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginCustomHeaders[].HeaderName'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginCustomHeaders[].HeaderName', normalize: typed}
+      DistributionConfig.Origins[].OriginCustomHeaders[].HeaderValue:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginCustomHeaders[].HeaderValue'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginCustomHeaders[].HeaderValue', normalize: typed}
+      DistributionConfig.Origins[].OriginPath:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginPath'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginPath', normalize: typed}
+      DistributionConfig.Origins[].OriginShield.Enabled:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginShield.Enabled'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginShield.Enabled', normalize: typed}
+      DistributionConfig.Origins[].OriginShield.OriginShieldRegion:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].OriginShield.OriginShieldRegion'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].OriginShield.OriginShieldRegion', normalize: typed}
+      DistributionConfig.Origins[].ResponseCompletionTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].ResponseCompletionTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].ResponseCompletionTimeout', normalize: typed}
+      DistributionConfig.Origins[].S3OriginConfig.OriginAccessIdentity:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].S3OriginConfig.OriginAccessIdentity'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].S3OriginConfig.OriginAccessIdentity', normalize: typed}
+      DistributionConfig.Origins[].S3OriginConfig.OriginReadTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].S3OriginConfig.OriginReadTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].S3OriginConfig.OriginReadTimeout', normalize: typed}
+      DistributionConfig.Origins[].VpcOriginConfig.OriginKeepaliveTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].VpcOriginConfig.OriginKeepaliveTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].VpcOriginConfig.OriginKeepaliveTimeout', normalize: typed}
+      DistributionConfig.Origins[].VpcOriginConfig.OriginReadTimeout:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].VpcOriginConfig.OriginReadTimeout'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].VpcOriginConfig.OriginReadTimeout', normalize: typed}
+      DistributionConfig.Origins[].VpcOriginConfig.OwnerAccountId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].VpcOriginConfig.OwnerAccountId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].VpcOriginConfig.OwnerAccountId', normalize: typed}
+      DistributionConfig.Origins[].VpcOriginConfig.VpcOriginId:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Origins[].VpcOriginConfig.VpcOriginId'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Origins[].VpcOriginConfig.VpcOriginId', normalize: typed}
+      DistributionConfig.PriceClass:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.PriceClass}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.PriceClass, normalize: typed}
+      DistributionConfig.Restrictions.GeoRestriction.Locations[]:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.Restrictions.GeoRestriction.Locations[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.Restrictions.GeoRestriction.Locations[]', normalize: typed}
+      DistributionConfig.Restrictions.GeoRestriction.RestrictionType:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Restrictions.GeoRestriction.RestrictionType}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Restrictions.GeoRestriction.RestrictionType, normalize: typed}
+      DistributionConfig.S3Origin.DNSName:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.S3Origin.DNSName}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.S3Origin.DNSName, normalize: typed}
+      DistributionConfig.S3Origin.OriginAccessIdentity:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.S3Origin.OriginAccessIdentity}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.S3Origin.OriginAccessIdentity, normalize: typed}
+      DistributionConfig.Staging:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.Staging}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.Staging, normalize: typed}
+      DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Comment:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Comment'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Comment',
+          normalize: typed}
+      DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.DefaultValue:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.DefaultValue'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.DefaultValue',
+          normalize: typed}
+      DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Required:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Required'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Definition.StringSchema.Required',
+          normalize: typed}
+      DistributionConfig.TenantConfig.ParameterDefinitions[].Name:
+        model: {include: false}
+        display: {show: false, name: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Name'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'DistributionConfig.TenantConfig.ParameterDefinitions[].Name', normalize: typed}
+      DistributionConfig.ViewerCertificate.AcmCertificateArn:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerCertificate.AcmCertificateArn}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerCertificate.AcmCertificateArn, normalize: typed}
+      DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate, normalize: typed}
+      DistributionConfig.ViewerCertificate.IamCertificateId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerCertificate.IamCertificateId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerCertificate.IamCertificateId, normalize: typed}
+      DistributionConfig.ViewerCertificate.MinimumProtocolVersion:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerCertificate.MinimumProtocolVersion}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerCertificate.MinimumProtocolVersion, normalize: typed}
+      DistributionConfig.ViewerCertificate.SslSupportMethod:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerCertificate.SslSupportMethod}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerCertificate.SslSupportMethod, normalize: typed}
+      DistributionConfig.ViewerMtlsConfig.Mode:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerMtlsConfig.Mode}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerMtlsConfig.Mode, normalize: typed}
+      DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.AdvertiseTrustStoreCaNames:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.AdvertiseTrustStoreCaNames}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.AdvertiseTrustStoreCaNames, normalize: typed}
+      DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.IgnoreCertificateExpiry:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.IgnoreCertificateExpiry}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.IgnoreCertificateExpiry, normalize: typed}
+      DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.TrustStoreId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.TrustStoreId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.ViewerMtlsConfig.TrustStoreConfig.TrustStoreId, normalize: typed}
+      DistributionConfig.WebACLId:
+        model: {include: false}
+        display: {show: false, name: DistributionConfig.WebACLId}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: DistributionConfig.WebACLId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-distribution, path: 'Tags[].Value', normalize: typed}
+  CloudFront.Function:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-cloudfront-function, path: Name, normalize: typed}
+      AutoPublish:
+        model: {include: false}
+        display: {show: false, name: AutoPublish}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CloudFront.Function.AutoPublish
+          constraint: Pinned provider schema declares /properties/AutoPublish write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      FunctionCode:
+        model: {include: false}
+        display: {show: false, name: FunctionCode}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: FunctionCode, normalize: typed}
+      FunctionConfig.Comment:
+        model: {include: false}
+        display: {show: false, name: FunctionConfig.Comment}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: FunctionConfig.Comment, normalize: typed}
+      FunctionConfig.KeyValueStoreAssociations[].KeyValueStoreARN:
+        model: {include: false}
+        display: {show: false, name: 'FunctionConfig.KeyValueStoreAssociations[].KeyValueStoreARN'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: 'FunctionConfig.KeyValueStoreAssociations[].KeyValueStoreARN', normalize: typed}
+      FunctionConfig.Runtime:
+        model: {include: false}
+        display: {show: false, name: FunctionConfig.Runtime}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: FunctionConfig.Runtime, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-function, path: 'Tags[].Value', normalize: typed}
+  CloudFront.OriginAccessControl:
+    properties:
+      OriginAccessControlConfig.Name:
+        model: {include: false}
+        display: {show: false, name: OriginAccessControlConfig.Name}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: OriginAccessControlConfig.Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: Id, normalize: typed}
+      OriginAccessControlConfig.Description:
+        model: {include: false}
+        display: {show: false, name: OriginAccessControlConfig.Description}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: OriginAccessControlConfig.Description, normalize: typed}
+      OriginAccessControlConfig.OriginAccessControlOriginType:
+        model: {include: false}
+        display: {show: false, name: OriginAccessControlConfig.OriginAccessControlOriginType}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: OriginAccessControlConfig.OriginAccessControlOriginType, normalize: typed}
+      OriginAccessControlConfig.SigningBehavior:
+        model: {include: false}
+        display: {show: false, name: OriginAccessControlConfig.SigningBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: OriginAccessControlConfig.SigningBehavior, normalize: typed}
+      OriginAccessControlConfig.SigningProtocol:
+        model: {include: false}
+        display: {show: false, name: OriginAccessControlConfig.SigningProtocol}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originaccesscontrol, path: OriginAccessControlConfig.SigningProtocol, normalize: typed}
+  CloudFront.OriginRequestPolicy:
+    properties:
+      OriginRequestPolicyConfig.Name:
+        model: {include: false}
+        display: {show: false, name: OriginRequestPolicyConfig.Name}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: OriginRequestPolicyConfig.Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: Id, normalize: typed}
+      OriginRequestPolicyConfig.Comment:
+        model: {include: false}
+        display: {show: false, name: OriginRequestPolicyConfig.Comment}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: OriginRequestPolicyConfig.Comment, normalize: typed}
+      OriginRequestPolicyConfig.CookiesConfig.CookieBehavior:
+        model: {include: false}
+        display: {show: false, name: OriginRequestPolicyConfig.CookiesConfig.CookieBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: OriginRequestPolicyConfig.CookiesConfig.CookieBehavior, normalize: typed}
+      OriginRequestPolicyConfig.CookiesConfig.Cookies[]:
+        model: {include: false}
+        display: {show: false, name: 'OriginRequestPolicyConfig.CookiesConfig.Cookies[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: 'OriginRequestPolicyConfig.CookiesConfig.Cookies[]', normalize: typed}
+      OriginRequestPolicyConfig.HeadersConfig.HeaderBehavior:
+        model: {include: false}
+        display: {show: false, name: OriginRequestPolicyConfig.HeadersConfig.HeaderBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: OriginRequestPolicyConfig.HeadersConfig.HeaderBehavior, normalize: typed}
+      OriginRequestPolicyConfig.HeadersConfig.Headers[]:
+        model: {include: false}
+        display: {show: false, name: 'OriginRequestPolicyConfig.HeadersConfig.Headers[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: 'OriginRequestPolicyConfig.HeadersConfig.Headers[]', normalize: typed}
+      OriginRequestPolicyConfig.QueryStringsConfig.QueryStringBehavior:
+        model: {include: false}
+        display: {show: false, name: OriginRequestPolicyConfig.QueryStringsConfig.QueryStringBehavior}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: OriginRequestPolicyConfig.QueryStringsConfig.QueryStringBehavior, normalize: typed}
+      OriginRequestPolicyConfig.QueryStringsConfig.QueryStrings[]:
+        model: {include: false}
+        display: {show: false, name: 'OriginRequestPolicyConfig.QueryStringsConfig.QueryStrings[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-originrequestpolicy, path: 'OriginRequestPolicyConfig.QueryStringsConfig.QueryStrings[]', normalize: typed}
+  CloudFront.ResponseHeadersPolicy:
+    properties:
+      ResponseHeadersPolicyConfig.Name:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.Name}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.Name, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: Id, normalize: typed}
+      ResponseHeadersPolicyConfig.Comment:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.Comment}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.Comment, normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowCredentials:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowCredentials}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowCredentials, normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowHeaders.Items[]:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowHeaders.Items[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowHeaders.Items[]', normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowMethods.Items[]:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowMethods.Items[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowMethods.Items[]', normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowOrigins.Items[]:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowOrigins.Items[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowOrigins.Items[]', normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlExposeHeaders.Items[]:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlExposeHeaders.Items[]'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CorsConfig.AccessControlExposeHeaders.Items[]', normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.AccessControlMaxAgeSec:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.CorsConfig.AccessControlMaxAgeSec}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.CorsConfig.AccessControlMaxAgeSec, normalize: typed}
+      ResponseHeadersPolicyConfig.CorsConfig.OriginOverride:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.CorsConfig.OriginOverride}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.CorsConfig.OriginOverride, normalize: typed}
+      ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Header:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Header'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Header', normalize: typed}
+      ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Override:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Override'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Override', normalize: typed}
+      ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Value'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.CustomHeadersConfig.Items[].Value', normalize: typed}
+      ResponseHeadersPolicyConfig.RemoveHeadersConfig.Items[].Header:
+        model: {include: false}
+        display: {show: false, name: 'ResponseHeadersPolicyConfig.RemoveHeadersConfig.Items[].Header'}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: 'ResponseHeadersPolicyConfig.RemoveHeadersConfig.Items[].Header', normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.Override,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentTypeOptions.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentTypeOptions.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentTypeOptions.Override, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.FrameOption:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.FrameOption}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.FrameOption, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.FrameOptions.Override, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.Override, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.ReferrerPolicy:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.ReferrerPolicy}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.ReferrerPolicy.ReferrerPolicy,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.AccessControlMaxAgeSec:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.AccessControlMaxAgeSec}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.AccessControlMaxAgeSec,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.IncludeSubdomains:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.IncludeSubdomains}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.IncludeSubdomains,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Override,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Preload:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Preload}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.StrictTransportSecurity.Preload,
+          normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ModeBlock:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ModeBlock}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ModeBlock, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Override:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Override}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Override, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Protection:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Protection}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.Protection, normalize: typed}
+      ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ReportUri:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ReportUri}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.SecurityHeadersConfig.XSSProtection.ReportUri, normalize: typed}
+      ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.Enabled:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.Enabled}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.Enabled, normalize: typed}
+      ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.SamplingRate:
+        model: {include: false}
+        display: {show: false, name: ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.SamplingRate}
+        access: [read-write]
+        aws: {getter: provider-cloudfront-responseheaderspolicy, path: ResponseHeadersPolicyConfig.ServerTimingHeadersConfig.SamplingRate, normalize: typed}

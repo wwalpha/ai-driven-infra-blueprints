@@ -1,0 +1,1436 @@
+version: 3
+service: ec2
+getters:
+  provider-ec2-eip:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.EIP
+    identifier: [/properties/PublicIp, /properties/AllocationId]
+  base:
+    kind: adapter
+    resources: [EC2.Instance]
+  volumes:
+    kind: adapter
+    resources: [EC2.Instance]
+  provider-ec2-instance:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.Instance
+    identifier: [/properties/InstanceId]
+  provider-ec2-internetgateway:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.InternetGateway
+    identifier: [/properties/InternetGatewayId]
+  provider-ec2-launchtemplate:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.LaunchTemplate
+    identifier: [/properties/LaunchTemplateId]
+  sdk-ec2-launchtemplate:
+    kind: sdk
+    service: ec2
+    operation: describe_launch_template_versions
+    result: LaunchTemplateVersions[]
+    resourceType: EC2.LaunchTemplate
+  provider-ec2-natgateway:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.NatGateway
+    identifier: [/properties/NatGatewayId]
+  provider-ec2-route:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.Route
+    identifier: [/properties/RouteTableId, /properties/CidrBlock]
+  provider-ec2-transitgateway:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGateway
+    identifier: [/properties/Id]
+  provider-ec2-transitgatewayroute:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGatewayRoute
+    identifier: [/properties/TransitGatewayRouteTableId, /properties/DestinationCidrBlock]
+  provider-ec2-transitgatewayroutetable:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGatewayRouteTable
+    identifier: [/properties/TransitGatewayRouteTableId]
+  provider-ec2-transitgatewayroutetableassociation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGatewayRouteTableAssociation
+    identifier: [/properties/TransitGatewayRouteTableId, /properties/TransitGatewayAttachmentId]
+  provider-ec2-transitgatewayroutetablepropagation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGatewayRouteTablePropagation
+    identifier: [/properties/TransitGatewayRouteTableId, /properties/TransitGatewayAttachmentId]
+  provider-ec2-vpcblockpublicaccessexclusion:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPCBlockPublicAccessExclusion
+    identifier: [/properties/ExclusionId]
+  provider-ec2-vpcblockpublicaccessoptions:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPCBlockPublicAccessOptions
+    identifier: [/properties/AccountId]
+  provider-ec2-vpcgatewayattachment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPCGatewayAttachment
+    identifier: [/properties/AttachmentType, /properties/VpcId]
+resourceTypes:
+  EC2.EIP:
+    properties:
+      AllocationId:
+        model: {include: false}
+        display: {show: false, name: AllocationId}
+        access: [read-only]
+        aws: {getter: provider-ec2-eip, path: AllocationId, normalize: typed}
+      PublicIp:
+        model: {include: false}
+        display: {show: false, name: PublicIp}
+        access: [read-only]
+        aws: {getter: provider-ec2-eip, path: PublicIp, normalize: typed}
+      Domain:
+        model: {include: false}
+        display: {show: false, name: Domain}
+        access: [read-write]
+        aws: {getter: provider-ec2-eip, path: Domain, normalize: typed}
+      NetworkBorderGroup:
+        model: {include: false}
+        display: {show: false, name: NetworkBorderGroup}
+        access: [create-only]
+        aws: {getter: provider-ec2-eip, path: NetworkBorderGroup, normalize: typed}
+      PublicIpv4Pool:
+        model: {include: false}
+        display: {show: false, name: PublicIpv4Pool}
+        access: [read-write]
+        aws: {getter: provider-ec2-eip, path: PublicIpv4Pool, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-eip, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-eip, path: 'Tags[].Value', normalize: typed}
+  EC2.Instance:
+    identity:
+      getter: base
+      idPath: InstanceId
+      arnPath: null
+      nameProperty: null
+    properties:
+      InstanceId:
+        model: {include: true}
+        display: {show: true, name: InstanceId}
+        access: [read-only]
+        aws: {getter: base, path: InstanceId, normalize: typed}
+      AvailabilityZone:
+        model: {include: true}
+        display: {show: true, name: AvailabilityZone}
+        access: [create-only]
+        aws: {getter: base, path: Placement.AvailabilityZone, normalize: typed}
+      BlockDeviceMappings[].DeviceName:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].DeviceName'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].DeviceName', normalize: typed}
+      BlockDeviceMappings[].Ebs.DeleteOnTermination:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].Ebs.DeleteOnTermination'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].Ebs.DeleteOnTermination', normalize: typed}
+      BlockDeviceMappings[].Ebs.Encrypted:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].Ebs.Encrypted'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].Ebs.Encrypted', normalize: typed}
+      BlockDeviceMappings[].Ebs.Iops:
+        model: {include: false}
+        display: {show: false, name: 'BlockDeviceMappings[].Ebs.Iops'}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: 'BlockDeviceMappings[].Ebs.Iops', normalize: typed}
+      BlockDeviceMappings[].Ebs.KmsKeyId:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].Ebs.KmsKeyId'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].Ebs.KmsKeyId', normalize: kms}
+      BlockDeviceMappings[].Ebs.SnapshotId:
+        model: {include: false}
+        display: {show: false, name: 'BlockDeviceMappings[].Ebs.SnapshotId'}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: 'BlockDeviceMappings[].Ebs.SnapshotId', normalize: typed}
+      BlockDeviceMappings[].Ebs.VolumeSize:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].Ebs.VolumeSize'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].Ebs.VolumeSize', normalize: typed}
+      BlockDeviceMappings[].Ebs.VolumeType:
+        model: {include: true}
+        display: {show: true, name: 'BlockDeviceMappings[].Ebs.VolumeType'}
+        access: [conditional-create-only]
+        aws: {getter: volumes, path: 'BlockDeviceMappings[].Ebs.VolumeType', normalize: typed}
+      BlockDeviceMappings[].NoDevice:
+        model: {include: false}
+        display: {show: false, name: 'BlockDeviceMappings[].NoDevice'}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row EC2.Instance.BlockDeviceMappings[].NoDevice
+          constraint: Pinned provider schema declares /properties/BlockDeviceMappings/*/NoDevice write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      BlockDeviceMappings[].VirtualName:
+        model: {include: false}
+        display: {show: false, name: 'BlockDeviceMappings[].VirtualName'}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row EC2.Instance.BlockDeviceMappings[].VirtualName
+          constraint: Pinned provider schema declares /properties/BlockDeviceMappings/*/VirtualName write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      CpuOptions.CoreCount:
+        model: {include: false}
+        display: {show: false, name: CpuOptions.CoreCount}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: CpuOptions.CoreCount, normalize: typed}
+      CpuOptions.ThreadsPerCore:
+        model: {include: false}
+        display: {show: false, name: CpuOptions.ThreadsPerCore}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: CpuOptions.ThreadsPerCore, normalize: typed}
+      DisableApiTermination:
+        model: {include: false}
+        display: {show: false, name: DisableApiTermination}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: DisableApiTermination, normalize: typed}
+      EbsOptimized:
+        model: {include: false}
+        display: {show: false, name: EbsOptimized}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: EbsOptimized, normalize: typed}
+      IamInstanceProfile:
+        model: {include: true}
+        display: {show: true, name: IamInstanceProfile}
+        access: [read-write]
+        aws: {getter: base, path: IamInstanceProfile.Arn, normalize: arn}
+      ImageId:
+        model: {include: true}
+        display: {show: true, name: ImageId}
+        access: [create-only]
+        aws: {getter: base, path: ImageId, normalize: typed}
+      InstanceInitiatedShutdownBehavior:
+        model: {include: false}
+        display: {show: false, name: InstanceInitiatedShutdownBehavior}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: InstanceInitiatedShutdownBehavior, normalize: typed}
+      InstanceType:
+        model: {include: true}
+        display: {show: true, name: InstanceType}
+        access: [conditional-create-only]
+        aws: {getter: base, path: InstanceType, normalize: typed}
+      KeyName:
+        model: {include: false}
+        display: {show: false, name: KeyName}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: KeyName, normalize: typed}
+      MetadataOptions.HttpEndpoint:
+        model: {include: false}
+        display: {show: false, name: MetadataOptions.HttpEndpoint}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: MetadataOptions.HttpEndpoint, normalize: typed}
+      MetadataOptions.HttpProtocolIpv6:
+        model: {include: false}
+        display: {show: false, name: MetadataOptions.HttpProtocolIpv6}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: MetadataOptions.HttpProtocolIpv6, normalize: typed}
+      MetadataOptions.HttpPutResponseHopLimit:
+        model: {include: false}
+        display: {show: false, name: MetadataOptions.HttpPutResponseHopLimit}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: MetadataOptions.HttpPutResponseHopLimit, normalize: typed}
+      MetadataOptions.HttpTokens:
+        model: {include: false}
+        display: {show: false, name: MetadataOptions.HttpTokens}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: MetadataOptions.HttpTokens, normalize: typed}
+      MetadataOptions.InstanceMetadataTags:
+        model: {include: false}
+        display: {show: false, name: MetadataOptions.InstanceMetadataTags}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: MetadataOptions.InstanceMetadataTags, normalize: typed}
+      Monitoring:
+        model: {include: false}
+        display: {show: false, name: Monitoring}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: Monitoring, normalize: typed}
+      NetworkInterfaces[].AssociatePublicIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].AssociatePublicIpAddress'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].AssociatePublicIpAddress', normalize: typed}
+      NetworkInterfaces[].DeleteOnTermination:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].DeleteOnTermination'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].DeleteOnTermination', normalize: typed}
+      NetworkInterfaces[].Description:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].Description'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].Description', normalize: typed}
+      NetworkInterfaces[].DeviceIndex:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].DeviceIndex'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].DeviceIndex', normalize: typed}
+      NetworkInterfaces[].GroupSet:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].GroupSet'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].GroupSet', normalize: typed}
+      NetworkInterfaces[].NetworkInterfaceId:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].NetworkInterfaceId'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].NetworkInterfaceId', normalize: typed}
+      NetworkInterfaces[].PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].PrivateIpAddress'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].PrivateIpAddress', normalize: typed}
+      NetworkInterfaces[].PrivateIpAddresses[].Primary:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].PrivateIpAddresses[].Primary'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].PrivateIpAddresses[].Primary', normalize: typed}
+      NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress', normalize: typed}
+      NetworkInterfaces[].SecondaryPrivateIpAddressCount:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].SecondaryPrivateIpAddressCount'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].SecondaryPrivateIpAddressCount', normalize: typed}
+      NetworkInterfaces[].SubnetId:
+        model: {include: false}
+        display: {show: false, name: 'NetworkInterfaces[].SubnetId'}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: 'NetworkInterfaces[].SubnetId', normalize: typed}
+      PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord, normalize: typed}
+      PrivateDnsNameOptions.EnableResourceNameDnsARecord:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptions.EnableResourceNameDnsARecord}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: PrivateDnsNameOptions.EnableResourceNameDnsARecord, normalize: typed}
+      PrivateDnsNameOptions.HostnameType:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptions.HostnameType}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: PrivateDnsNameOptions.HostnameType, normalize: typed}
+      PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: PrivateIpAddress}
+        access: [create-only]
+        aws: {getter: provider-ec2-instance, path: PrivateIpAddress, normalize: typed}
+      PropagateTagsToVolumeOnCreation:
+        model: {include: false}
+        display: {show: false, name: PropagateTagsToVolumeOnCreation}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.Instance.PropagateTagsToVolumeOnCreation
+          constraint: Pinned provider schema declares /properties/PropagateTagsToVolumeOnCreation write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: SecurityGroupIds}
+        access: [conditional-create-only]
+        aws: {getter: base, path: 'SecurityGroups[].GroupId', normalize: id}
+      SourceDestCheck:
+        model: {include: false}
+        display: {show: false, name: SourceDestCheck}
+        access: [read-write]
+        aws: {getter: provider-ec2-instance, path: SourceDestCheck, normalize: typed}
+      SubnetId:
+        model: {include: true}
+        display: {show: true, name: SubnetId}
+        access: [create-only]
+        aws: {getter: base, path: SubnetId, normalize: id}
+      Tags[].Key:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: base, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: base, path: 'Tags[].Value', normalize: typed}
+      Tenancy:
+        model: {include: false}
+        display: {show: false, name: Tenancy}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: Tenancy, normalize: typed}
+      UserData:
+        model: {include: false}
+        display: {show: false, name: UserData}
+        access: [conditional-create-only]
+        aws: {getter: provider-ec2-instance, path: UserData, normalize: typed}
+  EC2.InternetGateway:
+    properties:
+      InternetGatewayId:
+        model: {include: false}
+        display: {show: false, name: InternetGatewayId}
+        access: [read-only]
+        aws: {getter: provider-ec2-internetgateway, path: InternetGatewayId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-internetgateway, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-internetgateway, path: 'Tags[].Value', normalize: typed}
+  EC2.LaunchTemplate:
+    properties:
+      LaunchTemplateName:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateName}
+        access: [create-only]
+        aws: {getter: provider-ec2-launchtemplate, path: LaunchTemplateName, normalize: typed}
+      LaunchTemplateId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateId}
+        access: [read-only]
+        aws: {getter: provider-ec2-launchtemplate, path: LaunchTemplateId, normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].DeviceName:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].DeviceName'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].DeviceName', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.DeleteOnTermination:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.DeleteOnTermination'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.DeleteOnTermination', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.EbsCardIndex:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.EbsCardIndex'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.EbsCardIndex', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.Encrypted:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Encrypted'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Encrypted', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.Iops:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Iops'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Iops', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.KmsKeyId'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.KmsKeyId', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.SnapshotId:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.SnapshotId'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.SnapshotId', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.Throughput:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Throughput'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.Throughput', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeInitializationRate:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeInitializationRate'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeInitializationRate', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeSize:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeSize'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeSize', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeType:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeType'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].Ebs.VolumeType', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].NoDevice:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].NoDevice'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].NoDevice', normalize: typed}
+      LaunchTemplateData.BlockDeviceMappings[].VirtualName:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.BlockDeviceMappings[].VirtualName'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.BlockDeviceMappings[].VirtualName', normalize: typed}
+      LaunchTemplateData.CapacityReservationSpecification.CapacityReservationPreference:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationPreference}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationPreference, normalize: typed}
+      LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationId,
+          normalize: typed}
+      LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArn:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArn}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationResourceGroupArn,
+          normalize: typed}
+      LaunchTemplateData.CpuOptions.AmdSevSnp:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CpuOptions.AmdSevSnp}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CpuOptions.AmdSevSnp, normalize: typed}
+      LaunchTemplateData.CpuOptions.CoreCount:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CpuOptions.CoreCount}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CpuOptions.CoreCount, normalize: typed}
+      LaunchTemplateData.CpuOptions.NestedVirtualization:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CpuOptions.NestedVirtualization}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CpuOptions.NestedVirtualization, normalize: typed}
+      LaunchTemplateData.CpuOptions.ThreadsPerCore:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CpuOptions.ThreadsPerCore}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CpuOptions.ThreadsPerCore, normalize: typed}
+      LaunchTemplateData.CreditSpecification.CpuCredits:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.CreditSpecification.CpuCredits}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.CreditSpecification.CpuCredits, normalize: typed}
+      LaunchTemplateData.DisableApiStop:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.DisableApiStop}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.DisableApiStop, normalize: typed}
+      LaunchTemplateData.DisableApiTermination:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.DisableApiTermination}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.DisableApiTermination, normalize: typed}
+      LaunchTemplateData.EbsOptimized:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.EbsOptimized}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.EbsOptimized, normalize: typed}
+      LaunchTemplateData.EnclaveOptions.Enabled:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.EnclaveOptions.Enabled}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.EnclaveOptions.Enabled, normalize: typed}
+      LaunchTemplateData.HibernationOptions.Configured:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.HibernationOptions.Configured}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.HibernationOptions.Configured, normalize: typed}
+      LaunchTemplateData.IamInstanceProfile.Arn:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.IamInstanceProfile.Arn}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.IamInstanceProfile.Arn, normalize: typed}
+      LaunchTemplateData.IamInstanceProfile.Name:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.IamInstanceProfile.Name}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.IamInstanceProfile.Name, normalize: typed}
+      LaunchTemplateData.ImageId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.ImageId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.ImageId, normalize: typed}
+      LaunchTemplateData.InstanceInitiatedShutdownBehavior:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceInitiatedShutdownBehavior}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceInitiatedShutdownBehavior, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.MarketType:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.MarketType}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.MarketType, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.SpotOptions.BlockDurationMinutes:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.SpotOptions.BlockDurationMinutes}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.SpotOptions.BlockDurationMinutes, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.SpotOptions.MaxPrice:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.SpotOptions.MaxPrice}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.SpotOptions.MaxPrice, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.SpotOptions.SpotInstanceType:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.SpotOptions.SpotInstanceType}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.SpotOptions.SpotInstanceType, normalize: typed}
+      LaunchTemplateData.InstanceMarketOptions.SpotOptions.ValidUntil:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceMarketOptions.SpotOptions.ValidUntil}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceMarketOptions.SpotOptions.ValidUntil, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorCount.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.AcceleratorCount.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.AcceleratorCount.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorCount.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.AcceleratorCount.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.AcceleratorCount.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.AcceleratorManufacturers[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.AcceleratorManufacturers[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorNames[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.AcceleratorNames[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.AcceleratorNames[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.AcceleratorTotalMemoryMiB.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AcceleratorTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.AcceleratorTypes[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.AcceleratorTypes[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.AllowedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.AllowedInstanceTypes[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.AllowedInstanceTypes[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.BareMetal:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.BareMetal}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.BareMetal, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.BaselineEbsBandwidthMbps.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.BaselinePerformanceFactors.Cpu.References[].InstanceFamily',
+          normalize: typed}
+      LaunchTemplateData.InstanceRequirements.BurstablePerformance:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.BurstablePerformance}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.BurstablePerformance, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.CpuManufacturers[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.CpuManufacturers[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.CpuManufacturers[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.ExcludedInstanceTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.ExcludedInstanceTypes[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.ExcludedInstanceTypes[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.InstanceGenerations[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.InstanceGenerations[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.InstanceGenerations[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.LocalStorage:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.LocalStorage}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.LocalStorage, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.LocalStorageTypes[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.InstanceRequirements.LocalStorageTypes[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.InstanceRequirements.LocalStorageTypes[]', normalize: typed}
+      LaunchTemplateData.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.MemoryGiBPerVCpu.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.MemoryMiB.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.MemoryMiB.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.MemoryMiB.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.MemoryMiB.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.MemoryMiB.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.MemoryMiB.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.NetworkBandwidthGbps.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.NetworkInterfaceCount.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.OnDemandMaxPricePercentageOverLowestPrice, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.RequireHibernateSupport:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.RequireHibernateSupport}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.RequireHibernateSupport, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.SpotMaxPricePercentageOverLowestPrice, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.TotalLocalStorageGB.Min, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.VCpuCount.Max:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.VCpuCount.Max}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.VCpuCount.Max, normalize: typed}
+      LaunchTemplateData.InstanceRequirements.VCpuCount.Min:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceRequirements.VCpuCount.Min}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceRequirements.VCpuCount.Min, normalize: typed}
+      LaunchTemplateData.InstanceType:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.InstanceType}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.InstanceType, normalize: typed}
+      LaunchTemplateData.KernelId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.KernelId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.KernelId, normalize: typed}
+      LaunchTemplateData.KeyName:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.KeyName}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.KeyName, normalize: typed}
+      LaunchTemplateData.LicenseSpecifications[].LicenseConfigurationArn:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.LicenseSpecifications[].LicenseConfigurationArn'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.LicenseSpecifications[].LicenseConfigurationArn', normalize: typed}
+      LaunchTemplateData.MaintenanceOptions.AutoRecovery:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MaintenanceOptions.AutoRecovery}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MaintenanceOptions.AutoRecovery, normalize: typed}
+      LaunchTemplateData.MetadataOptions.HttpEndpoint:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MetadataOptions.HttpEndpoint}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MetadataOptions.HttpEndpoint, normalize: typed}
+      LaunchTemplateData.MetadataOptions.HttpProtocolIpv6:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MetadataOptions.HttpProtocolIpv6}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MetadataOptions.HttpProtocolIpv6, normalize: typed}
+      LaunchTemplateData.MetadataOptions.HttpPutResponseHopLimit:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MetadataOptions.HttpPutResponseHopLimit}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MetadataOptions.HttpPutResponseHopLimit, normalize: typed}
+      LaunchTemplateData.MetadataOptions.HttpTokens:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MetadataOptions.HttpTokens}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MetadataOptions.HttpTokens, normalize: typed}
+      LaunchTemplateData.MetadataOptions.InstanceMetadataTags:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.MetadataOptions.InstanceMetadataTags}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.MetadataOptions.InstanceMetadataTags, normalize: typed}
+      LaunchTemplateData.Monitoring.Enabled:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Monitoring.Enabled}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Monitoring.Enabled, normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].AssociateCarrierIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].AssociateCarrierIpAddress'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].AssociateCarrierIpAddress', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].AssociatePublicIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].AssociatePublicIpAddress'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].AssociatePublicIpAddress', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.TcpEstablishedTimeout:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.TcpEstablishedTimeout'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.TcpEstablishedTimeout', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpStreamTimeout:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpStreamTimeout'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpStreamTimeout', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpTimeout:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpTimeout'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].ConnectionTrackingSpecification.UdpTimeout', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].DeleteOnTermination:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].DeleteOnTermination'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].DeleteOnTermination', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Description:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Description'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Description', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].DeviceIndex:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].DeviceIndex'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].DeviceIndex', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].EnaQueueCount:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].EnaQueueCount'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].EnaQueueCount', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdEnabled:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdEnabled'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdEnabled', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdUdpSpecification.EnaSrdUdpEnabled:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdUdpSpecification.EnaSrdUdpEnabled'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].EnaSrdSpecification.EnaSrdUdpSpecification.EnaSrdUdpEnabled',
+          normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Groups[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Groups[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Groups[]', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].InterfaceType:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].InterfaceType'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].InterfaceType', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv4PrefixCount:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv4PrefixCount'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv4PrefixCount', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv4Prefixes[].Ipv4Prefix:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv4Prefixes[].Ipv4Prefix'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv4Prefixes[].Ipv4Prefix', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv6AddressCount:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv6AddressCount'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv6AddressCount', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv6Addresses[].Ipv6Address:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv6Addresses[].Ipv6Address'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv6Addresses[].Ipv6Address', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv6PrefixCount:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv6PrefixCount'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv6PrefixCount', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].Ipv6Prefixes[].Ipv6Prefix:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].Ipv6Prefixes[].Ipv6Prefix'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].Ipv6Prefixes[].Ipv6Prefix', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].NetworkCardIndex:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].NetworkCardIndex'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].NetworkCardIndex', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].NetworkInterfaceId:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].NetworkInterfaceId'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].NetworkInterfaceId', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].PrimaryIpv6:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].PrimaryIpv6'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].PrimaryIpv6', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddress'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddress', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].Primary:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].Primary'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].Primary', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].PrivateIpAddresses[].PrivateIpAddress', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].SecondaryPrivateIpAddressCount:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].SecondaryPrivateIpAddressCount'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].SecondaryPrivateIpAddressCount', normalize: typed}
+      LaunchTemplateData.NetworkInterfaces[].SubnetId:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.NetworkInterfaces[].SubnetId'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.NetworkInterfaces[].SubnetId', normalize: typed}
+      LaunchTemplateData.NetworkPerformanceOptions.BandwidthWeighting:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.NetworkPerformanceOptions.BandwidthWeighting}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.NetworkPerformanceOptions.BandwidthWeighting, normalize: typed}
+      LaunchTemplateData.Placement.Affinity:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.Affinity}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.Affinity, normalize: typed}
+      LaunchTemplateData.Placement.AvailabilityZone:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.AvailabilityZone}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.AvailabilityZone, normalize: typed}
+      LaunchTemplateData.Placement.GroupId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.GroupId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.GroupId, normalize: typed}
+      LaunchTemplateData.Placement.GroupName:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.GroupName}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.GroupName, normalize: typed}
+      LaunchTemplateData.Placement.HostId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.HostId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.HostId, normalize: typed}
+      LaunchTemplateData.Placement.HostResourceGroupArn:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.HostResourceGroupArn}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.HostResourceGroupArn, normalize: typed}
+      LaunchTemplateData.Placement.PartitionNumber:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.PartitionNumber}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.PartitionNumber, normalize: typed}
+      LaunchTemplateData.Placement.SpreadDomain:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.SpreadDomain}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.SpreadDomain, normalize: typed}
+      LaunchTemplateData.Placement.Tenancy:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.Placement.Tenancy}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.Placement.Tenancy, normalize: typed}
+      LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord, normalize: typed}
+      LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsARecord:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsARecord}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.PrivateDnsNameOptions.EnableResourceNameDnsARecord, normalize: typed}
+      LaunchTemplateData.PrivateDnsNameOptions.HostnameType:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.PrivateDnsNameOptions.HostnameType}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.PrivateDnsNameOptions.HostnameType, normalize: typed}
+      LaunchTemplateData.RamDiskId:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.RamDiskId}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.RamDiskId, normalize: typed}
+      LaunchTemplateData.SecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.SecurityGroupIds[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.SecurityGroupIds[]', normalize: typed}
+      LaunchTemplateData.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.SecurityGroups[]'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.SecurityGroups[]', normalize: typed}
+      LaunchTemplateData.TagSpecifications[].ResourceType:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.TagSpecifications[].ResourceType'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.TagSpecifications[].ResourceType', normalize: typed}
+      LaunchTemplateData.TagSpecifications[].Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.TagSpecifications[].Tags[].Key'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.TagSpecifications[].Tags[].Key', normalize: typed}
+      LaunchTemplateData.TagSpecifications[].Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'LaunchTemplateData.TagSpecifications[].Tags[].Value'}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: 'LaunchTemplateData.TagSpecifications[].Tags[].Value', normalize: typed}
+      LaunchTemplateData.UserData:
+        model: {include: false}
+        display: {show: false, name: LaunchTemplateData.UserData}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: LaunchTemplateData.UserData, normalize: typed}
+      TagSpecifications[].ResourceType:
+        model: {include: false}
+        display: {show: false, name: 'TagSpecifications[].ResourceType'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.LaunchTemplate.TagSpecifications[].ResourceType
+          constraint: Pinned provider schema declares /properties/TagSpecifications write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      TagSpecifications[].Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'TagSpecifications[].Tags[].Key'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.LaunchTemplate.TagSpecifications[].Tags[].Key
+          constraint: Pinned provider schema declares /properties/TagSpecifications write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      TagSpecifications[].Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'TagSpecifications[].Tags[].Value'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.LaunchTemplate.TagSpecifications[].Tags[].Value
+          constraint: Pinned provider schema declares /properties/TagSpecifications write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      VersionDescription:
+        model: {include: false}
+        display: {show: false, name: VersionDescription}
+        access: [write-only]
+        aws: {getter: sdk-ec2-launchtemplate, path: VersionDescription, normalize: typed}
+  EC2.NatGateway:
+    properties:
+      NatGatewayId:
+        model: {include: false}
+        display: {show: false, name: NatGatewayId}
+        access: [read-only]
+        aws: {getter: provider-ec2-natgateway, path: NatGatewayId, normalize: typed}
+      AllocationId:
+        model: {include: false}
+        display: {show: false, name: AllocationId}
+        access: [create-only]
+        aws: {getter: provider-ec2-natgateway, path: AllocationId, normalize: typed}
+      ConnectivityType:
+        model: {include: false}
+        display: {show: false, name: ConnectivityType}
+        access: [create-only]
+        aws: {getter: provider-ec2-natgateway, path: ConnectivityType, normalize: typed}
+      MaxDrainDurationSeconds:
+        model: {include: false}
+        display: {show: false, name: MaxDrainDurationSeconds}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.NatGateway.MaxDrainDurationSeconds
+          constraint: Pinned provider schema declares /properties/MaxDrainDurationSeconds write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      PrivateIpAddress:
+        model: {include: false}
+        display: {show: false, name: PrivateIpAddress}
+        access: [create-only]
+        aws: {getter: provider-ec2-natgateway, path: PrivateIpAddress, normalize: typed}
+      SecondaryAllocationIds:
+        model: {include: false}
+        display: {show: false, name: SecondaryAllocationIds}
+        access: [read-write]
+        aws: {getter: provider-ec2-natgateway, path: SecondaryAllocationIds, normalize: typed}
+      SecondaryPrivateIpAddressCount:
+        model: {include: false}
+        display: {show: false, name: SecondaryPrivateIpAddressCount}
+        access: [read-write]
+        aws: {getter: provider-ec2-natgateway, path: SecondaryPrivateIpAddressCount, normalize: typed}
+      SecondaryPrivateIpAddresses:
+        model: {include: false}
+        display: {show: false, name: SecondaryPrivateIpAddresses}
+        access: [read-write]
+        aws: {getter: provider-ec2-natgateway, path: SecondaryPrivateIpAddresses, normalize: typed}
+      SubnetId:
+        model: {include: false}
+        display: {show: false, name: SubnetId}
+        access: [create-only]
+        aws: {getter: provider-ec2-natgateway, path: SubnetId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-natgateway, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-natgateway, path: 'Tags[].Value', normalize: typed}
+  EC2.Route:
+    properties:
+      CidrBlock:
+        model: {include: false}
+        display: {show: false, name: CidrBlock}
+        access: [read-only]
+        aws: {getter: provider-ec2-route, path: CidrBlock, normalize: typed}
+      DestinationCidrBlock:
+        model: {include: false}
+        display: {show: false, name: DestinationCidrBlock}
+        access: [create-only]
+        aws: {getter: provider-ec2-route, path: DestinationCidrBlock, normalize: typed}
+      DestinationPrefixListId:
+        model: {include: false}
+        display: {show: false, name: DestinationPrefixListId}
+        access: [create-only]
+        aws: {getter: provider-ec2-route, path: DestinationPrefixListId, normalize: typed}
+      GatewayId:
+        model: {include: false}
+        display: {show: false, name: GatewayId}
+        access: [read-write]
+        aws: {getter: provider-ec2-route, path: GatewayId, normalize: typed}
+      NatGatewayId:
+        model: {include: false}
+        display: {show: false, name: NatGatewayId}
+        access: [read-write]
+        aws: {getter: provider-ec2-route, path: NatGatewayId, normalize: typed}
+      RouteTableId:
+        model: {include: false}
+        display: {show: false, name: RouteTableId}
+        access: [create-only]
+        aws: {getter: provider-ec2-route, path: RouteTableId, normalize: typed}
+      TransitGatewayId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayId}
+        access: [read-write]
+        aws: {getter: provider-ec2-route, path: TransitGatewayId, normalize: typed}
+      VpcEndpointId:
+        model: {include: false}
+        display: {show: false, name: VpcEndpointId}
+        access: [read-write]
+        aws: {getter: provider-ec2-route, path: VpcEndpointId, normalize: typed}
+  EC2.TransitGateway:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-ec2-transitgateway, path: Id, normalize: typed}
+      AmazonSideAsn:
+        model: {include: false}
+        display: {show: false, name: AmazonSideAsn}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgateway, path: AmazonSideAsn, normalize: typed}
+      AutoAcceptSharedAttachments:
+        model: {include: false}
+        display: {show: false, name: AutoAcceptSharedAttachments}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: AutoAcceptSharedAttachments, normalize: typed}
+      DefaultRouteTableAssociation:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteTableAssociation}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: DefaultRouteTableAssociation, normalize: typed}
+      DefaultRouteTablePropagation:
+        model: {include: false}
+        display: {show: false, name: DefaultRouteTablePropagation}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: DefaultRouteTablePropagation, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: Description, normalize: typed}
+      DnsSupport:
+        model: {include: false}
+        display: {show: false, name: DnsSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: DnsSupport, normalize: typed}
+      EncryptionSupport:
+        model: {include: false}
+        display: {show: false, name: EncryptionSupport}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row EC2.TransitGateway.EncryptionSupport
+          constraint: Pinned provider schema declares /properties/EncryptionSupport write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      SecurityGroupReferencingSupport:
+        model: {include: false}
+        display: {show: false, name: SecurityGroupReferencingSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: SecurityGroupReferencingSupport, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: 'Tags[].Value', normalize: typed}
+      TransitGatewayCidrBlocks:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayCidrBlocks}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: TransitGatewayCidrBlocks, normalize: typed}
+      VpnEcmpSupport:
+        model: {include: false}
+        display: {show: false, name: VpnEcmpSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgateway, path: VpnEcmpSupport, normalize: typed}
+  EC2.TransitGatewayRoute:
+    properties:
+      Blackhole:
+        model: {include: false}
+        display: {show: false, name: Blackhole}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroute, path: Blackhole, normalize: typed}
+      DestinationCidrBlock:
+        model: {include: false}
+        display: {show: false, name: DestinationCidrBlock}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroute, path: DestinationCidrBlock, normalize: typed}
+      TransitGatewayAttachmentId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayAttachmentId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroute, path: TransitGatewayAttachmentId, normalize: typed}
+      TransitGatewayRouteTableId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayRouteTableId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroute, path: TransitGatewayRouteTableId, normalize: typed}
+  EC2.TransitGatewayRouteTable:
+    properties:
+      TransitGatewayRouteTableId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayRouteTableId}
+        access: [read-only]
+        aws: {getter: provider-ec2-transitgatewayroutetable, path: TransitGatewayRouteTableId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayroutetable, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayroutetable, path: 'Tags[].Value', normalize: typed}
+      TransitGatewayId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroutetable, path: TransitGatewayId, normalize: typed}
+  EC2.TransitGatewayRouteTableAssociation:
+    properties:
+      TransitGatewayAttachmentId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayAttachmentId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroutetableassociation, path: TransitGatewayAttachmentId, normalize: typed}
+      TransitGatewayRouteTableId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayRouteTableId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroutetableassociation, path: TransitGatewayRouteTableId, normalize: typed}
+  EC2.TransitGatewayRouteTablePropagation:
+    properties:
+      TransitGatewayAttachmentId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayAttachmentId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroutetablepropagation, path: TransitGatewayAttachmentId, normalize: typed}
+      TransitGatewayRouteTableId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayRouteTableId}
+        access: [create-only]
+        aws: {getter: provider-ec2-transitgatewayroutetablepropagation, path: TransitGatewayRouteTableId, normalize: typed}
+  EC2.VPCBlockPublicAccessExclusion:
+    properties:
+      ExclusionId:
+        model: {include: false}
+        display: {show: false, name: ExclusionId}
+        access: [read-only]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: ExclusionId, normalize: typed}
+      InternetGatewayExclusionMode:
+        model: {include: false}
+        display: {show: false, name: InternetGatewayExclusionMode}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: InternetGatewayExclusionMode, normalize: typed}
+      VpcId:
+        model: {include: false}
+        display: {show: false, name: VpcId}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: VpcId, normalize: typed}
+      SubnetId:
+        model: {include: false}
+        display: {show: false, name: SubnetId}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: SubnetId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcblockpublicaccessexclusion, path: 'Tags[].Value', normalize: typed}
+  EC2.VPCBlockPublicAccessOptions:
+    properties:
+      AccountId:
+        model: {include: false}
+        display: {show: false, name: AccountId}
+        access: [read-only]
+        aws: {getter: provider-ec2-vpcblockpublicaccessoptions, path: AccountId, normalize: typed}
+      InternetGatewayBlockMode:
+        model: {include: false}
+        display: {show: false, name: InternetGatewayBlockMode}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcblockpublicaccessoptions, path: InternetGatewayBlockMode, normalize: typed}
+  EC2.VPCGatewayAttachment:
+    properties:
+      AttachmentType:
+        model: {include: false}
+        display: {show: false, name: AttachmentType}
+        access: [read-only]
+        aws: {getter: provider-ec2-vpcgatewayattachment, path: AttachmentType, normalize: typed}
+      InternetGatewayId:
+        model: {include: false}
+        display: {show: false, name: InternetGatewayId}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpcgatewayattachment, path: InternetGatewayId, normalize: typed}
+      VpcId:
+        model: {include: false}
+        display: {show: false, name: VpcId}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpcgatewayattachment, path: VpcId, normalize: typed}

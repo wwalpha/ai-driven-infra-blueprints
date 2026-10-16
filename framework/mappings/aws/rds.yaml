@@ -1,0 +1,1341 @@
+version: 3
+service: rds
+getters:
+  provider-rds-dbcluster:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBCluster
+    identifier: [/properties/DBClusterIdentifier]
+  sdk-rds-dbcluster:
+    kind: sdk
+    service: rds
+    operation: describe_db_clusters
+    result: DBClusters[]
+    resourceType: RDS.DBCluster
+  provider-rds-dbclusterparametergroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBClusterParameterGroup
+    identifier: [/properties/DBClusterParameterGroupName]
+  provider-rds-dbinstance:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBInstance
+    identifier: [/properties/DBInstanceIdentifier]
+  provider-rds-dbparametergroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBParameterGroup
+    identifier: [/properties/DBParameterGroupName]
+  provider-rds-dbproxy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBProxy
+    identifier: [/properties/DBProxyName]
+  provider-rds-dbproxyendpoint:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBProxyEndpoint
+    identifier: [/properties/DBProxyEndpointName]
+  provider-rds-dbproxytargetgroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBProxyTargetGroup
+    identifier: [/properties/TargetGroupArn]
+  provider-rds-dbsubnetgroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.DBSubnetGroup
+    identifier: [/properties/DBSubnetGroupName]
+  provider-rds-optiongroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: RDS.OptionGroup
+    identifier: [/properties/OptionGroupName]
+resourceTypes:
+  RDS.DBCluster:
+    properties:
+      DBClusterIdentifier:
+        model: {include: false}
+        display: {show: false, name: DBClusterIdentifier}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: DBClusterIdentifier, normalize: typed}
+      AllocatedStorage:
+        model: {include: false}
+        display: {show: false, name: AllocatedStorage}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: AllocatedStorage, normalize: typed}
+      AssociatedRoles[].FeatureName:
+        model: {include: false}
+        display: {show: false, name: 'AssociatedRoles[].FeatureName'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'AssociatedRoles[].FeatureName', normalize: typed}
+      AssociatedRoles[].RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'AssociatedRoles[].RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'AssociatedRoles[].RoleArn', normalize: typed}
+      AutoMinorVersionUpgrade:
+        model: {include: false}
+        display: {show: false, name: AutoMinorVersionUpgrade}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: AutoMinorVersionUpgrade, normalize: typed}
+      AvailabilityZones[]:
+        model: {include: false}
+        display: {show: false, name: 'AvailabilityZones[]'}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbcluster, path: 'AvailabilityZones[]', normalize: typed}
+      BacktrackWindow:
+        model: {include: false}
+        display: {show: false, name: BacktrackWindow}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: BacktrackWindow, normalize: typed}
+      BackupRetentionPeriod:
+        model: {include: false}
+        display: {show: false, name: BackupRetentionPeriod}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: BackupRetentionPeriod, normalize: typed}
+      ClusterScalabilityType:
+        model: {include: false}
+        display: {show: false, name: ClusterScalabilityType}
+        access: [write-only, create-only]
+        aws: {getter: sdk-rds-dbcluster, path: ClusterScalabilityType, normalize: typed}
+      CopyTagsToSnapshot:
+        model: {include: false}
+        display: {show: false, name: CopyTagsToSnapshot}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: CopyTagsToSnapshot, normalize: typed}
+      DBClusterInstanceClass:
+        model: {include: false}
+        display: {show: false, name: DBClusterInstanceClass}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: DBClusterInstanceClass, normalize: typed}
+      DBClusterParameterGroupName:
+        model: {include: false}
+        display: {show: false, name: DBClusterParameterGroupName}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: DBClusterParameterGroupName, normalize: typed}
+      DBInstanceParameterGroupName:
+        model: {include: false}
+        display: {show: false, name: DBInstanceParameterGroupName}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.DBInstanceParameterGroupName
+          constraint: Pinned provider schema declares /properties/DBInstanceParameterGroupName write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      DBSubnetGroupName:
+        model: {include: false}
+        display: {show: false, name: DBSubnetGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: DBSubnetGroupName, normalize: typed}
+      DBSystemId:
+        model: {include: false}
+        display: {show: false, name: DBSystemId}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: DBSystemId, normalize: typed}
+      DatabaseInsightsMode:
+        model: {include: false}
+        display: {show: false, name: DatabaseInsightsMode}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: DatabaseInsightsMode, normalize: typed}
+      DatabaseName:
+        model: {include: false}
+        display: {show: false, name: DatabaseName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: DatabaseName, normalize: typed}
+      DeleteAutomatedBackups:
+        model: {include: false}
+        display: {show: false, name: DeleteAutomatedBackups}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.DeleteAutomatedBackups
+          constraint: Pinned provider schema declares /properties/DeleteAutomatedBackups write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      DeletionProtection:
+        model: {include: false}
+        display: {show: false, name: DeletionProtection}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: DeletionProtection, normalize: typed}
+      Domain:
+        model: {include: false}
+        display: {show: false, name: Domain}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: Domain, normalize: typed}
+      DomainIAMRoleName:
+        model: {include: false}
+        display: {show: false, name: DomainIAMRoleName}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: DomainIAMRoleName, normalize: typed}
+      EnableCloudwatchLogsExports[]:
+        model: {include: false}
+        display: {show: false, name: 'EnableCloudwatchLogsExports[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'EnableCloudwatchLogsExports[]', normalize: typed}
+      EnableGlobalWriteForwarding:
+        model: {include: false}
+        display: {show: false, name: EnableGlobalWriteForwarding}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EnableGlobalWriteForwarding, normalize: typed}
+      EnableHttpEndpoint:
+        model: {include: false}
+        display: {show: false, name: EnableHttpEndpoint}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EnableHttpEndpoint, normalize: typed}
+      EnableIAMDatabaseAuthentication:
+        model: {include: false}
+        display: {show: false, name: EnableIAMDatabaseAuthentication}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EnableIAMDatabaseAuthentication, normalize: typed}
+      EnableLocalWriteForwarding:
+        model: {include: false}
+        display: {show: false, name: EnableLocalWriteForwarding}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EnableLocalWriteForwarding, normalize: typed}
+      Engine:
+        model: {include: false}
+        display: {show: false, name: Engine}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbcluster, path: Engine, normalize: typed}
+      EngineLifecycleSupport:
+        model: {include: false}
+        display: {show: false, name: EngineLifecycleSupport}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EngineLifecycleSupport, normalize: typed}
+      EngineMode:
+        model: {include: false}
+        display: {show: false, name: EngineMode}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: EngineMode, normalize: typed}
+      EngineVersion:
+        model: {include: false}
+        display: {show: false, name: EngineVersion}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: EngineVersion, normalize: typed}
+      GlobalClusterIdentifier:
+        model: {include: false}
+        display: {show: false, name: GlobalClusterIdentifier}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbcluster, path: GlobalClusterIdentifier, normalize: typed}
+      Iops:
+        model: {include: false}
+        display: {show: false, name: Iops}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: Iops, normalize: typed}
+      KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: KmsKeyId}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: KmsKeyId, normalize: typed}
+      ManageMasterUserPassword:
+        model: {include: false}
+        display: {show: false, name: ManageMasterUserPassword}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ManageMasterUserPassword, normalize: typed}
+      MasterUserAuthenticationType:
+        model: {include: false}
+        display: {show: false, name: MasterUserAuthenticationType}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.MasterUserAuthenticationType
+          constraint: Pinned provider schema declares /properties/MasterUserAuthenticationType write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      MasterUserPassword:
+        model: {include: false}
+        display: {show: false, name: MasterUserPassword}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.MasterUserPassword
+          constraint: Pinned provider schema declares /properties/MasterUserPassword write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      MasterUserSecret.KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: MasterUserSecret.KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: MasterUserSecret.KmsKeyId, normalize: typed}
+      MasterUsername:
+        model: {include: false}
+        display: {show: false, name: MasterUsername}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbcluster, path: MasterUsername, normalize: typed}
+      MonitoringInterval:
+        model: {include: false}
+        display: {show: false, name: MonitoringInterval}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: MonitoringInterval, normalize: typed}
+      MonitoringRoleArn:
+        model: {include: false}
+        display: {show: false, name: MonitoringRoleArn}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: MonitoringRoleArn, normalize: typed}
+      NetworkType:
+        model: {include: false}
+        display: {show: false, name: NetworkType}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: NetworkType, normalize: typed}
+      PerformanceInsightsEnabled:
+        model: {include: false}
+        display: {show: false, name: PerformanceInsightsEnabled}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: PerformanceInsightsEnabled, normalize: typed}
+      PerformanceInsightsKmsKeyId:
+        model: {include: false}
+        display: {show: false, name: PerformanceInsightsKmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: PerformanceInsightsKmsKeyId, normalize: typed}
+      PerformanceInsightsRetentionPeriod:
+        model: {include: false}
+        display: {show: false, name: PerformanceInsightsRetentionPeriod}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: PerformanceInsightsRetentionPeriod, normalize: typed}
+      Port:
+        model: {include: false}
+        display: {show: false, name: Port}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: Port, normalize: typed}
+      PreferredBackupWindow:
+        model: {include: false}
+        display: {show: false, name: PreferredBackupWindow}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: PreferredBackupWindow, normalize: typed}
+      PreferredMaintenanceWindow:
+        model: {include: false}
+        display: {show: false, name: PreferredMaintenanceWindow}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: PreferredMaintenanceWindow, normalize: typed}
+      PubliclyAccessible:
+        model: {include: false}
+        display: {show: false, name: PubliclyAccessible}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: PubliclyAccessible, normalize: typed}
+      ReplicationSourceIdentifier:
+        model: {include: false}
+        display: {show: false, name: ReplicationSourceIdentifier}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ReplicationSourceIdentifier, normalize: typed}
+      RestoreToTime:
+        model: {include: false}
+        display: {show: false, name: RestoreToTime}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.RestoreToTime
+          constraint: Pinned provider schema declares /properties/RestoreToTime write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      RestoreType:
+        model: {include: false}
+        display: {show: false, name: RestoreType}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.RestoreType
+          constraint: Pinned provider schema declares /properties/RestoreType write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      ScalingConfiguration.AutoPause:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.AutoPause}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.AutoPause, normalize: typed}
+      ScalingConfiguration.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.MaxCapacity}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.MaxCapacity, normalize: typed}
+      ScalingConfiguration.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.MinCapacity}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.MinCapacity, normalize: typed}
+      ScalingConfiguration.SecondsBeforeTimeout:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.SecondsBeforeTimeout}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.SecondsBeforeTimeout, normalize: typed}
+      ScalingConfiguration.SecondsUntilAutoPause:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.SecondsUntilAutoPause}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.SecondsUntilAutoPause, normalize: typed}
+      ScalingConfiguration.TimeoutAction:
+        model: {include: false}
+        display: {show: false, name: ScalingConfiguration.TimeoutAction}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ScalingConfiguration.TimeoutAction, normalize: typed}
+      ServerlessV2ScalingConfiguration.MaxCapacity:
+        model: {include: false}
+        display: {show: false, name: ServerlessV2ScalingConfiguration.MaxCapacity}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ServerlessV2ScalingConfiguration.MaxCapacity, normalize: typed}
+      ServerlessV2ScalingConfiguration.MinCapacity:
+        model: {include: false}
+        display: {show: false, name: ServerlessV2ScalingConfiguration.MinCapacity}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ServerlessV2ScalingConfiguration.MinCapacity, normalize: typed}
+      ServerlessV2ScalingConfiguration.SecondsUntilAutoPause:
+        model: {include: false}
+        display: {show: false, name: ServerlessV2ScalingConfiguration.SecondsUntilAutoPause}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: ServerlessV2ScalingConfiguration.SecondsUntilAutoPause, normalize: typed}
+      SnapshotIdentifier:
+        model: {include: false}
+        display: {show: false, name: SnapshotIdentifier}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.SnapshotIdentifier
+          constraint: Pinned provider schema declares /properties/SnapshotIdentifier write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      SourceDBClusterIdentifier:
+        model: {include: false}
+        display: {show: false, name: SourceDBClusterIdentifier}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.SourceDBClusterIdentifier
+          constraint: Pinned provider schema declares /properties/SourceDBClusterIdentifier write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      SourceDbClusterResourceId:
+        model: {include: false}
+        display: {show: false, name: SourceDbClusterResourceId}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.SourceDbClusterResourceId
+          constraint: Pinned provider schema declares /properties/SourceDbClusterResourceId write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      SourceRegion:
+        model: {include: false}
+        display: {show: false, name: SourceRegion}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.SourceRegion
+          constraint: Pinned provider schema declares /properties/SourceRegion write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      StorageEncrypted:
+        model: {include: false}
+        display: {show: false, name: StorageEncrypted}
+        access: [create-only]
+        aws: {getter: provider-rds-dbcluster, path: StorageEncrypted, normalize: typed}
+      StorageType:
+        model: {include: false}
+        display: {show: false, name: StorageType}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: StorageType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'Tags[].Value', normalize: typed}
+      UseLatestRestorableTime:
+        model: {include: false}
+        display: {show: false, name: UseLatestRestorableTime}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBCluster.UseLatestRestorableTime
+          constraint: Pinned provider schema declares /properties/UseLatestRestorableTime write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      VpcSecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'VpcSecurityGroupIds[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbcluster, path: 'VpcSecurityGroupIds[]', normalize: typed}
+  RDS.DBClusterParameterGroup:
+    properties:
+      DBClusterParameterGroupName:
+        model: {include: false}
+        display: {show: false, name: DBClusterParameterGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: DBClusterParameterGroupName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [create-only]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: Description, normalize: typed}
+      Family:
+        model: {include: false}
+        display: {show: false, name: Family}
+        access: [create-only]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: Family, normalize: typed}
+      Parameters:
+        model: {include: false}
+        display: {show: false, name: Parameters}
+        access: [read-write]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: Parameters, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbclusterparametergroup, path: 'Tags[].Value', normalize: typed}
+  RDS.DBInstance:
+    properties:
+      DBInstanceIdentifier:
+        model: {include: false}
+        display: {show: false, name: DBInstanceIdentifier}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBInstanceIdentifier, normalize: typed}
+      AdditionalStorageVolumes[].AllocatedStorage:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].AllocatedStorage'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].AllocatedStorage', normalize: typed}
+      AdditionalStorageVolumes[].Iops:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].Iops'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].Iops', normalize: typed}
+      AdditionalStorageVolumes[].MaxAllocatedStorage:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].MaxAllocatedStorage'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].MaxAllocatedStorage', normalize: typed}
+      AdditionalStorageVolumes[].StorageThroughput:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].StorageThroughput'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].StorageThroughput', normalize: typed}
+      AdditionalStorageVolumes[].StorageType:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].StorageType'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].StorageType', normalize: typed}
+      AdditionalStorageVolumes[].VolumeName:
+        model: {include: false}
+        display: {show: false, name: 'AdditionalStorageVolumes[].VolumeName'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AdditionalStorageVolumes[].VolumeName', normalize: typed}
+      AllocatedStorage:
+        model: {include: false}
+        display: {show: false, name: AllocatedStorage}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: AllocatedStorage, normalize: typed}
+      AllowMajorVersionUpgrade:
+        model: {include: false}
+        display: {show: false, name: AllowMajorVersionUpgrade}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.AllowMajorVersionUpgrade
+          constraint: Pinned provider schema declares /properties/AllowMajorVersionUpgrade write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      ApplyImmediately:
+        model: {include: false}
+        display: {show: false, name: ApplyImmediately}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.ApplyImmediately
+          constraint: Pinned provider schema declares /properties/ApplyImmediately write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      AssociatedRoles[].FeatureName:
+        model: {include: false}
+        display: {show: false, name: 'AssociatedRoles[].FeatureName'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AssociatedRoles[].FeatureName', normalize: typed}
+      AssociatedRoles[].RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'AssociatedRoles[].RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'AssociatedRoles[].RoleArn', normalize: typed}
+      AutoMinorVersionUpgrade:
+        model: {include: false}
+        display: {show: false, name: AutoMinorVersionUpgrade}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: AutoMinorVersionUpgrade, normalize: typed}
+      AutomaticBackupReplicationKmsKeyId:
+        model: {include: false}
+        display: {show: false, name: AutomaticBackupReplicationKmsKeyId}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.AutomaticBackupReplicationKmsKeyId
+          constraint: Pinned provider schema declares /properties/AutomaticBackupReplicationKmsKeyId write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      AutomaticBackupReplicationRegion:
+        model: {include: false}
+        display: {show: false, name: AutomaticBackupReplicationRegion}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: AutomaticBackupReplicationRegion, normalize: typed}
+      AutomaticBackupReplicationRetentionPeriod:
+        model: {include: false}
+        display: {show: false, name: AutomaticBackupReplicationRetentionPeriod}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: AutomaticBackupReplicationRetentionPeriod, normalize: typed}
+      AvailabilityZone:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZone}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: AvailabilityZone, normalize: typed}
+      BackupRetentionPeriod:
+        model: {include: false}
+        display: {show: false, name: BackupRetentionPeriod}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: BackupRetentionPeriod, normalize: typed}
+      BackupTarget:
+        model: {include: false}
+        display: {show: false, name: BackupTarget}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: BackupTarget, normalize: typed}
+      CACertificateIdentifier:
+        model: {include: false}
+        display: {show: false, name: CACertificateIdentifier}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: CACertificateIdentifier, normalize: typed}
+      CertificateRotationRestart:
+        model: {include: false}
+        display: {show: false, name: CertificateRotationRestart}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.CertificateRotationRestart
+          constraint: Pinned provider schema declares /properties/CertificateRotationRestart write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      CharacterSetName:
+        model: {include: false}
+        display: {show: false, name: CharacterSetName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: CharacterSetName, normalize: typed}
+      CopyTagsToSnapshot:
+        model: {include: false}
+        display: {show: false, name: CopyTagsToSnapshot}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: CopyTagsToSnapshot, normalize: typed}
+      CustomIAMInstanceProfile:
+        model: {include: false}
+        display: {show: false, name: CustomIAMInstanceProfile}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: CustomIAMInstanceProfile, normalize: typed}
+      DBClusterIdentifier:
+        model: {include: false}
+        display: {show: false, name: DBClusterIdentifier}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBClusterIdentifier, normalize: typed}
+      DBClusterSnapshotIdentifier:
+        model: {include: false}
+        display: {show: false, name: DBClusterSnapshotIdentifier}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBClusterSnapshotIdentifier, normalize: typed}
+      DBInstanceClass:
+        model: {include: false}
+        display: {show: false, name: DBInstanceClass}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DBInstanceClass, normalize: typed}
+      DBName:
+        model: {include: false}
+        display: {show: false, name: DBName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBName, normalize: typed}
+      DBParameterGroupName:
+        model: {include: false}
+        display: {show: false, name: DBParameterGroupName}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBParameterGroupName, normalize: typed}
+      DBSecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'DBSecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'DBSecurityGroups[]', normalize: typed}
+      DBSnapshotIdentifier:
+        model: {include: false}
+        display: {show: false, name: DBSnapshotIdentifier}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.DBSnapshotIdentifier
+          constraint: Pinned provider schema declares /properties/DBSnapshotIdentifier write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      DBSubnetGroupName:
+        model: {include: false}
+        display: {show: false, name: DBSubnetGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBSubnetGroupName, normalize: typed}
+      DBSystemId:
+        model: {include: false}
+        display: {show: false, name: DBSystemId}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: DBSystemId, normalize: typed}
+      DatabaseInsightsMode:
+        model: {include: false}
+        display: {show: false, name: DatabaseInsightsMode}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DatabaseInsightsMode, normalize: typed}
+      DedicatedLogVolume:
+        model: {include: false}
+        display: {show: false, name: DedicatedLogVolume}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DedicatedLogVolume, normalize: typed}
+      DeleteAutomatedBackups:
+        model: {include: false}
+        display: {show: false, name: DeleteAutomatedBackups}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.DeleteAutomatedBackups
+          constraint: Pinned provider schema declares /properties/DeleteAutomatedBackups write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      DeletionProtection:
+        model: {include: false}
+        display: {show: false, name: DeletionProtection}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DeletionProtection, normalize: typed}
+      Domain:
+        model: {include: false}
+        display: {show: false, name: Domain}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: Domain, normalize: typed}
+      DomainAuthSecretArn:
+        model: {include: false}
+        display: {show: false, name: DomainAuthSecretArn}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DomainAuthSecretArn, normalize: typed}
+      DomainDnsIps[]:
+        model: {include: false}
+        display: {show: false, name: 'DomainDnsIps[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'DomainDnsIps[]', normalize: typed}
+      DomainFqdn:
+        model: {include: false}
+        display: {show: false, name: DomainFqdn}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DomainFqdn, normalize: typed}
+      DomainIAMRoleName:
+        model: {include: false}
+        display: {show: false, name: DomainIAMRoleName}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DomainIAMRoleName, normalize: typed}
+      DomainOu:
+        model: {include: false}
+        display: {show: false, name: DomainOu}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: DomainOu, normalize: typed}
+      EnableCloudwatchLogsExports[]:
+        model: {include: false}
+        display: {show: false, name: 'EnableCloudwatchLogsExports[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'EnableCloudwatchLogsExports[]', normalize: typed}
+      EnableIAMDatabaseAuthentication:
+        model: {include: false}
+        display: {show: false, name: EnableIAMDatabaseAuthentication}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: EnableIAMDatabaseAuthentication, normalize: typed}
+      EnablePerformanceInsights:
+        model: {include: false}
+        display: {show: false, name: EnablePerformanceInsights}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: EnablePerformanceInsights, normalize: typed}
+      Engine:
+        model: {include: false}
+        display: {show: false, name: Engine}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: Engine, normalize: typed}
+      EngineLifecycleSupport:
+        model: {include: false}
+        display: {show: false, name: EngineLifecycleSupport}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: EngineLifecycleSupport, normalize: typed}
+      EngineVersion:
+        model: {include: false}
+        display: {show: false, name: EngineVersion}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: EngineVersion, normalize: typed}
+      Iops:
+        model: {include: false}
+        display: {show: false, name: Iops}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: Iops, normalize: typed}
+      KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: KmsKeyId}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: KmsKeyId, normalize: typed}
+      LicenseModel:
+        model: {include: false}
+        display: {show: false, name: LicenseModel}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: LicenseModel, normalize: typed}
+      ManageMasterUserPassword:
+        model: {include: false}
+        display: {show: false, name: ManageMasterUserPassword}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: ManageMasterUserPassword, normalize: typed}
+      MasterUserAuthenticationType:
+        model: {include: false}
+        display: {show: false, name: MasterUserAuthenticationType}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.MasterUserAuthenticationType
+          constraint: Pinned provider schema declares /properties/MasterUserAuthenticationType write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      MasterUserPassword:
+        model: {include: false}
+        display: {show: false, name: MasterUserPassword}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.MasterUserPassword
+          constraint: Pinned provider schema declares /properties/MasterUserPassword write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      MasterUserSecret.KmsKeyId:
+        model: {include: false}
+        display: {show: false, name: MasterUserSecret.KmsKeyId}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: MasterUserSecret.KmsKeyId, normalize: typed}
+      MasterUsername:
+        model: {include: false}
+        display: {show: false, name: MasterUsername}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: MasterUsername, normalize: typed}
+      MaxAllocatedStorage:
+        model: {include: false}
+        display: {show: false, name: MaxAllocatedStorage}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: MaxAllocatedStorage, normalize: typed}
+      MonitoringInterval:
+        model: {include: false}
+        display: {show: false, name: MonitoringInterval}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: MonitoringInterval, normalize: typed}
+      MonitoringRoleArn:
+        model: {include: false}
+        display: {show: false, name: MonitoringRoleArn}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: MonitoringRoleArn, normalize: typed}
+      MultiAZ:
+        model: {include: false}
+        display: {show: false, name: MultiAZ}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: MultiAZ, normalize: typed}
+      NcharCharacterSetName:
+        model: {include: false}
+        display: {show: false, name: NcharCharacterSetName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: NcharCharacterSetName, normalize: typed}
+      NetworkType:
+        model: {include: false}
+        display: {show: false, name: NetworkType}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: NetworkType, normalize: typed}
+      OptionGroupName:
+        model: {include: false}
+        display: {show: false, name: OptionGroupName}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: OptionGroupName, normalize: typed}
+      PerformanceInsightsKMSKeyId:
+        model: {include: false}
+        display: {show: false, name: PerformanceInsightsKMSKeyId}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: PerformanceInsightsKMSKeyId, normalize: typed}
+      PerformanceInsightsRetentionPeriod:
+        model: {include: false}
+        display: {show: false, name: PerformanceInsightsRetentionPeriod}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: PerformanceInsightsRetentionPeriod, normalize: typed}
+      Port:
+        model: {include: false}
+        display: {show: false, name: Port}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: Port, normalize: typed}
+      PreferredBackupWindow:
+        model: {include: false}
+        display: {show: false, name: PreferredBackupWindow}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: PreferredBackupWindow, normalize: typed}
+      PreferredMaintenanceWindow:
+        model: {include: false}
+        display: {show: false, name: PreferredMaintenanceWindow}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: PreferredMaintenanceWindow, normalize: typed}
+      ProcessorFeatures[].Name:
+        model: {include: false}
+        display: {show: false, name: 'ProcessorFeatures[].Name'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'ProcessorFeatures[].Name', normalize: typed}
+      ProcessorFeatures[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ProcessorFeatures[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'ProcessorFeatures[].Value', normalize: typed}
+      PromotionTier:
+        model: {include: false}
+        display: {show: false, name: PromotionTier}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: PromotionTier, normalize: typed}
+      PubliclyAccessible:
+        model: {include: false}
+        display: {show: false, name: PubliclyAccessible}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: PubliclyAccessible, normalize: typed}
+      ReplicaMode:
+        model: {include: false}
+        display: {show: false, name: ReplicaMode}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: ReplicaMode, normalize: typed}
+      RestoreTime:
+        model: {include: false}
+        display: {show: false, name: RestoreTime}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.RestoreTime
+          constraint: Pinned provider schema declares /properties/RestoreTime write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      SourceDBClusterIdentifier:
+        model: {include: false}
+        display: {show: false, name: SourceDBClusterIdentifier}
+        access: [conditional-create-only]
+        aws: {getter: provider-rds-dbinstance, path: SourceDBClusterIdentifier, normalize: typed}
+      SourceDBInstanceAutomatedBackupsArn:
+        model: {include: false}
+        display: {show: false, name: SourceDBInstanceAutomatedBackupsArn}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.SourceDBInstanceAutomatedBackupsArn
+          constraint: Pinned provider schema declares /properties/SourceDBInstanceAutomatedBackupsArn write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      SourceDBInstanceIdentifier:
+        model: {include: false}
+        display: {show: false, name: SourceDBInstanceIdentifier}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.SourceDBInstanceIdentifier
+          constraint: Pinned provider schema declares /properties/SourceDBInstanceIdentifier write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      SourceDbiResourceId:
+        model: {include: false}
+        display: {show: false, name: SourceDbiResourceId}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.SourceDbiResourceId
+          constraint: Pinned provider schema declares /properties/SourceDbiResourceId write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      SourceRegion:
+        model: {include: false}
+        display: {show: false, name: SourceRegion}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.SourceRegion
+          constraint: Pinned provider schema declares /properties/SourceRegion write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      StorageEncrypted:
+        model: {include: false}
+        display: {show: false, name: StorageEncrypted}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: StorageEncrypted, normalize: typed}
+      StorageThroughput:
+        model: {include: false}
+        display: {show: false, name: StorageThroughput}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: StorageThroughput, normalize: typed}
+      StorageType:
+        model: {include: false}
+        display: {show: false, name: StorageType}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: StorageType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'Tags[].Value', normalize: typed}
+      Timezone:
+        model: {include: false}
+        display: {show: false, name: Timezone}
+        access: [create-only]
+        aws: {getter: provider-rds-dbinstance, path: Timezone, normalize: typed}
+      UseDefaultProcessorFeatures:
+        model: {include: false}
+        display: {show: false, name: UseDefaultProcessorFeatures}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.UseDefaultProcessorFeatures
+          constraint: Pinned provider schema declares /properties/UseDefaultProcessorFeatures write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata
+      UseLatestRestorableTime:
+        model: {include: false}
+        display: {show: false, name: UseLatestRestorableTime}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row RDS.DBInstance.UseLatestRestorableTime
+          constraint: Pinned provider schema declares /properties/UseLatestRestorableTime write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      VPCSecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'VPCSecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbinstance, path: 'VPCSecurityGroups[]', normalize: typed}
+  RDS.DBParameterGroup:
+    properties:
+      DBParameterGroupName:
+        model: {include: false}
+        display: {show: false, name: DBParameterGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbparametergroup, path: DBParameterGroupName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [create-only]
+        aws: {getter: provider-rds-dbparametergroup, path: Description, normalize: typed}
+      Family:
+        model: {include: false}
+        display: {show: false, name: Family}
+        access: [create-only]
+        aws: {getter: provider-rds-dbparametergroup, path: Family, normalize: typed}
+      Parameters:
+        model: {include: false}
+        display: {show: false, name: Parameters}
+        access: [read-write]
+        aws: {getter: provider-rds-dbparametergroup, path: Parameters, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbparametergroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbparametergroup, path: 'Tags[].Value', normalize: typed}
+  RDS.DBProxy:
+    properties:
+      DBProxyName:
+        model: {include: false}
+        display: {show: false, name: DBProxyName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxy, path: DBProxyName, normalize: typed}
+      Auth[].AuthScheme:
+        model: {include: false}
+        display: {show: false, name: 'Auth[].AuthScheme'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Auth[].AuthScheme', normalize: typed}
+      Auth[].ClientPasswordAuthType:
+        model: {include: false}
+        display: {show: false, name: 'Auth[].ClientPasswordAuthType'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Auth[].ClientPasswordAuthType', normalize: typed}
+      Auth[].Description:
+        model: {include: false}
+        display: {show: false, name: 'Auth[].Description'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Auth[].Description', normalize: typed}
+      Auth[].IAMAuth:
+        model: {include: false}
+        display: {show: false, name: 'Auth[].IAMAuth'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Auth[].IAMAuth', normalize: typed}
+      Auth[].SecretArn:
+        model: {include: false}
+        display: {show: false, name: 'Auth[].SecretArn'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Auth[].SecretArn', normalize: typed}
+      DebugLogging:
+        model: {include: false}
+        display: {show: false, name: DebugLogging}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: DebugLogging, normalize: typed}
+      DefaultAuthScheme:
+        model: {include: false}
+        display: {show: false, name: DefaultAuthScheme}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: DefaultAuthScheme, normalize: typed}
+      EndpointNetworkType:
+        model: {include: false}
+        display: {show: false, name: EndpointNetworkType}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxy, path: EndpointNetworkType, normalize: typed}
+      EngineFamily:
+        model: {include: false}
+        display: {show: false, name: EngineFamily}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxy, path: EngineFamily, normalize: typed}
+      IdleClientTimeout:
+        model: {include: false}
+        display: {show: false, name: IdleClientTimeout}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: IdleClientTimeout, normalize: typed}
+      RequireTLS:
+        model: {include: false}
+        display: {show: false, name: RequireTLS}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: RequireTLS, normalize: typed}
+      RoleArn:
+        model: {include: false}
+        display: {show: false, name: RoleArn}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: RoleArn, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'Tags[].Value', normalize: typed}
+      TargetConnectionNetworkType:
+        model: {include: false}
+        display: {show: false, name: TargetConnectionNetworkType}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxy, path: TargetConnectionNetworkType, normalize: typed}
+      VpcSecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'VpcSecurityGroupIds[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxy, path: 'VpcSecurityGroupIds[]', normalize: typed}
+      VpcSubnetIds[]:
+        model: {include: false}
+        display: {show: false, name: 'VpcSubnetIds[]'}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxy, path: 'VpcSubnetIds[]', normalize: typed}
+  RDS.DBProxyEndpoint:
+    properties:
+      DBProxyEndpointName:
+        model: {include: false}
+        display: {show: false, name: DBProxyEndpointName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxyendpoint, path: DBProxyEndpointName, normalize: typed}
+      DBProxyName:
+        model: {include: false}
+        display: {show: false, name: DBProxyName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxyendpoint, path: DBProxyName, normalize: typed}
+      EndpointNetworkType:
+        model: {include: false}
+        display: {show: false, name: EndpointNetworkType}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxyendpoint, path: EndpointNetworkType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxyendpoint, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxyendpoint, path: 'Tags[].Value', normalize: typed}
+      TargetRole:
+        model: {include: false}
+        display: {show: false, name: TargetRole}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxyendpoint, path: TargetRole, normalize: typed}
+      VpcSecurityGroupIds[]:
+        model: {include: false}
+        display: {show: false, name: 'VpcSecurityGroupIds[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxyendpoint, path: 'VpcSecurityGroupIds[]', normalize: typed}
+      VpcSubnetIds[]:
+        model: {include: false}
+        display: {show: false, name: 'VpcSubnetIds[]'}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxyendpoint, path: 'VpcSubnetIds[]', normalize: typed}
+  RDS.DBProxyTargetGroup:
+    properties:
+      TargetGroupName:
+        model: {include: false}
+        display: {show: false, name: TargetGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: TargetGroupName, normalize: typed}
+      ConnectionPoolConfigurationInfo.ConnectionBorrowTimeout:
+        model: {include: false}
+        display: {show: false, name: ConnectionPoolConfigurationInfo.ConnectionBorrowTimeout}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: ConnectionPoolConfigurationInfo.ConnectionBorrowTimeout, normalize: typed}
+      ConnectionPoolConfigurationInfo.InitQuery:
+        model: {include: false}
+        display: {show: false, name: ConnectionPoolConfigurationInfo.InitQuery}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: ConnectionPoolConfigurationInfo.InitQuery, normalize: typed}
+      ConnectionPoolConfigurationInfo.MaxConnectionsPercent:
+        model: {include: false}
+        display: {show: false, name: ConnectionPoolConfigurationInfo.MaxConnectionsPercent}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: ConnectionPoolConfigurationInfo.MaxConnectionsPercent, normalize: typed}
+      ConnectionPoolConfigurationInfo.MaxIdleConnectionsPercent:
+        model: {include: false}
+        display: {show: false, name: ConnectionPoolConfigurationInfo.MaxIdleConnectionsPercent}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: ConnectionPoolConfigurationInfo.MaxIdleConnectionsPercent, normalize: typed}
+      ConnectionPoolConfigurationInfo.SessionPinningFilters[]:
+        model: {include: false}
+        display: {show: false, name: 'ConnectionPoolConfigurationInfo.SessionPinningFilters[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: 'ConnectionPoolConfigurationInfo.SessionPinningFilters[]', normalize: typed}
+      DBClusterIdentifiers[]:
+        model: {include: false}
+        display: {show: false, name: 'DBClusterIdentifiers[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: 'DBClusterIdentifiers[]', normalize: typed}
+      DBInstanceIdentifiers[]:
+        model: {include: false}
+        display: {show: false, name: 'DBInstanceIdentifiers[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: 'DBInstanceIdentifiers[]', normalize: typed}
+      DBProxyName:
+        model: {include: false}
+        display: {show: false, name: DBProxyName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbproxytargetgroup, path: DBProxyName, normalize: typed}
+  RDS.DBSubnetGroup:
+    properties:
+      DBSubnetGroupName:
+        model: {include: false}
+        display: {show: false, name: DBSubnetGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-dbsubnetgroup, path: DBSubnetGroupName, normalize: typed}
+      DBSubnetGroupDescription:
+        model: {include: false}
+        display: {show: false, name: DBSubnetGroupDescription}
+        access: [read-write]
+        aws: {getter: provider-rds-dbsubnetgroup, path: DBSubnetGroupDescription, normalize: typed}
+      SubnetIds[]:
+        model: {include: false}
+        display: {show: false, name: 'SubnetIds[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbsubnetgroup, path: 'SubnetIds[]', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbsubnetgroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-dbsubnetgroup, path: 'Tags[].Value', normalize: typed}
+  RDS.OptionGroup:
+    properties:
+      OptionGroupName:
+        model: {include: false}
+        display: {show: false, name: OptionGroupName}
+        access: [create-only]
+        aws: {getter: provider-rds-optiongroup, path: OptionGroupName, normalize: typed}
+      EngineName:
+        model: {include: false}
+        display: {show: false, name: EngineName}
+        access: [create-only]
+        aws: {getter: provider-rds-optiongroup, path: EngineName, normalize: typed}
+      MajorEngineVersion:
+        model: {include: false}
+        display: {show: false, name: MajorEngineVersion}
+        access: [create-only]
+        aws: {getter: provider-rds-optiongroup, path: MajorEngineVersion, normalize: typed}
+      OptionConfigurations[].DBSecurityGroupMemberships[]:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].DBSecurityGroupMemberships[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].DBSecurityGroupMemberships[]', normalize: typed}
+      OptionConfigurations[].OptionName:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].OptionName'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].OptionName', normalize: typed}
+      OptionConfigurations[].OptionSettings[].Name:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].OptionSettings[].Name'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].OptionSettings[].Name', normalize: typed}
+      OptionConfigurations[].OptionSettings[].Value:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].OptionSettings[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].OptionSettings[].Value', normalize: typed}
+      OptionConfigurations[].OptionVersion:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].OptionVersion'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].OptionVersion', normalize: typed}
+      OptionConfigurations[].Port:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].Port'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].Port', normalize: typed}
+      OptionConfigurations[].VpcSecurityGroupMemberships[]:
+        model: {include: false}
+        display: {show: false, name: 'OptionConfigurations[].VpcSecurityGroupMemberships[]'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'OptionConfigurations[].VpcSecurityGroupMemberships[]', normalize: typed}
+      OptionGroupDescription:
+        model: {include: false}
+        display: {show: false, name: OptionGroupDescription}
+        access: [create-only]
+        aws: {getter: provider-rds-optiongroup, path: OptionGroupDescription, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-rds-optiongroup, path: 'Tags[].Value', normalize: typed}

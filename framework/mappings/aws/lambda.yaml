@@ -1,0 +1,465 @@
+version: 3
+service: lambda
+getters:
+  provider-lambda-eventinvokeconfig:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Lambda.EventInvokeConfig
+    identifier: [/properties/FunctionName, /properties/Qualifier]
+  provider-lambda-eventsourcemapping:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Lambda.EventSourceMapping
+    identifier: [/properties/Id]
+  base:
+    kind: adapter
+    resources: [Lambda.Function]
+  sdk-lambda-function:
+    kind: sdk
+    service: lambda
+    operation: get_function
+    result: $
+    resourceType: Lambda.Function
+  provider-lambda-function:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Lambda.Function
+    identifier: [/properties/FunctionName]
+  recursion:
+    kind: adapter
+    resources: [Lambda.Function]
+  permission:
+    kind: adapter
+    resources: [Lambda.Permission]
+  provider-lambda-permission:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Lambda.Permission
+    identifier: [/properties/FunctionName, /properties/Id]
+resourceTypes:
+  Lambda.EventInvokeConfig:
+    properties:
+      DestinationConfig.OnFailure.Destination:
+        model: {include: false}
+        display: {show: false, name: DestinationConfig.OnFailure.Destination}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: DestinationConfig.OnFailure.Destination, normalize: typed}
+      DestinationConfig.OnSuccess.Destination:
+        model: {include: false}
+        display: {show: false, name: DestinationConfig.OnSuccess.Destination}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: DestinationConfig.OnSuccess.Destination, normalize: typed}
+      FunctionName:
+        model: {include: false}
+        display: {show: false, name: FunctionName}
+        access: [create-only]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: FunctionName, normalize: typed}
+      MaximumEventAgeInSeconds:
+        model: {include: false}
+        display: {show: false, name: MaximumEventAgeInSeconds}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: MaximumEventAgeInSeconds, normalize: typed}
+      MaximumRetryAttempts:
+        model: {include: false}
+        display: {show: false, name: MaximumRetryAttempts}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: MaximumRetryAttempts, normalize: typed}
+      Qualifier:
+        model: {include: false}
+        display: {show: false, name: Qualifier}
+        access: [create-only]
+        aws: {getter: provider-lambda-eventinvokeconfig, path: Qualifier, normalize: typed}
+  Lambda.EventSourceMapping:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-lambda-eventsourcemapping, path: Id, normalize: typed}
+      BatchSize:
+        model: {include: false}
+        display: {show: false, name: BatchSize}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: BatchSize, normalize: typed}
+      BisectBatchOnFunctionError:
+        model: {include: false}
+        display: {show: false, name: BisectBatchOnFunctionError}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: BisectBatchOnFunctionError, normalize: typed}
+      DestinationConfig.OnFailure.Destination:
+        model: {include: false}
+        display: {show: false, name: DestinationConfig.OnFailure.Destination}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: DestinationConfig.OnFailure.Destination, normalize: typed}
+      Enabled:
+        model: {include: false}
+        display: {show: false, name: Enabled}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: Enabled, normalize: typed}
+      EventSourceArn:
+        model: {include: false}
+        display: {show: false, name: EventSourceArn}
+        access: [create-only]
+        aws: {getter: provider-lambda-eventsourcemapping, path: EventSourceArn, normalize: typed}
+      FilterCriteria.Filters[].Pattern:
+        model: {include: false}
+        display: {show: false, name: 'FilterCriteria.Filters[].Pattern'}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: 'FilterCriteria.Filters[].Pattern', normalize: typed}
+      FunctionName:
+        model: {include: false}
+        display: {show: false, name: FunctionName}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: FunctionName, normalize: typed}
+      FunctionResponseTypes:
+        model: {include: false}
+        display: {show: false, name: FunctionResponseTypes}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: FunctionResponseTypes, normalize: typed}
+      KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: KmsKeyArn}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: KmsKeyArn, normalize: typed}
+      LoggingConfig.SystemLogLevel:
+        model: {include: false}
+        display: {show: false, name: LoggingConfig.SystemLogLevel}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: LoggingConfig.SystemLogLevel, normalize: typed}
+      MaximumBatchingWindowInSeconds:
+        model: {include: false}
+        display: {show: false, name: MaximumBatchingWindowInSeconds}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: MaximumBatchingWindowInSeconds, normalize: typed}
+      MaximumRecordAgeInSeconds:
+        model: {include: false}
+        display: {show: false, name: MaximumRecordAgeInSeconds}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: MaximumRecordAgeInSeconds, normalize: typed}
+      MaximumRetryAttempts:
+        model: {include: false}
+        display: {show: false, name: MaximumRetryAttempts}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: MaximumRetryAttempts, normalize: typed}
+      ParallelizationFactor:
+        model: {include: false}
+        display: {show: false, name: ParallelizationFactor}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: ParallelizationFactor, normalize: typed}
+      Queues:
+        model: {include: false}
+        display: {show: false, name: Queues}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: Queues, normalize: typed}
+      ScalingConfig.MaximumConcurrency:
+        model: {include: false}
+        display: {show: false, name: ScalingConfig.MaximumConcurrency}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: ScalingConfig.MaximumConcurrency, normalize: typed}
+      SourceAccessConfigurations[].Type:
+        model: {include: false}
+        display: {show: false, name: 'SourceAccessConfigurations[].Type'}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: 'SourceAccessConfigurations[].Type', normalize: typed}
+      SourceAccessConfigurations[].URI:
+        model: {include: false}
+        display: {show: false, name: 'SourceAccessConfigurations[].URI'}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: 'SourceAccessConfigurations[].URI', normalize: typed}
+      StartingPosition:
+        model: {include: false}
+        display: {show: false, name: StartingPosition}
+        access: [create-only]
+        aws: {getter: provider-lambda-eventsourcemapping, path: StartingPosition, normalize: typed}
+      StartingPositionTimestamp:
+        model: {include: false}
+        display: {show: false, name: StartingPositionTimestamp}
+        access: [create-only]
+        aws: {getter: provider-lambda-eventsourcemapping, path: StartingPositionTimestamp, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: 'Tags[].Value', normalize: typed}
+      Topics:
+        model: {include: false}
+        display: {show: false, name: Topics}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: Topics, normalize: typed}
+      TumblingWindowInSeconds:
+        model: {include: false}
+        display: {show: false, name: TumblingWindowInSeconds}
+        access: [read-write]
+        aws: {getter: provider-lambda-eventsourcemapping, path: TumblingWindowInSeconds, normalize: typed}
+  Lambda.Function:
+    identity:
+      getter: base
+      idPath: Configuration.FunctionName
+      arnPath: Configuration.FunctionArn
+      nameProperty: FunctionName
+    properties:
+      FunctionName:
+        model: {include: true}
+        display: {show: true, name: FunctionName}
+        access: [create-only]
+        aws: {getter: base, path: Configuration.FunctionName, normalize: typed}
+      Architectures:
+        model: {include: true}
+        display: {show: true, name: Architectures}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.Architectures, normalize: typed}
+      Code.ImageUri:
+        model: {include: false}
+        display: {show: false, name: Code.ImageUri}
+        access: [write-only]
+        aws: {getter: sdk-lambda-function, path: Code.ImageUri, normalize: typed}
+      Code.S3Bucket:
+        model: {include: true}
+        display: {show: true, name: Code.S3Bucket}
+        access: [write-only]
+        aws: {getter: base, path: Code.ResolvedS3Object.S3Bucket, normalize: name}
+      Code.S3Key:
+        model: {include: true}
+        display: {show: true, name: Code.S3Key}
+        access: [write-only]
+        aws: {getter: base, path: Code.ResolvedS3Object.S3Key, normalize: typed}
+      Code.S3ObjectVersion:
+        model: {include: false}
+        display: {show: false, name: Code.S3ObjectVersion}
+        access: [write-only]
+        aws: {getter: sdk-lambda-function, path: Code.ResolvedS3Object.S3ObjectVersion, normalize: typed}
+      Code.SourceKMSKeyArn:
+        model: {include: false}
+        display: {show: false, name: Code.SourceKMSKeyArn}
+        access: [write-only]
+        aws: {getter: sdk-lambda-function, path: Code.SourceKMSKeyArn, normalize: typed}
+      CodeSigningConfigArn:
+        model: {include: false}
+        display: {show: false, name: CodeSigningConfigArn}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: CodeSigningConfigArn, normalize: typed}
+      DeadLetterConfig.TargetArn:
+        model: {include: false}
+        display: {show: false, name: DeadLetterConfig.TargetArn}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: DeadLetterConfig.TargetArn, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: Description, normalize: typed}
+      Environment.Variables:
+        model: {include: false}
+        display: {show: false, name: Environment.Variables}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: Environment.Variables, normalize: typed}
+      EphemeralStorage.Size:
+        model: {include: true}
+        display: {show: true, name: EphemeralStorage.Size}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.EphemeralStorage.Size, normalize: typed}
+      FileSystemConfigs[].Arn:
+        model: {include: false}
+        display: {show: false, name: 'FileSystemConfigs[].Arn'}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: 'FileSystemConfigs[].Arn', normalize: typed}
+      FileSystemConfigs[].LocalMountPath:
+        model: {include: false}
+        display: {show: false, name: 'FileSystemConfigs[].LocalMountPath'}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: 'FileSystemConfigs[].LocalMountPath', normalize: typed}
+      Handler:
+        model: {include: true}
+        display: {show: true, name: Handler}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.Handler, normalize: typed}
+      ImageConfig.Command:
+        model: {include: false}
+        display: {show: false, name: ImageConfig.Command}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: ImageConfig.Command, normalize: typed}
+      ImageConfig.EntryPoint:
+        model: {include: false}
+        display: {show: false, name: ImageConfig.EntryPoint}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: ImageConfig.EntryPoint, normalize: typed}
+      ImageConfig.WorkingDirectory:
+        model: {include: false}
+        display: {show: false, name: ImageConfig.WorkingDirectory}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: ImageConfig.WorkingDirectory, normalize: typed}
+      KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: KmsKeyArn}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: KmsKeyArn, normalize: typed}
+      Layers:
+        model: {include: false}
+        display: {show: false, name: Layers}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: Layers, normalize: typed}
+      LoggingConfig.ApplicationLogLevel:
+        model: {include: false}
+        display: {show: false, name: LoggingConfig.ApplicationLogLevel}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: LoggingConfig.ApplicationLogLevel, normalize: typed}
+      LoggingConfig.LogFormat:
+        model: {include: true}
+        display: {show: true, name: LoggingConfig.LogFormat}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.LoggingConfig.LogFormat, normalize: typed}
+      LoggingConfig.LogGroup:
+        model: {include: true}
+        display: {show: true, name: LoggingConfig.LogGroup}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.LoggingConfig.LogGroup, normalize: name}
+      LoggingConfig.SystemLogLevel:
+        model: {include: false}
+        display: {show: false, name: LoggingConfig.SystemLogLevel}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: LoggingConfig.SystemLogLevel, normalize: typed}
+      MemorySize:
+        model: {include: true}
+        display: {show: true, name: MemorySize}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.MemorySize, normalize: typed}
+      PackageType:
+        model: {include: true}
+        display: {show: true, name: PackageType}
+        access: [create-only]
+        aws: {getter: base, path: Configuration.PackageType, normalize: typed}
+      RecursiveLoop:
+        model: {include: true}
+        display: {show: true, name: RecursiveLoop}
+        access: [read-write]
+        aws: {getter: recursion, path: RecursiveLoop, normalize: typed}
+      ReservedConcurrentExecutions:
+        model: {include: true}
+        display: {show: true, name: ReservedConcurrentExecutions}
+        access: [read-write]
+        aws: {getter: base, path: Concurrency.ReservedConcurrentExecutions, normalize: typed}
+      Role:
+        model: {include: true}
+        display: {show: true, name: Role}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.Role, normalize: arn}
+      Runtime:
+        model: {include: true}
+        display: {show: true, name: Runtime}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.Runtime, normalize: typed}
+      RuntimeManagementConfig.RuntimeVersionArn:
+        model: {include: false}
+        display: {show: false, name: RuntimeManagementConfig.RuntimeVersionArn}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: RuntimeManagementConfig.RuntimeVersionArn, normalize: typed}
+      RuntimeManagementConfig.UpdateRuntimeOn:
+        model: {include: false}
+        display: {show: false, name: RuntimeManagementConfig.UpdateRuntimeOn}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: RuntimeManagementConfig.UpdateRuntimeOn, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-lambda-function, path: 'Tags[].Value', normalize: typed}
+      Timeout:
+        model: {include: true}
+        display: {show: true, name: Timeout}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.Timeout, normalize: typed}
+      TracingConfig.Mode:
+        model: {include: true}
+        display: {show: true, name: TracingConfig.Mode}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.TracingConfig.Mode, normalize: typed}
+      VpcConfig.Ipv6AllowedForDualStack:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.Ipv6AllowedForDualStack}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.VpcConfig.Ipv6AllowedForDualStack, normalize: typed, default: false}
+      VpcConfig.SecurityGroupIds:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.SecurityGroupIds}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.VpcConfig.SecurityGroupIds, normalize: id}
+      VpcConfig.SubnetIds:
+        model: {include: true}
+        display: {show: true, name: VpcConfig.SubnetIds}
+        access: [read-write]
+        aws: {getter: base, path: Configuration.VpcConfig.SubnetIds, normalize: id}
+  Lambda.Permission:
+    identity:
+      getter: permission
+      idPath: Sid
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: permission, path: Sid, normalize: typed}
+      Action:
+        model: {include: true}
+        display: {show: true, name: Action}
+        access: [create-only]
+        aws: {getter: permission, path: Action, normalize: typed}
+      EventSourceToken:
+        model: {include: false}
+        display: {show: false, name: EventSourceToken}
+        access: [create-only]
+        aws: {getter: provider-lambda-permission, path: EventSourceToken, normalize: typed}
+      FunctionName:
+        model: {include: true}
+        display: {show: true, name: FunctionName}
+        access: [create-only]
+        aws: {getter: permission, path: FunctionName, normalize: name}
+      FunctionUrlAuthType:
+        model: {include: false}
+        display: {show: false, name: FunctionUrlAuthType}
+        access: [create-only]
+        aws: {getter: provider-lambda-permission, path: FunctionUrlAuthType, normalize: typed}
+      InvokedViaFunctionUrl:
+        model: {include: false}
+        display: {show: false, name: InvokedViaFunctionUrl}
+        access: [create-only]
+        aws: {getter: provider-lambda-permission, path: InvokedViaFunctionUrl, normalize: typed}
+      Principal:
+        model: {include: true}
+        display: {show: true, name: Principal}
+        access: [create-only]
+        aws: {getter: permission, path: Principal, normalize: typed}
+      PrincipalOrgID:
+        model: {include: false}
+        display: {show: false, name: PrincipalOrgID}
+        access: [create-only]
+        aws: {getter: provider-lambda-permission, path: PrincipalOrgID, normalize: typed}
+      SourceAccount:
+        model: {include: true}
+        display: {show: true, name: SourceAccount}
+        access: [create-only]
+        aws: {getter: permission, path: SourceAccount, normalize: typed}
+      SourceArn:
+        model: {include: true}
+        display: {show: true, name: SourceArn}
+        access: [create-only]
+        aws: {getter: permission, path: SourceArn, normalize: arn}

@@ -1,0 +1,430 @@
+version: 3
+service: eventbridge
+getters:
+  provider-events-eventbus:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Events.EventBus
+    identifier: [/properties/Name]
+  base:
+    kind: adapter
+    resources: [Events.Rule]
+  provider-events-rule:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Events.Rule
+    identifier: [/properties/Arn]
+  targets:
+    kind: adapter
+    resources: [Events.Rule]
+  schedule:
+    kind: adapter
+    resources: [Scheduler.Schedule]
+  provider-scheduler-schedule:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Scheduler.Schedule
+    identifier: [/properties/Name]
+resourceTypes:
+  Events.EventBus:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-events-eventbus, path: Name, normalize: typed}
+      DeadLetterConfig.Arn:
+        model: {include: false}
+        display: {show: false, name: DeadLetterConfig.Arn}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: DeadLetterConfig.Arn, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: Description, normalize: typed}
+      EventSourceName:
+        model: {include: false}
+        display: {show: false, name: EventSourceName}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Events.EventBus.EventSourceName
+          constraint: Pinned provider schema declares /properties/EventSourceName write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      KmsKeyIdentifier:
+        model: {include: false}
+        display: {show: false, name: KmsKeyIdentifier}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: KmsKeyIdentifier, normalize: typed}
+      LogConfig.IncludeDetail:
+        model: {include: false}
+        display: {show: false, name: LogConfig.IncludeDetail}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: LogConfig.IncludeDetail, normalize: typed}
+      LogConfig.Level:
+        model: {include: false}
+        display: {show: false, name: LogConfig.Level}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: LogConfig.Level, normalize: typed}
+      Policy:
+        model: {include: false}
+        display: {show: false, name: Policy}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: Policy, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-events-eventbus, path: 'Tags[].Value', normalize: typed}
+  Events.Rule:
+    identity:
+      getter: base
+      idPath: Name
+      arnPath: Arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: base, path: Name, normalize: typed}
+      State:
+        model: {include: true}
+        display: {show: true, name: State}
+        access: [read-write]
+        aws: {getter: base, path: State, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: Description, normalize: typed}
+      EventBusName:
+        model: {include: true}
+        display: {show: true, name: EventBusName}
+        access: [conditional-create-only]
+        aws: {getter: base, path: EventBusName, normalize: typed}
+      EventPattern:
+        model: {include: true}
+        display: {show: true, name: EventPattern}
+        access: [read-write]
+        aws: {getter: base, path: EventPattern, normalize: json}
+      RoleArn:
+        model: {include: false}
+        display: {show: false, name: RoleArn}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: RoleArn, normalize: typed}
+      ScheduleExpression:
+        model: {include: false}
+        display: {show: false, name: ScheduleExpression}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: ScheduleExpression, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Tags[].Value', normalize: typed}
+      Targets[].Arn:
+        model: {include: true}
+        display: {show: true, name: 'Targets[].Arn'}
+        access: [read-write]
+        aws: {getter: targets, path: 'Targets[].Arn', normalize: arn}
+      Targets[].DeadLetterConfig.Arn:
+        model: {include: true}
+        display: {show: true, name: 'Targets[].DeadLetterConfig.Arn'}
+        access: [read-write]
+        aws: {getter: targets, path: 'Targets[].DeadLetterConfig.Arn', normalize: arn}
+      Targets[].HttpParameters.HeaderParameters:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].HttpParameters.HeaderParameters'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].HttpParameters.HeaderParameters', normalize: typed}
+      Targets[].HttpParameters.PathParameterValues:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].HttpParameters.PathParameterValues'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].HttpParameters.PathParameterValues', normalize: typed}
+      Targets[].HttpParameters.QueryStringParameters:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].HttpParameters.QueryStringParameters'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].HttpParameters.QueryStringParameters', normalize: typed}
+      Targets[].Id:
+        model: {include: true}
+        display: {show: true, name: 'Targets[].Id'}
+        access: [read-write]
+        aws: {getter: targets, path: 'Targets[].Id', normalize: typed}
+      Targets[].Input:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].Input'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].Input', normalize: typed}
+      Targets[].InputPath:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].InputPath'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].InputPath', normalize: typed}
+      Targets[].InputTransformer.InputPathsMap:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].InputTransformer.InputPathsMap'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].InputTransformer.InputPathsMap', normalize: typed}
+      Targets[].InputTransformer.InputTemplate:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].InputTransformer.InputTemplate'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].InputTransformer.InputTemplate', normalize: typed}
+      Targets[].RetryPolicy.MaximumEventAgeInSeconds:
+        model: {include: true}
+        display: {show: true, name: 'Targets[].RetryPolicy.MaximumEventAgeInSeconds'}
+        access: [read-write]
+        aws: {getter: targets, path: 'Targets[].RetryPolicy.MaximumEventAgeInSeconds', normalize: typed}
+      Targets[].RetryPolicy.MaximumRetryAttempts:
+        model: {include: true}
+        display: {show: true, name: 'Targets[].RetryPolicy.MaximumRetryAttempts'}
+        access: [read-write]
+        aws: {getter: targets, path: 'Targets[].RetryPolicy.MaximumRetryAttempts', normalize: typed}
+      Targets[].RoleArn:
+        model: {include: false}
+        display: {show: false, name: 'Targets[].RoleArn'}
+        access: [read-write]
+        aws: {getter: provider-events-rule, path: 'Targets[].RoleArn', normalize: typed}
+  Scheduler.Schedule:
+    identity:
+      getter: schedule
+      idPath: Name
+      arnPath: Arn
+      nameProperty: Name
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: schedule, path: Name, normalize: typed}
+      State:
+        model: {include: true}
+        display: {show: true, name: State}
+        access: [read-write]
+        aws: {getter: schedule, path: State, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Description, normalize: typed}
+      EndDate:
+        model: {include: false}
+        display: {show: false, name: EndDate}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: EndDate, normalize: typed}
+      FlexibleTimeWindow.Mode:
+        model: {include: true}
+        display: {show: true, name: FlexibleTimeWindow.Mode}
+        access: [read-write]
+        aws: {getter: schedule, path: FlexibleTimeWindow.Mode, normalize: typed}
+      FlexibleTimeWindow.MaximumWindowInMinutes:
+        model: {include: false}
+        display: {show: false, name: FlexibleTimeWindow.MaximumWindowInMinutes}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: FlexibleTimeWindow.MaximumWindowInMinutes, normalize: typed}
+      GroupName:
+        model: {include: false}
+        display: {show: false, name: GroupName}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: GroupName, normalize: typed}
+      KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: KmsKeyArn}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: KmsKeyArn, normalize: typed}
+      ScheduleExpression:
+        model: {include: true}
+        display: {show: true, name: ScheduleExpression}
+        access: [read-write]
+        aws: {getter: schedule, path: ScheduleExpression, normalize: typed}
+      ScheduleExpressionTimezone:
+        model: {include: true}
+        display: {show: true, name: ScheduleExpressionTimezone}
+        access: [read-write]
+        aws: {getter: schedule, path: ScheduleExpressionTimezone, normalize: typed}
+      StartDate:
+        model: {include: false}
+        display: {show: false, name: StartDate}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: StartDate, normalize: typed}
+      Target.Arn:
+        model: {include: true}
+        display: {show: true, name: Target.Arn}
+        access: [read-write]
+        aws: {getter: schedule, path: Target.Arn, normalize: arn}
+      Target.RoleArn:
+        model: {include: true}
+        display: {show: true, name: Target.RoleArn}
+        access: [read-write]
+        aws: {getter: schedule, path: Target.RoleArn, normalize: arn}
+      Target.DeadLetterConfig.Arn:
+        model: {include: false}
+        display: {show: false, name: Target.DeadLetterConfig.Arn}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.DeadLetterConfig.Arn, normalize: typed}
+      Target.RetryPolicy.MaximumEventAgeInSeconds:
+        model: {include: true}
+        display: {show: true, name: Target.RetryPolicy.MaximumEventAgeInSeconds}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.RetryPolicy.MaximumEventAgeInSeconds, normalize: typed}
+      Target.RetryPolicy.MaximumRetryAttempts:
+        model: {include: true}
+        display: {show: true, name: Target.RetryPolicy.MaximumRetryAttempts}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.RetryPolicy.MaximumRetryAttempts, normalize: typed}
+      Target.Input:
+        model: {include: false}
+        display: {show: false, name: Target.Input}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.Input, normalize: typed}
+      Target.EcsParameters.TaskDefinitionArn:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.TaskDefinitionArn}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.TaskDefinitionArn, normalize: typed}
+      Target.EcsParameters.TaskCount:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.TaskCount}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.TaskCount, normalize: typed}
+      Target.EcsParameters.LaunchType:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.LaunchType}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.LaunchType, normalize: typed}
+      Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]', normalize: typed}
+      Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]', normalize: typed}
+      Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp, normalize: typed}
+      Target.EcsParameters.PlatformVersion:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.PlatformVersion}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.PlatformVersion, normalize: typed}
+      Target.EcsParameters.Group:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.Group}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.Group, normalize: typed}
+      Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider', normalize: typed}
+      Target.EcsParameters.CapacityProviderStrategy[].Weight:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].Weight'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Weight', normalize: typed}
+      Target.EcsParameters.CapacityProviderStrategy[].Base:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].Base'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Base', normalize: typed}
+      Target.EcsParameters.EnableECSManagedTags:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.EnableECSManagedTags}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.EnableECSManagedTags, normalize: typed}
+      Target.EcsParameters.EnableExecuteCommand:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.EnableExecuteCommand}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.EnableExecuteCommand, normalize: typed}
+      Target.EcsParameters.PlacementConstraints[].Type:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.PlacementConstraints[].Type'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementConstraints[].Type', normalize: typed}
+      Target.EcsParameters.PlacementConstraints[].Expression:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.PlacementConstraints[].Expression'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementConstraints[].Expression', normalize: typed}
+      Target.EcsParameters.PlacementStrategy[].Type:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.PlacementStrategy[].Type'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementStrategy[].Type', normalize: typed}
+      Target.EcsParameters.PlacementStrategy[].Field:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.PlacementStrategy[].Field'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementStrategy[].Field', normalize: typed}
+      Target.EcsParameters.PropagateTags:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.PropagateTags}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.PropagateTags, normalize: typed}
+      Target.EcsParameters.ReferenceId:
+        model: {include: false}
+        display: {show: false, name: Target.EcsParameters.ReferenceId}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.ReferenceId, normalize: typed}
+      Target.EcsParameters.Tags[]:
+        model: {include: false}
+        display: {show: false, name: 'Target.EcsParameters.Tags[]'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.Tags[]', normalize: typed}
+      Target.EventBridgeParameters.DetailType:
+        model: {include: false}
+        display: {show: false, name: Target.EventBridgeParameters.DetailType}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EventBridgeParameters.DetailType, normalize: typed}
+      Target.EventBridgeParameters.Source:
+        model: {include: false}
+        display: {show: false, name: Target.EventBridgeParameters.Source}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.EventBridgeParameters.Source, normalize: typed}
+      Target.KinesisParameters.PartitionKey:
+        model: {include: false}
+        display: {show: false, name: Target.KinesisParameters.PartitionKey}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.KinesisParameters.PartitionKey, normalize: typed}
+      Target.SageMakerPipelineParameters.PipelineParameterList[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Name'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Name', normalize: typed}
+      Target.SageMakerPipelineParameters.PipelineParameterList[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Value'}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Value', normalize: typed}
+      Target.SqsParameters.MessageGroupId:
+        model: {include: false}
+        display: {show: false, name: Target.SqsParameters.MessageGroupId}
+        access: [read-write]
+        aws: {getter: provider-scheduler-schedule, path: Target.SqsParameters.MessageGroupId, normalize: typed}

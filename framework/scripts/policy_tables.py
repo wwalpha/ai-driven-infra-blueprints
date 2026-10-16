@@ -349,9 +349,6 @@ def policy_document_lines(document, policy):
         columns.extend(sorted({column for flat in flattened for column in flat if column == key or column.startswith(key + ".")}))
     if policy.property_name == "IAM.Role.AssumeRolePolicyDocument" and "Version" in document:
         result.extend([*table(["Version"], [[code(document["Version"])]]), ""])
-    for key in ('Id', 'Version'):
-        if key in document and (key == 'Id' or (document[key] != '2012-10-17' and policy.property_name != 'IAM.Role.AssumeRolePolicyDocument')):
-            result.extend([*table([key], [[code(document[key])]]), ''])
     result.extend(table(["No.", *columns], [
         [str(number), *(flat.get(column, "—") for column in columns)]
         for number, flat in enumerate(flattened, 1)

@@ -1,0 +1,447 @@
+version: 3
+service: network-firewall
+getters:
+  provider-networkfirewall-firewall:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: NetworkFirewall.Firewall
+    identifier: [/properties/FirewallArn]
+  provider-networkfirewall-firewallpolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: NetworkFirewall.FirewallPolicy
+    identifier: [/properties/FirewallPolicyArn]
+  provider-networkfirewall-loggingconfiguration:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: NetworkFirewall.LoggingConfiguration
+    identifier: [/properties/FirewallArn]
+  provider-networkfirewall-rulegroup:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: NetworkFirewall.RuleGroup
+    identifier: [/properties/RuleGroupArn]
+resourceTypes:
+  NetworkFirewall.Firewall:
+    properties:
+      FirewallName:
+        model: {include: false}
+        display: {show: false, name: FirewallName}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-firewall, path: FirewallName, normalize: typed}
+      AvailabilityZoneChangeProtection:
+        model: {include: false}
+        display: {show: false, name: AvailabilityZoneChangeProtection}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: AvailabilityZoneChangeProtection, normalize: typed}
+      AvailabilityZoneMappings[].AvailabilityZone:
+        model: {include: false}
+        display: {show: false, name: 'AvailabilityZoneMappings[].AvailabilityZone'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: 'AvailabilityZoneMappings[].AvailabilityZone', normalize: typed}
+      DeleteProtection:
+        model: {include: false}
+        display: {show: false, name: DeleteProtection}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: DeleteProtection, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: Description, normalize: typed}
+      EnabledAnalysisTypes:
+        model: {include: false}
+        display: {show: false, name: EnabledAnalysisTypes}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: EnabledAnalysisTypes, normalize: typed}
+      FirewallPolicyArn:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicyArn}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: FirewallPolicyArn, normalize: typed}
+      FirewallPolicyChangeProtection:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicyChangeProtection}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: FirewallPolicyChangeProtection, normalize: typed}
+      SubnetChangeProtection:
+        model: {include: false}
+        display: {show: false, name: SubnetChangeProtection}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: SubnetChangeProtection, normalize: typed}
+      SubnetMappings[].IPAddressType:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].IPAddressType'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: 'SubnetMappings[].IPAddressType', normalize: typed}
+      SubnetMappings[].SubnetId:
+        model: {include: false}
+        display: {show: false, name: 'SubnetMappings[].SubnetId'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: 'SubnetMappings[].SubnetId', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: 'Tags[].Value', normalize: typed}
+      TransitGatewayId:
+        model: {include: false}
+        display: {show: false, name: TransitGatewayId}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewall, path: TransitGatewayId, normalize: typed}
+      VpcId:
+        model: {include: false}
+        display: {show: false, name: VpcId}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-firewall, path: VpcId, normalize: typed}
+  NetworkFirewall.FirewallPolicy:
+    properties:
+      FirewallPolicyName:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicyName}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicyName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: Description, normalize: typed}
+      FirewallPolicy.EnableTLSSessionHolding:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.EnableTLSSessionHolding}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.EnableTLSSessionHolding, normalize: typed}
+      FirewallPolicy.PolicyVariables.RuleVariables:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.PolicyVariables.RuleVariables}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.PolicyVariables.RuleVariables, normalize: typed}
+      FirewallPolicy.StatefulDefaultActions:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatefulDefaultActions}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatefulDefaultActions, normalize: typed}
+      FirewallPolicy.StatefulEngineOptions.FlowTimeouts.TcpIdleTimeoutSeconds:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatefulEngineOptions.FlowTimeouts.TcpIdleTimeoutSeconds}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatefulEngineOptions.FlowTimeouts.TcpIdleTimeoutSeconds, normalize: typed}
+      FirewallPolicy.StatefulEngineOptions.RuleOrder:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatefulEngineOptions.RuleOrder}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatefulEngineOptions.RuleOrder, normalize: typed}
+      FirewallPolicy.StatefulEngineOptions.StreamExceptionPolicy:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatefulEngineOptions.StreamExceptionPolicy}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatefulEngineOptions.StreamExceptionPolicy, normalize: typed}
+      FirewallPolicy.StatefulRuleGroupReferences[].DeepThreatInspection:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatefulRuleGroupReferences[].DeepThreatInspection'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatefulRuleGroupReferences[].DeepThreatInspection', normalize: typed}
+      FirewallPolicy.StatefulRuleGroupReferences[].Override.Action:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatefulRuleGroupReferences[].Override.Action'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatefulRuleGroupReferences[].Override.Action', normalize: typed}
+      FirewallPolicy.StatefulRuleGroupReferences[].Priority:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatefulRuleGroupReferences[].Priority'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatefulRuleGroupReferences[].Priority', normalize: typed}
+      FirewallPolicy.StatefulRuleGroupReferences[].ResourceArn:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatefulRuleGroupReferences[].ResourceArn'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatefulRuleGroupReferences[].ResourceArn', normalize: typed}
+      FirewallPolicy.StatelessCustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatelessCustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatelessCustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value',
+          normalize: typed}
+      FirewallPolicy.StatelessCustomActions[].ActionName:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatelessCustomActions[].ActionName'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatelessCustomActions[].ActionName', normalize: typed}
+      FirewallPolicy.StatelessDefaultActions:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatelessDefaultActions}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatelessDefaultActions, normalize: typed}
+      FirewallPolicy.StatelessFragmentDefaultActions:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.StatelessFragmentDefaultActions}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.StatelessFragmentDefaultActions, normalize: typed}
+      FirewallPolicy.StatelessRuleGroupReferences[].Priority:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatelessRuleGroupReferences[].Priority'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatelessRuleGroupReferences[].Priority', normalize: typed}
+      FirewallPolicy.StatelessRuleGroupReferences[].ResourceArn:
+        model: {include: false}
+        display: {show: false, name: 'FirewallPolicy.StatelessRuleGroupReferences[].ResourceArn'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'FirewallPolicy.StatelessRuleGroupReferences[].ResourceArn', normalize: typed}
+      FirewallPolicy.TLSInspectionConfigurationArn:
+        model: {include: false}
+        display: {show: false, name: FirewallPolicy.TLSInspectionConfigurationArn}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: FirewallPolicy.TLSInspectionConfigurationArn, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-firewallpolicy, path: 'Tags[].Value', normalize: typed}
+  NetworkFirewall.LoggingConfiguration:
+    properties:
+      EnableMonitoringDashboard:
+        model: {include: false}
+        display: {show: false, name: EnableMonitoringDashboard}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: EnableMonitoringDashboard, normalize: typed}
+      FirewallArn:
+        model: {include: false}
+        display: {show: false, name: FirewallArn}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: FirewallArn, normalize: typed}
+      FirewallName:
+        model: {include: false}
+        display: {show: false, name: FirewallName}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: FirewallName, normalize: typed}
+      LoggingConfiguration.LogDestinationConfigs[].LogDestination:
+        model: {include: false}
+        display: {show: false, name: 'LoggingConfiguration.LogDestinationConfigs[].LogDestination'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: 'LoggingConfiguration.LogDestinationConfigs[].LogDestination', normalize: typed}
+      LoggingConfiguration.LogDestinationConfigs[].LogDestinationType:
+        model: {include: false}
+        display: {show: false, name: 'LoggingConfiguration.LogDestinationConfigs[].LogDestinationType'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: 'LoggingConfiguration.LogDestinationConfigs[].LogDestinationType', normalize: typed}
+      LoggingConfiguration.LogDestinationConfigs[].LogType:
+        model: {include: false}
+        display: {show: false, name: 'LoggingConfiguration.LogDestinationConfigs[].LogType'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-loggingconfiguration, path: 'LoggingConfiguration.LogDestinationConfigs[].LogType', normalize: typed}
+  NetworkFirewall.RuleGroup:
+    properties:
+      RuleGroupName:
+        model: {include: false}
+        display: {show: false, name: RuleGroupName}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroupName, normalize: typed}
+      Capacity:
+        model: {include: false}
+        display: {show: false, name: Capacity}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-rulegroup, path: Capacity, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: Description, normalize: typed}
+      RuleGroup.ReferenceSets.IPSetReferences:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.ReferenceSets.IPSetReferences}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.ReferenceSets.IPSetReferences, normalize: typed}
+      RuleGroup.RuleVariables.IPSets:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RuleVariables.IPSets}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RuleVariables.IPSets, normalize: typed}
+      RuleGroup.RuleVariables.PortSets:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RuleVariables.PortSets}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RuleVariables.PortSets, normalize: typed}
+      RuleGroup.RulesSource.RulesSourceList.GeneratedRulesType:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RulesSource.RulesSourceList.GeneratedRulesType}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RulesSource.RulesSourceList.GeneratedRulesType, normalize: typed}
+      RuleGroup.RulesSource.RulesSourceList.TargetTypes:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RulesSource.RulesSourceList.TargetTypes}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RulesSource.RulesSourceList.TargetTypes, normalize: typed}
+      RuleGroup.RulesSource.RulesSourceList.Targets:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RulesSource.RulesSourceList.Targets}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RulesSource.RulesSourceList.Targets, normalize: typed}
+      RuleGroup.RulesSource.RulesString:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.RulesSource.RulesString}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.RulesSource.RulesString, normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Action:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Action'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Action', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.Destination:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.Destination'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.Destination', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.DestinationPort:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.DestinationPort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.DestinationPort', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.Direction:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.Direction'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.Direction', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.Protocol:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.Protocol'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.Protocol', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.Source:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.Source'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.Source', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].Header.SourcePort:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].Header.SourcePort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].Header.SourcePort', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Keyword:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Keyword'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Keyword', normalize: typed}
+      RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Settings:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Settings'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatefulRules[].RuleOptions[].Settings', normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionDefinition.PublishMetricAction.Dimensions[].Value',
+          normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionName:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionName'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.CustomActions[].ActionName', normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].Priority:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].Priority'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].Priority', normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.Actions:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.Actions'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.Actions',
+          normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].FromPort
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].FromPort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].FromPort',
+          normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].ToPort
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].ToPort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.DestinationPorts[].ToPort',
+          normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Destinations[].AddressDefinition
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Destinations[].AddressDefinition'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Destinations[].AddressDefinition',
+          normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Protocols:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Protocols'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Protocols',
+          normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].FromPort
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].FromPort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].FromPort',
+          normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].ToPort:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].ToPort'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.SourcePorts[].ToPort',
+          normalize: typed}
+      ? RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Sources[].AddressDefinition
+      : model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Sources[].AddressDefinition'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.Sources[].AddressDefinition',
+          normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Flags:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Flags'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Flags',
+          normalize: typed}
+      RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Masks:
+        model: {include: false}
+        display: {show: false, name: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Masks'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'RuleGroup.RulesSource.StatelessRulesAndCustomActions.StatelessRules[].RuleDefinition.MatchAttributes.TCPFlags[].Masks',
+          normalize: typed}
+      RuleGroup.StatefulRuleOptions.RuleOrder:
+        model: {include: false}
+        display: {show: false, name: RuleGroup.StatefulRuleOptions.RuleOrder}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: RuleGroup.StatefulRuleOptions.RuleOrder, normalize: typed}
+      SummaryConfiguration.RuleOptions:
+        model: {include: false}
+        display: {show: false, name: SummaryConfiguration.RuleOptions}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: SummaryConfiguration.RuleOptions, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-networkfirewall-rulegroup, path: 'Tags[].Value', normalize: typed}
+      Type:
+        model: {include: false}
+        display: {show: false, name: Type}
+        access: [create-only]
+        aws: {getter: provider-networkfirewall-rulegroup, path: Type, normalize: typed}

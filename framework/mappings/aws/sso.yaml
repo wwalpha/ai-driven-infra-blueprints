@@ -1,0 +1,122 @@
+version: 3
+service: sso
+getters:
+  provider-sso-assignment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSO.Assignment
+    identifier: [/properties/InstanceArn, /properties/TargetId, /properties/TargetType, /properties/PermissionSetArn, /properties/PrincipalType, /properties/PrincipalId]
+  provider-sso-permissionset:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSO.PermissionSet
+    identifier: [/properties/InstanceArn, /properties/PermissionSetArn]
+resourceTypes:
+  SSO.Assignment:
+    properties:
+      InstanceArn:
+        model: {include: false}
+        display: {show: false, name: InstanceArn}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: InstanceArn, normalize: typed}
+      PermissionSetArn:
+        model: {include: false}
+        display: {show: false, name: PermissionSetArn}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: PermissionSetArn, normalize: typed}
+      PrincipalId:
+        model: {include: false}
+        display: {show: false, name: PrincipalId}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: PrincipalId, normalize: typed}
+      PrincipalType:
+        model: {include: false}
+        display: {show: false, name: PrincipalType}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: PrincipalType, normalize: typed}
+      TargetId:
+        model: {include: false}
+        display: {show: false, name: TargetId}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: TargetId, normalize: typed}
+      TargetType:
+        model: {include: false}
+        display: {show: false, name: TargetType}
+        access: [create-only]
+        aws: {getter: provider-sso-assignment, path: TargetType, normalize: typed}
+  SSO.PermissionSet:
+    properties:
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-sso-permissionset, path: Name, normalize: typed}
+      CustomerManagedPolicyReferences[].Name:
+        model: {include: false}
+        display: {show: false, name: 'CustomerManagedPolicyReferences[].Name'}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: 'CustomerManagedPolicyReferences[].Name', normalize: typed}
+      CustomerManagedPolicyReferences[].Path:
+        model: {include: false}
+        display: {show: false, name: 'CustomerManagedPolicyReferences[].Path'}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: 'CustomerManagedPolicyReferences[].Path', normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: Description, normalize: typed}
+      InlinePolicy:
+        model: {include: false}
+        display: {show: false, name: InlinePolicy}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: InlinePolicy, normalize: typed}
+      InstanceArn:
+        model: {include: false}
+        display: {show: false, name: InstanceArn}
+        access: [create-only]
+        aws: {getter: provider-sso-permissionset, path: InstanceArn, normalize: typed}
+      ManagedPolicies:
+        model: {include: false}
+        display: {show: false, name: ManagedPolicies}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: ManagedPolicies, normalize: typed}
+      PermissionsBoundary.CustomerManagedPolicyReference.Name:
+        model: {include: false}
+        display: {show: false, name: PermissionsBoundary.CustomerManagedPolicyReference.Name}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: PermissionsBoundary.CustomerManagedPolicyReference.Name, normalize: typed}
+      PermissionsBoundary.CustomerManagedPolicyReference.Path:
+        model: {include: false}
+        display: {show: false, name: PermissionsBoundary.CustomerManagedPolicyReference.Path}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: PermissionsBoundary.CustomerManagedPolicyReference.Path, normalize: typed}
+      PermissionsBoundary.ManagedPolicyArn:
+        model: {include: false}
+        display: {show: false, name: PermissionsBoundary.ManagedPolicyArn}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: PermissionsBoundary.ManagedPolicyArn, normalize: typed}
+      RelayStateType:
+        model: {include: false}
+        display: {show: false, name: RelayStateType}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: RelayStateType, normalize: typed}
+      SessionDuration:
+        model: {include: false}
+        display: {show: false, name: SessionDuration}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: SessionDuration, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-sso-permissionset, path: 'Tags[].Value', normalize: typed}

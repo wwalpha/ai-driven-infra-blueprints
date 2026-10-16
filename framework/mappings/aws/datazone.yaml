@@ -1,0 +1,1387 @@
+version: 3
+service: datazone
+getters:
+  provider-datazone-connection:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.Connection
+    identifier: [/properties/DomainId, /properties/ConnectionId]
+  sdk-datazone-connection:
+    kind: sdk
+    service: datazone
+    operation: get_connection
+    result: $
+    resourceType: DataZone.Connection
+  provider-datazone-datasource:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.DataSource
+    identifier: [/properties/DomainId, /properties/Id]
+  sdk-datazone-datasource:
+    kind: sdk
+    service: datazone
+    operation: get_data_source
+    result: $
+    resourceType: DataZone.DataSource
+  provider-datazone-domain:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.Domain
+    identifier: [/properties/Id]
+  sdk-datazone-domain:
+    kind: sdk
+    service: datazone
+    operation: get_domain
+    result: $
+    resourceType: DataZone.Domain
+  provider-datazone-environment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.Environment
+    identifier: [/properties/DomainId, /properties/Id]
+  sdk-datazone-environment:
+    kind: sdk
+    service: datazone
+    operation: get_environment
+    result: $
+    resourceType: DataZone.Environment
+  provider-datazone-environmentblueprintconfiguration:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.EnvironmentBlueprintConfiguration
+    identifier: [/properties/DomainId, /properties/EnvironmentBlueprintId]
+  sdk-datazone-environmentblueprintconfiguration:
+    kind: sdk
+    service: datazone
+    operation: get_environment_blueprint_configuration
+    result: $
+    resourceType: DataZone.EnvironmentBlueprintConfiguration
+  provider-datazone-environmentprofile:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.EnvironmentProfile
+    identifier: [/properties/DomainId, /properties/Id]
+  sdk-datazone-environmentprofile:
+    kind: sdk
+    service: datazone
+    operation: get_environment_profile
+    result: $
+    resourceType: DataZone.EnvironmentProfile
+  provider-datazone-owner:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.Owner
+    identifier: [/properties/DomainIdentifier, /properties/EntityType, /properties/EntityIdentifier, /properties/OwnerType, /properties/OwnerIdentifier]
+  sdk-datazone-owner:
+    kind: sdk
+    service: datazone
+    operation: list_entity_owners
+    result: owners[]
+    resourceType: DataZone.Owner
+  provider-datazone-project:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.Project
+    identifier: [/properties/DomainId, /properties/Id]
+  sdk-datazone-project:
+    kind: sdk
+    service: datazone
+    operation: get_project
+    result: $
+    resourceType: DataZone.Project
+  provider-datazone-projectmembership:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.ProjectMembership
+    identifier: [/properties/DomainIdentifier, /properties/MemberIdentifier, /properties/MemberIdentifierType, /properties/ProjectIdentifier]
+  sdk-datazone-projectmembership:
+    kind: sdk
+    service: datazone
+    operation: list_project_memberships
+    result: members[]
+    resourceType: DataZone.ProjectMembership
+  provider-datazone-projectprofile:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: DataZone.ProjectProfile
+    identifier: [/properties/DomainIdentifier, /properties/Identifier]
+  sdk-datazone-projectprofile:
+    kind: sdk
+    service: datazone
+    operation: get_project_profile
+    result: $
+    resourceType: DataZone.ProjectProfile
+resourceTypes:
+  DataZone.Connection:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-connection, path: DomainId, normalize: typed}
+      ConnectionId:
+        model: {include: false}
+        display: {show: false, name: ConnectionId}
+        access: [read-only]
+        aws: {getter: provider-datazone-connection, path: ConnectionId, normalize: typed}
+      AwsLocation.AccessRole:
+        model: {include: false}
+        display: {show: false, name: AwsLocation.AccessRole}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].awsLocation.accessRole', normalize: typed, transform: unique}
+      AwsLocation.AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: AwsLocation.AwsAccountId}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].awsLocation.awsAccountId', normalize: typed, transform: unique}
+      AwsLocation.AwsRegion:
+        model: {include: false}
+        display: {show: false, name: AwsLocation.AwsRegion}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].awsLocation.awsRegion', normalize: typed, transform: unique}
+      AwsLocation.IamConnectionId:
+        model: {include: false}
+        display: {show: false, name: AwsLocation.IamConnectionId}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].awsLocation.iamConnectionId', normalize: typed, transform: unique}
+      Configurations[].Classification:
+        model: {include: false}
+        display: {show: false, name: 'Configurations[].Classification'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'configurations[].classification', normalize: typed}
+      Configurations[].Properties:
+        model: {include: false}
+        display: {show: false, name: 'Configurations[].Properties'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'configurations[].properties', normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-connection, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-connection, path: domainId, normalize: typed}
+      EnableTrustedIdentityPropagation:
+        model: {include: false}
+        display: {show: false, name: EnableTrustedIdentityPropagation}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].enableTrustedIdentityPropagation', normalize: typed, transform: unique}
+      EnvironmentIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-connection, path: environmentId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-datazone-connection, path: Name, normalize: typed}
+      ProjectIdentifier:
+        model: {include: false}
+        display: {show: false, name: ProjectIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-connection, path: projectId, normalize: typed}
+      Props.AmazonQProperties.AuthMode:
+        model: {include: false}
+        display: {show: false, name: Props.AmazonQProperties.AuthMode}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.amazonQProperties.authMode, normalize: typed}
+      Props.AmazonQProperties.IsEnabled:
+        model: {include: false}
+        display: {show: false, name: Props.AmazonQProperties.IsEnabled}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.amazonQProperties.isEnabled, normalize: typed}
+      Props.AmazonQProperties.ProfileArn:
+        model: {include: false}
+        display: {show: false, name: Props.AmazonQProperties.ProfileArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.amazonQProperties.profileArn, normalize: typed}
+      Props.AthenaProperties.WorkgroupName:
+        model: {include: false}
+        display: {show: false, name: Props.AthenaProperties.WorkgroupName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.athenaProperties.workgroupName, normalize: typed}
+      Props.GlueProperties.GlueConnectionInput.AthenaProperties:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AthenaProperties}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.athenaProperties', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.AuthenticationType:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.AuthenticationType}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.authenticationType', normalize: typed,
+          transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.Password:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.Password}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.Password
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.UserName:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.UserName}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.BasicAuthenticationCredentials.UserName
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.CustomAuthenticationCredentials:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.CustomAuthenticationCredentials}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.CustomAuthenticationCredentials
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.KmsKeyArn:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.KmsKeyArn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.KmsKeyArn
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      ? Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.AuthorizationCodeProperties.AuthorizationCode
+      : model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.AuthorizationCodeProperties.AuthorizationCode}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.authorizationCodeProperties.authorizationCode',
+          normalize: typed, transform: unique}
+      ? Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.AuthorizationCodeProperties.RedirectUri
+      : model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.AuthorizationCodeProperties.RedirectUri}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.authorizationCodeProperties.redirectUri',
+          normalize: typed, transform: unique}
+      ? Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2ClientApplication.AWSManagedClientApplicationReference
+      : model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2ClientApplication.AWSManagedClientApplicationReference}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2ClientApplication.aWSManagedClientApplicationReference',
+          normalize: typed, transform: unique}
+      ? Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2ClientApplication.UserManagedClientApplicationClientId
+      : model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2ClientApplication.UserManagedClientApplicationClientId}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2ClientApplication.userManagedClientApplicationClientId',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.AccessToken:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.AccessToken}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2Credentials.accessToken',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.JwtToken:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.JwtToken}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2Credentials.jwtToken',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.RefreshToken:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.RefreshToken}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2Credentials.refreshToken',
+          normalize: typed, transform: unique}
+      ? Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.UserManagedClientApplicationClientSecret
+      : model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2Credentials.UserManagedClientApplicationClientSecret}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2Credentials.userManagedClientApplicationClientSecret',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2GrantType:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.OAuth2GrantType}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.oAuth2GrantType',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.TokenUrl:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.TokenUrl}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.tokenUrl', normalize: typed,
+          transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.TokenUrlParametersMap:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.OAuth2Properties.TokenUrlParametersMap}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.oAuth2Properties.tokenUrlParametersMap',
+          normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.SecretArn:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.AuthenticationConfiguration.SecretArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.authenticationConfiguration.secretArn', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.ConnectionProperties:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.ConnectionProperties}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.connectionProperties', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.ConnectionType:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.ConnectionType}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.connectionType', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.Description:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.Description}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.description', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.MatchCriteria:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.MatchCriteria}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.MatchCriteria
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.GlueProperties.GlueConnectionInput.Name:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.Name}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.name', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.AvailabilityZone:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.AvailabilityZone}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.physicalConnectionRequirements.availabilityZone', normalize: typed,
+          transform: unique}
+      Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]:
+        model: {include: false}
+        display: {show: false, name: 'Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.physicalConnectionRequirements.securityGroupIdList[]', normalize: typed,
+          transform: unique}
+      Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SubnetId:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SubnetId}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.physicalConnectionRequirements.subnetId', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SubnetIdList[]:
+        model: {include: false}
+        display: {show: false, name: 'Props.GlueProperties.GlueConnectionInput.PhysicalConnectionRequirements.SubnetIdList[]'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.physicalConnectionRequirements.subnetIdList[]', normalize: typed,
+          transform: unique}
+      Props.GlueProperties.GlueConnectionInput.PythonProperties:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.PythonProperties}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.pythonProperties', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.SparkProperties:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.SparkProperties}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].glueConnection.sparkProperties', normalize: typed, transform: unique}
+      Props.GlueProperties.GlueConnectionInput.ValidateCredentials:
+        model: {include: false}
+        display: {show: false, name: Props.GlueProperties.GlueConnectionInput.ValidateCredentials}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.ValidateCredentials
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.GlueProperties.GlueConnectionInput.ValidateForComputeEnvironments[]:
+        model: {include: false}
+        display: {show: false, name: 'Props.GlueProperties.GlueConnectionInput.ValidateForComputeEnvironments[]'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.GlueProperties.GlueConnectionInput.ValidateForComputeEnvironments[]
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.HyperPodProperties.ClusterName:
+        model: {include: false}
+        display: {show: false, name: Props.HyperPodProperties.ClusterName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.hyperPodProperties.clusterName, normalize: typed}
+      Props.IamProperties.GlueLineageSyncEnabled:
+        model: {include: false}
+        display: {show: false, name: Props.IamProperties.GlueLineageSyncEnabled}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.iamProperties.glueLineageSyncEnabled, normalize: typed}
+      Props.IamProperties.RoleArn:
+        model: {include: false}
+        display: {show: false, name: Props.IamProperties.RoleArn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Connection.Props.IamProperties.RoleArn
+          constraint: Pinned provider schema declares /properties/Props write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Props.LakehouseProperties.GlueLineageSyncEnabled:
+        model: {include: false}
+        display: {show: false, name: Props.LakehouseProperties.GlueLineageSyncEnabled}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.lakehouseProperties.glueLineageSyncEnabled, normalize: typed}
+      Props.MlflowProperties.TrackingServerArn:
+        model: {include: false}
+        display: {show: false, name: Props.MlflowProperties.TrackingServerArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.mlflowProperties.trackingServerArn, normalize: typed}
+      Props.RedshiftProperties.Credentials.SecretArn:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Credentials.SecretArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.credentials.secretArn, normalize: typed}
+      Props.RedshiftProperties.Credentials.UsernamePassword.Password:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Credentials.UsernamePassword.Password}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.credentials.usernamePassword.password, normalize: typed}
+      Props.RedshiftProperties.Credentials.UsernamePassword.Username:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Credentials.UsernamePassword.Username}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.credentials.usernamePassword.username, normalize: typed}
+      Props.RedshiftProperties.DatabaseName:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.DatabaseName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.databaseName, normalize: typed}
+      Props.RedshiftProperties.Host:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Host}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].host', normalize: typed, transform: unique}
+      Props.RedshiftProperties.LineageSync.Enabled:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.LineageSync.Enabled}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.lineageSync.enabled, normalize: typed}
+      Props.RedshiftProperties.LineageSync.Schedule.Schedule:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.LineageSync.Schedule.Schedule}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.lineageSync.schedule.schedule, normalize: typed}
+      Props.RedshiftProperties.Port:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Port}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: 'physicalEndpoints[].port', normalize: typed, transform: unique}
+      Props.RedshiftProperties.Storage.ClusterName:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Storage.ClusterName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.storage.clusterName, normalize: typed}
+      Props.RedshiftProperties.Storage.WorkgroupName:
+        model: {include: false}
+        display: {show: false, name: Props.RedshiftProperties.Storage.WorkgroupName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.redshiftProperties.storage.workgroupName, normalize: typed}
+      Props.S3Properties.RegisterS3AccessGrantLocation:
+        model: {include: false}
+        display: {show: false, name: Props.S3Properties.RegisterS3AccessGrantLocation}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.s3Properties.registerS3AccessGrantLocation, normalize: typed}
+      Props.S3Properties.S3AccessGrantLocationId:
+        model: {include: false}
+        display: {show: false, name: Props.S3Properties.S3AccessGrantLocationId}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.s3Properties.s3AccessGrantLocationId, normalize: typed}
+      Props.S3Properties.S3Uri:
+        model: {include: false}
+        display: {show: false, name: Props.S3Properties.S3Uri}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.s3Properties.s3Uri, normalize: typed}
+      Props.SparkEmrProperties.ComputeArn:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.ComputeArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.computeArn, normalize: typed}
+      Props.SparkEmrProperties.InstanceProfileArn:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.InstanceProfileArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.instanceProfileArn, normalize: typed}
+      Props.SparkEmrProperties.JavaVirtualEnv:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.JavaVirtualEnv}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.javaVirtualEnv, normalize: typed}
+      Props.SparkEmrProperties.LogUri:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.LogUri}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.logUri, normalize: typed}
+      Props.SparkEmrProperties.ManagedEndpointArn:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.ManagedEndpointArn}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.managedEndpointArn, normalize: typed}
+      Props.SparkEmrProperties.PythonVirtualEnv:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.PythonVirtualEnv}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.pythonVirtualEnv, normalize: typed}
+      Props.SparkEmrProperties.RuntimeRole:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.RuntimeRole}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.runtimeRole, normalize: typed}
+      Props.SparkEmrProperties.TrustedCertificatesS3Uri:
+        model: {include: false}
+        display: {show: false, name: Props.SparkEmrProperties.TrustedCertificatesS3Uri}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkEmrProperties.trustedCertificatesS3Uri, normalize: typed}
+      Props.SparkGlueProperties.AdditionalArgs.Connection:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.AdditionalArgs.Connection}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.additionalArgs.connection, normalize: typed}
+      Props.SparkGlueProperties.GlueConnectionName:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.GlueConnectionName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.glueConnectionName, normalize: typed}
+      Props.SparkGlueProperties.GlueVersion:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.GlueVersion}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.glueVersion, normalize: typed}
+      Props.SparkGlueProperties.IdleTimeout:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.IdleTimeout}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.idleTimeout, normalize: typed}
+      Props.SparkGlueProperties.JavaVirtualEnv:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.JavaVirtualEnv}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.javaVirtualEnv, normalize: typed}
+      Props.SparkGlueProperties.NumberOfWorkers:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.NumberOfWorkers}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.numberOfWorkers, normalize: typed}
+      Props.SparkGlueProperties.PythonVirtualEnv:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.PythonVirtualEnv}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.pythonVirtualEnv, normalize: typed}
+      Props.SparkGlueProperties.WorkerType:
+        model: {include: false}
+        display: {show: false, name: Props.SparkGlueProperties.WorkerType}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.sparkGlueProperties.workerType, normalize: typed}
+      Props.WorkflowsMwaaProperties.MwaaEnvironmentName:
+        model: {include: false}
+        display: {show: false, name: Props.WorkflowsMwaaProperties.MwaaEnvironmentName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.workflowsMwaaProperties.mwaaEnvironmentName, normalize: typed}
+      Props.WorkflowsServerlessProperties:
+        model: {include: false}
+        display: {show: false, name: Props.WorkflowsServerlessProperties}
+        access: [write-only]
+        aws: {getter: sdk-datazone-connection, path: props.workflowsServerlessProperties, normalize: typed}
+      Scope:
+        model: {include: false}
+        display: {show: false, name: Scope}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-connection, path: scope, normalize: typed}
+  DataZone.DataSource:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-datasource, path: DomainId, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-datazone-datasource, path: Id, normalize: typed}
+      AssetFormsInput[].Content:
+        model: {include: false}
+        display: {show: false, name: 'AssetFormsInput[].Content'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.DataSource.AssetFormsInput[].Content
+          constraint: Pinned provider schema declares /properties/AssetFormsInput write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      AssetFormsInput[].FormName:
+        model: {include: false}
+        display: {show: false, name: 'AssetFormsInput[].FormName'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.DataSource.AssetFormsInput[].FormName
+          constraint: Pinned provider schema declares /properties/AssetFormsInput write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      AssetFormsInput[].TypeIdentifier:
+        model: {include: false}
+        display: {show: false, name: 'AssetFormsInput[].TypeIdentifier'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.DataSource.AssetFormsInput[].TypeIdentifier
+          constraint: Pinned provider schema declares /properties/AssetFormsInput write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      AssetFormsInput[].TypeRevision:
+        model: {include: false}
+        display: {show: false, name: 'AssetFormsInput[].TypeRevision'}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.DataSource.AssetFormsInput[].TypeRevision
+          constraint: Pinned provider schema declares /properties/AssetFormsInput write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Configuration.GlueRunConfiguration.AutoImportDataQualityResult:
+        model: {include: false}
+        display: {show: false, name: Configuration.GlueRunConfiguration.AutoImportDataQualityResult}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: configuration.glueRunConfiguration.autoImportDataQualityResult, normalize: typed}
+      Configuration.GlueRunConfiguration.CatalogName:
+        model: {include: false}
+        display: {show: false, name: Configuration.GlueRunConfiguration.CatalogName}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: configuration.glueRunConfiguration.catalogName, normalize: typed}
+      Configuration.GlueRunConfiguration.DataAccessRole:
+        model: {include: false}
+        display: {show: false, name: Configuration.GlueRunConfiguration.DataAccessRole}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: configuration.glueRunConfiguration.dataAccessRole, normalize: typed}
+      Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].DatabaseName:
+        model: {include: false}
+        display: {show: false, name: 'Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].DatabaseName'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: 'configuration.glueRunConfiguration.relationalFilterConfigurations[].databaseName', normalize: typed}
+      Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].FilterExpressions[].Expression:
+        model: {include: false}
+        display: {show: false, name: 'Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].FilterExpressions[].Expression'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: 'configuration.glueRunConfiguration.relationalFilterConfigurations[].filterExpressions[].expression',
+          normalize: typed}
+      Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].FilterExpressions[].Type:
+        model: {include: false}
+        display: {show: false, name: 'Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].FilterExpressions[].Type'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: 'configuration.glueRunConfiguration.relationalFilterConfigurations[].filterExpressions[].type', normalize: typed}
+      Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].SchemaName:
+        model: {include: false}
+        display: {show: false, name: 'Configuration.GlueRunConfiguration.RelationalFilterConfigurations[].SchemaName'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-datasource, path: 'configuration.glueRunConfiguration.relationalFilterConfigurations[].schemaName', normalize: typed}
+      ConnectionIdentifier:
+        model: {include: false}
+        display: {show: false, name: ConnectionIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-datasource, path: connectionId, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-datasource, path: domainId, normalize: typed}
+      EnableSetting:
+        model: {include: false}
+        display: {show: false, name: EnableSetting}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: EnableSetting, normalize: typed}
+      EnvironmentIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-datasource, path: environmentId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: Name, normalize: typed}
+      ProjectIdentifier:
+        model: {include: false}
+        display: {show: false, name: ProjectIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-datasource, path: projectId, normalize: typed}
+      PublishOnImport:
+        model: {include: false}
+        display: {show: false, name: PublishOnImport}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: PublishOnImport, normalize: typed}
+      Recommendation.EnableBusinessNameGeneration:
+        model: {include: false}
+        display: {show: false, name: Recommendation.EnableBusinessNameGeneration}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: Recommendation.EnableBusinessNameGeneration, normalize: typed}
+      Schedule.Schedule:
+        model: {include: false}
+        display: {show: false, name: Schedule.Schedule}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: Schedule.Schedule, normalize: typed}
+      Schedule.Timezone:
+        model: {include: false}
+        display: {show: false, name: Schedule.Timezone}
+        access: [read-write]
+        aws: {getter: provider-datazone-datasource, path: Schedule.Timezone, normalize: typed}
+      Type:
+        model: {include: false}
+        display: {show: false, name: Type}
+        access: [create-only]
+        aws: {getter: provider-datazone-datasource, path: Type, normalize: typed}
+  DataZone.Domain:
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: provider-datazone-domain, path: Id, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: Description, normalize: typed}
+      DomainExecutionRole:
+        model: {include: false}
+        display: {show: false, name: DomainExecutionRole}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: DomainExecutionRole, normalize: typed}
+      DomainVersion:
+        model: {include: true}
+        display: {show: true, name: DomainVersion}
+        access: [create-only]
+        aws: {getter: provider-datazone-domain, path: DomainVersion, normalize: typed}
+      KmsKeyIdentifier:
+        model: {include: false}
+        display: {show: false, name: KmsKeyIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-domain, path: KmsKeyIdentifier, normalize: typed}
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: Name, normalize: typed}
+      ServiceRole:
+        model: {include: false}
+        display: {show: false, name: ServiceRole}
+        access: [write-only]
+        aws: {getter: sdk-datazone-domain, path: serviceRole, normalize: typed}
+      SingleSignOn.IdcInstanceArn:
+        model: {include: false}
+        display: {show: false, name: SingleSignOn.IdcInstanceArn}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: SingleSignOn.IdcInstanceArn, normalize: typed}
+      SingleSignOn.Type:
+        model: {include: true}
+        display: {show: true, name: SingleSignOn.Type}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: SingleSignOn.Type, normalize: typed}
+      SingleSignOn.UserAssignment:
+        model: {include: false}
+        display: {show: false, name: SingleSignOn.UserAssignment}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: SingleSignOn.UserAssignment, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-datazone-domain, path: 'Tags[].Value', normalize: typed}
+  DataZone.Environment:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-environment, path: DomainId, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-datazone-environment, path: Id, normalize: typed}
+      DeploymentOrder:
+        model: {include: false}
+        display: {show: false, name: DeploymentOrder}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.Environment.DeploymentOrder
+          constraint: Pinned provider schema declares /properties/DeploymentOrder write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-environment, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: domainId, normalize: typed}
+      EnvironmentAccountIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentAccountIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: awsAccountId, normalize: typed}
+      EnvironmentAccountRegion:
+        model: {include: false}
+        display: {show: false, name: EnvironmentAccountRegion}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: awsAccountRegion, normalize: typed}
+      EnvironmentBlueprintIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentBlueprintIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: environmentBlueprintId, normalize: typed}
+      EnvironmentConfigurationId:
+        model: {include: false}
+        display: {show: false, name: EnvironmentConfigurationId}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: environmentConfigurationId, normalize: typed}
+      EnvironmentProfileIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentProfileIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: environmentProfileId, normalize: typed}
+      EnvironmentRoleArn:
+        model: {include: false}
+        display: {show: false, name: EnvironmentRoleArn}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Environment.EnvironmentRoleArn
+          constraint: Pinned provider schema declares /properties/EnvironmentRoleArn write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      GlossaryTerms[]:
+        model: {include: false}
+        display: {show: false, name: 'GlossaryTerms[]'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environment, path: 'GlossaryTerms[]', normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-environment, path: Name, normalize: typed}
+      ProjectIdentifier:
+        model: {include: false}
+        display: {show: false, name: ProjectIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environment, path: projectId, normalize: typed}
+      UserParameters[].Name:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].Name'}
+        access: [create-only]
+        aws: {getter: provider-datazone-environment, path: 'UserParameters[].Name', normalize: typed}
+      UserParameters[].Value:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].Value'}
+        access: [create-only]
+        aws: {getter: provider-datazone-environment, path: 'UserParameters[].Value', normalize: typed}
+  DataZone.EnvironmentBlueprintConfiguration:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: DomainId, normalize: typed}
+      EnvironmentBlueprintId:
+        model: {include: false}
+        display: {show: false, name: EnvironmentBlueprintId}
+        access: [read-only]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: EnvironmentBlueprintId, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environmentblueprintconfiguration, path: domainId, normalize: typed}
+      EnabledRegions[]:
+        model: {include: false}
+        display: {show: false, name: 'EnabledRegions[]'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: 'EnabledRegions[]', normalize: typed}
+      EnvironmentBlueprintIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentBlueprintIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environmentblueprintconfiguration, path: environmentBlueprintId, normalize: typed}
+      EnvironmentRolePermissionBoundary:
+        model: {include: false}
+        display: {show: false, name: EnvironmentRolePermissionBoundary}
+        access: [write-only]
+        aws: {getter: sdk-datazone-environmentblueprintconfiguration, path: environmentRolePermissionBoundary, normalize: typed}
+      GlobalParameters:
+        model: {include: false}
+        display: {show: false, name: GlobalParameters}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.EnvironmentBlueprintConfiguration.GlobalParameters
+          constraint: Pinned provider schema declares /properties/GlobalParameters write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      ManageAccessRoleArn:
+        model: {include: false}
+        display: {show: false, name: ManageAccessRoleArn}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: ManageAccessRoleArn, normalize: typed}
+      ProvisioningConfigurations[].LakeFormationConfiguration.LocationRegistrationExcludeS3Locations[]:
+        model: {include: false}
+        display: {show: false, name: 'ProvisioningConfigurations[].LakeFormationConfiguration.LocationRegistrationExcludeS3Locations[]'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-environmentblueprintconfiguration, path: 'provisioningConfigurations[].lakeFormationConfiguration.locationRegistrationExcludeS3Locations[]',
+          normalize: typed}
+      ProvisioningConfigurations[].LakeFormationConfiguration.LocationRegistrationRole:
+        model: {include: false}
+        display: {show: false, name: 'ProvisioningConfigurations[].LakeFormationConfiguration.LocationRegistrationRole'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-environmentblueprintconfiguration, path: 'provisioningConfigurations[].lakeFormationConfiguration.locationRegistrationRole',
+          normalize: typed}
+      ProvisioningRoleArn:
+        model: {include: false}
+        display: {show: false, name: ProvisioningRoleArn}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: ProvisioningRoleArn, normalize: typed}
+      RegionalParameters[].Parameters:
+        model: {include: false}
+        display: {show: false, name: 'RegionalParameters[].Parameters'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: 'RegionalParameters[].Parameters', normalize: typed}
+      RegionalParameters[].Region:
+        model: {include: false}
+        display: {show: false, name: 'RegionalParameters[].Region'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentblueprintconfiguration, path: 'RegionalParameters[].Region', normalize: typed}
+  DataZone.EnvironmentProfile:
+    properties:
+      DomainId:
+        model: {include: false}
+        display: {show: false, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-environmentprofile, path: DomainId, normalize: typed}
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-datazone-environmentprofile, path: Id, normalize: typed}
+      AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: AwsAccountId}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: AwsAccountId, normalize: typed}
+      AwsAccountRegion:
+        model: {include: false}
+        display: {show: false, name: AwsAccountRegion}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: AwsAccountRegion, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environmentprofile, path: domainId, normalize: typed}
+      EnvironmentBlueprintIdentifier:
+        model: {include: false}
+        display: {show: false, name: EnvironmentBlueprintIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environmentprofile, path: environmentBlueprintId, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: Name, normalize: typed}
+      ProjectIdentifier:
+        model: {include: false}
+        display: {show: false, name: ProjectIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-environmentprofile, path: projectId, normalize: typed}
+      UserParameters[].Name:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].Name'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: 'UserParameters[].Name', normalize: typed}
+      UserParameters[].Value:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].Value'}
+        access: [read-write]
+        aws: {getter: provider-datazone-environmentprofile, path: 'UserParameters[].Value', normalize: typed}
+  DataZone.Owner:
+    properties:
+      OwnerType:
+        model: {include: false}
+        display: {show: false, name: OwnerType}
+        access: [read-only]
+        aws: {getter: provider-datazone-owner, path: OwnerType, normalize: typed}
+      OwnerIdentifier:
+        model: {include: false}
+        display: {show: false, name: OwnerIdentifier}
+        access: [read-only]
+        aws: {getter: provider-datazone-owner, path: OwnerIdentifier, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-owner, path: DomainIdentifier, normalize: typed}
+      EntityIdentifier:
+        model: {include: false}
+        display: {show: false, name: EntityIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-owner, path: EntityIdentifier, normalize: typed}
+      EntityType:
+        model: {include: false}
+        display: {show: false, name: EntityType}
+        access: [create-only]
+        aws: {getter: provider-datazone-owner, path: EntityType, normalize: typed}
+      Owner.Group.GroupIdentifier:
+        model: {include: false}
+        display: {show: false, name: Owner.Group.GroupIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-owner, path: group.groupId, normalize: typed}
+      Owner.User.UserIdentifier:
+        model: {include: false}
+        display: {show: false, name: Owner.User.UserIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-owner, path: user.userId, normalize: typed}
+  DataZone.Project:
+    properties:
+      DomainId:
+        model: {include: true}
+        display: {show: true, name: DomainId}
+        access: [read-only]
+        aws: {getter: provider-datazone-project, path: DomainId, normalize: typed}
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: provider-datazone-project, path: Id, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: true}
+        display: {show: true, name: DomainIdentifier}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-project, path: domainId, normalize: typed}
+      DomainUnitId:
+        model: {include: false}
+        display: {show: false, name: DomainUnitId}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: DomainUnitId, normalize: typed}
+      GlossaryTerms[]:
+        model: {include: false}
+        display: {show: false, name: 'GlossaryTerms[]'}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: 'GlossaryTerms[]', normalize: typed}
+      MembershipAssignments[].Designation:
+        model: {include: false}
+        display: {show: false, name: 'MembershipAssignments[].Designation'}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.Project.MembershipAssignments[].Designation
+          constraint: Pinned provider schema declares /properties/MembershipAssignments write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      MembershipAssignments[].Member.GroupIdentifier:
+        model: {include: false}
+        display: {show: false, name: 'MembershipAssignments[].Member.GroupIdentifier'}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.Project.MembershipAssignments[].Member.GroupIdentifier
+          constraint: Pinned provider schema declares /properties/MembershipAssignments write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      MembershipAssignments[].Member.UserIdentifier:
+        model: {include: false}
+        display: {show: false, name: 'MembershipAssignments[].Member.UserIdentifier'}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.Project.MembershipAssignments[].Member.UserIdentifier
+          constraint: Pinned provider schema declares /properties/MembershipAssignments write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: Name, normalize: typed}
+      ProjectCategory:
+        model: {include: false}
+        display: {show: false, name: ProjectCategory}
+        access: [create-only]
+        aws: {getter: provider-datazone-project, path: ProjectCategory, normalize: typed}
+      ProjectExecutionRole:
+        model: {include: false}
+        display: {show: false, name: ProjectExecutionRole}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.Project.ProjectExecutionRole
+          constraint: Pinned provider schema declares /properties/ProjectExecutionRole write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      ProjectProfileId:
+        model: {include: false}
+        display: {show: false, name: ProjectProfileId}
+        access: [write-only, create-only]
+        aws: {getter: sdk-datazone-project, path: projectProfileId, normalize: typed}
+      ProjectProfileVersion:
+        model: {include: false}
+        display: {show: false, name: ProjectProfileVersion}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row DataZone.Project.ProjectProfileVersion
+          constraint: Pinned provider schema declares /properties/ProjectProfileVersion write-only. Retain the original Model input; a provider read cannot
+            confirm this input.
+          classification: local_metadata
+      ResourceTags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'ResourceTags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: 'ResourceTags[].Key', normalize: typed}
+      ResourceTags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ResourceTags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-datazone-project, path: 'ResourceTags[].Value', normalize: typed}
+      UserParameters[].EnvironmentConfigurationName:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].EnvironmentConfigurationName'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-project, path: 'userParameters[].environmentConfigurationName', normalize: typed}
+      UserParameters[].EnvironmentId:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].EnvironmentId'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-project, path: 'userParameters[].environmentId', normalize: typed}
+      UserParameters[].EnvironmentParameters[].Name:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].EnvironmentParameters[].Name'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-project, path: 'userParameters[].environmentParameters[].name', normalize: typed}
+      UserParameters[].EnvironmentParameters[].Value:
+        model: {include: false}
+        display: {show: false, name: 'UserParameters[].EnvironmentParameters[].Value'}
+        access: [write-only]
+        aws: {getter: sdk-datazone-project, path: 'userParameters[].environmentParameters[].value', normalize: typed}
+  DataZone.ProjectMembership:
+    properties:
+      MemberIdentifier:
+        model: {include: false}
+        display: {show: false, name: MemberIdentifier}
+        access: [read-only]
+        aws: {getter: provider-datazone-projectmembership, path: MemberIdentifier, normalize: typed}
+      MemberIdentifierType:
+        model: {include: false}
+        display: {show: false, name: MemberIdentifierType}
+        access: [read-only]
+        aws: {getter: provider-datazone-projectmembership, path: MemberIdentifierType, normalize: typed}
+      Designation:
+        model: {include: false}
+        display: {show: false, name: Designation}
+        access: [write-only]
+        aws: {getter: sdk-datazone-projectmembership, path: designation, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-projectmembership, path: DomainIdentifier, normalize: typed}
+      Member.GroupIdentifier:
+        model: {include: false}
+        display: {show: false, name: Member.GroupIdentifier}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.ProjectMembership.Member.GroupIdentifier
+          constraint: Pinned provider schema declares /properties/Member write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Member.UserIdentifier:
+        model: {include: false}
+        display: {show: false, name: Member.UserIdentifier}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.ProjectMembership.Member.UserIdentifier
+          constraint: Pinned provider schema declares /properties/Member write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      ProjectIdentifier:
+        model: {include: false}
+        display: {show: false, name: ProjectIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-projectmembership, path: ProjectIdentifier, normalize: typed}
+  DataZone.ProjectProfile:
+    properties:
+      Identifier:
+        model: {include: false}
+        display: {show: false, name: Identifier}
+        access: [read-only]
+        aws: {getter: provider-datazone-projectprofile, path: Identifier, normalize: typed}
+      AllowCustomProjectResourceTags:
+        model: {include: false}
+        display: {show: false, name: AllowCustomProjectResourceTags}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: AllowCustomProjectResourceTags, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: Description, normalize: typed}
+      DomainIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainIdentifier}
+        access: [create-only]
+        aws: {getter: provider-datazone-projectprofile, path: DomainIdentifier, normalize: typed}
+      DomainUnitIdentifier:
+        model: {include: false}
+        display: {show: false, name: DomainUnitIdentifier}
+        access: [write-only]
+        aws: {getter: sdk-datazone-projectprofile, path: domainUnitId, normalize: typed}
+      EnvironmentConfigurations[].AwsAccount.AwsAccountId:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].AwsAccount.AwsAccountId'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].AwsAccount.AwsAccountId', normalize: typed}
+      EnvironmentConfigurations[].AwsRegion.RegionName:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].AwsRegion.RegionName'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].AwsRegion.RegionName', normalize: typed}
+      EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].IsEditable:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].IsEditable'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].IsEditable', normalize: typed}
+      EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Name:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Name'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Name', normalize: typed}
+      EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Value:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Value'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].ConfigurationParameters.ParameterOverrides[].Value', normalize: typed}
+      EnvironmentConfigurations[].ConfigurationParameters.SsmPath:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].ConfigurationParameters.SsmPath'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].ConfigurationParameters.SsmPath', normalize: typed}
+      EnvironmentConfigurations[].DeploymentMode:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].DeploymentMode'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].DeploymentMode', normalize: typed}
+      EnvironmentConfigurations[].DeploymentOrder:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].DeploymentOrder'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].DeploymentOrder', normalize: typed}
+      EnvironmentConfigurations[].Description:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].Description'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].Description', normalize: typed}
+      EnvironmentConfigurations[].EnvironmentBlueprintId:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].EnvironmentBlueprintId'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].EnvironmentBlueprintId', normalize: typed}
+      EnvironmentConfigurations[].Name:
+        model: {include: false}
+        display: {show: false, name: 'EnvironmentConfigurations[].Name'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'EnvironmentConfigurations[].Name', normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: Name, normalize: typed}
+      ProjectResourceTagsDescription:
+        model: {include: false}
+        display: {show: false, name: ProjectResourceTagsDescription}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: ProjectResourceTagsDescription, normalize: typed}
+      ProjectResourceTags[].IsValueEditable:
+        model: {include: false}
+        display: {show: false, name: 'ProjectResourceTags[].IsValueEditable'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'ProjectResourceTags[].IsValueEditable', normalize: typed}
+      ProjectResourceTags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'ProjectResourceTags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'ProjectResourceTags[].Key', normalize: typed}
+      ProjectResourceTags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'ProjectResourceTags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: 'ProjectResourceTags[].Value', normalize: typed}
+      Status:
+        model: {include: false}
+        display: {show: false, name: Status}
+        access: [read-write]
+        aws: {getter: provider-datazone-projectprofile, path: Status, normalize: typed}
+      UseDefaultConfigurations:
+        model: {include: false}
+        display: {show: false, name: UseDefaultConfigurations}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row DataZone.ProjectProfile.UseDefaultConfigurations
+          constraint: Pinned provider schema declares /properties/UseDefaultConfigurations write-only. Retain the original Model input; a provider read
+            cannot confirm this input.
+          classification: local_metadata

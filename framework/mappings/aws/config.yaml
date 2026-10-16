@@ -1,0 +1,117 @@
+version: 3
+service: config
+
+# Getter names and payloads belong to the existing read-only adapter.
+getters:
+  recorder:
+    kind: adapter
+    resources: [Config.ConfigurationRecorder]
+  channel:
+    kind: adapter
+    resources: [Config.DeliveryChannel]
+
+resourceTypes:
+  Config.ConfigurationRecorder:
+    identity:
+      getter: recorder
+      idPath: name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        access: [create-only]
+        aws: {getter: recorder, path: name, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: Name}
+      Id:
+        access: [read-only]
+        aws: {getter: recorder, path: name, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: Id}
+      RecordingGroup.AllSupported:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingGroup.allSupported, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: RecordingGroup.AllSupported}
+      RecordingGroup.ExclusionByResourceTypes.ResourceTypes:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingGroup.exclusionByResourceTypes.resourceTypes, normalize: set, default: []}
+        model: {include: true}
+        display: {show: true, name: RecordingGroup.ExclusionByResourceTypes.ResourceTypes}
+      RecordingGroup.IncludeGlobalResourceTypes:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingGroup.includeGlobalResourceTypes, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: RecordingGroup.IncludeGlobalResourceTypes}
+      RecordingGroup.RecordingStrategy.UseOnly:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingGroup.recordingStrategy.useOnly, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: RecordingGroup.RecordingStrategy.UseOnly}
+      RecordingGroup.ResourceTypes:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingGroup.resourceTypes, normalize: set, default: []}
+        model: {include: true}
+        display: {show: true, name: RecordingGroup.ResourceTypes}
+      RecordingMode.RecordingFrequency:
+        access: [read-write]
+        aws: {getter: recorder, path: recordingMode.recordingFrequency, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: RecordingMode.RecordingFrequency}
+      RecordingMode.RecordingModeOverrides[].Description:
+        access: [read-write]
+        aws: {getter: recorder, path: 'recordingMode.recordingModeOverrides[].description', normalize: typed}
+        model: {include: false}
+        display: {show: false, name: 'RecordingMode.RecordingModeOverrides[].Description'}
+      RecordingMode.RecordingModeOverrides[].RecordingFrequency:
+        access: [read-write]
+        aws: {getter: recorder, path: 'recordingMode.recordingModeOverrides[].recordingFrequency', normalize: typed}
+        model: {include: false}
+        display: {show: false, name: 'RecordingMode.RecordingModeOverrides[].RecordingFrequency'}
+      RecordingMode.RecordingModeOverrides[].ResourceTypes:
+        access: [read-write]
+        aws: {getter: recorder, path: 'recordingMode.recordingModeOverrides[].resourceTypes', normalize: typed}
+        model: {include: false}
+        display: {show: false, name: 'RecordingMode.RecordingModeOverrides[].ResourceTypes'}
+      RoleARN:
+        access: [read-write]
+        aws: {getter: recorder, path: roleARN, normalize: iam_role}
+        model: {include: true}
+        display: {show: true, name: RoleName}
+  Config.DeliveryChannel:
+    identity:
+      getter: channel
+      idPath: name
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Name:
+        access: [create-only]
+        aws: {getter: channel, path: name, normalize: typed}
+        model: {include: true}
+        display: {show: true, name: Name}
+      ConfigSnapshotDeliveryProperties.DeliveryFrequency:
+        access: [read-write]
+        aws: {getter: channel, path: configSnapshotDeliveryProperties.deliveryFrequency, normalize: typed}
+        model: {include: false}
+        display: {show: false, name: ConfigSnapshotDeliveryProperties.DeliveryFrequency}
+      S3BucketName:
+        access: [read-write]
+        aws: {getter: channel, path: s3BucketName, normalize: name}
+        model: {include: true}
+        display: {show: true, name: S3BucketName}
+      S3KeyPrefix:
+        access: [read-write]
+        aws: {getter: channel, path: s3KeyPrefix, normalize: typed}
+        model: {include: false}
+        display: {show: false, name: S3KeyPrefix}
+      S3KmsKeyArn:
+        access: [read-write]
+        aws: {getter: channel, path: s3KmsKeyArn, normalize: typed}
+        model: {include: false}
+        display: {show: false, name: S3KmsKeyArn}
+      SnsTopicARN:
+        access: [read-write]
+        aws: {getter: channel, path: snsTopicARN, normalize: typed}
+        model: {include: false}
+        display: {show: false, name: SnsTopicARN}

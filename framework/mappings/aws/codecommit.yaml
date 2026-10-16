@@ -1,0 +1,116 @@
+version: 3
+service: codecommit
+getters:
+  base:
+    kind: adapter
+    resources: [CodeCommit.Repository]
+  provider-codecommit-repository:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: CodeCommit.Repository
+    identifier: [/properties/RepositoryId]
+resourceTypes:
+  CodeCommit.Repository:
+    identity:
+      getter: base
+      idPath: repositoryName
+      arnPath: Arn
+      nameProperty: RepositoryName
+    properties:
+      RepositoryName:
+        model: {include: true}
+        display: {show: true, name: RepositoryName}
+        access: [read-write]
+        aws: {getter: base, path: repositoryName, normalize: typed}
+      RepositoryId:
+        model: {include: false}
+        display: {show: false, name: RepositoryId}
+        access: [read-only]
+        aws: {getter: provider-codecommit-repository, path: RepositoryId, normalize: typed}
+      Code.BranchName:
+        model: {include: false}
+        display: {show: false, name: Code.BranchName}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CodeCommit.Repository.Code.BranchName
+          constraint: Pinned provider schema declares /properties/Code write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Code.S3.Bucket:
+        model: {include: false}
+        display: {show: false, name: Code.S3.Bucket}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CodeCommit.Repository.Code.S3.Bucket
+          constraint: Pinned provider schema declares /properties/Code write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Code.S3.Key:
+        model: {include: false}
+        display: {show: false, name: Code.S3.Key}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CodeCommit.Repository.Code.S3.Key
+          constraint: Pinned provider schema declares /properties/Code write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Code.S3.ObjectVersion:
+        model: {include: false}
+        display: {show: false, name: Code.S3.ObjectVersion}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row CodeCommit.Repository.Code.S3.ObjectVersion
+          constraint: Pinned provider schema declares /properties/Code write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      KmsKeyId:
+        model: {include: true}
+        display: {show: true, name: KmsKeyId}
+        access: [read-write]
+        aws: {getter: base, path: kmsKeyId, normalize: kms}
+      RepositoryDescription:
+        model: {include: true}
+        display: {show: true, name: RepositoryDescription}
+        access: [read-write]
+        aws: {getter: base, path: repositoryDescription, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Tags[].Value', normalize: typed}
+      Triggers[].Branches:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].Branches'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Triggers[].Branches', normalize: typed}
+      Triggers[].CustomData:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].CustomData'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Triggers[].CustomData', normalize: typed}
+      Triggers[].DestinationArn:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].DestinationArn'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Triggers[].DestinationArn', normalize: typed}
+      Triggers[].Events:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].Events'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Triggers[].Events', normalize: typed}
+      Triggers[].Name:
+        model: {include: false}
+        display: {show: false, name: 'Triggers[].Name'}
+        access: [read-write]
+        aws: {getter: provider-codecommit-repository, path: 'Triggers[].Name', normalize: typed}

@@ -1,0 +1,289 @@
+version: 3
+service: vpc
+getters:
+  base:
+    kind: adapter
+    resources: [EC2.FlowLog, EC2.RouteTable, EC2.Subnet, EC2.VPC]
+  provider-ec2-flowlog:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.FlowLog
+    identifier: [/properties/Id]
+  resource_type:
+    kind: adapter
+    resources: [EC2.FlowLog]
+  provider-ec2-routetable:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.RouteTable
+    identifier: [/properties/RouteTableId]
+  provider-ec2-subnet:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.Subnet
+    identifier: [/properties/SubnetId]
+  provider-ec2-subnetroutetableassociation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.SubnetRouteTableAssociation
+    identifier: [/properties/Id]
+  association:
+    kind: adapter
+    resources: [EC2.SubnetRouteTableAssociation]
+  hostnames:
+    kind: adapter
+    resources: [EC2.VPC]
+  support:
+    kind: adapter
+    resources: [EC2.VPC]
+  provider-ec2-vpc:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPC
+    identifier: [/properties/VpcId]
+resourceTypes:
+  EC2.FlowLog:
+    identity:
+      getter: base
+      idPath: FlowLogId
+      arnPath: null
+      nameProperty: Name
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: base, path: FlowLogId, normalize: typed}
+      DeliverCrossAccountRole:
+        model: {include: false}
+        display: {show: false, name: DeliverCrossAccountRole}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: DeliverCrossAccountRole, normalize: typed}
+      DeliverLogsPermissionArn:
+        model: {include: true}
+        display: {show: true, name: DeliverLogsPermissionArn}
+        access: [create-only]
+        aws: {getter: base, path: DeliverLogsPermissionArn, normalize: arn}
+      DestinationOptions.FileFormat:
+        model: {include: false}
+        display: {show: false, name: DestinationOptions.FileFormat}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: DestinationOptions.FileFormat, normalize: typed}
+      DestinationOptions.HiveCompatiblePartitions:
+        model: {include: false}
+        display: {show: false, name: DestinationOptions.HiveCompatiblePartitions}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: DestinationOptions.HiveCompatiblePartitions, normalize: typed}
+      DestinationOptions.PerHourPartition:
+        model: {include: false}
+        display: {show: false, name: DestinationOptions.PerHourPartition}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: DestinationOptions.PerHourPartition, normalize: typed}
+      LogDestination:
+        model: {include: false}
+        display: {show: false, name: LogDestination}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: LogDestination, normalize: typed}
+      LogDestinationType:
+        model: {include: true}
+        display: {show: true, name: LogDestinationType}
+        access: [create-only]
+        aws: {getter: base, path: LogDestinationType, normalize: typed}
+      LogFormat:
+        model: {include: false}
+        display: {show: false, name: LogFormat}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: LogFormat, normalize: typed}
+      LogGroupName:
+        model: {include: true}
+        display: {show: true, name: LogGroupName}
+        access: [create-only]
+        aws: {getter: base, path: LogGroupName, normalize: name}
+      MaxAggregationInterval:
+        model: {include: true}
+        display: {show: true, name: MaxAggregationInterval}
+        access: [create-only]
+        aws: {getter: base, path: MaxAggregationInterval, normalize: typed}
+      ResourceId:
+        model: {include: true}
+        display: {show: true, name: ResourceId}
+        access: [create-only]
+        aws: {getter: base, path: ResourceId, normalize: id}
+      ResourceType:
+        model: {include: true}
+        display: {show: true, name: ResourceType}
+        access: [create-only]
+        aws: {getter: resource_type, path: ResourceType, normalize: typed}
+      TagFieldSpecifications[].ResourceType:
+        model: {include: false}
+        display: {show: false, name: 'TagFieldSpecifications[].ResourceType'}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: 'TagFieldSpecifications[].ResourceType', normalize: typed}
+      TagFieldSpecifications[].TagKeys:
+        model: {include: false}
+        display: {show: false, name: 'TagFieldSpecifications[].TagKeys'}
+        access: [create-only]
+        aws: {getter: provider-ec2-flowlog, path: 'TagFieldSpecifications[].TagKeys', normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-flowlog, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-flowlog, path: 'Tags[].Value', normalize: typed}
+      TrafficType:
+        model: {include: true}
+        display: {show: true, name: TrafficType}
+        access: [create-only]
+        aws: {getter: base, path: TrafficType, normalize: typed}
+  EC2.RouteTable:
+    identity:
+      getter: base
+      idPath: RouteTableId
+      arnPath: null
+      nameProperty: Name
+    properties:
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: base, path: VpcId, normalize: id}
+      RouteTableId:
+        model: {include: true}
+        display: {show: true, name: RouteTableId}
+        access: [read-only]
+        aws: {getter: base, path: RouteTableId, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-routetable, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-routetable, path: 'Tags[].Value', normalize: typed}
+  EC2.Subnet:
+    identity:
+      getter: base
+      idPath: SubnetId
+      arnPath: null
+      nameProperty: Name
+    properties:
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: base, path: VpcId, normalize: id}
+      SubnetId:
+        model: {include: true}
+        display: {show: true, name: SubnetId}
+        access: [read-only]
+        aws: {getter: base, path: SubnetId, normalize: typed}
+      AvailabilityZone:
+        model: {include: true}
+        display: {show: true, name: AvailabilityZone}
+        access: [create-only]
+        aws: {getter: base, path: AvailabilityZone, normalize: typed}
+      CidrBlock:
+        model: {include: true}
+        display: {show: true, name: CidrBlock}
+        access: [create-only]
+        aws: {getter: base, path: CidrBlock, normalize: typed}
+      MapPublicIpOnLaunch:
+        model: {include: true}
+        display: {show: true, name: MapPublicIpOnLaunch}
+        access: [read-write]
+        aws: {getter: base, path: MapPublicIpOnLaunch, normalize: typed}
+      PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsAAAARecord:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsAAAARecord}
+        access: [read-write]
+        aws: {getter: provider-ec2-subnet, path: PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsAAAARecord, normalize: typed}
+      PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsARecord:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsARecord}
+        access: [read-write]
+        aws: {getter: provider-ec2-subnet, path: PrivateDnsNameOptionsOnLaunch.EnableResourceNameDnsARecord, normalize: typed}
+      PrivateDnsNameOptionsOnLaunch.HostnameType:
+        model: {include: false}
+        display: {show: false, name: PrivateDnsNameOptionsOnLaunch.HostnameType}
+        access: [read-write]
+        aws: {getter: provider-ec2-subnet, path: PrivateDnsNameOptionsOnLaunch.HostnameType, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-subnet, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-subnet, path: 'Tags[].Value', normalize: typed}
+  EC2.SubnetRouteTableAssociation:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        aws: {getter: provider-ec2-subnetroutetableassociation, path: Id, normalize: typed}
+      RouteTableId:
+        model: {include: true}
+        display: {show: true, name: EC2.RouteTableId}
+        access: [create-only]
+        aws: {getter: association, path: RouteTableId, normalize: id}
+      SubnetId:
+        model: {include: false}
+        display: {show: false, name: SubnetId}
+        access: [create-only]
+        aws: {getter: provider-ec2-subnetroutetableassociation, path: SubnetId, normalize: typed}
+  EC2.VPC:
+    identity:
+      getter: base
+      idPath: VpcId
+      arnPath: null
+      nameProperty: Name
+    properties:
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [read-only]
+        aws: {getter: base, path: VpcId, normalize: typed}
+      CidrBlock:
+        model: {include: true}
+        display: {show: true, name: CidrBlock}
+        access: [create-only]
+        aws: {getter: base, path: CidrBlock, normalize: typed}
+      EnableDnsHostnames:
+        model: {include: true}
+        display: {show: true, name: EnableDnsHostnames}
+        access: [read-write]
+        aws: {getter: hostnames, path: EnableDnsHostnames.Value, normalize: typed}
+      EnableDnsSupport:
+        model: {include: true}
+        display: {show: true, name: EnableDnsSupport}
+        access: [read-write]
+        aws: {getter: support, path: EnableDnsSupport.Value, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpc, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpc, path: 'Tags[].Value', normalize: typed}

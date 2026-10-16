@@ -1,0 +1,78 @@
+version: 3
+service: ecr
+getters:
+  provider-ecr-repository:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: ECR.Repository
+    identifier: [/properties/RepositoryName]
+resourceTypes:
+  ECR.Repository:
+    properties:
+      RepositoryName:
+        model: {include: false}
+        display: {show: false, name: RepositoryName}
+        access: [create-only]
+        aws: {getter: provider-ecr-repository, path: RepositoryName, normalize: typed}
+      EmptyOnDelete:
+        model: {include: false}
+        display: {show: false, name: EmptyOnDelete}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row ECR.Repository.EmptyOnDelete
+          constraint: Pinned provider schema declares /properties/EmptyOnDelete write-only. Retain the original Model input; a provider read cannot confirm
+            this input.
+          classification: local_metadata
+      EncryptionConfiguration.EncryptionType:
+        model: {include: false}
+        display: {show: false, name: EncryptionConfiguration.EncryptionType}
+        access: [create-only]
+        aws: {getter: provider-ecr-repository, path: EncryptionConfiguration.EncryptionType, normalize: typed}
+      EncryptionConfiguration.KmsKey:
+        model: {include: false}
+        display: {show: false, name: EncryptionConfiguration.KmsKey}
+        access: [create-only]
+        aws: {getter: provider-ecr-repository, path: EncryptionConfiguration.KmsKey, normalize: typed}
+      ImageScanningConfiguration.ScanOnPush:
+        model: {include: false}
+        display: {show: false, name: ImageScanningConfiguration.ScanOnPush}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: ImageScanningConfiguration.ScanOnPush, normalize: typed}
+      ImageTagMutability:
+        model: {include: false}
+        display: {show: false, name: ImageTagMutability}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: ImageTagMutability, normalize: typed}
+      ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterType:
+        model: {include: false}
+        display: {show: false, name: 'ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterType'}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: 'ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterType', normalize: typed}
+      ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterValue:
+        model: {include: false}
+        display: {show: false, name: 'ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterValue'}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: 'ImageTagMutabilityExclusionFilters[].ImageTagMutabilityExclusionFilterValue', normalize: typed}
+      LifecyclePolicy:
+        model: {include: false}
+        display: {show: false, name: LifecyclePolicy}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: LifecyclePolicy, normalize: typed}
+      RepositoryPolicyText:
+        model: {include: false}
+        display: {show: false, name: RepositoryPolicyText}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: RepositoryPolicyText, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ecr-repository, path: 'Tags[].Value', normalize: typed}

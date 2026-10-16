@@ -1,0 +1,138 @@
+version: 3
+service: lake-formation
+getters:
+  provider-lakeformation-principalpermissions:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: LakeFormation.PrincipalPermissions
+    identifier: [/properties/PrincipalIdentifier, /properties/ResourceIdentifier]
+resourceTypes:
+  LakeFormation.PrincipalPermissions:
+    properties:
+      PrincipalIdentifier:
+        model: {include: false}
+        display: {show: false, name: PrincipalIdentifier}
+        access: [read-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: PrincipalIdentifier, normalize: typed}
+      ResourceIdentifier:
+        model: {include: false}
+        display: {show: false, name: ResourceIdentifier}
+        access: [read-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: ResourceIdentifier, normalize: typed}
+      Catalog:
+        model: {include: false}
+        display: {show: false, name: Catalog}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row LakeFormation.PrincipalPermissions.Catalog
+          constraint: Pinned provider schema declares /properties/Catalog write-only. Retain the original Model input; a provider read cannot confirm this
+            input.
+          classification: local_metadata
+      Permissions:
+        model: {include: false}
+        display: {show: false, name: Permissions}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Permissions, normalize: typed}
+      PermissionsWithGrantOption:
+        model: {include: false}
+        display: {show: false, name: PermissionsWithGrantOption}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: PermissionsWithGrantOption, normalize: typed}
+      Principal:
+        model: {include: false}
+        display: {show: false, name: Principal}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Principal, normalize: typed}
+      Principal.DataLakePrincipalIdentifier:
+        model: {include: false}
+        display: {show: false, name: Principal.DataLakePrincipalIdentifier}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Principal.DataLakePrincipalIdentifier, normalize: typed}
+      Resource:
+        model: {include: false}
+        display: {show: false, name: Resource}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource, normalize: typed}
+      Resource.Catalog:
+        model: {include: false}
+        display: {show: false, name: Resource.Catalog}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Catalog, normalize: typed}
+      Resource.Database:
+        model: {include: false}
+        display: {show: false, name: Resource.Database}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Database, normalize: typed}
+      Resource.Database.CatalogId:
+        model: {include: false}
+        display: {show: false, name: Resource.Database.CatalogId}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Database.CatalogId, normalize: typed}
+      Resource.Database.Name:
+        model: {include: false}
+        display: {show: false, name: Resource.Database.Name}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Database.Name, normalize: typed}
+      Resource.Table:
+        model: {include: false}
+        display: {show: false, name: Resource.Table}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Table, normalize: typed}
+      Resource.Table.CatalogId:
+        model: {include: false}
+        display: {show: false, name: Resource.Table.CatalogId}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Table.CatalogId, normalize: typed}
+      Resource.Table.DatabaseName:
+        model: {include: false}
+        display: {show: false, name: Resource.Table.DatabaseName}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Table.DatabaseName, normalize: typed}
+      Resource.Table.Name:
+        model: {include: false}
+        display: {show: false, name: Resource.Table.Name}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Table.Name, normalize: typed}
+      Resource.Table.TableWildcard:
+        model: {include: false}
+        display: {show: false, name: Resource.Table.TableWildcard}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.Table.TableWildcard, normalize: typed}
+      Resource.TableWithColumns:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns, normalize: typed}
+      Resource.TableWithColumns.CatalogId:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.CatalogId}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.CatalogId, normalize: typed}
+      Resource.TableWithColumns.DatabaseName:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.DatabaseName}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.DatabaseName, normalize: typed}
+      Resource.TableWithColumns.Name:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.Name}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.Name, normalize: typed}
+      Resource.TableWithColumns.ColumnNames:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.ColumnNames}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.ColumnNames, normalize: typed}
+      Resource.TableWithColumns.ColumnWildcard:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.ColumnWildcard}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.ColumnWildcard, normalize: typed}
+      Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames:
+        model: {include: false}
+        display: {show: false, name: Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames}
+        access: [create-only]
+        aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames, normalize: typed}

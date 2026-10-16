@@ -1,0 +1,133 @@
+version: 3
+service: kms
+getters:
+  alias:
+    kind: adapter
+    resources: [KMS.Alias]
+  provider-kms-alias:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: KMS.Alias
+    identifier: [/properties/AliasName]
+  base:
+    kind: adapter
+    resources: [KMS.Key]
+  rotation:
+    kind: adapter
+    resources: [KMS.Key]
+  policy:
+    kind: adapter
+    resources: [KMS.Key]
+  provider-kms-key:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: KMS.Key
+    identifier: [/properties/KeyId]
+resourceTypes:
+  KMS.Alias:
+    identity:
+      getter: alias
+      idPath: TargetKeyId
+      arnPath: AliasArn
+      nameProperty: AliasName
+    properties:
+      AliasName:
+        model: {include: true}
+        display: {show: true, name: AliasName}
+        access: [create-only]
+        aws: {getter: alias, path: AliasName, normalize: typed}
+      TargetKeyId:
+        model: {include: false}
+        display: {show: false, name: TargetKeyId}
+        access: [read-write]
+        aws: {getter: provider-kms-alias, path: TargetKeyId, normalize: typed}
+  KMS.Key:
+    identity:
+      getter: base
+      idPath: KeyId
+      arnPath: Arn
+      nameProperty: null
+    properties:
+      KeyId:
+        model: {include: true}
+        display: {show: true, name: KeyId}
+        access: [read-only]
+        aws: {getter: base, path: KeyId, normalize: typed}
+      BypassPolicyLockoutSafetyCheck:
+        model: {include: false}
+        display: {show: false, name: BypassPolicyLockoutSafetyCheck}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row KMS.Key.BypassPolicyLockoutSafetyCheck
+          constraint: Pinned provider schema declares /properties/BypassPolicyLockoutSafetyCheck write-only. Retain the original Model input; a provider
+            read cannot confirm this input.
+          classification: local_metadata
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: base, path: Description, normalize: typed}
+      EnableKeyRotation:
+        model: {include: true}
+        display: {show: true, name: EnableKeyRotation}
+        access: [read-write]
+        aws: {getter: rotation, path: KeyRotationEnabled, normalize: typed}
+      Enabled:
+        model: {include: true}
+        display: {show: true, name: Enabled}
+        access: [read-write]
+        aws: {getter: base, path: Enabled, normalize: typed}
+      KeyPolicy:
+        model: {include: true}
+        display: {show: true, name: KeyPolicy}
+        access: [read-write]
+        aws: {getter: policy, path: Policy, normalize: policy}
+      KeySpec:
+        model: {include: true}
+        display: {show: true, name: KeySpec}
+        access: [read-write]
+        aws: {getter: base, path: KeySpec, normalize: typed}
+      KeyUsage:
+        model: {include: true}
+        display: {show: true, name: KeyUsage}
+        access: [read-write]
+        aws: {getter: base, path: KeyUsage, normalize: typed}
+      MultiRegion:
+        model: {include: true}
+        display: {show: true, name: MultiRegion}
+        access: [read-write]
+        aws: {getter: base, path: MultiRegion, normalize: typed}
+      Origin:
+        model: {include: true}
+        display: {show: true, name: Origin}
+        access: [read-write]
+        aws: {getter: base, path: Origin, normalize: typed}
+      PendingWindowInDays:
+        model: {include: true}
+        display: {show: true, name: PendingWindowInDays}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row KMS.Key.PendingWindowInDays
+          constraint: ScheduleKeyDeletion input; DescribeKey does not retain the future deletion waiting period on an active key.
+          classification: sdk_unavailable
+      RotationPeriodInDays:
+        model: {include: true}
+        display: {show: true, name: RotationPeriodInDays}
+        access: [write-only]
+        aws: {getter: rotation, path: RotationPeriodInDays, normalize: typed}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-kms-key, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-kms-key, path: 'Tags[].Value', normalize: typed}

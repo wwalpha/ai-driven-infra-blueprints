@@ -1,0 +1,66 @@
+version: 3
+service: transit-gateway
+getters:
+  base:
+    kind: adapter
+    resources: [EC2.TransitGatewayVpcAttachment]
+  provider-ec2-transitgatewayvpcattachment:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.TransitGatewayVpcAttachment
+    identifier: [/properties/Id]
+resourceTypes:
+  EC2.TransitGatewayVpcAttachment:
+    identity:
+      getter: base
+      idPath: TransitGatewayAttachmentId
+      arnPath: null
+      nameProperty: null
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: base, path: TransitGatewayAttachmentId, normalize: typed}
+      Options.ApplianceModeSupport:
+        model: {include: false}
+        display: {show: false, name: Options.ApplianceModeSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayvpcattachment, path: Options.ApplianceModeSupport, normalize: typed}
+      Options.DnsSupport:
+        model: {include: false}
+        display: {show: false, name: Options.DnsSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayvpcattachment, path: Options.DnsSupport, normalize: typed}
+      Options.SecurityGroupReferencingSupport:
+        model: {include: false}
+        display: {show: false, name: Options.SecurityGroupReferencingSupport}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayvpcattachment, path: Options.SecurityGroupReferencingSupport, normalize: typed}
+      SubnetIds:
+        model: {include: true}
+        display: {show: true, name: SubnetIds}
+        access: [create-only]
+        aws: {getter: base, path: SubnetIds, normalize: id}
+      Tags[].Key:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayvpcattachment, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: false}
+        display: {show: false, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-transitgatewayvpcattachment, path: 'Tags[].Value', normalize: typed}
+      TransitGatewayId:
+        model: {include: true}
+        display: {show: true, name: TransitGatewayId}
+        access: [create-only]
+        aws: {getter: base, path: TransitGatewayId, normalize: typed}
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: base, path: VpcId, normalize: id}
