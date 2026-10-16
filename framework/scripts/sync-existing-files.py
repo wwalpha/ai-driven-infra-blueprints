@@ -19,7 +19,7 @@ REPOSITORY_ROOT = FRAMEWORK_ROOT.parent
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Copy framework, .agents, AGENTS.md, and README.md from ai-driven-infra-blueprints "
+            "Copy framework, .agents, AGENTS.md, README.md, and framework-it.yml from ai-driven-infra-blueprints "
             "to a target repository."
         )
     )
@@ -55,7 +55,7 @@ def main() -> int:
 
         for source_file in chain(
             FRAMEWORK_ROOT.rglob("*"), (REPOSITORY_ROOT / ".agents").rglob("*"),
-            (REPOSITORY_ROOT / name for name in ("AGENTS.md", "README.md")),
+            (REPOSITORY_ROOT / name for name in ("AGENTS.md", "README.md", ".github/workflows/framework-it.yml")),
         ):
             relative = source_file.relative_to(REPOSITORY_ROOT)
             if ".git" in relative.parts or "__pycache__" in relative.parts or source_file.suffix in {".pyc", ".pyo"}:
@@ -136,7 +136,7 @@ def main() -> int:
             f"Summary: copied={0 if args.dry_run else copied} "
             f"added={0 if args.dry_run else added} "
             f"pending={len(changed) if args.dry_run else 0} unchanged={unchanged} "
-            "scope=framework,.agents,AGENTS.md,README.md "
+            "scope=framework,.agents,AGENTS.md,README.md,.github/workflows/framework-it.yml "
             "excluded=project.json,docs,infra,model,tasks,tests"
         )
         return 0

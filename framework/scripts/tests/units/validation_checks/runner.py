@@ -156,7 +156,8 @@ def check_module_keys():
                     write(path, 'original\n')
                     assert cache.common_key() == before
     loop = load('blueprint-loop')
-    all_checks = sorted((SCRIPT.parent / "tests").rglob('*.checks.py'), key=lambda path: path.name)
+    all_checks = sorted({*(SCRIPT.parent / "tests/units").rglob("*.checks.py"),
+                         *(SCRIPT.parent / "tests/units").rglob("test_*.py")}, key=lambda path: path.name)
     for name in names:
         selected, _ = loop.select_checks(SCRIPT.parents[2], {f'framework/scripts/validation/{name}.py'}, True)
         assert selected == all_checks, name

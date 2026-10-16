@@ -125,6 +125,9 @@ def check_links(module):
 
 if __name__ == "__main__":
     from support.model_sources import catalog_display
+    from support.validator import load
     with catalog_display():
+        check_projection(load("sync-model"))
+        check_links(load("validate-blueprint"))
         print("design-document: PASS (single read/parse, concurrent reuse, selective groups, immutable snapshot, invalidation)")
 

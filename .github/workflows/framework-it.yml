@@ -1,0 +1,66 @@
+name: Framework IT
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  framework-it:
+    name: Framework IT
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONOPTIMIZE: '0'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_CONFIG_FILE: /dev/null
+      AWS_SHARED_CREDENTIALS_FILE: /dev/null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: framework/scripts/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r framework/scripts/requirements.txt
+      - name: Run all integration suites
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import time
+
+          suites = sorted(Path('framework/scripts/tests/integrations').rglob('*.checks.py'))
+          if not suites:
+              raise SystemExit('No integration suites discovered')
+          failed = 0
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('| IT suite | Result | Seconds |\n| --- | --- | ---: |\n')
+              for suite in suites:
+                  print(f'::group::{suite}', flush=True)
+                  started = time.monotonic()
+                  try:
+                      code = subprocess.run([sys.executable, '-B', '-X', 'utf8', str(suite)]).returncode
+                  except OSError as error:
+                      print(error, file=sys.stderr, flush=True)
+                      code = 1
+                  elapsed = time.monotonic() - started
+                  status = 'PASS' if code == 0 else 'FAIL'
+                  failed += code != 0
+                  print(f'{status}: {suite.name} ({elapsed:.3f}s, exit={code})', flush=True)
+                  print('::endgroup::', flush=True)
+                  summary.write(f'| {suite.name} | {status} | {elapsed:.3f} |\n')
+                  summary.flush()
+              summary.write(f'\nSuites: {len(suites)}; PASS: {len(suites) - failed}; FAIL: {failed}\n')
+          raise SystemExit(1 if failed else 0)

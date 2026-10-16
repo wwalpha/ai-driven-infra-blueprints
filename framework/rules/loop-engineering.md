@@ -57,22 +57,22 @@ During development, run directly related tests first. After a failure and a mate
 rerun the failed test or affected service; for a fixture fix, run its consuming tests.
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
 failures left unfixed. Reuse the existing `--affected` mapping when it selects the needed
-subset. If it selects all regression, directly invoke the relevant existing
-`framework/scripts/tests/<classification>/<name>.checks.py` entrypoints or installed pytest test nodes during
+subset. If it selects all regression, directly invoke the relevant existing UT
+`framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
 repair. This narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, use these tests and the existing scoped validator rather
 than a loop that would automatically add all regression:
 
 ```console
-python3 -B framework/scripts/tests/<classification>/<name>.checks.py
-python3 -m pytest -q framework/scripts/tests/<classification>/<suite>.checks.py::<test-node>
+python3 -B framework/scripts/tests/units/<name>.checks.py
+python3 -m pytest -q framework/scripts/tests/units/<suite>.checks.py::<test-node>
 python3 framework/scripts/validate-blueprint.py --repository-root . --task-file tasks/<task-name>.md
 ```
 
 Use pytest only for existing pytest suites and an already available dependency; retain
 script entrypoints for other suites. The standalone validator uses the contract's explicit
 Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
-Existing test selection, caches, worker counts and validation commands are unchanged.
+Local regression selects only UTs; dependency mappings, caches, worker counts and validation scope are retained.
 The current loop still adds regression for framework paths and `--affected` still falls
 back to all for shared/unknown dependencies. Documentation-only completion therefore
 uses the lightweight row without invoking it. Explicit Full uses
@@ -209,16 +209,34 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 
 ## Framework regression
 
+Local development and every local loop mode (`task`, `local`, `full`, `--all`,
+`--affected`, `--staged`) execute UT regression only. Full retains its existing
+validator scope and safety checks; only its regression portion changes to all UTs.
+Scopes that previously required no regression still require none. `--affected`
+uses the existing dependency mapping before filtering to UTs; unknown or missing
+dependencies fall back to all UTs.
+
+IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests,
+pushes to `main`/`master`, and manual dispatch, using Python 3.12 and the existing
+requirements. Each `integrations/**/*.checks.py` runs directly, including top-level
+checks without `__main__`. Independent processes continue after failures, record
+PASS/FAIL and duration, and fail the job if any suite fails. No AWS credentials or
+live AWS resources are required. Do not add fixture pre-generation or a Full loop.
+Confirm IT PASS for the current PR revision before merging. Pending, canceled,
+unexecuted or failed CI is not completed IT validation. Configure the `Framework IT`
+job as a required status check in GitHub branch protection/rulesets; repository files
+alone do not enable that setting.
+
 ### Windows full regression input guard
 
-- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all`, automatic addition due to framework changes, or `--affected` selections covering all checks. Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
+- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all`, automatic addition due to framework changes, or `--affected` selections covering all UT checks (including `test_*.py`). Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
 - The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
 - Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
 - Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
 - When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
-- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/**/*.checks.py` with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter fixtures share one entrypoint; typed service contracts remain part of the input regression. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
+- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
 - The existing runner automatically adds regression in `task` / `local` for changed `framework/**`, `.agents/**`, `AGENTS.md` or `README.md`, including deletion/rename sources. This describes runner behavior, not an obligation to launch it for every edit; select the entrypoint under [Validation policy](#validation-policy). If Git cannot determine changes, stop rather than infer bounded impact.
 - `--mode local` is also valid as the same scoped validation as `task`. For a classification requiring a scoped loop, a skill's `local` execution suffices; do not add another `task` run. For a classification requiring Full, select the final Full directly instead of adding it after a redundant scoped loop. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
@@ -237,7 +255,7 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 ## Timing and long-running execution
 
 - Each local loop run creates a `blueprint-loop-*` directory in the OS temporary directory outside the repository and displays its absolute path at start. `--log-dir <repository外のdirectory>` may specify the destination parent. Do not overwrite existing logs on concurrent runs/reruns. OS cleanup applies to temporary directories; specify a destination outside the repository when continued retention is needed.
-- With `--profile`, measure `validate-blueprint.py` and its `sync-model.py` child, `model_design.checks.py`, and `design_catalog.checks.py` using stdlib cProfile; save `.prof` and the top 25 cumulative-time entries in check logs in the same run directory. Also specify `--fresh` for cold validation measurement. Examine per-function breakdowns for fixture copying, catalog reading, generation, and validation. Measurement overhead prevents direct comparison with ordinary execution time. Since thread worker internals are absent from main-thread cProfile measurement, use `--validation-jobs 1` for detailed comparisons.
+- With `--profile`, measure `validate-blueprint.py` and its `sync-model.py` child using stdlib cProfile; save `.prof` and the top 25 cumulative-time entries in check logs in the same run directory. Also specify `--fresh` for cold validation measurement. Examine per-function breakdowns for fixture copying, catalog reading, generation, and validation. Measurement overhead prevents direct comparison with ordinary execution time. Since thread worker internals are absent from main-thread cProfile measurement, use `--validation-jobs 1` for detailed comparisons.
 - Incrementally record UTC time, repository, Python launcher, loop/check PIDs, start/end, per-check/overall elapsed seconds, exit codes, and success/failure in `timing.jsonl`. Use monotonic clocks for durations; run all checks after failure. Save check stdout/stderr directly in per-check `.log` and display it in the terminal when the check finishes.
 - If a check runs for 30 seconds or longer, display/save its name, elapsed time, and PID in the terminal and `timing.jsonl` every 30 seconds. This is a liveness indication that the child process has not exited, not a progress percentage or guarantee of extending the Copilot session.
 - Agents start the local loop only once and track existing run logs/PIDs. Do not restart merely because tool waiting/tracking times out. Do not change repository inputs until checks finish or launch duplicate loops for the same repository. Do not add focused checks/full loops to unchanged unfinished runs.

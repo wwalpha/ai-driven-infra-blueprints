@@ -115,7 +115,8 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                 ensure_ascii=False) + "\n")
 
         def regression(command):
-            return command[0] != "git" and command[1].endswith(".checks.py")
+            return command[0] != "git" and (command[1].endswith(".checks.py") or
+                                           Path(command[1]).name.startswith("test_"))
 
         def finish(index, item, returncode, error="", interrupted=False):
             process, stream, step, output, began, _ = item
@@ -231,11 +232,14 @@ def utf8_preflight(directory, environment, diagnostics=None):
 
 
 def select_checks(root, paths, affected=False):
-    checks = sorted((root / "framework/scripts/tests").rglob("*.checks.py"), key=lambda path: path.name)
-    if not checks:
+    unit_root = root / "framework/scripts/tests/units"
+    checks = sorted({*(root / "framework/scripts/tests").rglob("*.checks.py"),
+                     *unit_root.rglob("test_*.py")}, key=lambda path: path.name)
+    units = [path for path in checks if path.is_relative_to(unit_root)]
+    if not units:
         raise ValueError("no framework regression checks discovered")
     if not affected:
-        return checks, "all requested"
+        return units, "all UT requested"
     # Exact paths only: unknown siblings and unresolved deletions stay full regression.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
     mapping["framework/scripts/tests/integrations/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
@@ -288,14 +292,16 @@ def select_checks(root, paths, affected=False):
                        if name.replace(".checks.py", "-unit.checks.py") in names)
         if "validate-blueprint.checks.py" in targets and "validation-units.checks.py" in names:
             targets.add("validation-units.checks.py")
+    mapping["framework/scripts/issues_iac.py"].update(
+        path.name for path in units if path.name == "test_issues_iac.py")
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):
             continue
         if path not in mapping or not (root / path).is_file() or not mapping[path] <= {check.name for check in checks}:
-            return checks, f"all: shared or unknown dependency: {path}"
+            return units, f"all UT: shared or unknown dependency: {path}"
         selected.update(mapping[path])
-    return [path for path in checks if path.name in selected], "affected: explicit leaf/runner mapping"
+    return [path for path in units if path.name in selected], "affected: explicit leaf/runner mapping, UT only"
 
 
 def git(root, *arguments, environment=None):
@@ -416,8 +422,8 @@ def failure_reason(directory, returncode):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
-                        help="task/local: active-scope validation; full: also all regression tests")
-    parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all regression tests")
+                        help="task/local: active-scope validation; full: also all unit regression tests")
+    parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all unit regression tests")
     parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
     parser.add_argument("--log-dir", type=Path, help="Parent directory for run logs (outside the repository; default: OS temporary directory)")
     parser.add_argument("--profile", action="store_true", help="Profile model_design/design_catalog checks into the run directory")
@@ -467,7 +473,7 @@ def main() -> int:
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
     if regression and not args.staged and (not args.affected or
-            set(checks) == set((root / "framework/scripts/tests").rglob("*.checks.py"))):
+            set(checks) == set(select_checks(root, set())[0])):
         try:
             authorize_full_regression(root)
         except KeyboardInterrupt:
@@ -528,11 +534,12 @@ def main() -> int:
                 environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
         if not args.staged:
             diagnostics.print(f"Validation: {'all' if full_validation else 'active scope'}; "
-                              f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}")
+                              f"framework regression: {('selected UT' if args.affected else 'all UT') if regression else 'skipped (shared framework unchanged)'}")
         if regression and not args.staged:
-            diagnostics.print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}")
-            omitted = sorted(path.name for path in (root / "framework/scripts/tests").rglob("*.checks.py") if path not in checks)
-            diagnostics.print(f"Not executed: {', '.join(omitted) or 'none'}")
+            diagnostics.print(f"Regression selection: {reason}; {len(checks)} UT suites selected: {', '.join(path.name for path in checks) or 'none'}")
+            omitted = sorted(path.name for path in select_checks(root, set())[0] if path not in checks)
+            diagnostics.print("IT execution: GitHub Actions only (0 local IT suites)")
+            diagnostics.print(f"UT not executed: {', '.join(omitted) or 'none'}")
         utf8_preflight(directory, environment, diagnostics)
         if args.staged:
             return staged_snapshot(root, args, directory, environment)

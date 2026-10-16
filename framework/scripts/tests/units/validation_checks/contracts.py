@@ -379,7 +379,8 @@ def check_rule_reading_contract() -> None:
             assert any("safety boundary missing" in error for error in validator.errors), validator.errors
 
     loop = load("blueprint-loop")
-    all_checks = sorted((SCRIPT.parent / "tests").rglob("*.checks.py"), key=lambda path: path.name)
+    all_checks = sorted({*(SCRIPT.parent / "tests/units").rglob("*.checks.py"),
+                         *(SCRIPT.parent / "tests/units").rglob("test_*.py")}, key=lambda path: path.name)
     for path in ("framework/scripts/deploy_preparation.py", "framework/scripts/validation_cache.py",
                  "framework/scripts/validation/framework_contracts.py", "README.md",
                  ".agents/skills/worktree/SKILL.md", "framework/rules/loop-engineering.md"):

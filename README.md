@@ -258,7 +258,7 @@ Use `framework/`, `.agents/`, and root `AGENTS.md`/`README.md` as the common-ass
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-This command adds/updates `<target-repository>/framework/**`, `<target-repository>/.agents/**`, and root `AGENTS.md`/`README.md`. It does not copy/change project-specific `project.json`, `docs/`, `infra/`, `model/`, `tasks/`, or `tests/`. Use `--dry-run` to confirm differences before saving. Since synchronization counts reflect content differences at the destination, they may differ from local uncommitted file counts including unsynchronized files such as `tasks/<task-name>.md`. The summary displays synchronization scope and excluded paths.
+This command adds/updates `<target-repository>/framework/**`, `<target-repository>/.agents/**`, root `AGENTS.md`/`README.md`, and only `.github/workflows/framework-it.yml`. Other workflows are preserved. It does not copy/change project-specific `project.json`, `docs/`, `infra/`, `model/`, `tasks/`, or `tests/`. Use `--dry-run` to confirm differences before saving. Since synchronization counts reflect content differences at the destination, they may differ from local uncommitted file counts including unsynchronized files such as `tasks/<task-name>.md`. The summary displays synchronization scope and excluded paths.
 
 ## Repository structure
 
@@ -411,7 +411,7 @@ Record `Task type` and `## Allowed paths` in the active prompt. Allowed paths ca
 - `tasks/network-design.md`
 ```
 
-Read [Validation policy](framework/rules/loop-engineering.md#validation-policy), [Validation scope](framework/rules/loop-engineering.md#validation-scope), and the selected workflow's task-type completion section. Use the classified final validation; the commands below apply when a loop is required. Scope comes from the active contract; `full` adds all framework regression without expanding actual service validation. Explicit `--all` or scope `all` means overall validation plus all regression.
+Read [Validation policy](framework/rules/loop-engineering.md#validation-policy), [Validation scope](framework/rules/loop-engineering.md#validation-scope), and the selected workflow's task-type completion section. Use the classified final validation; the commands below apply when a loop is required. Scope comes from the active contract; `full` adds all framework UT regression without expanding actual service validation. Explicit `--all` or scope `all` means overall validation plus all UT regression.
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
@@ -433,17 +433,30 @@ Other `.checks.py` scripts keep their direct entrypoints. See [test layout and c
 ```console
 python -m pip install -r framework/scripts/requirements.txt
 python -B framework/scripts/tests/units/model_design-unit.checks.py
-python -B framework/scripts/tests/integrations/model_design.checks.py
-python -m pytest -q framework/scripts/tests/units/model_design-unit.checks.py framework/scripts/tests/integrations/model_design.checks.py
+python -m pytest -q framework/scripts/tests/units/model_design-unit.checks.py
 python -m pytest -q framework/scripts/tests/units/model_design-unit.checks.py::check_invalid_model
-python -m pytest -q framework/scripts/tests
+python -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
 Use `python3` on macOS or `py -3` on Windows when needed. Both entrypoints reject
 optimized Python (`-O` or `PYTHONOPTIMIZE`). Pytest caching and temporary-directory
 retention are disabled; each invocation owns its temporary root. The script CLI retains PASS output, failure diagnostics,
-nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop's selection,
-parallelism and Windows full-regression input guard remain unchanged.
+nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT only, retaining parallelism and the Windows full-regression input guard.
+
+### Integration tests in GitHub Actions
+
+[Framework IT](.github/workflows/framework-it.yml) runs all 67 integration suites on PRs,
+pushes to `main`/`master`, and manual dispatch with Python 3.12 and the existing requirements.
+It executes each script independently, including top-level checks, continues after failures,
+and records PASS/FAIL and duration in the Actions log and Summary. Any failed suite fails
+the job. It needs no live AWS resources or credentials and performs no extra Full run.
+Local modifications use UTs; every local mode, including Full and staged snapshots, excludes IT.
+
+Before merging a PR, confirm `Framework IT` PASS for its current revision. Pending,
+unexecuted, canceled or failed CI does not count as completed IT validation. In GitHub
+Settings → Branches (or Rules → Rulesets), require status checks for the target branch
+and select `Framework IT` after its first run. This is an administrator setting;
+adding the workflow does not configure branch protection.
 
 ### Fixed snapshot validation after conflict resolution
 
@@ -453,7 +466,7 @@ Read [Conflict resolution and reproducible validation](framework/rules/loop-engi
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` uses proven dependencies, falls back to all regression for shared/unknown inputs, and cannot combine with `full`/`--all`. Framework task completion still requires `full`. See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` uses proven dependencies, filters mapped results to UTs and falls back to all UTs for shared/unknown inputs, and cannot combine with `full`/`--all`. Framework task completion still requires `full`. See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 
@@ -476,8 +489,8 @@ Comparing prefix checks over 176 inputs × 500 repetitions × 3 trials yielded a
 LLM model/reasoning settings are not passed to Python checks. Even if luna/max appears slow, first separate execution times in `timing.jsonl` from Copilot model request/tool waiting/re-execution times. If only a particular check is slow, measure it with a standard profiler, for example as follows. Adjust check names/external destinations to actual measurement results. Execute after the original loop finishes.
 
 ```console
-python -B -m cProfile -o /tmp/design-catalog.prof framework/scripts/tests/integrations/design_catalog.checks.py
-python -m pstats /tmp/design-catalog.prof
+python -B -m cProfile -o /tmp/design-catalog-unit.prof framework/scripts/tests/units/design_catalog-unit.checks.py
+python -m pstats /tmp/design-catalog-unit.prof
 ```
 
 ### When waiting stops in VS Code GitHub Copilot Autopilot
@@ -534,7 +547,7 @@ python3 framework/scripts/model_templates.py --alias cde --service iam --affecte
 python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service iam
 python3 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
 python3 framework/scripts/model_files.py model/dev/cde/iam.properties --trace desired.row.001-001.value
-python3 -B framework/scripts/tests/integrations/model_templates.checks.py
+python3 -B framework/scripts/tests/units/model_templates-unit.checks.py
 ```
 
 The common service template is `model/templates/<target-directory>/<service>.properties.tpl`.
@@ -552,4 +565,4 @@ JSON are generated outputs. Deployment permissions remain separate.
 The codecommit/datazone/security-hub YAML regressions retain their registered entry points
 and share assertions in `framework/scripts/tests/support/parameter_cases.py`.
 
-Regression runs the discovered `framework/scripts/tests/**/*.checks.py` entries. Every regression test uses synthetic project/Model inputs generated in temporary directories, regardless of repository type or active Validation scope; it never inspects the executing repository's `project.json` or `model/`. Shared service parameter fixtures run through `service-parameter-inputs.checks.py`; typed service contracts run through `model_parameter_inputs.checks.py`. Their cases reject empty selections and retain policy, reference, identity, save/update and invalid-input checks. CloudFormation naming contracts use synthetic dev stack inputs and templates; actual designs are validated separately within the selected service scope. Check discovery with no entries fails.
+Local regression runs the discovered `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` entries through their existing direct entrypoints (currently 43 UT suites). Every regression test uses synthetic project/Model inputs generated in temporary directories, regardless of repository type or active Validation scope; it never inspects the executing repository's `project.json` or `model/`. In CI, shared service parameter fixtures run through `service-parameter-inputs.checks.py`; typed service contracts run through `model_parameter_inputs.checks.py`. Their cases reject empty selections and retain policy, reference, identity, save/update and invalid-input checks. CloudFormation naming contracts use synthetic dev stack inputs and templates; actual designs are validated separately within the selected service scope. Check discovery with no entries fails.
