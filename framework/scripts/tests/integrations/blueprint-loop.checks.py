@@ -356,7 +356,7 @@ def check_staged_snapshot(tmp_path):
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
     (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
-    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py"):
+    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py"):
         shutil.copyfile(SCRIPT.with_name(name), scripts / name)
     # These isolated runner fixtures exercise orchestration after authorization.
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
@@ -512,7 +512,7 @@ def check_failure_suspension(tmp_path):
         scripts = root / "framework/scripts"
         scripts.mkdir(parents=True)
         (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
-        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "run-python.py"):
+        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "run-python.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
@@ -712,6 +712,8 @@ def check_workflow(tmp_path) -> None:
     shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
     shutil.copyfile(SCRIPT.with_name("task_contract.py"), scripts / "task_contract.py")
     shutil.copyfile(SCRIPT.with_name("sync_files.py"), scripts / "sync_files.py")
+    shutil.copyfile(SCRIPT.with_name("validation_cache.py"), scripts / "validation_cache.py")
+    shutil.copyfile(SCRIPT.with_name("sync_progress.py"), scripts / "sync_progress.py")
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
     (scripts / "tests/integrations/a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")

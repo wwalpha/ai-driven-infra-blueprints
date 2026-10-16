@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from functools import wraps
 import hashlib
 import json
+from validation_cache import memoized
 
 _scope = ContextVar('import_scope', default=None)
 _consumers = ContextVar('import_local_consumers', default=None)
@@ -14,15 +15,22 @@ _views = ContextVar('import_generated_views', default=None)
 def selected(root):
     if _scope.get() is not None:
         return _scope.get()
-    from task_contract import contracts, section, task_path
+    from task_contract import contracts, task_path
     records = contracts(root)
     if not records:
         return None
     name = task_path(root).relative_to(root).as_posix()
-    if '- Workflow: `import`' not in section(records.get(name, ''), '## Task contract'):
+    # Revalidate task/reservations above; only parsing of immutable text is reused.
+    return _selection(root, name, records.get(name, ''))
+
+
+@memoized
+def _selection(root, name, text):
+    from task_contract import section
+    if '- Workflow: `import`' not in section(text, '## Task contract'):
         return None
     import re
-    targets = re.findall(r'^- IMPORT target: `([^`]+)`$', '\n'.join(section(records.get(name, ''), '## Task contract')), re.M)
+    targets = re.findall(r'^- IMPORT target: `([^`]+)`$', '\n'.join(section(text, '## Task contract')), re.M)
     if len(targets) > 1:
         raise ValueError('duplicate fixed IMPORT target')
     if targets:

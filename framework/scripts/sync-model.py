@@ -2,6 +2,8 @@
 """Generate detailed-design Markdown from authoritative service properties."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from sync_progress import reported_main, phase, consumers
 import argparse
 import hashlib
 import os
@@ -13,6 +15,7 @@ from validation_scope import active_scope
 from task_contract import DeferredExhausted
 
 
+@reported_main
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -62,6 +65,7 @@ def main() -> int:
                 scope = {item for item in scope if item[:2] == (args.environment, args.alias or args.aws_account_id)}
             if not scope:
                 raise ValueError("no service validation scope; specify environment/target/service")
+        consumers(scope)
         from model_templates import affected
         import subprocess
         changed = set()
@@ -76,7 +80,8 @@ def main() -> int:
         from task_contract import contracts, task_changes, task_path
         if contracts(root):
             changed = task_changes(root, changed, task_path(root).relative_to(root).as_posix())
-        impact = affected(root, changed)
+        with phase("impact-scope"):
+            impact = affected(root, changed)
         from import_scope import selected as import_selection
         impact_scope = contract_scope if import_selection(root) is not None else scope
         if impact_scope is None or not impact <= impact_scope:
@@ -94,8 +99,9 @@ def main() -> int:
             except (OSError, ValueError, KeyError, TypeError) as error:
                 return str(error)
             return None
-        with ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as executor:
-            failures = [error for error in executor.map(generate, groups.items()) if error]
+        with phase("consumer-generation"), ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as executor:
+            futures = [executor.submit(copy_context().run, generate, item) for item in groups.items()]
+            failures = [error for future in futures if (error := future.result())]
         if failures:
             real_errors = [error for error in failures if not isinstance(error, DeferredExhausted)]
             if real_errors:

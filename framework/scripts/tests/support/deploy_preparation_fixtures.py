@@ -49,7 +49,7 @@ STACKS = ["cfn-stack-app-dev-one", "cfn-stack-app-dev-two"]
 
 def fixture(root):
     (root / "framework/scripts").mkdir(parents=True)
-    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "sync_files.py", "requirements.txt"):
+    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "requirements.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
     shutil.copytree(ROOT / "framework/scripts/deployment", root / "framework/scripts/deployment")
     shutil.copytree(ROOT / "framework/rules", root / "framework/rules")

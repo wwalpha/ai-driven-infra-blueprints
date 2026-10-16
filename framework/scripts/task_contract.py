@@ -14,6 +14,7 @@ import time
 from typing import NamedTuple
 
 from sync_files import atomic_files
+from validation_cache import memoized
 
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -35,6 +36,11 @@ class RegistrationBusy(ValueError):
 
 
 def section(text, heading):
+    return list(_section(text, heading))
+
+
+@memoized
+def _section(text, heading):
     result = []
     inside = False
     found = False
@@ -47,10 +53,15 @@ def section(text, heading):
             inside = False
         elif inside and line.strip():
             result.append(line)
-    return result
+    return tuple(result)
 
 
 def paths_in(text, heading):
+    return set(_paths_in(text, heading))
+
+
+@memoized
+def _paths_in(text, heading):
     result = []
     for line in section(text, heading):
         match = re.fullmatch(r"- `([^`]+)`", line)
@@ -59,7 +70,7 @@ def paths_in(text, heading):
         result.append(match.group(1))
     if not result or len(result) != len(set(result)):
         raise ValueError(f"missing or duplicate paths: {heading}")
-    return set(result)
+    return frozenset(result)
 
 
 def matches(path, pattern):
@@ -278,7 +289,7 @@ def reservations(root, records):
             safe_path(root, value)
             if value.startswith("tasks/") and value != name:
                 raise ValueError(f"task cannot reserve another contract: {name}: {value}")
-            if not any(matches(value, pattern) for pattern in allowed):
+            if value not in allowed and not any(matches(value, pattern) for pattern in allowed):
                 raise ValueError(f"reserved file is outside Allowed paths: {name}: {value}")
         active = claimed_files(text, files)
         if state == "completed" and files - active:
@@ -407,7 +418,9 @@ def reserved_batches(root, jobs, sleeper=None, task_file=None):
         if not waiting:
             print("Waiting for same-worktree reservations; retry every 30 sec, up to 20 attempts.", flush=True)
             waiting = True
-        sleeper(RETRY_INTERVAL)  # Never hold the service_source lock while sleeping or working.
+        from sync_progress import phase
+        with phase("reservation", status="reservation-wait"):
+            sleeper(RETRY_INTERVAL)  # Never hold the service_source lock while sleeping or working.
         attempts += 1  # One bounded budget across this worker's waiting phases.
 
 

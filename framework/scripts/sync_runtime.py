@@ -22,9 +22,11 @@ from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
 from sync_files import changed_files, save_files, restore_files, markdown_newlines
 import sync_views
+from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total
 from import_scope import selected as import_selection, scoped as import_scoped
 
 
+@progress_stage("stage-placement/dependency-models")
 def stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write):
     docs, models = root / "docs/designs", root / "model"
     shutil.copytree(root / 'framework', stage / 'framework')
@@ -83,10 +85,12 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
                 environment, target = view.parent.relative_to(docs).parts
                 model_inputs.update(file for model in registered_models(root, environment, target)
                                     for file in source_inputs(model) if file.is_relative_to(root))
-        for path in [*model_inputs, *views]:
-            destination = stage / path.relative_to(root)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, destination)
+        with phase("stage-placement", total=len(model_inputs) + len(views)):
+            for path in [*model_inputs, *views]:
+                destination = stage / path.relative_to(root)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+                advance()
         for path in markdown_paths:
             if path.with_suffix("").is_dir():
                 shutil.copytree(path.with_suffix(""), stage / path.with_suffix("").relative_to(root))
@@ -99,7 +103,9 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
     return saved_paths, baseline_links
 
 
+@progress_stage("candidate-generation")
 def generate_views(stage, root, destinations, failures):
+    total(len(destinations))
     generated = {}
     # Render all valid base views before resolving cross-service links.
     for path, values in destinations.items():
@@ -133,6 +139,7 @@ def generate_views(stage, root, destinations, failures):
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
             restore_view(stage, root, path)
+        advance()
     for path in list(generated):
         try:
             staged = stage / path.relative_to(root)
@@ -145,6 +152,7 @@ def generate_views(stage, root, destinations, failures):
     return generated
 
 
+@progress_stage("candidate-validation")
 def validate_candidates(stage, root, generated, destinations, failures, jobs, write):
     # A rejected view falls back to its saved state; recheck dependent services.
     def validate(path):
@@ -160,12 +168,14 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
         return path, None
 
     while generated:
+        total(len(generated))
         design_index = DesignIndex()  # A new snapshot after each restore_view phase.
         rejected = []
         # All candidate views are fixed during this read-only phase.
         with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
             mapper = map if write or jobs == 1 else executor.map
             for path, error in mapper(validate, sorted(generated)):
+                advance()
                 if error:
                     failures.append(error)
                     rejected.append(path)
@@ -201,12 +211,18 @@ def selected(
     )
 
 
+@progress_stage("snapshot")
 def generation_inputs(root):
     # Snapshot bytes, not validation results; include file sets and absent optional inputs.
     paths = {p for p in (root / 'framework').rglob('*')
              if p.is_file() and '__pycache__' not in p.parts}
     paths.update(root / name for name in ('project.json', 'AGENTS.md'))
-    return {p: p.read_bytes() if p.is_file() else None for p in paths}
+    total(len(paths))
+    snapshot = {}
+    for p in paths:
+        snapshot[p] = p.read_bytes() if p.is_file() else None
+        advance()
+    return snapshot
 
 
 def verify_saved(expected):
@@ -219,6 +235,7 @@ def verify_saved(expected):
             raise ValueError(f'generated output file set changed: {view}')
 
 
+@tracked_sync
 @input_scope
 @import_scoped
 def sync(
@@ -231,7 +248,8 @@ def sync(
 ) -> int:
     root = root.resolve()
     from import_guard import require_import_changes
-    require_import_changes(root, generation=True)
+    with phase("import-guard"):
+        require_import_changes(root, generation=True)
     if import_selection(root) is not None:
         from import_scope import readable
         expected = {import_selection(root)} if write else readable(root)
@@ -257,6 +275,8 @@ def sync(
                     require_writable(root, set(output))
                     publish(root, output, inputs={**inputs, **view_inputs})
                     finish_import(root, markdown='generated' if output else 'unchanged')
+            consumers({identity})
+            completed(identity)
             return 0
         jobs = 1
     docs = root / "docs" / "designs"
@@ -281,6 +301,7 @@ def sync(
         for service in services:
             if not any(path.stem == service for path in model_paths):
                 raise ValueError(f"authoritative service model missing: {environment}/{target_directory}/{service}")
+    consumers((*path.relative_to(models).parts[:2], path.stem) for path in model_paths)
     configuration = generation_inputs(root) if write else {}
     destinations = {}
     model_snapshots = {}
@@ -288,7 +309,9 @@ def sync(
     for path in model_paths:
         destination = (docs / path.relative_to(models)).with_suffix(".md")
         try:
-            loaded = load_model(path)
+            with phase("dependency-model", total=1):
+                loaded = load_model(path)
+                advance()
             destinations[destination] = loaded.values
             model_snapshots[destination] = {file: content.encode("utf-8") for file, content in loaded.files.items()}
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -298,24 +321,26 @@ def sync(
     with tempfile.TemporaryDirectory() as directory:
         stage = Path(directory).resolve()
         saved_paths, baseline_links = stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write)
-        staged_inputs = {root / file.relative_to(stage): file.read_bytes()
-                         for file in (stage / 'model').rglob('*') if file.is_file()}
-        for file in list(staged_inputs):
-            if file.name in {'parameters.yaml', 'bindings.json'}:
-                staged_inputs.setdefault(file.parent / 'observed.json', None)
-        # Staged reference views/JSON are inputs until this operation publishes them.
-        reference_inputs = {root / file.relative_to(stage): file.read_bytes()
-                            for file in (stage / 'docs/designs').rglob('*') if file.is_file()
-                            and not any(file == stage / path.relative_to(root) or
-                                        file.is_relative_to((stage / path.relative_to(root)).with_suffix(''))
-                                        for path in destinations)}
+        with phase("snapshot"):
+            staged_inputs = {root / file.relative_to(stage): file.read_bytes()
+                             for file in (stage / 'model').rglob('*') if file.is_file()}
+            for file in list(staged_inputs):
+                if file.name in {'parameters.yaml', 'bindings.json'}:
+                    staged_inputs.setdefault(file.parent / 'observed.json', None)
+            # Staged reference views/JSON are inputs until this operation publishes them.
+            reference_inputs = {root / file.relative_to(stage): file.read_bytes()
+                                for file in (stage / 'docs/designs').rglob('*') if file.is_file()
+                                and not any(file == stage / path.relative_to(root) or
+                                            file.is_relative_to((stage / path.relative_to(root)).with_suffix(''))
+                                            for path in destinations)}
         generated = generate_views(stage, root, destinations, failures)
         validate_candidates(stage, root, generated, destinations, failures, jobs, write)
         saved = {}
         save_failed = False
-        expected_outputs = {path: {root / file.relative_to(stage): file.read_bytes().decode("utf-8") for file in files}
-                            for path, files in generated.items()}
-        source_snapshots = {path: {**configuration, **staged_inputs, **reference_inputs, **model_snapshots[path]} for path in generated}
+        with phase("file-comparison"):
+            expected_outputs = {path: {root / file.relative_to(stage): file.read_bytes().decode("utf-8") for file in files}
+                                for path, files in generated.items()}
+            source_snapshots = {path: {**configuration, **staged_inputs, **reference_inputs, **model_snapshots[path]} for path in generated}
         pending_error = None
         batches = reserved_batches(root, {path: set(changed_files(output)) for path, output in expected_outputs.items()}) if write else iter(generated)
         try:
@@ -326,7 +351,7 @@ def sync(
                                for source, original in source_snapshots[path].items()):
                         raise ValueError("authoritative model inputs changed before publication; rerun generation")
                     if write:
-                        with publication_lock(root):
+                        with phase("publication"), publication_lock(root):
                             for file in expected:
                                 safe(root, file)
                             if any((source.read_bytes() if source.is_file() else None) != original
@@ -386,6 +411,7 @@ def sync(
                     print(f"Design Markdown sync: WARNING ({target.relative_to(root)}: "
                           f"saved reference needs repair in a separate task: {reference})", file=sys.stderr)
         for path in saved:
+            completed((*path.relative_to(docs).parts[:2], path.stem))
             print(f"Design Markdown sync: PASS ({path.relative_to(root)})")
     if failures:
         failed_services = (set(markdown_paths) | {

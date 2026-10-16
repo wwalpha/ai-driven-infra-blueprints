@@ -17,6 +17,7 @@ from model_core import properties, entries, LINK
 from policy_tables import unique_object, invalid_constant
 from validation_cache import input_scope, memoized, memo_table
 import sync_files
+from sync_progress import phase, thread_lock, advance
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 IDENTITY = re.compile(r"[A-Za-z0-9_-]+")
@@ -75,7 +76,7 @@ def publication_lock(root):
     key = str(root.resolve())
     with _guard:
         lock = _locks.setdefault(key, threading.RLock())
-    with lock:
+    with thread_lock(lock):
         depths = getattr(_local, 'depths', {})
         _local.depths = depths
         if key in depths:
@@ -89,10 +90,18 @@ def publication_lock(root):
             if os.name == 'nt':
                 import msvcrt
                 stream.seek(0); stream.write(b'0'); stream.flush(); stream.seek(0)
-                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    with phase("publication-lock", status="lock-wait"):
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
             else:
                 import fcntl
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    with phase("publication-lock", status="lock-wait"):
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
             depths[key] = journal
             try:
                 if journal.is_file():
@@ -1027,7 +1036,10 @@ def observed_outputs(path, values):
 
 def source_inputs(path):
     from model_files import load_model
-    return set(load_model(path).files)
+    with phase("dependency-model:" + "/".join(path.parts[-3:]), total=1):
+        files = set(load_model(path).files)
+        advance()
+        return files
 
 
 def consumers(root, alias, service):
