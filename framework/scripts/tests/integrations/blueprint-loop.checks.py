@@ -58,7 +58,7 @@ def check_deploy_scope_isolation(tmp_path):
     # Full-mode assertions must not recursively launch this regression script.
     for path in (scripts / "tests").rglob("*.checks.py"):
         path.unlink()
-    (scripts / "tests/unknown/scope.checks.py").write_text("assert True\n")
+    (scripts / "tests/integrations/scope.checks.py").write_text("assert True\n")
     target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
     (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [
         {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")
@@ -327,12 +327,12 @@ def check_parallel_and_selection(tmp_path):
     root = tmp_path
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
-    (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+    (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
     logs = root / "logs"
     logs.mkdir()
     commands = []
     for name, other, code in (("a", "b", 1), ("b", "a", 0)):
-        script = scripts / f"tests/unknown/{name}.checks.py"
+        script = scripts / f"tests/integrations/{name}.checks.py"
         script.write_text(
             "from pathlib import Path\nimport time\n"
             f"Path('{name}').touch()\nend=time.monotonic()+5\n"
@@ -356,12 +356,12 @@ def check_staged_snapshot(tmp_path):
     root = tmp_path / "source"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
-    (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+    (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
     for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py"):
         shutil.copyfile(SCRIPT.with_name(name), scripts / name)
     # These isolated runner fixtures exercise orchestration after authorization.
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
-    (scripts / "tests/unknown/snapshot.checks.py").write_text(
+    (scripts / "tests/integrations/snapshot.checks.py").write_text(
         "from pathlib import Path\nassert not Path('untracked.txt').exists()\n"
         "print('snapshot regression assertion executed')\n", encoding="utf-8")
     (root / "tasks").mkdir()
@@ -465,10 +465,10 @@ def check_regression_authorization(tmp_path):
     root = tmp_path / "repository"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
-    (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+    (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
     runner = scripts / SCRIPT.name
     runner.write_text("# fixture\n", encoding="utf-8")
-    (scripts / "tests/unknown/a.checks.py").write_text("# fixture\n", encoding="utf-8")
+    (scripts / "tests/integrations/a.checks.py").write_text("# fixture\n", encoding="utf-8")
     with patch.object(MODULE, "__file__", str(runner)), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()) as changed, \
@@ -480,7 +480,7 @@ def check_regression_authorization(tmp_path):
         for mode, paths, extra in (("full", set(), []), ("task", {"README.md"}, []),
                                    ("local", set(), ["--all"]),
                                    ("task", {"framework/scripts/shared.py"}, ["--affected"]),
-                                   ("task", {"framework/scripts/tests/unknown/a.checks.py"}, ["--affected"])):
+                                   ("task", {"framework/scripts/tests/integrations/a.checks.py"}, ["--affected"])):
             changed.return_value = paths
             with patch.object(sys, "argv", [str(runner), "--mode", mode, "--log-dir", str(logs), *extra]):
                 assert MODULE.main() == 2
@@ -502,8 +502,8 @@ def check_regression_authorization(tmp_path):
         authorize.assert_called_once()
         assert len(run.call_args.args[1]) == 4
         # A proven leaf selection among multiple checks remains a focused run.
-        (scripts / "tests/unknown/b.checks.py").write_text("# fixture\n", encoding="utf-8")
-        changed.return_value = {"framework/scripts/tests/unknown/a.checks.py"}
+        (scripts / "tests/integrations/b.checks.py").write_text("# fixture\n", encoding="utf-8")
+        changed.return_value = {"framework/scripts/tests/integrations/a.checks.py"}
         authorize.reset_mock()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--affected", "--log-dir", str(logs)]):
             assert MODULE.main() == 0
@@ -515,14 +515,14 @@ def check_failure_suspension(tmp_path):
         root = tmp_path / "repository"
         scripts = root / "framework/scripts"
         scripts.mkdir(parents=True)
-        (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+        (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
         for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "run-python.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
         validator = scripts / "validate-blueprint.py"
         validator.write_text("print('baseline: model/dev/cde/ec2.properties schema mismatch')\nraise SystemExit(1)\n", encoding="utf-8")
-        check = scripts / "tests/unknown/own.checks.py"
+        check = scripts / "tests/integrations/own.checks.py"
         check.write_text("print('own check passed')\n", encoding="utf-8")
         first, other = "tasks/first.md", "tasks/other.md"
 
@@ -586,7 +586,7 @@ def check_startup_diagnostics(tmp_path, phase):
     root = tmp_path / "repository"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
-    (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+    (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
     runner = scripts / SCRIPT.name
     runner.write_text("# fixture\n", encoding="utf-8")
     MODULE.git(root, "init", "-q")
@@ -712,7 +712,7 @@ def check_workflow(tmp_path) -> None:
     log_parent = tmp_path / "logs"
     scripts = root / "framework" / "scripts"
     scripts.mkdir(parents=True)
-    (scripts / "tests/unknown").mkdir(parents=True, exist_ok=True)
+    (scripts / "tests/integrations").mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
     shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
@@ -720,8 +720,8 @@ def check_workflow(tmp_path) -> None:
     shutil.copyfile(SCRIPT.with_name("sync_files.py"), scripts / "sync_files.py")
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
-    (scripts / "tests/unknown/a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
-    (scripts / "tests/unknown/b.checks.py").write_text(
+    (scripts / "tests/integrations/a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
+    (scripts / "tests/integrations/b.checks.py").write_text(
         "from pathlib import Path\nPath('continued').write_text('yes', encoding='utf-8')\n",
         encoding="utf-8",
     )
@@ -750,7 +750,7 @@ def check_workflow(tmp_path) -> None:
     assert "AssertionError" in (failed_directory / "02-a.checks.py.log").read_text(encoding="utf-8")
 
     (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' in sys.argv\n", encoding="utf-8")
-    (scripts / "tests/unknown/a.checks.py").write_text("assert True\n", encoding="utf-8")
+    (scripts / "tests/integrations/a.checks.py").write_text("assert True\n", encoding="utf-8")
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS (2 framework regression scripts)" in result.stdout

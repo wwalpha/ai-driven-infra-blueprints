@@ -65,6 +65,22 @@ def check_dispatch():
 
 def check_boundaries():
     with project() as root:
+        template = root / 'infra/cloudformation/templates/existing.yaml'
+        write(template, 'Resources: {}\n')
+        framework = MODULE.Validator(root, set())
+        with patch.object(MODULE.iac, 'check_iac_selection') as selection:
+            framework.check_iac_selection()
+            selection.assert_not_called()
+        assert not framework.errors
+        overall = MODULE.Validator(root, None)
+        overall.check_iac_selection()
+        assert 'template mode contains cloudformation implementation' in overall.errors
+        consumer = MODULE.Validator(root, {('dev', 'cde', 'ec2')})
+        consumer.template_mode = False
+        consumer.accounts = {('dev', 'cde'): {'engine': 'terraform', 'alias': 'cde'}}
+        consumer.check_iac_selection()
+        assert 'unselected IaC engine directory remains: cloudformation' in consumer.errors
+    with project() as root:
         path = root / 'own.yaml'
         first, second = MODULE.Validator(root, set()), MODULE.Validator(root, set())
         first.check_file(False, path, 'unresolved')

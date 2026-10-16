@@ -73,15 +73,15 @@ def check_parallel_interruption(tmp_path):
 
 def check_leaf_selection(tmp_path):
     root = tmp_path
-    scripts = root / 'framework/scripts/tests/unknown'
+    scripts = root / 'framework/scripts/tests/integrations'
     scripts.mkdir(parents=True)
     for name in ('a', 'b'):
         (scripts / (name + '.checks.py')).write_text('# selection fixture\n', encoding='utf-8')
-    paths = {"framework/scripts/tests/unknown/a.checks.py"}
+    paths = {"framework/scripts/tests/integrations/a.checks.py"}
     selected, reason = MODULE.select_checks(root, paths, True)
     assert [path.name for path in selected] == ["a.checks.py"]
     for unknown in ("framework/scripts/shared.py", "framework/rules/rule.md",
-                    "framework/scripts/tests/unknown/deleted.checks.py", "framework/materials/catalog.sha256"):
+                    "framework/scripts/tests/integrations/deleted.checks.py", "framework/materials/catalog.sha256"):
         selected, reason = MODULE.select_checks(root, paths | {unknown}, True)
         assert len(selected) == 2 and "unknown dependency" in reason
     assert len(MODULE.select_checks(root, paths, False)[0]) == 2

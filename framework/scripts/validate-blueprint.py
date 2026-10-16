@@ -451,6 +451,8 @@ class Validator:
         return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope)
 
     def check_iac_selection(self) -> None:
+        if self.scope == set() and not self.accounts:
+            return
         iac.check_iac_selection(self.root, self.scope, self.accounts, self.template_mode, self.findings)
         if self.scope is None or self.task_type == "infrastructure" or any(
                 terraform.is_terraform_path(path) for path in self.changed_paths):
