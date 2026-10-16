@@ -8,6 +8,7 @@ if not __debug__:
 
 from support.policy_tables_fixtures import *
 
+@pytest.mark.usefixtures("policy_mapping_cache")
 def check_iam(tmp_path):
     root = tmp_path
     path = root / "docs/designs/dev/123456789012/iam.md"
@@ -196,10 +197,12 @@ def check_iam(tmp_path):
 
     # --write updates only derived Markdown and requires an explicit file.
     path.write_text(text, encoding="utf-8")
-    check = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path)], capture_output=True)
+    check = policy_cli([str(path)])
     assert check.returncode == 1 and path.read_text(encoding="utf-8") == text
+    assert b"policy tables are stale; regenerate with --write" in check.stderr
     write = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"], capture_output=True)
     assert write.returncode == 0, write.stderr
+    assert write.stdout == b"Policy tables: PASS\n" and write.stderr == b""
     assert path.read_text(encoding="utf-8") == rendered
 
     # The policy-only renderer does not invent omitted Role settings.
@@ -215,6 +218,7 @@ def check_iam(tmp_path):
     print("IAM policy tables checks: PASS (generation, validation, model, CLI)")
 
 
+@pytest.mark.usefixtures("policy_mapping_cache")
 def service_policy_checks():
     from cloudformation_schema import CloudFormationSchemaCatalog
     from policy_tables import POLICY_FORMATS, START, END
@@ -230,6 +234,7 @@ def service_policy_checks():
             # Discover omissions for review; never infer their rendering mode.
             if "Policy" in prop.split(".")[-1] and "object" in schema.property_schema(resource_type, prop[len(resource_type) + 1:]).get("type", []):
                 candidates.add(prop)
+    assert len(POLICY_FORMATS) == 31
     assert candidates == set(POLICY_FORMATS), "catalog policy documents need an explicit display decision"
     statement = {"Version": "2012-10-17", "Id": "access-policy", "Statement": [
         {"Sid": "AllowRead", "Effect": "Allow", "Principal": "*", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::example/*"]},
@@ -338,7 +343,7 @@ def service_policy_checks():
             assert errors(rendered), "non-JSON constants must fail"
             artifact.write_text(json.dumps(document), encoding="utf-8")
             path.write_text(original, encoding="utf-8")
-            write = subprocess.run([sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"], capture_output=True)
+            write = policy_cli([str(path), "--write"])
             assert write.returncode == 0 and path.read_text(encoding="utf-8") == rendered, write.stderr
             assert json.loads(artifact.read_text(encoding="utf-8")) == document, "generation must not modify policy JSON"
 
@@ -348,7 +353,9 @@ def service_policy_checks():
     print(f"Service policy tables checks: PASS ({len(POLICY_FORMATS)} registered properties, schema, generation, validation, model, CLI)")
 
 
+@pytest.mark.usefixtures("policy_mapping_cache")
 def grouping_and_settings_checks():
+    mapping_cache_checks()
     from policy_tables import START, END
 
     layout_fixture = load("design_layout.checks")

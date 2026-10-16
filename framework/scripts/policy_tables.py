@@ -377,11 +377,11 @@ def rendered_design(path: Path) -> str:
         lines[resource.table_end:resource.table_end] = generated
     return "\n".join(lines) + "\n"
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("design", type=Path, help="Explicitly authorized service Markdown path")
     parser.add_argument("--write", action="store_true", help="Update only derived policy views")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         rendered = rendered_design(args.design)
         if rendered != args.design.read_text(encoding="utf-8"):
