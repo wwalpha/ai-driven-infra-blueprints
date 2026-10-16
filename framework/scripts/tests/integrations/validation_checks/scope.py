@@ -232,31 +232,17 @@ def check_task_file_gating() -> None:
             assert len(global_failure.non_blocking_findings) == 82
         write(root / selected, text)
 
-        # Case 6: another worktree and another same-checkout task supply no current-task changes.
+        # Case 6: another worktree supplies no current-task changes.
         other = wt.create(primary, "other-gate")
         other_root = Path(other["worktree"])
         tasks.start(other_root, other["task_file"], contract(other["task_file"], [own]))
         write(other_root / own, "Metadata:\n  Fn::Sub: foreign\n")
         foreign = root / other["task_file"]
         foreign.write_bytes((other_root / other["task_file"]).read_bytes())
-        sibling_path = "infra/cloudformation/templates/non-cde/codepipeline.yaml"
-        sibling = "tasks/sibling.md"
-        tasks.start(root, sibling, contract(sibling, [sibling_path]))
-        with (root / sibling_path).open("a", encoding="utf-8") as stream:
-            stream.write("# sibling task\n")
         isolated, result, output = validate()
         assert result == 0 and isolated.file_gate_paths == committed_valid.file_gate_paths, output
-        assert sibling_path not in isolated.changed_paths and other["task_file"] not in isolated.changed_paths
+        assert other["task_file"] not in isolated.changed_paths
         assert len(isolated.non_blocking_findings) == 82
-
-        # Legacy/non-managed contracts keep acquired file authority even after committing.
-        with patch.dict(os.environ, {tasks.SELECTOR: selected}):
-            legacy = MODULE.Validator(root, set())
-            with patch.object(wt, "committed_task_paths", return_value=None):
-                legacy.check_task_scope()
-            assert own in legacy.file_gate_paths and sibling_path not in legacy.file_gate_paths
-            legacy.check_file(False, root / own, "committed own error")
-            assert legacy.errors == ["committed own error"]
 
         # Environment/template and parameter JSON findings share the same gate abstraction.
         params = root / "infra/cloudformation/parameters/dev/non-cde/unrelated.json"
@@ -274,5 +260,36 @@ def check_task_file_gating() -> None:
         isolated.file_gate_paths.clear()
         isolated.check(False, "global process failure")
         assert "global process failure" in isolated.errors
+        # Ordinary checkouts permit sibling contracts; managed worktrees reject them.
+        sibling_path = "infra/cloudformation/templates/non-cde/codepipeline.yaml"
+        sibling = "tasks/sibling.md"
+        try:
+            tasks.start(root, sibling, contract(sibling, [sibling_path]))
+        except ValueError as error:
+            assert str(error) == "selected task does not match managed task_file", error
+        else:
+            raise AssertionError("managed worktree accepted a sibling task")
+        assert not (root / sibling).exists()
+
+        root = primary
+        tasks.start(root, selected, contract(selected, [own]))
+        tasks.start(root, sibling, contract(sibling, [sibling_path]))
+        write(root / own, "Resources: {}\n# current task\n")
+        with (root / sibling_path).open("a", encoding="utf-8") as stream:
+            stream.write("# sibling task\n")
+        same_checkout, result, output = validate()
+        assert result == 0 and same_checkout.file_gate_paths == {selected, own}, output
+        assert sibling_path not in same_checkout.changed_paths
+        assert len(same_checkout.non_blocking_findings) == 82
+
+        # Non-managed contracts keep acquired file authority even after committing.
+        wt.git(root, "add", own)
+        wt.git(root, "commit", "-qm", "ordinary task fixture")
+        assert wt.committed_task_paths(root, selected) is None
+        legacy = MODULE.Validator(root, set())
+        legacy.check_task_scope()
+        assert own in legacy.file_gate_paths and sibling_path not in legacy.file_gate_paths
+        legacy.check_file(False, root / own, "committed own error")
+        assert legacy.errors == ["committed own error"]
     print("Task file gating: PASS (6 cases; unrelated CloudFormation errors detected: 82; blocking errors from those files: 0)")
 
