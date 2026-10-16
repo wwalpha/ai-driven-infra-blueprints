@@ -1617,6 +1617,85 @@ def check_import_worktree_completion():
         check(m.comparator().literal(load_model(path).values['desired.row.001-002.value']) == '90', 'integrated sources retain acquired values')
 
 
+def check_final_shared_inputs():
+    from model_templates import load_for_edit, parse_template
+    from model_parameter_inputs import service_inputs
+    from sync_files import save_files
+    for retained in (False, True):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+            root = Path(tmp).resolve()
+            path = fixture(root, parameter=False)
+            _, template, directory = m.service_source(path)
+            spec = lambda kind: json_text({'type': kind, 'description': '合成入力', 'required': True})
+            text = template.read_text(encoding='utf-8')
+            body = text.split('# definition: Fixture_dev\n')[1].split('# end-definition')[0]
+            imported, protected = [], []
+            for line in body.splitlines():
+                (imported if 'resource_001' in line or 'row_001-' in line else protected).append(line)
+            imported = '\n'.join(imported).replace('desired.row.row_001-002.value=`30`', 'desired.row.row_001-002.value=<<UnusedDays>>')
+            protected = '\n'.join(protected)
+            inputs = '# input: UnusedDays ' + spec('integer') + '\n'
+            params = {'parameters': {'UnusedDays': 30}, 'instances': {}}
+            if retained:
+                inputs += '# input: KeepDays ' + spec('integer') + '\n# input: ChosenClass ' + spec('string') + '\n'
+                protected = protected.replace('desired.row.row_002-002.value=`30`', 'desired.row.row_002-002.value=<<KeepDays>>')
+                protected += '\n# parameter: Enabled ' + spec('boolean')
+                protected += '\n# optional: desired.row.row_002-002.value Enabled'
+                protected += '\n# choice: desired.row.row_002-004.value ' + json_text({'parameter': 'Enabled', 'value': '`<<ChosenClass>>`'})
+                params['parameters'].update(KeepDays=30, ChosenClass='STANDARD')
+                params['instances']['protected'] = {'parameters': {'Enabled': True}}
+            template.write_text('# model-template: 1\n' + inputs + '# definition: Imported\n' + imported + '\n# end-definition\n# definition: Protected\n' + protected + '\n# end-definition\n', encoding='utf-8')
+            old = json.loads((directory/'bindings.json').read_text())['instances']['fixture']
+            bindings = {'instances': {name: {'definition': definition, 'resources': {k:v for k,v in old['resources'].items() if v == rid},
+                'rows': {k:v for k,v in old['rows'].items() if v.startswith(rid+'-')}, 'parameters': {}}
+                for name, definition, rid in [('imported','Imported','001'), ('protected','Protected','002')]}}
+            save_files({directory/'bindings.json': json_text(bindings), directory/'parameters.yaml': parameter_text(params, parse_template(template)[0], bindings)})
+            foreign = root/'model/parameters/stg'/ACCOUNT/'cloudwatch-logs'
+            shutil.copytree(directory, foreign)
+            foreign_bytes = {p:p.read_bytes() for p in foreign.iterdir()}
+            template_before = template.read_text(encoding='utf-8')
+            before = load_for_edit(path).values
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'shared inputs'], cwd=root, check=True)
+            cli = AwsCli(); cli.logs = []
+            if retained:
+                original_snapshot = m.snapshot_sources
+                def inconsistent(*args, **kwargs):
+                    output = original_snapshot(*args, **kwargs)
+                    file = directory/'parameters.yaml'
+                    broken = m.yaml_read(output[file])
+                    broken['parameters']['UnrelatedExcess'] = 'must not be silently removed'
+                    output[file] = json_text(broken)
+                    return output
+                originals = snapshot(root)
+                with patch.object(m, 'snapshot_sources', side_effect=inconsistent):
+                    rejected(lambda: m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=cli), 'UnrelatedExcess')
+                check(snapshot(root) == originals, 'unreadable final candidate is rejected before any save')
+            plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=cli)
+            reserve(root, plan)
+            with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
+                with patch.object(sync_runtime, 'generate_files', side_effect=ValueError('injected display failure')):
+                    failed = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)
+                check(failed['model'] == 'reflected' and failed['markdown'] == 'failed', 'display failure preserves source transaction')
+                saved = load_for_edit(path)
+                current = m.yaml_read((directory/'parameters.yaml').read_text())
+                check('UnusedDays' not in current.get('parameters', {}), 'removed instance no longer supplies its shared input')
+                check(('parameters' in current) == retained, 'last shared input removes the top-level parameters mapping')
+                check(set(current.get('parameters', {})) == set(service_inputs(parse_template(template)[0], json.loads((directory/'bindings.json').read_text()), current)), 'final active shared inputs match supplied keys')
+                if retained:
+                    check(current['parameters'] == {'KeepDays':30, 'ChosenClass':'STANDARD'}, 'active optional and choice inputs remain')
+                check(import_guard.resource_config(saved.values,'002') == import_guard.resource_config(before,'002'), 'CREATE values and fixed IDs preserved')
+                check(json.loads((directory/'bindings.json').read_text())['instances']['protected'] == bindings['instances']['protected'], 'unselected CREATE binding preserved')
+                check(template.read_text(encoding='utf-8').startswith(template_before), 'shared declarations and original Definitions retained')
+                check(all(p.read_bytes() == content for p,content in foreign_bytes.items()), 'other environment input bytes preserved')
+                from import_scope import read_consumers
+                with read_consumers({('dev', ACCOUNT, 'cloudwatch-logs'), ('stg', ACCOUNT, 'cloudwatch-logs')}):
+                    check(load_for_edit(root/'model/stg'/ACCOUNT/'cloudwatch-logs.properties').values == before, 'other environment expands original shared inputs')
+                calls = list(cli.calls)
+                check(sync_runtime.sync(root, True, 'dev', ACCOUNT, ['cloudwatch-logs']) == 0, 'saved source reload and real display generation succeed')
+                check(cli.calls == calls, 'display recovery performs no acquisition')
+
+
 def main():
     return run(__file__, message='import-model CLI checks: PASS')
 

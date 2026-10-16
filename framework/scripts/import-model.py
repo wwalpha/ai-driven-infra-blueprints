@@ -16,7 +16,7 @@ from design_layout import resource_anchor, is_service_role_reference
 from import_guard import workflow, require_import_changes, record_import, finish_import
 from model_core import LINK, entries
 from model_files import model_file_contents, model_parts, resource_row_index
-from model_parameter_inputs import yaml_read
+from model_parameter_inputs import yaml_read, service_inputs
 from model_templates import publication_lock, json_read, json_text, publish, service_source, parse_template, bound_definition, variables
 from model_references import catalog_outputs
 from task_contract import reserved_batches, task_path, section, DeferredExhausted
@@ -377,6 +377,7 @@ def snapshot_sources(path, expansion, values, source_files=None):
     original_bindings = json_read(expansion.files[directory / 'bindings.json'])['instances']
     original_definitions, _ = parse_template(template, source_files)
     original_parameters = yaml_read(expansion.files[directory / 'parameters.yaml'])
+    previous_inputs = service_inputs(original_definitions, {'instances': original_bindings}, original_parameters)
     original_parameters, original_bindings = optional_plan(original_definitions, original_parameters, original_bindings, values)
     original_parameters, selected_definitions = input_plan(template, original_definitions, original_parameters,
                                                           original_bindings, expansion, values, path.parent.parent.name)
@@ -561,6 +562,13 @@ def snapshot_sources(path, expansion, values, source_files=None):
     text += ''.join(blocks)
     output = model_file_contents(template, text, validate=False)
     output.update({part: None for part in set(model_parts(template)) - output.keys() - {template}})
+    final_definitions, _ = parse_template(template, output)
+    active_inputs = service_inputs(final_definitions, bindings, parameters)
+    # Only remove inputs made obsolete by this reconstruction; shared declarations stay intact.
+    for name in previous_inputs.keys() - active_inputs.keys():
+        parameters.get('parameters', {}).pop(name, None)
+    if not active_inputs and parameters.get('parameters') == {}:
+        parameters.pop('parameters', None)
     output[directory / 'bindings.json'] = json_text(bindings) + '\n'
     output[directory / 'parameters.yaml'] = parameter_edit(expansion.files[directory / 'parameters.yaml'], parameters)
     output[directory / 'observed.json'] = observations()
@@ -583,6 +591,8 @@ def promoted_sources(path, expansion, values):
                 'preservedConsumers': len(preserved) - 1} for plan in plans]
     promoted = load_for_edit(path, output) if output else expansion
     output.update(snapshot_sources(path, promoted, values, output))
+    # Re-read the final source plan without design validation or publication.
+    load_for_edit(path, output)
     return {file: content for file, content in output.items()
             if (file.read_bytes().decode('utf-8') if file.is_file() else None) != content}, preserved, reports
 

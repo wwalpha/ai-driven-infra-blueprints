@@ -388,9 +388,9 @@ def check_it_inventory(tmp_path):
     with pytest.raises(ValueError, match='duplicate'):
         run_it.registered_cases(tmp_path)
     assert run_it.reachability({}, [])
-    assert len(cases) == 308
+    assert len(cases) == 309
     original = [value for value in cases.values() if value[0] in ('direct', 'pytest')]
-    assert len(original) == 289 and sum(count for _, count in original) == 389
+    assert len(original) == 290 and sum(count for _, count in original) == 390
     assert sum(mode == 'direct' for mode, _ in original) == 113
     assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 12
     assert sum(mode == 'module' for mode, _ in cases.values()) == 7

@@ -192,8 +192,11 @@ def check_value(spec, value, label):
 
 
 def values_for(declarations, supplied, label, check=check_value):
-    if not isinstance(supplied, dict) or set(supplied) - declarations.keys():
-        raise ValueError(f'unknown parameter: {label}')
+    if not isinstance(supplied, dict):
+        raise ValueError(f'unknown parameter: {label}; expected an object')
+    excess = supplied.keys() - declarations.keys()
+    if excess:
+        raise ValueError(f'unknown parameter: {label}: {sorted(excess)}')
     result = {}
     for name, declaration in declarations.items():
         spec = schema(declaration)
