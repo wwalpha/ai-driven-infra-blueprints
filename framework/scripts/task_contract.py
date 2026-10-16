@@ -7,10 +7,13 @@ import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import tempfile
 import subprocess
 import time
 from typing import NamedTuple
+
+from sync_files import atomic_files
 
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -82,9 +85,90 @@ def directory_identity(root):
     return hashlib.sha256(str(root.resolve()).encode()).hexdigest()
 
 
+def plain_git_config(path):
+    """Accept a conservative subset; let Git handle includes and unusual syntax."""
+    if not path.exists():
+        return not path.is_symlink()
+    section_name = None
+    for line in path.read_bytes().decode("utf-8").split("\n"):
+        line = line.strip(" \t\r")
+        if not line or line.startswith(("#", ";")):
+            continue
+        section_match = re.fullmatch(r'\[([a-zA-Z][a-zA-Z0-9.-]*)(?: "[^"\\\x00-\x1f]+")?\]', line)
+        if section_match:
+            section_name = section_match[1].lower()
+            if section_name not in {"core", "user", "credential", "remote", "branch", "pull"}:
+                return False
+            continue
+        value = re.fullmatch(r'([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*([^"\\\x00-\x1f]*)', line)
+        if section_name is None or value is None:
+            return False
+        if section_name == "user" and value[1].lower() not in {"name", "email", "signingkey"}:
+            return False
+        if section_name == "core":
+            key, setting = value[1].lower(), value[2].strip().lower()
+            if key == "repositoryformatversion":
+                if setting != "0":
+                    return False
+            elif key not in {"filemode", "bare", "logallrefupdates", "ignorecase", "precomposeunicode"} or setting not in {"true", "false"}:
+                return False
+    return True
+
+
+def direct_git_directory(root):
+    if any(key.startswith("GIT_") and key != "GIT_PAGER" for key in os.environ) or os.name != "posix":
+        return None
+    try:
+        dotgit = root / ".git"
+        if dotgit.is_symlink():
+            return None
+        directory = dotgit
+        if dotgit.is_file():
+            reference = dotgit.read_text(encoding="utf-8")
+            if not re.fullmatch(r"gitdir: [^\x00\r\n]+\n?", reference):
+                return None
+            target = reference.removeprefix("gitdir: ").rstrip("\n")
+            if target != target.strip():
+                return None
+            directory = root / target
+        directory = directory.resolve(strict=True)
+        common = directory
+        commondir = directory / "commondir"
+        if commondir.exists():
+            reference = commondir.read_text(encoding="utf-8")
+            if not re.fullmatch(r"[^\x00\r\n]+\n?", reference) or reference.strip() != reference.rstrip("\n"):
+                return None
+            common = (directory / reference.rstrip("\n")).resolve(strict=True)
+        if os.geteuid() == 0 or any(path.stat().st_uid != os.geteuid() for path in (root, dotgit, directory, common)):
+            return None
+        if (directory / "HEAD").is_symlink():
+            return None
+        head = (directory / "HEAD").read_text(encoding="ascii")
+        if not re.fullmatch(r"(?:ref: refs/[^\x00-\x20]+|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\n?", head):
+            return None
+        if not all(path.is_dir() and os.access(path, os.X_OK) for path in (common / "objects", common / "refs")):
+            return None
+        executable = shutil.which("git")
+        if executable is None:
+            return None
+        config_paths = {common / "config", Path("/etc/gitconfig"),
+                        Path(executable).parent.parent / "etc/gitconfig",
+                        Path(executable).resolve().parent.parent / "etc/gitconfig",
+                        Path.home() / ".gitconfig",
+                        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "git/config"}
+        if not all(plain_git_config(path) for path in config_paths):
+            return None
+        return directory
+    except (OSError, ValueError, RuntimeError):
+        return None  # Preserve Git's own diagnostics/error behavior for uncertain structures.
+
+
 def worktree_identity(root):
     if not (root / ".git").exists():
         return directory_identity(root)  # Initialization and contract-free fixtures before git init.
+    directory = direct_git_directory(root)
+    if directory is not None:
+        return hashlib.sha256(str(directory).encode()).hexdigest()
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
     result = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=root,
@@ -323,7 +407,7 @@ def reserved_batches(root, jobs, sleeper=None, task_file=None):
         if not waiting:
             print("Waiting for same-worktree reservations; retry every 30 sec, up to 20 attempts.", flush=True)
             waiting = True
-        sleeper(RETRY_INTERVAL)  # Never hold the registration lock while sleeping or working.
+        sleeper(RETRY_INTERVAL)  # Never hold the service_source lock while sleeping or working.
         attempts += 1  # One bounded budget across this worker's waiting phases.
 
 
@@ -346,11 +430,11 @@ def wait_deferred(root, name, sleeper=None):
 @contextmanager
 def registration_lock(root):
     key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()
-    lock = Path(tempfile.gettempdir()) / f"blueprint-task-registration-{key}.lock"
+    lock = Path(tempfile.gettempdir()) / f"blueprint-task-service_source-{key}.lock"
     try:
         lock.mkdir()
     except FileExistsError:
-        raise RegistrationBusy(f"task registration is busy; retry after the other registration finishes: {lock}") from None
+        raise RegistrationBusy(f"task service_source is busy; retry after the other service_source finishes: {lock}") from None
     try:
         yield
     finally:
@@ -390,8 +474,7 @@ def start(root, name, text):
         text = acquire(root, name, text, records)
         destination = safe_path(root, name)
         destination.parent.mkdir(exist_ok=True)
-        with destination.open("x", encoding="utf-8") as stream:
-            stream.write(text)
+        atomic_files({destination: text}, staging_directory=root)
 
 
 def refresh(root, name, resuming=False):
@@ -408,7 +491,7 @@ def refresh(root, name, resuming=False):
             return
         text = acquire(root, name, set_status(text, "running"), records)
         if text != records[name]:
-            safe_path(root, name).write_text(text, encoding="utf-8")
+            atomic_files({safe_path(root, name): text}, staging_directory=root)
 
 
 def complete(root, name):
@@ -420,7 +503,18 @@ def complete(root, name):
             raise ValueError("only a running task can complete")
         if entry.deferred:
             raise ValueError(f"task has Deferred files; cannot complete: {', '.join(entry.deferred)}")
-        safe_path(root, name).write_text(set_status(text, "completed"), encoding="utf-8")
+        if "- Workflow: `import`" in section(text, "## Task contract"):
+            from import_guard import require_import_changes
+            previous = os.environ.get(SELECTOR)
+            try:
+                os.environ[SELECTOR] = name
+                require_import_changes(root)
+            finally:
+                if previous is None:
+                    os.environ.pop(SELECTOR, None)
+                else:
+                    os.environ[SELECTOR] = previous
+        atomic_files({safe_path(root, name): set_status(text, "completed")}, staging_directory=root)
 
 
 def set_status(text, state):
@@ -450,7 +544,7 @@ def suspend(root, name, reason):
         # Do not inspect other contracts: their errors must not prevent releasing this task.
         text = set_status(text, "suspend")
         text += "\n## Suspension reason\n\n" + "\n".join(f"    {line}".rstrip() for line in reason.strip().splitlines()) + "\n"
-        path.write_text(text, encoding="utf-8")
+        atomic_files({path: text}, staging_directory=root)
     return True
 
 

@@ -2,11 +2,15 @@
 """Focused self-checks for generated service models."""
 
 from __future__ import annotations
+from model_files import read_model, load_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model, write_fixture_files
 import pytest
+
+pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 from test_support.pytest_cli import run
 import sync_views
 import sync_runtime
@@ -14,8 +18,9 @@ import model_design
 import model_projection
 import io
 import json
+import os
 import shutil
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from pathlib import Path
 from test_support.validator import load
 from unittest.mock import patch
@@ -26,8 +31,260 @@ SCRIPT = Path(__file__).with_name("sync-model.py")
 MODULE = load('sync-model')
 
 
+@pytest.fixture
+def generated_policy(framework_root):
+    root = framework_root
+    (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{
+        'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1',
+        'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
+    model = root / 'model/dev/123456789012/iam.properties'
+    values = {
+        'desired.service.iam.serviceId': 'iam',
+        'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
+        'display.service.title': '# IAM 詳細設計',
+        'desired.resource.001.resourceType': 'IAM.Role',
+        'desired.resource.001.logicalId': 'AppRole',
+        'desired.resource.001.anchor': 'iam-app-dev-role',
+        'display.resource.001.comment': 'アプリケーションの実行権限',
+        'desired.row.001-001.property': 'IAM.Role.RoleName',
+        'desired.row.001-001.value': '`app-dev-role`',
+        'desired.row.001-001.comment': '権限を識別する名前',
+        'desired.row.001-002.property': 'IAM.Role.AssumeRolePolicyDocument',
+        'desired.row.001-002.value': '[信頼ポリシー](iam/app-role-trust-policy.json)',
+        'desired.row.001-002.comment': '引受元に許可する権限',
+        'desired.row.001-002.document': json.dumps({'Version': '2012-10-17', 'Statement': [{
+            'Effect': 'Allow', 'Principal': {'Service': 'lambda.amazonaws.com'}, 'Action': 'sts:AssumeRole'}]}),
+    }
+    write_model(model, values)
+    MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    design = root / 'docs/designs/dev/123456789012/iam.md'
+    artifact = design.with_suffix('') / 'app-role-trust-policy.json'
+
+    def register(outputs):
+        import task_contract as tasks
+        name = 'tasks/generated-policy.md'
+        files = [root / name, *load_model(model).files, *outputs]
+        listed = '\n'.join(f'- `{file.relative_to(root).as_posix()}`' for file in files)
+        tasks.start(root, name, '# Test\n## Task contract\n- Task type: `design`\n'
+                    '- Task status: `running`\n## Validation scope\n- `dev/123456789012/iam`\n'
+                    f'## Modified files\n{listed}\n## Allowed paths\n{listed}\n')
+        return {tasks.SELECTOR: name}
+
+    return root, model, values, design, artifact, register
+
+
+@pytest.mark.parametrize('fault', ['missing', 'corrupt', 'omitted', 'source', 'mapping', 'project', 'part', 'consumer', 'extra'])
+def check_publication_readback(generated_policy, fault):
+    import sync_files
+    root, model, values, design, artifact, register = generated_policy
+    values['desired.note.001.text'] = '保存後の照合を確認する。'
+    document = json.loads(values['desired.row.001-002.document'])
+    document['Statement'][0]['Action'] = 'sts:AssumeRoleWithSAML'
+    values['desired.row.001-002.document'] = json.dumps(document)
+    write_model(model, values)
+    env = register([design, artifact])
+    originals = {file: file.read_bytes() for file in (design, artifact)}
+    save = sync_files.save_files
+    concurrent = None
+
+    def faulty_save(outputs):
+        nonlocal concurrent
+        selected = artifact in outputs
+        if selected and fault == 'omitted':
+            save({p: content for p, content in outputs.items() if p != artifact})
+        else:
+            save(outputs)
+        if selected:
+            if fault == 'missing':
+                artifact.unlink()
+            elif fault == 'corrupt':
+                artifact.write_bytes(b'{}\n')
+            elif fault in {'part', 'consumer', 'extra'}:
+                template = next(file for file in load_model(model).files if file.suffix == '.tpl')
+                target = (template.with_suffix('') / 'unlisted.properties' if fault == 'part' else
+                          root / 'model/parameters/dev/other/new/parameters.yaml' if fault == 'consumer' else
+                          artifact.parent / 'unexpected.json')
+                concurrent = target, b'{}\n'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(concurrent[1])
+            elif fault in {'source', 'mapping', 'project'}:
+                target = (next(file for file in load_model(model).files if file.suffix == '.tpl')
+                          if fault == 'source' else
+                          root / 'framework/mappings/aws/iam.yaml' if fault == 'mapping' else root / 'project.json')
+                concurrent = target, target.read_bytes() + b'\n'
+                target.write_bytes(concurrent[1])
+    with patch.dict(os.environ, env), patch.object(sync_files, 'save_files', side_effect=faulty_save):
+        with pytest.raises(ValueError, match='not saved correctly|inputs changed|file set changed'):
+            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert {file: file.read_bytes() for file in originals} == originals
+    if concurrent:
+        assert concurrent[0].read_bytes() == concurrent[1], 'concurrent input edits must survive rollback'
+
+
+@pytest.mark.parametrize('note', [False, True])
+def check_unchanged_sidecar(generated_policy, note):
+    root, model, values, design, artifact, register = generated_policy
+    import task_contract as tasks
+    owner = 'tasks/sidecar-owner.md'
+    listed = '\n'.join(f'- `{file}`' for file in (owner, artifact.relative_to(root).as_posix()))
+    tasks.start(root, owner, '# Owner\n## Task contract\n- Task type: `design`\n- Task status: `running`\n'
+                '## Validation scope\n- `dev/123456789012/iam`\n'
+                f'## Modified files\n{listed}\n## Allowed paths\n{listed}\n')
+    if note:
+        values['desired.note.001.text'] = '利用開始前に実行主体の権限を確認する。'
+        write_model(model, values)
+    env = register([design] if note else [])
+    before = artifact.read_bytes(), artifact.stat().st_mtime_ns
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publish', wraps=sync_runtime.publish) as publish, \
+         patch.object(sync_runtime, 'validate_candidates', wraps=sync_runtime.validate_candidates) as validate, \
+         patch.object(tasks.time, 'sleep', side_effect=AssertionError('unchanged sidecar must not wait for its owner')):
+        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+    assert validate.call_count == 1, 'no-op outputs still require candidate validation'
+    assert publish.call_count == int(note)
+    if note:
+        assert set(publish.call_args.args[1]) == {design}, 'unchanged JSON must not enter publication'
+        assert values['desired.note.001.text'] in design.read_text(encoding='utf-8')
+    assert (artifact.read_bytes(), artifact.stat().st_mtime_ns) == before
+    with patch.dict(os.environ, env):
+        assert MODULE.sync(root, False, 'dev', '123456789012', ['iam']) == 0
+
+
+@pytest.mark.parametrize('change', ['model', 'stale', 'missing'])
+def check_changed_sidecar_requires_reservation(generated_policy, change):
+    root, model, values, design, artifact, register = generated_policy
+    if change == 'model':
+        document = json.loads(values['desired.row.001-002.document'])
+        document['Statement'][0]['Sid'] = 'Changed'
+        values['desired.row.001-002.document'] = json.dumps(document)
+        write_model(model, values)
+    elif change == 'stale':
+        artifact.write_text('{}\n', encoding='utf-8')
+    else:
+        artifact.unlink()
+    env = register([design])
+    before = {file: file.read_bytes() if file.exists() else None for file in (design, artifact)}
+    with patch.dict(os.environ, env), pytest.raises(ValueError, match='no selected task reservation'):
+        MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert {file: file.read_bytes() if file.exists() else None for file in before} == before
+
+
+@pytest.mark.parametrize('note', [False, True])
+@pytest.mark.parametrize('drift', ['sidecar', 'source'])
+def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
+    root, model, values, design, artifact, register = generated_policy
+    if note:
+        values['desired.note.001.text'] = '公開前に変更の競合を確認する。'
+        write_model(model, values)
+    env = register([design] if note else [])
+    original = design.read_bytes()
+    changed = artifact if drift == 'sidecar' else next(file for file in load_model(model).files if file.suffix == '.tpl')
+    content = '{}\n' if drift == 'sidecar' else changed.read_text(encoding='utf-8') + '# concurrent change\n'
+    lock = sync_runtime.publication_lock
+
+    @contextmanager
+    def change_under_lock(root):
+        with lock(root) as journal:
+            changed.write_text(content, encoding='utf-8')
+            yield journal
+
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publication_lock', change_under_lock), \
+         patch.object(sync_runtime, 'publish', side_effect=AssertionError('drift must fail before publication')):
+        with pytest.raises(ValueError, match='no selected task reservation' if drift == 'sidecar' else 'inputs changed'):
+            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert design.read_bytes() == original
+    assert changed.read_text(encoding='utf-8') == content, 'concurrent changes must be retained'
+
+
+@pytest.mark.parametrize('note', [False, True])
+def check_changed_sidecar_publication_rollback(generated_policy, note):
+    root, model, values, design, artifact, register = generated_policy
+    before = {file: file.read_bytes() for file in (design, artifact)}
+    if note:
+        values['desired.note.001.text'] = '注記だけの公開もロールバックする。'
+    else:
+        document = json.loads(values['desired.row.001-002.document'])
+        document['Statement'][0]['Sid'] = 'Changed'
+        values['desired.row.001-002.document'] = json.dumps(document)
+    write_model(model, values)
+    env = register([design] if note else [design, artifact])
+    write = Path.write_text
+
+    def fail_markdown(path, *args, **kwargs):
+        if path == design:
+            if note:
+                write(artifact, '{}\n', encoding='utf-8')
+            else:
+                assert artifact.read_bytes() != before[artifact]
+            write(path, 'partial Markdown', encoding='utf-8')
+            raise OSError('injected Markdown publication failure')
+        return write(path, *args, **kwargs)
+
+    with patch.dict(os.environ, env), patch.object(Path, 'write_text', fail_markdown):
+        with pytest.raises(ValueError, match='injected Markdown publication failure'):
+            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert design.read_bytes() == before[design]
+    assert artifact.read_bytes() == (b'{}\n' if note else before[artifact])
+    if note:
+        artifact.write_bytes(before[artifact])
+    with patch.dict(os.environ, env):
+        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+        assert MODULE.sync(root, False, 'dev', '123456789012', ['iam']) == 0
+
+
+def check_unchanged_sidecar_path_safety(generated_policy):
+    root, model, values, design, artifact, register = generated_policy
+    env = register([])
+    external = root / 'external-policy.json'
+    external.write_bytes(artifact.read_bytes())
+    artifact.unlink()
+    artifact.symlink_to(external)
+    with patch.dict(os.environ, env), pytest.raises(ValueError, match='unsafe Model source path'):
+        MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert artifact.is_symlink()
+
+
+def check_unchanged_sidecar_validation(generated_policy):
+    root, model, values, design, artifact, register = generated_policy
+    env = register([])
+    before = {file: file.read_bytes() for file in (design, artifact)}
+    with patch.dict(os.environ, env), \
+         patch.object(sync_views, 'validate_views', side_effect=ValueError('injected candidate validation failure')), \
+         patch.object(sync_runtime, 'publish', side_effect=AssertionError('invalid candidate published')):
+        with pytest.raises(ValueError, match='injected candidate validation failure'):
+            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert {file: file.read_bytes() for file in before} == before
+
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("final", [False, True])
+def check_markdown_newlines(tmp_path, newline, final):
+    from test_support.model_sources import write_fixture_files as save_files
+    path = tmp_path / "design.md"
+    expected = ("# 日本語" + newline + "value" + (newline if final else "")).encode("utf-8")
+    path.write_bytes(expected)
+    write_fixture_files({path: "# 日本語\nvalue\n"})
+    assert path.read_bytes() == expected
+    write_fixture_files({path: "# 日本語\nchanged\n"})
+    assert path.read_bytes() == expected.replace(b"value", b"changed"), "semantic change must remain visible"
+    before = path.read_bytes()
+    from sync_files import changed_files
+    assert changed_files({path: '# 日本語\nchanged\n'}) == {}, 'publication comparison must preserve newlines'
+    assert set(changed_files({path: '# 日本語\nupdated\n'})) == {path}
+    with patch.object(Path, "write_text", side_effect=AssertionError("idempotent Markdown rewritten")):
+        write_fixture_files({path: before.decode("utf-8")})
+    path.write_bytes(b"one\r\ntwo\n")
+    with pytest.raises(ValueError, match="mixed Markdown newlines"):
+        write_fixture_files({path: "one\ntwo\n"})
+    assert path.read_bytes() == b"one\r\ntwo\n"
+    path.write_bytes(b"one\rtwo")
+    with pytest.raises(ValueError, match="unsupported Markdown newline"):
+        write_fixture_files({path: "one\ntwo\n"})
+    assert path.read_bytes() == b"one\rtwo"
+
+
 def check_file_rollback(tmp_path):
-    from sync_files import save_files
+    from test_support.model_sources import write_fixture_files as save_files
     root = tmp_path
     first, created, last = [root / name for name in ('first.md', 'new.json', 'last.md')]
     originals = {first: b'first\r\n', last: b'last\r\n'}
@@ -44,7 +301,7 @@ def check_file_rollback(tmp_path):
             return write_text(path, *args, **kwargs)
         with patch.object(Path, 'write_text', fail_write):
             with pytest.raises(OSError) as error:
-                save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+                write_fixture_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
             assert str(error.value) == 'injected publication failure'
         assert failed in calls
         assert {path: path.read_bytes() for path in originals} == originals
@@ -55,14 +312,14 @@ def check_file_rollback(tmp_path):
         raise OSError('injected restoration failure')
     with patch.object(Path, 'write_text', fail_write), patch.object(Path, 'write_bytes', fail_restore):
         with pytest.raises(OSError) as error:
-            save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+            write_fixture_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
         assert 'generated-file rollback failed:' in str(error.value)
         assert all(f'{path}: injected restoration failure' in str(error.value) for path in (last, first))
     assert last in calls and restores == [last, first] and not created.exists()
     for path, content in originals.items():
         write_bytes(path, content)
     with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
-        save_files({path: content.decode('utf-8') for path, content in originals.items()})
+        write_fixture_files({path: content.decode('utf-8') for path, content in originals.items()})
     print('File rollback: PASS (first/middle/last partial write, new file removal, restoration error, no-op)')
 
 
@@ -73,7 +330,7 @@ def check_failure_counts(framework_root) -> None:
     models.mkdir(parents=True)
     docs.mkdir(parents=True)
     for number in range(17):
-        (models / f"service-{number:02d}.properties").write_text("fixture.value=test\n")
+        write_model(models / f"service-{number:02d}.properties", "fixture.value=test\n")
         (docs / f"service-{number:02d}.md").write_text("generated\n")
 
     def render(path, values, stage):
@@ -85,7 +342,7 @@ def check_failure_counts(framework_root) -> None:
     broken = {f"reference-{number}": docs / "service-09.md" for number in range(5)}
     for extra_inputs in (False, True):
         if extra_inputs:
-            (models / "invalid.properties").write_text("invalid properties\n")
+            write_model(models / 'invalid.properties', 'invalid properties\n')
             (docs / "orphan.md").write_text("saved Markdown\n")
         for write in (False, True):
             warnings = io.StringIO()
@@ -105,10 +362,37 @@ def check_failure_counts(framework_root) -> None:
                     assert warnings.getvalue().count("saved reference needs repair") == (5 if write else 0)
                     if extra_inputs:
                         assert "invalid or duplicate model property" in str(error), error
-                        assert "authoritative model missing" in str(error), error
+                        assert "YAML Model inputs missing" in str(error), error
                 else:
                     raise AssertionError("partial generation failure accepted")
     print("Failure counts: PASS (17 models, 8 successes, 9 failed services, 9 diagnostics, invalid/missing models, read/write)")
+
+
+@pytest.mark.parametrize("write", [False, True])
+def check_incoming_reference_models(framework_root, tmp_path, write) -> None:
+    root = framework_root
+    models = root / "model/dev/123456789012"
+    docs = root / "docs/designs/dev/123456789012"
+    docs.mkdir(parents=True)
+    for service in ("s3", "kms"):
+        write_model(models / f"{service}.properties", f"desired.service.{service}.serviceId={service}\n")
+        (docs / f"{service}.md").write_text(f"# {service}\n### {service}\n", encoding="utf-8")
+    selected = docs / "s3.md"
+    incoming = docs / "kms.md"
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    def check_snapshot(stage, root, paths):
+        assert stage / incoming.relative_to(root) in paths
+        assert read_model(stage / (models / "kms.properties").relative_to(root)) == read_model(models / "kms.properties")
+        return {}
+
+    with patch.object(sync_views, "broken_design_links", side_effect=check_snapshot) as check:
+        saved, _ = sync_runtime.stage_inputs(stage, root, {selected: {}},
+                                            [models / "s3.properties"], [selected], ["s3"], write)
+    assert (incoming in saved) == write
+    assert check.call_count == int(write)
+    assert (stage / incoming.relative_to(root)).exists() == write
 
 
 def check_required_preflight(framework_root) -> None:
@@ -134,7 +418,8 @@ def check_required_preflight(framework_root) -> None:
         "desired.row.001-002.comment": "接続の認証設定",
     }
     source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
-    model.write_text(source)
+    write_model(model, source)
+    source = read_model(model)
     design = root / "docs/designs/dev/123456789012/quicksight.md"
     artifact = design.with_suffix("") / "credentials.json"
     for existing in (False, True):
@@ -149,7 +434,7 @@ def check_required_preflight(framework_root) -> None:
                 with pytest.raises(ValueError) as error:
                     MODULE.sync(root, write, "dev", "123456789012")
                 assert "AthenaSource: required provider schema property missing: QuickSight.DataSource.Type" in str(error.value)
-            assert model.read_text() == source
+            assert read_model(model) == source
             assert design.exists() == existing and artifact.exists() == existing
             if existing:
                 assert design.read_text() == "existing Markdown\n"
@@ -179,7 +464,7 @@ def check_required_preflight(framework_root) -> None:
     assert "S3.BucketPolicy.Bucket" not in str(error.value)
     # An unrelated valid service still saves while the incomplete one fails.
     stack = model.with_name("cloudformation-stacks.properties")
-    stack.write_text("desired.stack.001.name=cfn-stack-app-dev-general-01\n"
+    write_model(stack, "desired.stack.001.name=cfn-stack-app-dev-general-01\n"
                      "desired.stack.001.template=app.yaml\n"
                      "desired.stack.001.parameters=app.json\n"
                      "desired.stack.001.deployOrder=10\n"
@@ -230,11 +515,12 @@ def check_required_property_parents(tmp_path) -> None:
     values.update({"observed.row.001-002.property": "Glue.Connection.Name",
                    "observed.row.001-002.value": "`sample`", "observed.row.001-002.comment": "一意に識別するID"})
     source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
-    model.write_text(source)
+    write_model(model, source)
+    source = read_model(model)
     design = root / "docs/designs/dev/123456789012/glue.md"
     model_design.validate_required_properties(values, root)
     assert MODULE.sync(root, True, "dev", "123456789012") == 0
-    assert model.read_text() == source
+    assert read_model(model) == source
     assert "| ConnectionInput |" not in design.read_text()  # Presence is inferred without inventing a row.
 
     def design_errors(content):
@@ -263,28 +549,11 @@ def check_workflow(tmp_path) -> None:
     root = tmp_path
     materials = root / "framework" / "materials" / "aws"
     materials.mkdir(parents=True)
-    (materials / "EC2_VPC.properties").write_text(
-        "EC2.VPC.VpcId=IDENTIFIER_OUTPUT\n", encoding="utf-8"
-    )
-    (materials / "EC2_Subnet.properties").write_text(
-        "EC2.Subnet.SubnetId=IDENTIFIER_OUTPUT\nEC2.Subnet.VpcId=\n", encoding="utf-8"
-    )
-    (materials / "S3_Bucket.properties").write_text(
-        "S3.Bucket.BucketName=\n"
-        "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
-        ".ServerSideEncryptionByDefault.KMSMasterKeyID=\n"
-        "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
-        ".ServerSideEncryptionByDefault.SSEAlgorithm=\n"
-        "S3.Bucket.VersioningConfiguration.Status=\n",
-        encoding="utf-8",
-    )
-    (materials / "S3_BucketPolicy.properties").write_text(
-        "S3.BucketPolicy.Bucket=\nS3.BucketPolicy.PolicyDocument=\n",
-        encoding="utf-8",
-    )
-    (materials / "KMS_Alias.properties").write_text(
-        "KMS.Alias.AliasName=\nKMS.Alias.TargetKeyId=\n", encoding="utf-8"
-    )
+    (materials / 'EC2_VPC.properties').write_text('EC2.VPC.VpcId=IDENTIFIER_OUTPUT\n',encoding="utf-8")
+    (materials / 'EC2_Subnet.properties').write_text('EC2.Subnet.SubnetId=IDENTIFIER_OUTPUT\nEC2.Subnet.VpcId=\n',encoding="utf-8")
+    (materials / 'S3_Bucket.properties').write_text('S3.Bucket.BucketName=\nS3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID=\nS3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm=\nS3.Bucket.VersioningConfiguration.Status=\n',encoding="utf-8")
+    (materials / 'S3_BucketPolicy.properties').write_text('S3.BucketPolicy.Bucket=\nS3.BucketPolicy.PolicyDocument=\n',encoding="utf-8")
+    (materials / 'KMS_Alias.properties').write_text('KMS.Alias.AliasName=\nKMS.Alias.TargetKeyId=\n',encoding="utf-8")
     design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
     artifact = design.parent / "vpc" / "vpc01-policy.json"
     artifact.parent.mkdir(parents=True)
@@ -442,7 +711,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True)
-        assert "authoritative model missing" in str(error.value)
+        assert "YAML Model inputs missing" in str(error.value)
         assert not (root / "model").exists()
 
     alias_design = root / "docs" / "designs" / "dev" / "cde" / "vpc.md"
@@ -462,7 +731,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "cde")
-        assert "authoritative model missing" in str(error.value)
+        assert "YAML Model inputs missing" in str(error.value)
     assert not (root / "model" / "dev" / "cde" / "vpc.properties").exists()
     assert sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "cde")
     assert not sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
@@ -491,7 +760,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "123456789012")
-        assert "authoritative model missing" in str(error.value)
+        assert "YAML Model inputs missing" in str(error.value)
 
 
 
@@ -501,7 +770,12 @@ def check_projection():
 
 
 def main():
-    return run(__file__, ['check_file_rollback', 'check_projection', 'check_failure_counts', 'check_required_preflight', 'check_required_property_parents', 'check_workflow'], 'sync-model: PASS (39 focused checks)')
+    return run(__file__, ['check_publication_readback', 'check_markdown_newlines', 'check_file_rollback', 'check_projection', 'check_failure_counts',
+                         'check_required_preflight', 'check_required_property_parents', 'check_workflow',
+                         'check_unchanged_sidecar', 'check_changed_sidecar_requires_reservation',
+                         'check_publication_rechecks_excluded_outputs', 'check_changed_sidecar_publication_rollback',
+                         'check_unchanged_sidecar_path_safety', 'check_unchanged_sidecar_validation'],
+               'sync-model: PASS (generation, changed output reservations, publication drift and rollback)')
 
 
 if __name__ == "__main__":

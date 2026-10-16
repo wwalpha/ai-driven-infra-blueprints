@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Regression checks for explicit scope, isolated services, and parallel targets."""
 from __future__ import annotations
+from model_files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import model_projection
 from contextlib import redirect_stdout
 import io
@@ -51,7 +53,7 @@ def check_single_target_cache(root):
                            f"desired.{row}.comment": "生成される識別子",
                            f"observed.{row}.property": output, f"observed.{row}.value": "PENDING_DEPLOY",
                            f"observed.{row}.comment": "生成される識別子"})
-        (models / f"{service}.properties").write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+        write_model(models / f"{service}.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
     scope = {("dev", "cde", service) for service in ["ec2", *services]}
     active = root / "tasks/active.md"
     saved_contract = active.read_text(encoding="utf-8")
@@ -101,19 +103,78 @@ def check_single_target_cache(root):
         # Mid-validation edits fail and do not persist the service's old key.
         cache = PassCache(root, fresh=True, directory=directory)
         model = models / "sqs.properties"
-        saved = model.read_text(encoding="utf-8")
+        saved = read_model(model)
         old_key = cache.service_key(("dev", "cde", "sqs"))
         (Path(directory) / f"{old_key}.json").unlink()
         def changed(worker):
             original(worker)
             if ("dev", "cde", "sqs") in worker.scope:
-                model.write_text(saved + "# input changed during validation\n", encoding="utf-8")
+                write_model(model, saved + "# input changed during validation\n")
         with patch.object(VALIDATOR.Validator, "check_designs", changed):
             invalid = validate(cache=cache)
         assert any("inputs changed" in error for error in invalid.errors), invalid.errors
         assert not (Path(directory) / f"{old_key}.json").exists()
-        model.write_text(saved, encoding="utf-8")
+        write_model(model, saved)
     active.write_text(saved_contract, encoding="utf-8")
+
+
+def check_template_consumers(root):
+    source_checks = load('model_templates.checks')
+    source_checks.fixture(root, ('dev', 'stg'))
+    values = source_checks.config_model()
+    for env in ('dev', 'stg'):
+        source_checks.write_fixture(root, env, 'config', values)
+    scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
+    contract = root/'tasks/active.md'
+    contract.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n' +
+                        ''.join(f'- `{"/".join(entry)}`\n' for entry in sorted(scope)) +
+                        '## Allowed paths\n- `model/**`\n- `model/parameters/**`\n- `model/templates/**`\n- `docs/designs/**`\n')
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    command = [sys.executable, str(ROOT/'framework/scripts/sync-model.py'), '--repository-root', str(root)]
+    for selection, expected in ((['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 0),
+                                (['--scope', 'dev/team/config'], 1),
+                                (['--scope', 'dev/other/config'], 1),
+                                (['--scope', '../team/config'], 1),
+                                (['--scope', 'dev/team/config', '--all'], 2)):
+        result = subprocess.run(command + selection, capture_output=True, text=True)
+        assert result.returncode == expected, (selection, result.stdout, result.stderr)
+        if selection == ['--scope', 'dev/team/config']:
+            assert 'stg/team/config' in result.stderr
+    # A parameter-only change still permits just that consumer; no template guard is weakened.
+    run = subprocess.run
+    def parameter_diff(args, *a, **kw):
+        if args[0] == 'git' and args[1] in ('diff', 'ls-files'):
+            changed = 'model/parameters/dev/team/config/parameters.yaml\0' if args[1:3] == ['diff', '--name-only'] else ''
+            return subprocess.CompletedProcess(args, 0, stdout=changed, stderr='')
+        return run(args, *a, **kw)
+    with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), \
+         patch.object(subprocess, 'run', parameter_diff), redirect_stdout(io.StringIO()):
+        assert SYNC.active_scope(root) == scope, (SYNC.active_scope(root), contract.read_text(), sys.argv)
+        assert SYNC.main() == 0
+    with tempfile.TemporaryDirectory() as directory:
+        def validate():
+            validator = VALIDATOR.Validator(root, scope, workers=1)
+            validator.cache = PassCache(root, directory=directory)
+            validator.check_project_topology()
+            with redirect_stdout(io.StringIO()):
+                validator.check_scoped_designs()
+            assert not validator.errors, validator.errors
+            return validator
+        cold = validate()
+        dev_key = cold.service_keys[('dev', 'team', 'config')]
+        (Path(directory)/f'{dev_key}.json').unlink()
+        commands = []
+        def capture(args, *a, **kw):
+            if any(str(arg).endswith('sync-model.py') for arg in args):
+                commands.append(args)
+            return run(args, *a, **kw)
+        with patch.object(subprocess, 'run', capture):
+            partial = validate()
+        assert len(commands) == 1 and 'dev/team/config' in commands[0] and 'stg/team/config' in commands[0], commands
+        assert partial.checks == cold.checks
+        with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
+            warm = validate()
+        assert warm.checks == cold.checks
 
 
 def main():
@@ -147,9 +208,9 @@ def main():
                 docs.mkdir(parents=True)
                 models.mkdir(parents=True)
                 (docs / "logs.md").write_text("invalid unrelated service\n")
-                (models / "logs.properties").write_text("observed.bad=arn:aws:logs:invalid\nnot properties\n")
+                write_model(models / 'logs.properties', 'observed.bad=arn:aws:logs:invalid\n')
                 if env == "prod":
-                    (models / "ec2.properties").write_text("invalid excluded EC2\n")
+                    write_model(models / 'ec2.properties', 'invalid=excluded EC2\n')
                     (docs / "ec2.md").write_text("invalid excluded EC2\n")
                     continue
                 # A reference target with intentionally invalid schema/metadata must supply only link information.
@@ -184,8 +245,11 @@ invalid unrelated table alignment
                         values[f"observed.{key}.property"] = f"EC2.Instance.{prop}"
                         values[f"observed.{key}.value"] = "PENDING_DEPLOY"
                         values[f"observed.{key}.comment"] = "仮想マシンの設定"
-                (models / "ec2.properties").write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+                write_model(models / "ec2.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
         (root / "project.json").write_text(json.dumps(project) + "\n")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
         # Generate exactly four EC2 views; neither invalid prod nor invalid Logs may block them.
         with redirect_stdout(io.StringIO()):
             for env, target, service in sorted(scope):
@@ -228,10 +292,10 @@ invalid unrelated table alignment
         design.write_text(saved)
         # Selected schema, naming, JSON, and generation errors remain failures.
         model = root / "model/dev/cde/ec2.properties"
-        source = model.read_text()
+        source = read_model(model)
         for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'EbsOptimized'),
                            (source.replace('`dev-app-cde-01`', '`UNSET`'), 'Name')):
-            model.write_text(bad)
+            write_model(model, bad)
             try:
                 with redirect_stdout(io.StringIO()):
                     SYNC.sync(root, False, "dev", "cde", services=["ec2"])
@@ -239,7 +303,7 @@ invalid unrelated table alignment
                 assert token in str(error), error
             else:
                 raise AssertionError("selected invalid design accepted")
-        model.write_text(source)
+        write_model(model, source)
         artifact = design.with_suffix("") / "orphan.json"
         artifact.parent.mkdir()
         artifact.write_text("bad JSON")
@@ -260,6 +324,8 @@ invalid unrelated table alignment
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"), "--repository-root", str(root),
                                  "--environment", "prod", "--alias", "cde", "--service", "ec2"], capture_output=True, text=True)
         assert result.returncode and "outside active task validation scope" in result.stderr
+    with tempfile.TemporaryDirectory() as directory:
+        check_template_consumers(Path(directory).resolve())
     print("validation-scope: PASS (4 parallel targets/services, serial equality, cache invalidation, excluded errors, references, schema/naming/JSON, missing scope, explicit all)")
 
 

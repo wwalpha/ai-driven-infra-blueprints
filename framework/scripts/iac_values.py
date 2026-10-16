@@ -91,6 +91,30 @@ def same(left, right, *, reference=None, path=''):
     return left == right
 
 
+def unordered_same(left, right, *, reference=None, path=''):
+    """Prove a multiset match, retaining uncertainty and duplicate multiplicity."""
+    if not isinstance(left, list) or not isinstance(right, list) or len(left) != len(right):
+        return False
+    matrix = [[same(a, b, reference=reference, path=path + '[]') for b in right] for a in left]
+
+    def matching(allow_unknown):
+        owners = {}
+        def assign(row, seen):
+            for column, result in enumerate(matrix[row]):
+                if column in seen or not (result is True or allow_unknown and result is None):
+                    continue
+                seen.add(column)
+                if column not in owners or assign(owners[column], seen):
+                    owners[column] = row
+                    return True
+            return False
+        return all(assign(row, set()) for row in range(len(left)))
+
+    if matching(False):
+        return True
+    return None if matching(True) else False
+
+
 def selected_same(desired, actual, property_name='', *, reference=None, path=''):
     """Only selected nested settings constrain IaC. Tags have confirmed keyed semantics."""
     if reference:

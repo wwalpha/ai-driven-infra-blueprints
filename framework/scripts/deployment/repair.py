@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from iac_values import cfn_resource_identity
-from comparison_rows import put_row
+from comparison_rows import Unresolved, put_row
 from issues_iac import Comparison
 from iac_values import same, fingerprint
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
@@ -179,7 +179,10 @@ def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, 
                 from policy_tables import literal
                 put_row(desired, 'Tags[]', {'Key': 'Name', 'Value': literal(row['value'])})
             elif row['property'].startswith(kind + '.') and short.split('.', 1)[0].removesuffix('[]') == prop:
-                put_row(desired, short, comparison.desired_value(source.stem, row, kind))
+                try:
+                    put_row(desired, short, comparison.desired_value(source.stem, row, kind))
+                except Unresolved as error:
+                    raise Blocked(str(error)) from error
                 exact |= short == prop
         if prop not in desired:
             raise Blocked('repair projection incomplete')

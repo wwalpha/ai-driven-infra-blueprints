@@ -7,6 +7,7 @@ if not __debug__:
 import model_design
 import model_core
 import model_projection
+import aws_mapping_display
 import hashlib
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -59,7 +60,7 @@ def check_snapshots():
             with ThreadPoolExecutor(max_workers=4) as executor:
                 results = list(executor.map(request, range(12)))
             assert all(result is results[0] for result in results)
-            assert reads.call_count == expands.call_count == identities.call_count == 1
+            assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == expands.call_count == identities.call_count == 1
             # A sibling alias selects the same grouped parent and shares its parse.
             assert first.view(frozenset({"kms-aliasone"})).expanded is results[0]
             assert expands.call_count == identities.call_count == 1
@@ -69,7 +70,7 @@ def check_snapshots():
             index.invalidate(path)
             refreshed = index.get(path)
             assert refreshed is not first and "alias/changed" in refreshed.text
-            assert reads.call_count == 2
+            assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
             assert first.text == original
             path.unlink()
             index.invalidate(path)
@@ -87,6 +88,7 @@ def check_snapshots():
             raise AssertionError("unrelated invalid metadata was not retained in the full snapshot")
 
 
+@patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
 def check_projection(sync):
     with tempfile.TemporaryDirectory() as directory:
         source, target, text, _ = reference_fixture(Path(directory).resolve())
@@ -107,17 +109,35 @@ def check_projection(sync):
         assert hashlib.sha256(projection.encode()).hexdigest() == "4e56a48f9624ff229f0d6821d294924422d8c94cd6dc88d477e2c81c8fb7f1e9"
         assert index.get(source).headings.expanded is index.get(source).view(projection=True).expanded
         repository = Path(__file__).resolve().parents[2]
-        imported = model_projection.imported_model(source, repository)
-        assert hashlib.sha256(imported.encode()).hexdigest() == "bc1677174d702a4c7bb2780fda2979be471ee9974a6e43e11e63c02dad1ef3bd"
-        values = model_core.properties(imported)
+        values = model_core.properties(projection)
+        values.update({'display.service.title': '# S3 詳細設計',
+                       'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
         rendered = model_design.markdown_for(source, values, repository)
         assert hashlib.sha256(rendered.encode()).hexdigest() == "f68a22524d5bbad245d31afe6f8c263035d80a223480574d9187a6db75f23bdd"
+        # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
+        observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
+        alias_source = dict(values)
+        alias_source.update({"observed.row.001-003.property": values["desired.row.001-003.property"],
+                             "observed.row.001-003.comment": values["desired.row.001-003.comment"],
+                             "observed.row.001-003.value": observed})
+        alias_text = text.replace("[alias/two](kms.md#kms-aliastwo)", f"[{observed}](kms.md#kms-aliastwo)", 1)
+        source.write_text(alias_text, encoding="utf-8")
+        roundtrip = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
+        assert roundtrip["desired.row.001-003.value"] == values["desired.row.001-003.value"]
+        assert roundtrip["observed.row.001-003.value"] == observed
+        source.write_text(alias_text.replace(observed, "different", 1), encoding="utf-8")
+        tampered = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
+        assert tampered["observed.row.001-003.value"] != observed
+        source.write_text(alias_text.replace("kms-aliastwo", "kms-aliasthree", 1), encoding="utf-8")
+        tampered = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
+        assert tampered["desired.row.001-003.value"] != values["desired.row.001-003.value"]
         for mode in ("CREATE", "IMPORT"):
             source.write_text(f"<!-- resource-mode: s3-app-data {mode} -->\n" + text, encoding="utf-8")
             assert f"desired.resource.001.resourceMode={mode}\n" in model_projection.model_for(source)
 
 
+@patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
 def check_links(module):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
@@ -156,6 +176,25 @@ def check_links(module):
             validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
             assert validator.errors == expected, validator.errors
             assert validator.checks == checks
+        from validation import design_links
+        observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
+        model = {"desired.resource.001.resourceType": "S3.Bucket",
+                 "desired.resource.001.anchor": "s3-app-data",
+                 "desired.row.001-001.property": "S3.Bucket.SourceKeyId",
+                 "desired.row.001-001.value": "[alias/two](kms.md#kms-aliastwo)",
+                 "observed.row.001-001.value": observed}
+        alias_text = valid.replace(f"[{observed}](kms.md#kms-keyone)", f"[{observed}](kms.md#kms-aliastwo)")
+        for content, expected in [(alias_text, []),
+                                  (alias_text.replace(observed, "different"), ["different"]),
+                                  (alias_text.replace(f"[{observed}](kms.md#kms-aliastwo)",
+                                                      f"[{observed}](kms.md#kms-aliasthree)"), [observed])]:
+            source.write_text(content, encoding="utf-8")
+            target.write_text(ref, encoding="utf-8")
+            validator.errors.clear()
+            with patch.object(design_links, "design_model_values", return_value=model):
+                validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
+            assert len(validator.errors) == len(expected), validator.errors
+            assert all(label in error for label, error in zip(expected, validator.errors))
         source.write_text(text, encoding="utf-8")
         target.write_text(ref, encoding="utf-8")
         read_text = Path.read_text
@@ -165,5 +204,7 @@ def check_links(module):
 
 
 if __name__ == "__main__":
-    check_snapshots()
-    print("design-document: PASS (single read/parse, concurrent reuse, selective groups, immutable snapshot, invalidation)")
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        check_snapshots()
+        print("design-document: PASS (single read/parse, concurrent reuse, selective groups, immutable snapshot, invalidation)")

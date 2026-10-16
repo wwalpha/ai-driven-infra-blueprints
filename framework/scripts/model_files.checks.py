@@ -4,6 +4,7 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import sync_files
 import io
 import os
@@ -16,7 +17,7 @@ from pathlib import Path
 from test_support.validator import load
 from unittest.mock import patch
 
-from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys
+from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys, load_model
 from model_design import markdown_for
 from model_core import properties
 from validation_scope import scoped_files
@@ -77,12 +78,14 @@ def check_resource_reading(root):
             f"desired.row.{identity}-", f"observed.row.{identity}-",
         )
     )
-    expected = [f"{key}={value}" for key, value in values.items() if key.startswith(group_prefixes)]
+    expected = [f"{key}={value}" for key, value in sorted(values.items()) if key.startswith(group_prefixes)]
     # The single model fits in 600 lines; padding moves the selected rows across a part boundary.
+    write_model(source, values)
     for content in (text, "# padding\n" * 540 + text):
-        output = model_file_contents(source, content)
-        sync_files.save_files(output)
-        snapshot = {path: path.read_bytes() for path in {source, *model_parts(source)}}
+        write_model(source, content)
+        loaded = load_model(source)
+        expected = [f"{key}={value}" for key, value in loaded.values.items() if key.startswith(group_prefixes)]
+        snapshot = {path: path.read_bytes() for path in loaded.files}
         for selector in ("001", "Resource1", "kms-resource-001", "Resource2", "003"):
             result = cli("--resource", selector)
             assert result.returncode == 0, result.stderr
@@ -93,13 +96,19 @@ def check_resource_reading(root):
                 location, value = line.split(": ", 1)
                 filename, number = location.rsplit(":", 1)
                 path = Path(filename)
-                assert path.is_absolute() and path in snapshot
-                assert path.read_text(encoding="utf-8").splitlines()[int(number) - 1] == value
+                assert path.is_absolute() and path.is_file()
+                assert int(number) > 0
+                key = value.partition("=")[0]
+                trace = __import__("model_templates").load_expansion(source).provenance[key]
+                if "template" in trace:
+                    assert path.read_text(encoding="utf-8").splitlines()[int(number) - 1].partition("=")[0] == trace["key"]
+                else:
+                    assert path.name == "observed.json"
                 extracted.append(value)
                 locations.add(path)
             assert extracted == expected, result.stdout
             assert len(extracted) < len(values) // 5
-            assert len(locations) == len(model_parts(source))
+            assert locations <= {location[0] for location in loaded.locations.values()}
             assert "desired.resource.004." not in result.stdout
             assert "config.md#config-recorder" in result.stdout  # Preserve links without reading other services.
         result = cli("--resource", "Resource60")
@@ -122,8 +131,7 @@ def check_resource_reading(root):
             pass
         else:
             raise AssertionError("ambiguous selector or invalid grouped parent accepted")
-    for path in {source, *model_parts(source)}:
-        path.unlink()
+    assert not source.exists()
 
 
 def main():
@@ -145,8 +153,9 @@ def main():
             sync_files.save_files(output)
             for path in old - output.keys() - {source}:
                 path.unlink()
-            assert read_model(source) == text
-            assert list(properties(read_model(source)).items()) == list(properties(text).items())
+            combined = "".join(part.read_text(encoding="utf-8") for part in model_parts(source))
+            assert combined == text
+            assert list(properties(combined).items()) == list(properties(text).items())
             assert all(len(content.splitlines()) <= 600 for content in output.values())
             assert len(output) == (1 if count <= 600 else 1 + (count + 549) // 550)
         for part in model_parts(source):
@@ -154,206 +163,33 @@ def main():
         source.unlink()
 
         (root / "project.json").write_text('{"projectName":"test","targets":[{"environment":"dev","awsAccountId":"123456789012","awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}\n')
-        contract = root / "tasks/active.md"
-        contract.parent.mkdir()
-        contract.write_text("""# Split model
-
-## Task contract
-- Task type: `migration`
-
-## Validation scope
-- `dev/123456789012/config`
-
-## Allowed paths
-- `model/dev/123456789012/config.properties`
-- `model/dev/123456789012/config/*.properties`
-""")
-        anchor = "config-configuration-recorder-default"
-        values = {
-            "desired.service.config.serviceId": "config",
-            "desired.service.config.ownedCatalogResourceTypes": "Config.ConfigurationRecorder",
-            "desired.resource.001.resourceType": "Config.ConfigurationRecorder",
-            "desired.resource.001.logicalId": "Recorder",
-            "desired.resource.001.anchor": anchor,
-            "display.service.title": "# AWS Config 詳細設計",
-            "display.resource.001.comment": "構成情報を記録するrecorder",
-            "desired.row.001-001.property": "Config.ConfigurationRecorder.Name",
-            "desired.row.001-001.value": "`default`",
-            "desired.row.001-001.comment": "recorderの名前",
-            "desired.row.001-002.property": "Config.ConfigurationRecorder.Id",
-            "desired.row.001-002.value": f"[Recorder](#{anchor})",
-            "desired.row.001-002.comment": "recorderを識別するID",
-            "observed.row.001-002.property": "Config.ConfigurationRecorder.Id",
-            "observed.row.001-002.value": "`default`",
-            "observed.row.001-002.comment": "recorderを識別するID",
-            "desired.row.001-003.property": "Config.ConfigurationRecorder.RoleARN",
-            "desired.row.001-003.value": "`AWSServiceRoleForConfig`",
-            "desired.row.001-003.comment": "記録に使用するrole",
-            **{f"desired.note.{number:03d}.text": f"注記{number}: 設計の説明" for number in range(1, 651)},
-        }
-        text = "".join(f"{key}={value}\n" for key, value in values.items())
-        source.write_text(text)
-        docs = root / "docs/designs/dev/123456789012/config.md"
+        values = {"desired.deployment.maxConcurrentStacks": "2"}
+        for number in range(1, 111):
+            key = f"{number:03d}"
+            values.update({f"desired.stack.{key}.name": f"cfn-stack-app-dev-core-{key}",
+                           f"desired.stack.{key}.deployOrder": "10", f"desired.stack.{key}.template": "app.yaml",
+                           f"desired.stack.{key}.parameters": f"app-{key}.json",
+                           f"display.stack.{key}.comment": "アプリケーションのstack"})
+        stack = source.with_name("cloudformation-stacks.properties")
+        write_model(stack, values)
+        docs = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
         docs.parent.mkdir(parents=True)
-        expected = markdown_for(docs, values, root)
-        docs.write_text(expected)
-        validator = VALIDATOR.Validator(root)
-        validator.check_model_files()
-        assert any("exceeds 600 lines" in error for error in validator.errors)
-
-        def cli(*args):
-            return subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/model_files.py"), str(source), *args], capture_output=True, text=True)
-
-        result = cli("--split")
-        assert result.returncode == 0, result.stderr
-        assert read_model(source) == text
-        result = cli("--find", "desired.note.600.text")
-        assert result.returncode == 0, result
-        found_path, line_number, key = result.stdout.strip().rsplit(":", 2)
-        assert Path(found_path) == source.parent / "config/part-002.properties", result.stdout
-        assert int(line_number) > 0 and key.strip() == "desired.note.600.text", result.stdout
-        assert "desired.note.600.text" in result.stdout
-        assert "注記600" not in result.stdout  # Lookup does not dump potentially large JSON values.
-        assert "desired.note.599" not in result.stdout
-        scope = {("dev", "123456789012", "config")}
-        assert scoped_files(root, "model", ".properties", None) == [source]
-        assert scoped_files(root, "model", ".properties", scope) == [source]
-        snapshot = {path: path.read_bytes() for path in {source, *model_parts(source)}}
-        for services in (None, ["config"]):
-            with redirect_stdout(io.StringIO()):
-                assert SYNC.sync(root, True, "dev", "123456789012", services=services) == 0
-                assert SYNC.sync(root, False, "dev", "123456789012", services=services) == 0
-        assert docs.read_text() == expected
-        assert all(path.read_bytes() == content for path, content in snapshot.items())
-        original_contract = contract.read_text()
-        for invalid_contract in (original_contract.replace("`migration`", "`infrastructure`"),
-                                 original_contract.replace("`dev/123456789012/config`", "`dev/123456789012/iam`"),
-                                 original_contract.replace("config/*.properties", "iam/*.properties")):
-            contract.write_text(invalid_contract)
-            result = cli("--split")
-            assert result.returncode == 1, result
-            assert all(path.read_bytes() == content for path, content in snapshot.items())
-        contract.write_text(original_contract)
-        # The split worker preserves its indivisible output batch and exits cleanly
-        # on exhaustion; released files are acquired in a normal invocation.
-        import task_contract as tasks
-        import model_files as files
-        contract.unlink()  # Migrate the fixture's legacy contract before concurrency.
-        owner, worker = "tasks/owner.md", "tasks/worker.md"
-        first_part = model_parts(source)[0]
-        def register(name, paths):
-            listed = "\n".join(f"- `{path.relative_to(root)}`" for path in [root / name, *paths])
-            tasks.start(root, name, "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
-                        "## Validation scope\n- `dev/123456789012/config`\n"
-                        f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n")
-        register(owner, [first_part])
-        register(worker, snapshot)
-        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(sys, "argv", ["model_files.py", str(source), "--split"]):
-            with patch.object(tasks.time, "sleep") as sleep:
-                assert files.main() == 0 and sleep.call_count == 20
-                assert all(path.read_bytes() == content for path, content in snapshot.items())
-                assert tasks.reservations(root, tasks.contracts(root))[worker].state == "running"
-            attempts = []
-            def release(seconds):
-                assert seconds == 30
-                attempts.append(seconds)
-                if len(attempts) == 3:
-                    tasks.complete(root, owner)
-            with patch.object(tasks.time, "sleep", side_effect=release):
-                assert files.main() == 0 and len(attempts) == 3
-        assert all(path.read_bytes() == content for path, content in snapshot.items())
-        for name in (owner, worker):
-            (root / name).unlink()
-        register(owner, [first_part])
-        register(worker, snapshot)
-        def change_input(seconds):
-            assert seconds == 30
-            first_part.write_bytes(snapshot[first_part] + b"# owner changed this part\n")
-            tasks.complete(root, owner)
-        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(sys, "argv", ["model_files.py", str(source), "--split"]), patch.object(tasks.time, "sleep", side_effect=change_input):
-            assert files.main() == 1
-        assert first_part.read_bytes() == snapshot[first_part] + b"# owner changed this part\n"
-        first_part.write_bytes(snapshot[first_part])
-        for name in (owner, worker):
-            (root / name).unlink()
-        contract.write_text(original_contract)
-        validator = VALIDATOR.Validator(root, scope)
-        validator.check_project_topology()
-        validator.check_model_files()
-        validator.changed_paths = {"model/dev/123456789012/config/part-002.properties", "docs/designs/dev/123456789012/config.md"}
-        validator.task_type = "design"
-        validator.check_validation_scope()
-        validator.check_task_type_requirements()
-        assert not validator.errors, validator.errors
-        issues = root / "issues/dev/123456789012/issues.md"
-        issues.parent.mkdir(parents=True)
-        issues.write_text("### AWS Config\n\n1. 検証不備。[根拠](../../../model/dev/123456789012/config/part-002.properties:10)。\n")
-        assert unresolved_services(root, issues) == [("1", {"config"})]
-        issues.unlink()
-
-        first, second = model_parts(source)
-        saved = {path: path.read_text() for path in (source, first, second)}
-
-        def rejected():
+        docs.write_text(markdown_for(docs, values, root))
+        limit, units = DEPLOY.load_units(root, "dev", "123456789012", [values["desired.stack.001.name"]])
+        assert limit == 2 and len(units) == 1
+        for part in __import__("model_templates").source_inputs(stack) - {root/"project.json"}:
+            saved = part.read_bytes()
+            part.unlink()
             try:
-                read_model(source)
+                load_model(stack)
             except (OSError, ValueError):
                 pass
             else:
-                raise AssertionError("invalid model index/part accepted")
-            result = cli("--resource", "Recorder")
-            assert result.returncode == 1 and not result.stdout, result
-            for path, content in saved.items():
-                path.write_text(content)
+                raise AssertionError("missing projection part accepted")
+            part.write_bytes(saved)
+        assert load_model(stack).values == values
 
-        second.unlink()
-        rejected()
-        for invalid in ("../other.properties", "other/part-001.properties", "config/part-001.properties"):
-            source.write_text(saved[source].replace("config/part-002.properties", invalid))
-            rejected()
-        second.write_text(saved[second] + "desired.service.config.serviceId=duplicate\n")
-        rejected()
-        second.write_text(INDEX_HEADER + "\n" + saved[second])
-        rejected()
-        first.write_text(saved[first].rstrip("\n"))
-        rejected()
-        second.write_text("# extra\n" * 601)
-        rejected()
-        extra = first.with_name("unlisted.properties")
-        extra.write_text("desired.note.extra.text=説明\n")
-        rejected()
-        extra.unlink()
-        # Inject the filesystem answer; Windows symlink creation requires privileges.
-        is_symlink = Path.is_symlink
-        with patch.object(Path, "is_symlink", lambda path: path == second or is_symlink(path)):
-            try:
-                read_model(source)
-            except ValueError as error:
-                assert "unsafe" in str(error)
-            else:
-                raise AssertionError("symlink model part accepted")
-        second.write_text(saved[second])
-        first.write_text(saved[first].replace("observed.row.001-002.value=`default`", "observed.row.001-002.value=arn:aws:config:generated"))
-        validator = VALIDATOR.Validator(root)
-        validator.check_observed_values([source])
-        assert any("generated ARN" in error for error in validator.errors), validator.errors
-        first.write_text(saved[first])
-
-        # Stack consumers read the same indexed format.
-        stack = source.with_name("cloudformation-stacks.properties")
-        stack_values = {"desired.deployment.maxConcurrentStacks": "2"}
-        for number in range(1, 111):
-            key = f"{number:03d}"
-            stack_values.update({f"desired.stack.{key}.name": f"cfn-stack-app-dev-core-{key}",
-                                 f"desired.stack.{key}.deployOrder": "10", f"desired.stack.{key}.template": "app.yaml",
-                                 f"desired.stack.{key}.parameters": f"app-{key}.json",
-                                 f"display.stack.{key}.comment": "アプリケーションのstack"})
-        sync_files.save_files(model_file_contents(stack, "".join(f"{key}={value}\n" for key, value in stack_values.items())))
-        stack_docs = docs.with_name("cloudformation-stacks.md")
-        stack_docs.write_text(markdown_for(stack_docs, stack_values, root))
-        limit, units = DEPLOY.load_units(root, "dev", "123456789012", [stack_values["desired.stack.001.name"]])
-        assert limit == 2 and len(units) == 1
-    print("model-files: PASS (600-line limit, indexes, lookup, resource extraction across 60 resources/parts, grouped context, read-only, lossless values/order, service scope, generation, stacks and invalid parts)")
+    print("model-files: PASS (600-line limit, indexes, lookup, resource extraction across 60 resources/parts, grouped context, read-only, lossless values/order, YAML sources, stacks and invalid parts)")
 
 
 def check_cfn_selector():

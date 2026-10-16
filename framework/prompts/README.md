@@ -27,10 +27,10 @@ Implementation scope: docs/designs/dev/cde/vpc.md
 | --- | --- |
 | Create new detailed designs through chatbot design | `chatbot/service-design.md` → Codex prompt output by chatbot → `03_implement.md` → `04_deploy.md` |
 | Reflect current values of existing AWS resources selected by the chatbot into detailed design | `chatbot/service-design.md` → read-only retrieval Codex prompt output by chatbot |
-| The human directly edits existing model properties, then reflects them in IaC and deploys while uncommitted | `05_update.md` |
+| The human directly edits existing YAML Model inputs, then reflects them in IaC and deploys while uncommitted | `05_update.md` |
 | Confirm application behavior after deploy | `06_scenario-test.md` only when needed in either workflow |
 
-For new designs, `service-design.md` outputs completed model properties, destination Markdown/JSON, and a self-contained Codex prompt to create them in the repository. When using current values of existing AWS resources, it does not output completed Markdown; it outputs a read-only retrieval Codex prompt including target services, resource types, and properties. After the human selects resource candidates, Codex directly reflects current-value differences into detailed design. Neither uses a fixed design-save-only prompt.
+For new designs, `service-design.md` outputs completed template/YAML sources and fixed bindings, destination Markdown/JSON, and a self-contained Codex prompt to create them in the repository. When using current values of existing AWS resources, it does not output completed Markdown; it outputs a read-only retrieval Codex prompt including target services, resource types, and properties. For IMPORT, hand off to `/import` / `codex/08_import.md`; direct current-value copying is prohibited. CREATE retrieval retains the existing procedure. Neither uses a fixed design-save-only prompt.
 
 When managing stacks in CloudFormation targets, save target-specific `cloudformation-stacks.md` with service detailed designs in the design task. `03_implement.md` implements templates and individual parameter files for each StackName listed there; `04_deploy.md` matches actual AWS resources and deploys per StackName. The same template may be assigned to multiple StackNames.
 
@@ -42,10 +42,11 @@ For manual edits, do not split implement and deploy. `05_update.md` receives hum
 | ---: | --- | --- | --- |
 | 1 | [`codex/01_initialize.md`](codex/01_initialize.md) | Initialize a repository without `project.json` | Create project topology and target paths |
 | 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | Add 1 environment/logical target after initialization | Update `project.json` and added target paths |
-| Design | [`chatbot/service-design.md`](chatbot/service-design.md) | Confirm detailed design values for new systems, features, or services with the human | Output completed model properties and destination Markdown/JSON, or a self-contained Codex prompt for existing-resource retrieval |
+| Design | [`chatbot/service-design.md`](chatbot/service-design.md) | Confirm detailed design values for new systems, features, or services with the human | Output completed template/YAML sources and fixed bindings and destination Markdown/JSON, or a self-contained Codex prompt for existing-resource retrieval |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | Reflect detailed designs already created in the repository into CloudFormation/Terraform | Create/change IaC through local static validation |
 | 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, perform uniquely determined CloudFormation controlled repair, and update necessary observed values |
-| 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing model properties, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
+| 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing authoritative service Model inputs, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
+| 8 | [`codex/08_import.md`](codex/08_import.md) | Rebuild IMPORT configuration from read-only AWS CLI inventory | Update IMPORT Model and generate/verify Markdown/JSON; never AWS or IaC |
 | 7 | [`codex/07_destroy.md`](codex/07_destroy.md) | Explicit CloudFormation Stack deletion requested | Independent destroy; observed consistency and scoped local loop |
 | 6 | [`codex/06_scenario-test.md`](codex/06_scenario-test.md) | Application behavior confirmation is needed after deploy | Update scenarios and current results for the same target |
 
@@ -161,8 +162,8 @@ AWS profile:
 
 ### `codex/05_update.md`
 
-- Description: Receive uncommitted diffs created by the human in existing model properties as confirmed design; perform Markdown generation, IaC reflection, and deploy/apply.
-- Timing: The human directly edits existing model properties and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
+- Description: Receive uncommitted diffs created by the human in existing authoritative service Model inputs as confirmed design; perform Markdown generation, IaC reflection, and deploy/apply.
+- Timing: The human directly edits existing YAML Model inputs and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
 - How to use: Instruct only use of the prompt. Codex obtains environment, AWS account, and Design scope from changed model property paths and determines Deployment scope from corresponding existing IaC. Omitted delete/replacement authorization is `none`; omitted AWS profile uses target `awsProfile`, or default credential chain if unset. Reject explicit profiles differing from settings before execution. If design diffs mix multiple targets, stop without changes; ask only for missing deployment-unit items as needed.
 
 Usage example:
@@ -203,10 +204,10 @@ chatbot/service-design.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
 
-When the human directly edits existing model properties:
+When the human directly edits existing YAML Model inputs:
 
 ```text
-humanがmodel/**/*.propertiesを修正（未commit）
+humanがparameters.yaml／templateの設計入力を修正（未commit）
   -> 05_update.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
@@ -225,3 +226,18 @@ If design changes need new human decisions, confirm them in chat before reposito
 ### `codex/07_destroy.md`
 
 Independent infrastructure phase `destroy`, invoked by `/destroy <StackName> [<StackName> ...]`. Resolve one explicit target and local JSON ownership/reservation plan, register the contract, then run cloudformation-destroy.py with external resumable state. Destroy checks context/StackId/protection/nested/export-import dependencies, deletes reverse DeployOrder with bounded concurrency, and batches proven-success observed updates. No deploy preparation, IaC validation, change sets, force delete, retained-resource cleanup, or scenarios. Complete with one scoped task loop.
+
+Model source persistence uses optional `observed.json` with actual row values only;
+runtime property/comment come from desired metadata. File absence means unobserved,
+never observation success. Omit empty observed files and empty binding labels; preserve
+nonempty labels, fixed IDs, internal parameters, references and CFn placement.
+
+### `codex/08_import.md`
+
+The authoritative [/import](../../.agents/skills/import/SKILL.md) workflow. Use
+`/import --environment dev --service config --target cde`; add `--dry-run` for inventory/planning
+only. It reuses API/Property maps with AWS CLI inventory, Model expansion/impact,
+source publication and sync-model. Model values/names do not filter acquisition.
+Only resource-level IMPORT is refreshed; CREATE remains unchanged. Substantive IMPORT
+changes through other workflows fail the common [authority guard](../rules/model-information.md#import-configuration-authority).
+No AWS mutation, IaC generation, deployment or implicit multi-target expansion.

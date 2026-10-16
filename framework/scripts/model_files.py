@@ -1,16 +1,15 @@
-"""Read one service model through its optional part index; split, locate or extract a resource."""
+"""Read YAML service Model values, locate their sources or extract a resource."""
 
 from __future__ import annotations
 
-import sync_files
 import argparse
-import fnmatch
 import re
 import sys
 from pathlib import Path
 from typing import NamedTuple
 from validation_cache import memoized
-from task_contract import task_path, require_writable, reserved_batches, DeferredExhausted
+from import_scope import scoped_read
+
 
 MAX_LINES = 600
 PART_LINES = 550
@@ -54,31 +53,21 @@ class LoadedModel(NamedTuple):
     files: dict[Path, str]
 
 
+@scoped_read
 @memoized
-def load_model(path: Path) -> LoadedModel:
-    """One validated parse with real part locations; immutable within input_scope."""
-    from model_core import properties
-    entrance = path.read_bytes().decode("utf-8")
-    parts = model_parts(path, text=entrance)
-    contents, files, locations = [], {path: entrance}, {}
-    for part in parts:
-        content = entrance if part == path else part.read_bytes().decode("utf-8")
-        lines = content.splitlines()
-        if part != path and (len(lines) > MAX_LINES or INDEX_HEADER in lines):
-            raise ValueError(f"invalid or oversized model part: {part}")
-        if part != parts[-1] and not content.endswith("\n"):
-            raise ValueError(f"model part must end with a newline: {part}")
-        files[part] = content
-        contents.append(content)
-        for number, line in enumerate(lines, 1):
-            if line.strip() and not line.startswith("#"):
-                key = line.partition("=")[0]
-                if key in locations:
-                    previous, previous_line = locations[key]
-                    raise ValueError(f"invalid or duplicate model property: {part}:{number}: {key}; first at {previous}:{previous_line}")
-                locations[key] = (part, number)
-    text = "".join(contents)
-    return LoadedModel(text, properties(text), locations, files)
+def load_model(path: Path, _context=None) -> LoadedModel:
+    from model_templates import source_paths, publication_lock, load_expansion
+    paths = source_paths(path)
+    if paths is None:
+        raise ValueError(f'Model requires a YAML service source: {path}')
+    with publication_lock(paths[0]):
+        expanded = load_expansion(path)
+        if expanded is None:
+            raise ValueError(f'YAML Model inputs missing: {path}')
+        text = ''.join(f'{key}={value}\n' for key, value in expanded.values.items())
+        locations = {key: (Path(source["template"]), source["line"]) if "template" in source else (paths[2]/"observed.json", 1)
+                     for key, source in expanded.provenance.items()}
+        return LoadedModel(text, expanded.values, locations, expanded.files)
 
 
 def read_model(path: Path) -> str:
@@ -109,9 +98,10 @@ def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict
     return index
 
 
-def model_file_contents(path: Path, text: str) -> dict[Path, str]:
+def model_file_contents(path: Path, text: str, *, validate: bool = True) -> dict[Path, str]:
     from model_core import properties
-    properties(text)
+    if validate:
+        properties(text)
     lines = text.splitlines(keepends=True)
     if len(lines) <= MAX_LINES:
         return {path: text}
@@ -131,7 +121,7 @@ def model_file_contents(path: Path, text: str) -> dict[Path, str]:
 def service_model_path(path: Path, base: Path) -> Path:
     """Map a part back to its service entrance for scope and task boundaries."""
     relative = path.relative_to(base)
-    if len(relative.parts) == 4:
+    if len(relative.parts) == 4 and relative.parts[0] not in {'parameters', 'templates'}:
         return base / relative.parent.with_suffix(".properties")
     return path
 
@@ -178,66 +168,30 @@ def resource_keys(text: str, selector: str) -> set[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model", type=Path, help="Service entrance .properties file")
+    parser.add_argument("model", type=Path, help="Logical model/<environment>/<target>/<service>.properties identifier; no file is stored")
     operation = parser.add_mutually_exclusive_group(required=True)
-    operation.add_argument("--split", action="store_true")
+    operation.add_argument("--trace", help="Trace one generated key to template/parameter/observed authority")
     operation.add_argument("--find", help="Find a property key or identifier without printing whole files")
     operation.add_argument("--resource", help="Read one exact resource number, logical ID or anchor, including its display group and service notes")
     args = parser.parse_args()
     try:
         path = args.model.absolute()
         text = read_model(path)
-        parts = model_parts(path)
-        if args.resource is not None:
-            keys = resource_keys(text, args.resource)
-            for part in parts:
-                for number, line in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):
-                    if line.partition("=")[0] in keys:
-                        print(f"{part}:{number}: {line}")
+        from model_templates import load_expansion
+        if args.trace is not None:
+            import json
+            expanded = load_expansion(path)
+            print(json.dumps(expanded.provenance[args.trace], ensure_ascii=False))
             return 0
-        if args.find is not None:
-            for part in parts:
-                for number, line in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):
-                    if "=" in line and args.find in line:
-                        print(f"{part}:{number}: {line.partition('=')[0]}")
-            return 0
-        # Splitting changes authoritative files only in an explicit design/migration scope.
-        root = path.parents[3]
-        if path.relative_to(root).parts[0] != "model" or len(path.relative_to(root).parts) != 4:
-            raise ValueError("split input must be model/<environment>/<target>/<service>.properties")
-        contract = task_path(root).read_text(encoding="utf-8")
-        if not any(f"- Task type: `{kind}`" in contract.splitlines() for kind in ("design", "migration")):
-            raise ValueError("splitting requires an explicit design or migration task")
-        from validation_scope import active_scope
-        from issue_gate import require_no_issues
-        identity = tuple(path.relative_to(root / "model").with_suffix("").parts)
-        scope = active_scope(root)
-        if scope is not None and identity not in scope:
-            raise ValueError("split service is outside active task validation scope")
-        require_no_issues(root, {identity})
-        output = model_file_contents(path, text)
-        original_inputs = {part: part.read_bytes() for part in {path, *parts}}
-        obsolete = set(parts) - output.keys() - {path}
-        if "## Allowed paths\n" not in contract:
-            raise ValueError("split task must declare Allowed paths")
-        allowed = contract.split("## Allowed paths\n", 1)[1].split("\n## ", 1)[0]
-        patterns = re.findall(r"^- `([^`]+)`$", allowed, re.MULTILINE)
-        if any(not any(fnmatch.fnmatchcase(file.relative_to(root).as_posix(), pattern) for pattern in patterns)
-               for file in set(output) | obsolete):
-            raise ValueError("split output is outside active task Allowed paths")
-        for _ in reserved_batches(root, {'split': set(output) | obsolete}):
-            require_writable(root, set(output) | obsolete)
-            if any(not part.is_file() or part.read_bytes() != original for part, original in original_inputs.items()):
-                raise ValueError("split model inputs changed before publication; rerun split")
-            sync_files.save_files(output)
-            for part in obsolete:
-                part.unlink()
-        print(f"Service model split: PASS ({path}; {len(output)} files)")
+        loaded = load_model(path)
+        keys = resource_keys(text, args.resource) if args.resource is not None else {k for k,v in loaded.values.items() if args.find in k + '=' + v}
+        for key in loaded.values:
+            if key in keys:
+                file, number = loaded.locations[key]
+                value = '=' + loaded.values[key] if args.resource is not None else ''
+                print(f'{file}:{number}: {key}{value}')
         return 0
-    except DeferredExhausted as error:
-        print(str(error))
-        return 0
-    except (OSError, ValueError, IndexError) as error:
+    except (OSError, ValueError, IndexError, KeyError) as error:
         print(f"Service model files: FAIL: {error}", file=sys.stderr)
         return 1
 

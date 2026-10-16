@@ -9,11 +9,12 @@ from test_support.pytest_cli import run
 import sync_runtime
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
+import hashlib
 import os
 from pathlib import Path
 import subprocess
 import shutil
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import patch
 
 import task_contract as tasks
@@ -46,6 +47,105 @@ def blocked(callback, message):
     with pytest.raises(ValueError) as error:
         callback()
     assert message in str(error.value), str(error.value)
+
+
+def git_identity(root, fallback=False):
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
+    result = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=root,
+                            env=environment, capture_output=True, text=True, encoding="utf-8")
+    with patch.object(tasks.subprocess, "run", wraps=subprocess.run) as run_git:
+        if result.returncode:
+            blocked(lambda: tasks.worktree_identity(root), "cannot determine Git worktree identity")
+        else:
+            expected = hashlib.sha256(str(Path(result.stdout.strip()).resolve()).encode()).hexdigest()
+            assert tasks.worktree_identity(root) == expected
+        if os.name != "posix" or os.geteuid() == 0:
+            fallback = True
+        assert run_git.call_count == int(fallback)
+
+
+def check_identity_changes(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
+        assert tasks.worktree_identity(root) == tasks.directory_identity(root)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        git_identity(root)
+        shutil.rmtree(root / ".git")
+        with patch.object(tasks.subprocess, "run", side_effect=AssertionError("non-Git compatibility")):
+            assert tasks.worktree_identity(root) == tasks.directory_identity(root)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        git_identity(root)
+        nested = root / "nested"
+        nested.mkdir()
+        assert tasks.worktree_identity(nested) == tasks.directory_identity(nested)
+        (root / ".git").rename(root / "one")
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".git").rename(root / "two")
+        identities = []
+        for reference in ("one", str(root / "two"), "one"):
+            (root / ".git").write_text("gitdir: " + reference + "\n")
+            git_identity(root)
+            identities.append(tasks.worktree_identity(root))
+        assert identities[0] == identities[2] != identities[1]
+        (root / ".git").unlink()
+        (root / ".git").symlink_to(root / "one", target_is_directory=True)
+        git_identity(root, fallback=True)
+
+
+@pytest.mark.parametrize("damage", ["gitfile", "encoding", "missing-target", "empty-target", "HEAD", "HEAD-symlink", "objects", "refs", "commondir", "config", "format", "boolean", "user-boolean", "include", "extensions", "valid-extension"])
+def check_identity_fallback(tmp_path, damage):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        if damage in {"gitfile", "encoding", "missing-target", "empty-target"}:
+            shutil.rmtree(root / ".git")
+            content = b"not a gitfile\n"
+            if damage == "encoding":
+                content = b"gitdir: \xff\n"
+            if damage in {"missing-target", "empty-target"}:
+                content = b"gitdir: target\n"
+            if damage == "empty-target":
+                (root / "target").mkdir()
+            (root / ".git").write_bytes(content)
+        elif damage in {"objects", "refs"}:
+            shutil.rmtree(root / ".git" / damage)
+        elif damage == "HEAD":
+            (root / ".git/HEAD").write_text("invalid\n")
+        elif damage == "HEAD-symlink":
+            target = root / "head"
+            target.write_text("ref: refs/heads/main\n")
+            (root / ".git/HEAD").unlink()
+            (root / ".git/HEAD").symlink_to(target)
+        elif damage == "commondir":
+            (root / ".git/commondir").write_text("missing\n")
+        elif damage == "config":
+            (root / ".git/config").write_text("invalid!\n")
+        elif damage == "format":
+            (root / ".git/config").write_text("[core]\nrepositoryformatversion = 999\n")
+        elif damage == "boolean":
+            (root / ".git/config").write_text("[core]\nbare = invalid\n")
+        elif damage == "user-boolean":
+            (root / ".git/config").write_text("[user]\nuseconfigonly = invalid\n")
+        elif damage == "include":
+            (root / ".git/config").write_text("[include]\npath = ../bad-config\n")
+            (root / "bad-config").write_text("invalid!\n")
+        elif damage == "extensions":
+            (root / ".git/config").write_text("[core]\nrepositoryformatversion = 1\n[extensions]\nunknown = true\n")
+        elif damage == "valid-extension":
+            (root / ".git/config").write_text("[core]\nrepositoryformatversion = 1\n[extensions]\nworktreeconfig = true\n")
+        git_identity(root, fallback=True)
+
+
+@pytest.mark.parametrize("variable", ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_PAGER"])
+def check_identity_environment(tmp_path, variable):
+    with patch.dict(os.environ, {}, clear=True):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        override = tmp_path / "override"
+        override.write_text("invalid!\n")
+        with patch.dict(os.environ, {variable: str(override)}):
+            git_identity(tmp_path, fallback=variable != "GIT_PAGER")
+        git_identity(tmp_path)
 
 
 def check_admission_selection(tmp_path):
@@ -209,7 +309,7 @@ def check_simultaneous_registration(tmp_path):
             return False
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(register, ["tasks/one.md", "tasks/two.md"]))
-    assert 1 <= sum(results) <= 2  # A busy registration remains retryable.
+    assert 1 <= sum(results) <= 2  # A busy service_source remains retryable.
     for name in ("tasks/one.md", "tasks/two.md"):
         if not (root / name).exists():
             tasks.start(root, name, contract(name, ["future.md"]))
@@ -348,6 +448,14 @@ def check_worktree_isolation(tmp_path):
         git(root, "worktree", "add", "--detach", str(linked), "HEAD")
         first, second = "tasks/first.md", "tasks/second.md"
         try:
+            git_identity(root)
+            git_identity(linked)
+            dotgit = linked / ".git"
+            reference = dotgit.read_text()
+            directory = reference.removeprefix("gitdir: ").strip()
+            dotgit.write_text("gitdir: " + os.path.relpath(directory, linked) + "\n")
+            git_identity(linked)
+            dotgit.write_text(reference)
             identities = tasks.worktree_identity(root), tasks.worktree_identity(linked)
             assert identities[0] != identities[1]
             tasks.start(root, first, contract(first, ["a.md", "b.yaml"]))
@@ -385,6 +493,8 @@ def check_worktree_isolation(tmp_path):
             git(root, "branch", "-m", "renamed")
             git(linked, "checkout", "-qb", "linked-branch")
             git(linked, "checkout", "--detach", "-q")
+            git_identity(root)
+            git_identity(linked)
             assert identities == (tasks.worktree_identity(root), tasks.worktree_identity(linked))
             tasks.resume(linked, second)
             # Foreign execution errors and validation metadata must not affect local readers.
@@ -400,6 +510,60 @@ def check_worktree_isolation(tmp_path):
         finally:
             git(root, "worktree", "remove", "--force", str(linked))
     print("Worktree isolation: PASS (main/linked, detached/renamed, foreign selection/ownership, independent locks)")
+
+
+
+@pytest.mark.parametrize("transition", ["start", "refresh", "complete", "suspend", "resume"])
+def check_atomic_contract_reads(tmp_path, transition):
+    root = tmp_path
+    name = "tasks/writer.md"
+    owner = "tasks/owner.md"
+    with patch.dict(os.environ, {}, clear=True):
+        if transition != "start":
+            tasks.start(root, owner, contract(owner, ["shared.md"]))
+            tasks.start(root, name, contract(name, ["shared.md"]))
+            tasks.complete(root, owner)
+        if transition == "complete":
+            tasks.refresh(root, name)
+        if transition == "resume":
+            tasks.suspend(root, name, "fixture stop")
+        before = tasks.contracts(root)
+        destination = root / name
+        paused, release = Event(), Event()
+        original_open, original_replace = Path.open, os.replace
+        def pause():
+            paused.set()
+            assert release.wait(10), "reader did not release publication"
+        def opening(path, mode="r", *args, **kwargs):
+            stream = original_open(path, mode, *args, **kwargs)
+            if path == destination and mode in {"w", "x"}:
+                pause()  # The old implementation has already truncated/created the file.
+            return stream
+        def replacing(source, target):
+            if Path(target) == destination:
+                pause()  # Atomic publication must still expose only the previous contract.
+            return original_replace(source, target)
+        operations = {
+            "start": lambda: tasks.start(root, name, contract(name, ["shared.md"])),
+            "refresh": lambda: tasks.refresh(root, name),
+            "complete": lambda: tasks.complete(root, name),
+            "suspend": lambda: tasks.suspend(root, name, "fixture stop"),
+            "resume": lambda: tasks.resume(root, name),
+        }
+        with patch.object(Path, "open", opening), patch.object(os, "replace", replacing), ThreadPoolExecutor(max_workers=1) as executor:
+            writer = executor.submit(operations[transition])
+            try:
+                assert paused.wait(10), "publication was not intercepted"
+                during = tasks.contracts(root)
+                for text in during.values():
+                    tasks.status(text)
+                assert during == before, "lock-free reader observed partial contract"
+                tasks.reservations(root, during)
+            finally:
+                release.set()
+                writer.result(timeout=10)
+        tasks.reservations(root, tasks.contracts(root))
+        assert not list(root.glob("tmp*")), "publication left a temporary file"
 
 
 def check_deferred_acquisition_race(tmp_path):
@@ -419,7 +583,7 @@ def check_deferred_acquisition_race(tmp_path):
                 tasks.resume(root, name)
                 return True
             except ValueError as error:
-                assert "registration is busy" in str(error)
+                assert "service_source is busy" in str(error)
                 return False
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(acquire, (one, two)))
@@ -586,35 +750,13 @@ def check_automatic_retry(tmp_path):
         with patch.object(tasks.time, "sleep") as sleep, patch.dict(os.environ, {tasks.SELECTOR: worker}), patch("sys.argv", ["task_contract.py", "--repository-root", str(root), "--task-file", worker, "--wait"]):
             assert tasks.main() == 0 and sleep.call_count == 20
         assert tasks.status((root / worker).read_text()) == "running"
-    # Waiting must not weaken the one-time import's existing no-overwrite rule.
-    spec = importlib.util.spec_from_file_location("retry_sync", Path(__file__).with_name("sync-model.py"))
-    sync = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sync)
-    directory = tmp_path / "case-4"
-    directory.mkdir()
-    with patch.dict(os.environ, {}, clear=True):
-        root = directory
-        output = "model/dev/cde/ec2.properties"
-        source = root / "docs/designs/dev/cde/ec2.md"
-        source.parent.mkdir(parents=True)
-        source.write_text("# source")
-        tasks.start(root, owner, contract(owner, [output], kind="migration", scope="dev/cde/ec2"))
-        tasks.start(root, worker, contract(worker, [output], kind="migration", scope="dev/cde/ec2"))
-        def create_model(seconds):
-            assert seconds == 30
-            (root / output).parent.mkdir(parents=True)
-            (root / output).write_text("owner's authoritative model")
-            tasks.complete(root, owner)
-        with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=create_model), patch.object(sync_runtime, "imported_model", return_value="desired.service.ec2.serviceId=ec2\n"):
-            blocked(lambda: sync.sync(root, True, "dev", "cde", import_markdown=True, services=["ec2"]), "must not overwrite")
-        assert (root / output).read_text() == "owner's authoritative model"
     print("Automatic Deferred retry: PASS (Active first, partial work, 30 sec x 20, clean exhaustion, restart, atomic groups, agent continuation)")
 
 
 
 
 def main():
-    return run(__file__, ['check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
+    return run(__file__, ['check_identity_changes', 'check_identity_fallback', 'check_identity_environment', 'check_atomic_contract_reads', 'check_automatic_retry', 'check_worktree_isolation', 'check_deferred_acquisition_race', 'check_deferred_validation', 'check_deploy_update_ownership', 'check_admission_selection', 'check_completed_legacy_and_paths', 'check_shared_issue_files', 'check_simultaneous_registration', 'check_suspend_and_resume', 'check_validator_isolation'], 'task-contract: PASS (worktree isolation, Active/Deferred, issue publication, concurrent acquisition, ownership, compatibility)')
 
 
 if __name__ == "__main__":

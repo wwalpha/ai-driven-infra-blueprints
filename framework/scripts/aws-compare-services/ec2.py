@@ -1,30 +1,8 @@
 """ec2: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, Unresolved, AcquisitionError
 
-RESOURCE_TYPES = ('EC2.Instance',)
 APIS = {('ec2', 'describe_instances'), ('ec2', 'describe_volumes')}
-IDENTITIES = {'EC2.Instance': ('base', 'InstanceId', None, None)}
-FIELDS = {}
-FIELDS.update(fields('EC2.Instance', 'base', {
-    'AvailabilityZone': 'Placement.AvailabilityZone',
-    'IamInstanceProfile': 'IamInstanceProfile.Arn',
-    'ImageId': 'ImageId',
-    'InstanceId': 'InstanceId',
-    'InstanceType': 'InstanceType',
-    'SecurityGroupIds': 'SecurityGroups[].GroupId',
-    'SubnetId': 'SubnetId',
-    'Tags[].Key': 'Tags[].Key',
-    'Tags[].Value': 'Tags[].Value',
-}, norms={'IamInstanceProfile': 'arn', 'SecurityGroupIds': 'id', 'SubnetId': 'id'}))
-FIELDS.update(fields('EC2.Instance', 'volumes', {
-    'BlockDeviceMappings[].DeviceName': 'BlockDeviceMappings[].DeviceName',
-    'BlockDeviceMappings[].Ebs.DeleteOnTermination': 'BlockDeviceMappings[].Ebs.DeleteOnTermination',
-    'BlockDeviceMappings[].Ebs.Encrypted': 'BlockDeviceMappings[].Ebs.Encrypted',
-    'BlockDeviceMappings[].Ebs.KmsKeyId': 'BlockDeviceMappings[].Ebs.KmsKeyId',
-    'BlockDeviceMappings[].Ebs.VolumeSize': 'BlockDeviceMappings[].Ebs.VolumeSize',
-    'BlockDeviceMappings[].Ebs.VolumeType': 'BlockDeviceMappings[].Ebs.VolumeType',
-}, norms={'BlockDeviceMappings[].Ebs.KmsKeyId': 'kms'}))
 
 
 def sensitive(prop):

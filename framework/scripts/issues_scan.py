@@ -69,8 +69,8 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         validator.check_validation_scope()
         validator.check_model_files()
         # Continue diagnosable checks even when model/Markdown equality fails.
-        if all((root / base / env / target / f'{service}{suffix}').is_file()
-               for env, target, service in scope for base, suffix in [('model', '.properties'), ('docs/designs', '.md')]):
+        if all((root / 'docs/designs' / env / target / f'{service}.md').is_file()
+               for env, target, service in scope):
             try:
                 validator.check_scoped_designs()
             except (OSError, ValueError, KeyError, TypeError) as error:

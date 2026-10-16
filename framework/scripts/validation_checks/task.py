@@ -102,19 +102,21 @@ def check_destroy_phase() -> None:
         validator = MODULE.Validator(root)
         validator.task_type = "infrastructure"
         validator.infrastructure_phase = "destroy"
-        validator.changed_paths = {"model/dev/123456789012/ec2.properties", "tasks/destroy.md"}
+        validator.changed_paths = {"model/parameters/dev/123456789012/ec2/observed.json", "tasks/destroy.md"}
         write(model, "desired.row.001-001.value=`fixed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
         assert not validator.errors, validator.errors
         write(model, "desired.row.001-001.value=`changed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        validator.changed_paths = {"model/templates/123456789012/ec2.properties.tpl"}
         validator.check_task_type_requirements()
-        assert any("must not change desired/display" in error for error in validator.errors)
+        validator.check_task_boundary(root / "tasks/destroy.md")
+        assert any("destroy phase permits only" in error for error in validator.errors)
         validator.changed_paths = {"infra/cloudformation/templates/a.yaml", "framework/scripts/a.py", "project.json", "tests/results/a.md"}
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
         assert any("must not change IaC" in error for error in validator.errors)
-        assert sum("destroy phase permits only" in error for error in validator.errors) == 4
+        assert sum("destroy phase permits only" in error for error in validator.errors) == 5
         # Exercise run() dispatch: destroy retains common/model checks but never enters IaC.
         validator = MODULE.Validator(root)
         validator.scope = {("dev", "123456789012", "ec2")}
@@ -140,7 +142,7 @@ def check_destroy_phase() -> None:
 def check_task_type_dispatch() -> None:
     valid = {
         "initialization": {"project.json"},
-        "design": {"docs/designs/dev/123456789012/vpc.md", "model/dev/123456789012/vpc.properties"},
+        "design": {"docs/designs/dev/cde/vpc.md", "model/parameters/dev/cde/vpc/parameters.yaml"},
         "infrastructure": {"infra/cloudformation/templates/vpc.yaml"},
         "scenario-test": {"tests/scenarios/vpc/scenario.md", "tests/results/vpc/dev/123456789012/result.md"},
         "governance": {"README.md"},
@@ -170,8 +172,8 @@ def check_task_type_dispatch() -> None:
     validator.task_type = "infrastructure"
     validator.infrastructure_phase = "update"
     validator.changed_paths = {
-        "docs/designs/dev/123456789012/vpc.md",
-        "model/dev/123456789012/vpc.properties",
+        "docs/designs/dev/cde/vpc.md",
+        "model/parameters/dev/cde/vpc/parameters.yaml",
         "infra/cloudformation/templates/vpc.yaml",
         "tasks/active.md",
     }
@@ -181,8 +183,8 @@ def check_task_type_dispatch() -> None:
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.task_type = "design"
     validator.changed_paths = {
-        "docs/designs/dev/123456789012/iam/role01-policy.json",
-        "model/dev/123456789012/iam.properties",
+        "docs/designs/dev/cde/iam/role01-policy.json",
+        "model/parameters/dev/cde/iam/parameters.yaml",
         "tasks/active.md",
     }
     validator.check_task_type_requirements()
@@ -191,19 +193,19 @@ def check_task_type_dispatch() -> None:
 
     # Generated equality is checked separately; views need not have a Git diff.
     for changed in (
-        {"model/dev/123456789012/logs.properties"},
-        {"model/dev/123456789012/logs/part-001.properties"},
-        {"model/dev/123456789012/logs.properties", "model/dev/123456789012/vpc.properties",
-         "docs/designs/dev/123456789012/vpc.md"},
-        {"docs/designs/dev/123456789012/vpc.md"},
-        {"docs/designs/dev/123456789012/iam/role01-policy.json"},
+        {"model/parameters/dev/cde/cloudwatch-logs/parameters.yaml"},
+        {"model/templates/cde/cloudwatch-logs.properties.tpl"},
+        {"model/parameters/dev/cde/cloudwatch-logs/parameters.yaml", "model/parameters/dev/cde/vpc/parameters.yaml",
+         "docs/designs/dev/cde/vpc.md"},
+        {"docs/designs/dev/cde/vpc.md"},
+        {"docs/designs/dev/cde/iam/role01-policy.json"},
         set(),
     ):
         validator = MODULE.Validator(SCRIPT.parents[2])
         validator.task_type = "design"
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()
-        assert bool(validator.errors) == (not any(path.startswith("model/") for path in changed)), validator.errors
+        assert bool(validator.errors) == (not any(path.startswith(("model/parameters/", "model/templates/")) for path in changed)), validator.errors
 
 
 def check_optional_alias_targets() -> None:
@@ -260,6 +262,26 @@ def check_optional_alias_targets() -> None:
         assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
         assert validator.accounts[("sandbox", "210987654321")]["account"] == "210987654321"
 
+        from import_scope import restrict
+        cross_environment = [*topology["targets"],
+                             *[{**target, "environment": "stg"} for target in topology["targets"][:2]]]
+        write(root / "project.json", json.dumps({**topology, "targets": cross_environment}) + "\n")
+        validator = MODULE.Validator(root)
+        validator.check_project_topology()
+        assert not validator.errors, validator.errors
+        with restrict(("dev", "cde", "vpc")):
+            validator = MODULE.Validator(root)
+            validator.check_project_topology()
+            assert not validator.errors, validator.errors
+            assert set(validator.accounts) == {("dev", "cde")}
+        duplicates = [topology["targets"][0], {**topology["targets"][1], "alias": "cde"}]
+        write(root / "project.json", json.dumps({**topology, "targets": duplicates}) + "\n")
+        for identity in (None, ("dev", "cde", "vpc")):
+            with restrict(identity):
+                validator = MODULE.Validator(root)
+                validator.check_project_topology()
+                assert any("duplicate target directory" in error for error in validator.errors), validator.errors
+
         # Each environment/alias may have its own suffix; paths and account identity stay intact.
         suffix_targets = [{**target, "suffix": suffix} for target, suffix in
                           zip(topology["targets"], ("blue", "green-01", "sandbox-token"))]
@@ -275,6 +297,8 @@ def check_optional_alias_targets() -> None:
         assert any("must contain only projectName and targets" in error for error in validator.errors), validator.errors
 
         invalid_targets = [
+            ([{**topology["targets"][0], "awsAccountId": "123"}, *topology["targets"][1:]],
+             "invalid AWS account"),
             ([{**topology["targets"][2], "environment": "modules"}],
              "Terraform environment conflicts with shared modules directory"),
             ([topology["targets"][0]], "single-target environment must omit alias"),
@@ -350,11 +374,11 @@ def check_optional_alias_targets() -> None:
 def check_model_task_boundaries() -> None:
     prompt = SCRIPT.parents[2] / "tasks" / "active.md"
     for task_type, changed in {
-        "design": {"docs/designs/dev/123456789012/vpc.md", "model/dev/123456789012/vpc.properties"},
+        "design": {"docs/designs/dev/cde/vpc.md", "model/parameters/dev/cde/vpc/parameters.yaml"},
         "infrastructure": {
             "infra/cloudformation/templates/vpc.yaml",
-            "docs/designs/dev/123456789012/vpc.md",
-            "model/dev/123456789012/vpc.properties",
+            "docs/designs/dev/cde/vpc.md",
+            "model/parameters/dev/cde/vpc/parameters.yaml",
         },
     }.items():
         validator = MODULE.Validator(SCRIPT.parents[2])

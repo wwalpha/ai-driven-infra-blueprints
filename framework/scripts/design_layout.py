@@ -12,7 +12,7 @@ from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored
 from model_core import positive_integer
 
 from design_catalog import design_material_files
-from validation_cache import memoized
+from validation_cache import memoized, input_scope
 from security_group_tables import security_group_table_lines
 
 
@@ -27,8 +27,6 @@ GROUPED_RESOURCE_TYPES = {
 IMPLICIT_GROUPED_PROPERTIES = {
     name: {rule["parentProperty"]} for name, rule in GROUPED.items()
 }
-DISPLAY_ALIAS_PATH = Path(__file__).resolve().parents[1] / "rules" / "display-property-aliases.json"
-DISPLAY_PROPERTY_ALIASES = json.loads(DISPLAY_ALIAS_PATH.read_text(encoding="utf-8"))
 DETAILS_HEADING = "## リソース詳細"
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$")
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
@@ -93,10 +91,18 @@ RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT)
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
-    reference = RESOURCE_REFERENCE_PROPERTIES.get(DISPLAY_PROPERTY_ALIASES.get(prop, prop))
+    reference = RESOURCE_REFERENCE_PROPERTIES.get(prop)
     return bool(reference and reference[0] == "IAM.Role" and re.fullmatch(
         r"(`?)AWSService[A-Za-z0-9_+=,.@-]{1,54}\1", value
     ))
+
+
+def is_import_pending_reference(prop: str, value: str) -> bool:
+    return prop in {
+        "Config.ConfigurationRecorder.RoleARN",
+        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN",
+        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN",
+    } and value == "Pending"
 
 
 def resource_anchor(service_id: str, name: str, resource_type: str = "") -> str:
@@ -177,7 +183,8 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
     except ValueError:
         return None
     source = (root / "model" / relative).with_suffix(".properties")
-    return properties(read_model(source)) if source.is_file() else None
+    from model_templates import source_paths
+    return properties(read_model(source)) if source_paths(source)[2].exists() else None
 
 
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
@@ -358,8 +365,8 @@ def stack_delivery(path: Path) -> dict[str, str]:
     return result
 
 
-def resource_identity_metadata(lines, *, values=None, import_cfn_ids=False):
-    """Use model entry identities; legacy comments remain explicit-import input."""
+def resource_identity_metadata(lines, *, values=None):
+    """Use authoritative Model identities for validation; Markdown cannot supply CFn placement."""
     if values is not None:
         from model_core import entries
         return ({resource["anchor"]: identity for identity, resource in entries(values, "desired.resource.")
@@ -368,7 +375,7 @@ def resource_identity_metadata(lines, *, values=None, import_cfn_ids=False):
     result = {"resource-entry": {}, "cfn-logical-id": {}}
     for line in lines:
         for name, metadata in result.items():
-            if name == "cfn-logical-id" and not import_cfn_ids:
+            if name == "cfn-logical-id":
                 continue
             if not line.startswith("<!-- " + name + ":"):
                 continue
@@ -401,18 +408,6 @@ def layout_errors(root: Path) -> list[str]:
         }
         for path in design_material_files(root)
     }
-    try:
-        aliases = json.loads((root / "framework" / "rules" / "display-property-aliases.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        errors.append(f"cannot read display property aliases: {error}")
-        aliases = {}
-    selected = set().union(*catalog.values())
-    if not isinstance(aliases, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in aliases.items()) or len(set(aliases.values())) != len(aliases):
-        errors.append("display property aliases must be a one-to-one object")
-    else:
-        for display, formal in aliases.items():
-            if not isinstance(display, str) or not isinstance(formal, str) or display in selected or formal not in selected or display.split(".")[0] != formal.split(".")[0]:
-                errors.append(f"invalid display property alias: {display}: {formal}")
     if set(layouts) != set(catalog):
         errors.append(
             f"resource layout coverage mismatch: unclassified={sorted(set(catalog) - set(layouts))}, "
@@ -480,20 +475,24 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     return []
 
 
-def formal_property(display: str, resource_type: str) -> str:
+@input_scope
+def formal_property(display: str, resource_type: str, root: Path | None = None) -> str:
     """Restore the resource type omitted from a detail table's Property column."""
+    from aws_mapping_display import ROOT, formal_name
+    if resource_type and (formal := formal_name(display, resource_type, root or ROOT)):
+        return formal
     if resource_type == "Lambda.Function" and display.startswith("Permission."):
         return "Lambda." + display
-    if display in DISPLAY_PROPERTY_ALIASES or display.startswith(RESOURCE_PROPERTY_PREFIXES):
+    if display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display
 
 
-def linked_list_property(display: str, resource_type: str) -> tuple[str, str] | None:
+def linked_list_property(display: str, resource_type: str, root: Path | None = None) -> tuple[str, str] | None:
     """Resolve only the final display index; leave enclosing object arrays intact."""
     match = re.fullmatch(r"(.+)\[([^\]]*)\]", display)
     if match:
-        base = formal_property(match.group(1), resource_type)
+        base = formal_property(match.group(1), resource_type, root)
         for prop in LINKED_LIST_PROPERTIES:
             if base == prop.removesuffix("[]"):
                 return prop, match.group(2)
@@ -565,8 +564,11 @@ def permission_rows(rows: list[list[str]]) -> list[list[str]]:
     return result
 
 
-def expanded_display_rows(lines: list[str]) -> list[str]:
+@input_scope
+def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
+    from aws_mapping_display import ROOT, show, structural, display_name, rules, compact_group
+    root = root or ROOT
     lines = resource_heading_lines(lines)
     result = []
     index = 0
@@ -599,7 +601,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             stop += 1
         if any(len(row) != 4 for row in source_rows):
             raise ValueError("resource table row must have four cells")
-        restored = restored_glue_argument_rows(restored_rows(source_rows, resource_type), resource_type)
+        restored = restored_glue_argument_rows(restored_rows(source_rows, resource_type, root), resource_type)
         if restored != source_rows:
             if [row[0] for row in source_rows] != [str(number) for number in range(1, len(source_rows) + 1)]:
                 raise ValueError("Array table numbering error")
@@ -616,15 +618,23 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 raise ValueError("Lambda Permission must use Permission.* display properties")
             if resource_type == "Lambda.Function" and display_property in {"Permission.Id", "Permission.FunctionName"}:
                 raise ValueError("Lambda Permission Id and FunctionName must not be displayed")
-            prop = formal_property(cells[1], resource_type)
-            if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(display_property, resource_type):
+            prop = formal_property(cells[1], resource_type, root)
+            if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(display_property, resource_type, root):
                 raise ValueError("Subnet list source marker requires an indexed Subnet row")
-            if prop == "Config.ConfigurationRecorder.RoleARN":
-                raise ValueError("ConfigurationRecorder RoleARN must use RoleName display")
-            if DISPLAY_PROPERTY_ALIASES.get(prop, prop) in RESOURCE_REFERENCE_PROPERTIES:
-                if not is_service_role_reference(prop, cells[2]) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+            if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != display_name(prop, resource_type, root):
+                raise ValueError("ConfigurationRecorder RoleARN must use Mapping display name")
+            if prop in RESOURCE_REFERENCE_PROPERTIES:
+                if not (is_service_role_reference(prop, cells[2]) or is_import_pending_reference(prop, cells[2])) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ValueError(f"{prop} must be a resource link")
-            if prop in HIDDEN_PROPERTIES:
+            owner = ".".join(prop.split(".")[:2])
+            if prop in rules(root, owner) and (owner == resource_type or owner in GROUPED) and owner not in SECURITY_GROUP_TYPES and not compact_group(prop) and prop not in LINKED_LIST_PROPERTIES:
+                configured = display_name(prop, resource_type, root)
+                canonical = prop.removeprefix(resource_type + ".")
+                if configured != canonical and display_property in {prop, canonical}:
+                    raise ValueError(f"formal property must use its Markdown display alias: {prop}")
+            if prop in rules(root, owner) and not show(prop, root) and not structural(prop):
+                raise ValueError(f"property must not be displayed: {prop}")
+            if prop in HIDDEN_PROPERTIES and not show(prop, root):
                 raise ValueError(f"property must not be displayed: {prop}")
             if prop != cells[1]:
                 normalized = True
@@ -641,7 +651,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                 changed = True
                 kind = "CodeBuild environment variable"
                 rows.extend(codebuild_formal_rows(cells, codebuild_names))
-            elif item := linked_list_property(display_property, resource_type):
+            elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1
                 if not re.fullmatch(r"[1-9][0-9]*", first_index) or int(first_index) != expected:
@@ -664,7 +674,7 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
                     row = cells
                     if offset:
                         row = [cell.strip() for cell in lines[index + offset].strip("|").split("|")] if index + offset < len(lines) else []
-                    if len(row) != 4 or linked_list_property(row[1], resource_type) != (list_prop, str(expected + offset)) or row[2] != value or (offset and row[3] != continuation_comment):
+                    if len(row) != 4 or linked_list_property(row[1], resource_type, root) != (list_prop, str(expected + offset)) or row[2] != value or (offset and row[3] != continuation_comment):
                         raise ValueError("Subnet list display differs from its saved source value or comment")
                     if offset:
                         row_numbers.append(row[0])
@@ -715,6 +725,10 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
             rows = ec2_formal_rows(rows, resource_type)
             changed = True
             kind = resource_type
+        for row in rows:
+            owner = ".".join(row[1].split(".")[:2])
+            if row[1] in rules(root, owner) and not show(row[1], root) and not structural(row[1]):
+                raise ValueError(f"property must not be displayed: {row[1]}")
         if changed:
             if row_numbers != [str(number) for number in range(1, len(row_numbers) + 1)]:
                 raise ValueError(f"{kind} table numbering error")
@@ -729,7 +743,9 @@ def expanded_display_rows(lines: list[str]) -> list[str]:
 
 
 def expanded_design(lines: list[str], *, normalized: bool = False,
-                    logical_ids: dict[tuple[str, str], str] | None = None) -> tuple[list[str], dict[str, dict]]:
+                    logical_ids: dict[tuple[str, str], str] | None = None,
+                    bound_anchors: dict[tuple[str, str], str] | None = None,
+                    root: Path | None = None) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
     Child anchors and logical IDs live in the first row's comment. Visible tables
@@ -738,8 +754,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
     identities = resource_logical_ids(lines) if logical_ids is None else logical_ids
     lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
-        lines = security_group_table_lines(lines)
-    lines = expanded_display_rows(lines)
+        lines = security_group_table_lines(lines, root)
+    lines = expanded_display_rows(lines, root)
     result: list[str] = []
     children: dict[str, dict] = {}
     parent_type = parent_id = parent_anchor = pending_anchor = service_id = ""
@@ -790,7 +806,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
-            cells[1] = prop = DISPLAY_PROPERTY_ALIASES.get(cells[1], cells[1])
+            prop = cells[1]
             resource_type = ".".join(prop.split(".")[:2])
             rule = GROUPED.get(resource_type)
             marker = CHILD.match(cells[3])
@@ -816,6 +832,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
                         valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name, resource_type)}
                         if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
                             valid_anchors = {resource_anchor(service_id, name, resource_type)}
+                        if (resource_type, logical_id) in (bound_anchors or {}):
+                            valid_anchors = {bound_anchors[resource_type, logical_id]}
                         if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)

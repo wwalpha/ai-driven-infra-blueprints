@@ -1,7 +1,84 @@
 """Schema, required names, CIDR and catalog row order."""
 
 from __future__ import annotations
-from test_support.validator import MODULE, SCRIPT, project, write, schema_validator
+import json
+import shutil
+from test_support.validator import MODULE, SCRIPT, project, write, schema_validator, load
+
+
+def check_catalog_inputs() -> None:
+    from cloudformation_schema import manifest_text, material_files
+    from design_catalog import design_material_files
+    lock = load("update-catalog-lock")
+    with project() as root:
+        shutil.copytree(SCRIPT.parents[2] / "framework/materials", root / "framework/materials")
+        scripts = root / "framework/scripts"
+        scripts.mkdir()
+        shutil.copy2(SCRIPT.with_name("update-catalog-lock.py"), scripts)
+
+        def check(expected=None):
+            # Refresh integrity locks so semantic failures cannot hide behind checksums.
+            materials = root / "framework/materials"
+            for name, files in (
+                ("catalog", material_files(root)),
+                ("api-catalog", sorted((materials / "api").glob("*"))),
+                ("cloudformation-schema", sorted((materials / "cloudformation-schema/ap-northeast-1").glob("*.json"))),
+            ):
+                (materials / f"{name}.sha256").write_text(manifest_text(root, files), encoding="utf-8")
+            markers = [line.partition("=")[2] for path in material_files(root)
+                       for line in path.read_text(encoding="utf-8").splitlines()]
+            metadata = materials / "catalog.properties"
+            metadata.write_text(lock.replace_metadata(metadata.read_text(encoding="utf-8").splitlines(), {
+                "catalog.fileCount": str(len(material_files(root))),
+                "catalog.propertyCount": str(markers.count("")),
+                "catalog.identifierOutputCount": str(markers.count("IDENTIFIER_OUTPUT")),
+            }), encoding="utf-8")
+            validator = MODULE.Validator(root)
+            validator.check_catalog_inputs()
+            if expected is None:
+                assert not validator.errors, validator.errors
+            else:
+                assert any(expected in error for error in validator.errors), (expected, validator.errors)
+            assert not any("checksum mismatch" in error or ".sha256 does not match" in error
+                           for error in validator.errors), validator.errors
+
+        check()
+        aws = root / "framework/materials/aws/EC2_VPC.properties"
+        apis = [path for path in design_material_files(root) if path not in material_files(root)]
+        for path in [aws, *apis]:
+            original = path.read_text(encoding="utf-8")
+            first, *rest = original.splitlines()
+            key = first.partition("=")[0]
+            for line, expected in (
+                (key, "invalid catalog line"),
+                ("Unknown.Resource.Property=", "invalid catalog line"),
+                (key + "Missing=", "absent from provider schema"),
+                (key + "=INVALID", "invalid catalog line"),
+                (key + "=IDENTIFIER_OUTPUT=INVALID", "invalid catalog line"),
+            ):
+                path.write_text("\n".join([line, *rest]) + "\n", encoding="utf-8")
+                check(expected if path == aws else "selection list")
+            path.write_text(original + first + "\n", encoding="utf-8")
+            check("catalog properties must be unique" if path == aws else "selection list")
+            path.write_text(original.rstrip("\n"), encoding="utf-8")
+            check("catalog file lacks final newline")
+            path.write_text(original, encoding="utf-8")
+
+        for path, expected in ((apis[0], None), (root / "framework/materials/api/QuickSight_Group.properties", "display order")):
+            original = path.read_text(encoding="utf-8")
+            path.write_text("\n".join(reversed(original.splitlines())) + "\n", encoding="utf-8")
+            check(expected)
+            path.write_text(original, encoding="utf-8")
+
+        original = aws.read_text(encoding="utf-8")
+        aws.write_text(original.replace("EC2.VPC.CidrBlock=", "EC2.VPC.CidrBlock=IDENTIFIER_OUTPUT"), encoding="utf-8")
+        check("invalid identifier output")
+        aws.write_text(original, encoding="utf-8")
+        schema_path = root / "framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        schema["properties"]["CidrBlock"] = {"$ref": "#/definitions/Missing"}
+        schema_path.write_text(json.dumps(schema) + "\n", encoding="utf-8")
+        check("absent from provider schema")
 
 
 def check_schema_backed_design_rows() -> None:

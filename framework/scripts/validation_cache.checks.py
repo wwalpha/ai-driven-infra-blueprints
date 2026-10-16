@@ -4,6 +4,7 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import os
 from pathlib import Path
 import tempfile
@@ -19,7 +20,7 @@ def main():
         materials = root / "framework/materials/aws"
         materials.mkdir(parents=True)
         first = materials / "SQS_Queue.properties"
-        first.write_text("SQS.Queue.QueueName=\n", encoding="utf-8")
+        (first).write_text("SQS.Queue.QueueName=\n", encoding="utf-8")
         cache = PassCache(root, directory=directory)
         key = cache.key("catalog")
         assert cache.load(key) is None
@@ -30,10 +31,15 @@ def main():
         for corrupted in ('{', 'null', '[]', '{"version":1,"checks":true}'):
             record.write_text(corrupted, encoding="utf-8")
             assert cache.load(key) is None
+        bytecode = root/"framework/scripts/__pycache__/fixture.cpython.pyc"
+        bytecode.parent.mkdir(parents=True,exist_ok=True);bytecode.write_bytes(b"generated cache")
+        assert PassCache(root,directory=directory).key("catalog")==key
+        bytecode.write_bytes(b"regenerated cache")
+        assert PassCache(root,directory=directory).key("catalog")==key
         cache.save(key, 0)
         assert cache.load(key) is None
         old_stat = first.stat()
-        first.write_text("SQS.Queue.QueueNamo=\n", encoding="utf-8")
+        (first).write_text("SQS.Queue.QueueNamo=\n", encoding="utf-8")
         os.utime(first, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
         assert PassCache(root, directory=directory).key("catalog") != key, "same size/mtime must not reuse stale content"
         for relative in ("README.md", ".agents/skills/worktree/SKILL.md", "framework/rules/task-contract.md"):
@@ -50,7 +56,7 @@ def main():
         original = digest_files(root, [first])
         missing = materials / "new.properties"
         assert digest_files(root, [first, missing]) != original
-        missing.write_text("", encoding="utf-8")
+        (missing).write_text("", encoding="utf-8")
         assert digest_files(root, [first, missing]) != original
         missing.unlink()
 
@@ -71,17 +77,20 @@ def main():
         model = models / "sqs.properties"
         design.write_text("[Reference](kms.md#key)\n", encoding="utf-8")
         (docs / "kms.md").write_text('<a id="key"></a>\n', encoding="utf-8")
-        model.write_text("desired.value=first\n", encoding="utf-8")
+        write_model(model, "desired.value=first\n")
         entry = ("dev", "cde", "sqs")
         before = PassCache(root, directory=directory).service_key(entry)
         (docs / "kms.md").write_text('<a id="changed"></a>\n', encoding="utf-8")
         assert PassCache(root, directory=directory).service_key(entry) != before
-        part_dir = models / "sqs"
+        template = root/'model/templates/cde/sqs.properties.tpl'
+        body = template.read_text()
+        part_dir = template.parent/'sqs.properties'
         part_dir.mkdir()
-        (part_dir / "part-001.properties").write_text("desired.value=split\n", encoding="utf-8")
-        model.write_text("# model-index: 1\n# part: sqs/part-001.properties\n", encoding="utf-8")
+        part = part_dir/'part-001.properties'
+        part.write_text(body)
+        template.write_text('# model-index: 1\n# part: sqs.properties/part-001.properties\n')
         before = PassCache(root, directory=directory).service_key(entry)
-        (part_dir / "part-001.properties").write_text("desired.value=changed\n", encoding="utf-8")
+        part.write_text(body.replace('desired.value=first', 'desired.value=changed'))
         assert PassCache(root, directory=directory).service_key(entry) != before
         try:
             PassCache(root, directory=root / "cache")

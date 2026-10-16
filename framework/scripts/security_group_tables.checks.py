@@ -4,6 +4,7 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import model_projection
 import tempfile
 from pathlib import Path
@@ -132,7 +133,7 @@ def main():
         validator = VALIDATOR.Validator(root)
         model_path = root / "model/dev/123456789012/security-group.properties"
         model_path.parent.mkdir(parents=True)
-        model_path.write_text(generated, encoding="utf-8")
+        write_model(model_path, generated)
         assert validator.model_service_metadata(model_path, catalog[0]) == metadata[path]
         assert not validator.errors, validator.errors
         for filename, service, kinds in (
@@ -314,4 +315,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

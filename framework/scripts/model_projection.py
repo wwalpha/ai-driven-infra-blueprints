@@ -1,4 +1,4 @@
-"""Read-only Markdown projection and explicit migration inputs; never publishes files."""
+"""Read-only Markdown projection for validation; never publishes Model inputs."""
 
 from collections import defaultdict, deque
 import hashlib
@@ -12,8 +12,8 @@ from design_layout import (HIDDEN_PROPERTIES, ROTATION_SCHEDULE, RESOURCE, STACK
 from policy_tables import without_policy_tables, resources_in, unique_object, invalid_constant
 from service_rows import CODEBUILD_FORMAL_VARIABLE
 from model_core import properties, entries
-from model_references import resource_display_rows, design_target
-from validation_cache import memoized
+from model_references import resource_display_rows, design_target, bound_resource_anchors
+from validation_cache import memoized, input_scope
 
 
 SERVICE_ID = re.compile(r"^- Design service ID: `([^`]+)`$")
@@ -27,6 +27,10 @@ RESOURCE_LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 
 def json_sha256(path: Path) -> str:
     content = json.loads(path.read_text(encoding="utf-8"))
+    return document_sha256(content)
+
+
+def document_sha256(content) -> str:
     canonical = json.dumps(
         content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
@@ -82,9 +86,10 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
     return matches[0]
 
 
-def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None, import_cfn_ids: bool = False,
+@input_scope
+def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None,
               design_index: DesignIndex | None = None) -> str:
-    """Read-only projection for verification and explicit migration; never save it by default."""
+    """Read-only projection for verification; never save it by default."""
     if path.name == STACK_DESIGN:
         from design_layout import stack_delivery
         stacks = stack_design(path)
@@ -100,14 +105,17 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
             ))
         return "\n".join(output) + "\n"
     catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
-    design_index = design_index or DesignIndex()
+    design_index = design_index or DesignIndex(root)
     document = design_index.get(path)
     lines = document.lines
-    if source is None and root is not None and not import_cfn_ids:
+    if source is None and root is not None:
         source = design_model_values(path, root)
+    if source is not None:
+        from aws_mapping_display import projection
+        source = projection(source, root or Path(__file__).resolve().parents[2])
     modes = resource_modes(lines, source)
     from design_layout import resource_identity_metadata
-    resource_numbers, cfn_ids = resource_identity_metadata(lines, values=source, import_cfn_ids=import_cfn_ids)
+    resource_numbers, cfn_ids = resource_identity_metadata(lines, values=source)
     model_numbers = {resource["anchor"]: identity for identity, resource in entries(source, "desired.resource.")} if source is not None else {}
     row_numbers = defaultdict(deque)
     if source is not None:
@@ -150,8 +158,6 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
             resource_anchors.add(current_anchor)
             if source is not None and current_anchor not in model_numbers:
                 raise ValueError(f"resource anchor is absent from authoritative model: {current_anchor}")
-            if import_cfn_ids and current_anchor not in resource_numbers and re.fullmatch(r"[0-9]{3}", identities.get(match.groups(), "")):
-                raise ValueError("resource entry/resourceMode unavailable in Markdown; preserve the authoritative model instead of importing")
             key = model_numbers.get(current_anchor, resource_numbers.get(current_anchor, f"{resource_number:03d}"))
             current_resource_number = key
             output.extend(
@@ -197,14 +203,21 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                 linked = linked_resource(path, cells[2], design_index=design_index)
                 is_identifier_output = cells[1] in catalog_outputs.get(current_type, set())
                 is_identifier_reference = bool(
-                    linked and catalog_outputs.get(linked[0])
+                    linked and (catalog_outputs.get(linked[0])
+                                or source is not None and f"observed.row.{key}.value" in source)
                     and cells[1] != CODEBUILD_FORMAL_VARIABLE + "Value"
+                    and (source is None or f"observed.row.{key}.value" in source)
                 )
                 desired_value = cells[2]
                 if is_identifier_output:
                     desired_value = f"[{current_logical_id}](#{current_anchor})"
                 elif linked and (is_identifier_reference or cells[1] == ROTATION_SCHEDULE + ".SecretId"):
-                    desired_value = logical_link(cells[2], linked[1])
+                    label = linked[1]
+                    if is_identifier_reference and source is not None:
+                        desired_link = RESOURCE_LINK.fullmatch(source[f"desired.row.{key}.value"])
+                        if desired_link:
+                            label = desired_link.group(1)
+                    desired_value = logical_link(cells[2], label)
                 output.extend(
                     (
                         f"desired.row.{key}.property={cells[1]}",
@@ -249,57 +262,3 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
     if modes:
         raise ValueError(f"resource mode metadata must identify a resource anchor: {sorted(modes)}")
     return "\n".join(output) + "\n"
-
-
-def imported_model(path: Path, root: Path) -> str:
-    """Preserve display inputs when explicitly migrating an existing design."""
-    model = model_for(path, root, import_cfn_ids=True)
-    source = path.read_text(encoding="utf-8").splitlines()
-    output = []
-    if path.name == STACK_DESIGN:
-        for number, stack in enumerate(stack_design(path), 1):
-            output.append(f'display.stack.{number:03d}.comment={stack["comment"]}')
-    else:
-        output.append("display.service.title=" + next(line for line in source if line.startswith("# ")))
-        values = properties(model)
-        overview = {}
-        for line in source:
-            if line.startswith("|"):
-                cells = [cell.strip() for cell in line.strip("|").split("|")]
-                if len(cells) == 3 and (match := RESOURCE_LINK.fullmatch(cells[1])):
-                    overview[match.group(3)] = cells[2]
-        headings = {anchor: name for anchor, kind, name in (
-            (resource.anchor, resource.resource_type, resource.logical_id)
-            for resource in resources_in(without_policy_tables(source))
-        )}
-        _, children = expanded_design(without_policy_tables(source))
-        headings.update({anchor: child["displayName"] for anchor, child in children.items() if "displayName" in child})
-        for identity, resource in entries(values, "desired.resource."):
-            if design_target(path, root).get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE" and \
-                    f"desired.resource.{identity}.logicalId" not in values and "cfn-logicalId" not in resource:
-                try:
-                    DesignSchemaCatalog(root).cloudformation_type(resource["resourceType"])
-                except ValueError:
-                    pass  # API-only resources do not have a CFn identity.
-                else:
-                    raise ValueError(f"{identity}: cfn-logicalId unavailable in Markdown; preserve the authoritative model instead of importing")
-            rows = resource_display_rows(values, identity, resource, root)
-            label = headings.get(resource["anchor"])
-            configured_name = resource_display_name(resource["resourceType"], rows, label, resource_mode(resource))
-            multiple_aliases = resource["resourceType"] == "KMS.Key" and len({row[2] for row in rows if row[1] == "KMS.Alias.AliasName"}) > 1
-            if (configured_name is None or multiple_aliases) and GROUPED.get(resource["resourceType"], {}).get("display") != "rule-table":
-                if label is None:
-                    raise ValueError(f"confirmed display label required for grouped resource: {resource['logicalId']}")
-                if label != resource["resourceType"]:
-                    output.append(f"display.resource.{identity}.label={label}")
-            if resource["resourceType"] not in GROUPED:
-                if resource["anchor"] not in overview:
-                    raise ValueError(f"resource overview comment is missing: {resource['anchor']}")
-                output.append(f"display.resource.{identity}.comment={overview[resource['anchor']]}")
-        for identity, row in entries(values, "desired.row."):
-            if match := JSON_LINK.fullmatch(row["value"]):
-                document = json.loads((path.parent / match.group(1)).read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
-                output.append(f"desired.row.{identity}.document=" + json.dumps(document, ensure_ascii=False, separators=(",", ":")))
-    return model.replace("# Generated by framework/scripts/sync-model.py; do not edit.", "# Authoritative design values; Markdown is generated by framework/scripts/sync-model.py.") + "\n".join(output) + "\n"
-
-

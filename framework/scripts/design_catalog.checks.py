@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Exercise Macie API designs through the existing Markdown/model validator."""
+from model_files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import sync_runtime
 import model_projection
 import json
@@ -79,7 +81,7 @@ def markdown(values):
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 """
-    order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / "framework/materials/api/Macie_ClassificationJob.properties").read_text(encoding="utf-8").splitlines()]
+    order = [line.partition("=")[0].removeprefix(MACIE_JOB + ".") for line in (ROOT / 'framework/materials/api/Macie_ClassificationJob.properties').read_text(encoding="utf-8").splitlines()]
     rows = []
     for number, key in enumerate(sorted(values, key=lambda key: order.index(key) if key in order else len(order)), 1):
         value = values[key]
@@ -171,6 +173,14 @@ def main():
         root = Path(directory).resolve()
         shutil.copytree(ROOT / "framework", root / "framework")
         design = root / "docs/designs/dev/123456789012/macie.md"
+        # The generated-view subprocess reads the fixture's actual Mapping.
+        import yaml
+        mapping = root / 'framework/mappings/aws/macie.yaml'
+        definition = yaml.safe_load(mapping.read_text(encoding='utf-8'))
+        for resource in definition['resourceTypes'].values():
+            for prop in resource['properties'].values():
+                prop['model']['include'] = prop['display']['show'] = True
+        mapping.write_text(yaml.safe_dump(definition, sort_keys=False), encoding='utf-8')
         model = root / "model/dev/123456789012/macie.properties"
         design.parent.mkdir(parents=True)
         model.parent.mkdir(parents=True)
@@ -188,7 +198,19 @@ def main():
             elif text is None and artifact.is_file():
                 artifact.unlink()
             design.write_text(text if text is not None else markdown(values), encoding="utf-8")
-            model.write_text(model_projection.imported_model(design, root), encoding="utf-8")
+            try:
+                model_values = model_projection.properties(model_projection.model_for(design))
+            except ValueError as error:
+                return [str(error)]
+            model_values.update({'display.service.title': '# Macie 詳細設計',
+                                 'display.resource.001.comment': '機密データ検出を有効にするsession',
+                                 'display.resource.001.label': 'session',
+                                 'display.resource.002.comment': '対象データを検査するjob'})
+            if artifact.is_file():
+                for key, value in list(model_values.items()):
+                    if key.endswith('.value') and value == '[対象条件](macie/job-scope.json)':
+                        model_values[key.removesuffix('.value')+'.document'] = model_projection.json.dumps(json.loads(artifact.read_text()), ensure_ascii=False, separators=(',', ':'))
+            write_model(model, model_values)
             validator = VALIDATOR.Validator(root)
             validator.schema_catalog = schema
             validator.accounts = {("dev", "123456789012"): {}}
@@ -196,20 +218,20 @@ def main():
             return validator.errors
 
         assert not check(), check()
-        pending = model.read_text(encoding="utf-8")
+        pending = read_model(model)
         assert f"desired.resource.002.resourceType={MACIE_JOB}" in pending
         assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in pending
         assert "observed.row.002-002.value=`PENDING_DEPLOY`" in pending
         assert "desired.row.002-004.value=" in pending
         assert "observed.row.002-004" not in pending
         assert not check({**VALUES, "jobId": "0123456789abcdef0123456789abcdef"})
-        assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in model.read_text(encoding="utf-8")
-        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in model.read_text(encoding="utf-8")
+        assert "observed.row.002-002.value=`0123456789abcdef0123456789abcdef`" in read_model(model)
+        assert "desired.row.002-002.value=[Job](#macie-daily-data-scan)" in read_model(model)
         single = {key: value for key, value in VALUES.items() if key not in {"scheduleFrequency", "initialRun"}}
         assert not check({**single, "jobType": "ONE_TIME"})
         assert not check({**VALUES, "scheduleFrequency": {"weeklySchedule": {"dayOfWeek": "MONDAY"}}})
         assert not check({**VALUES, "scheduleFrequency": {"monthlySchedule": {"dayOfMonth": 31}}})
-        assert not check({**VALUES, "managedDataIdentifierSelector": "NONE", "customDataIdentifierIds": ["custom-id"]})
+        assert not (errors := check({**VALUES, "managedDataIdentifierSelector": "NONE", "customDataIdentifierIds": ["custom-id"]})), errors
         assert not check({**VALUES, "s3JobDefinition": {"bucketCriteria": {}}}), check({**VALUES, "s3JobDefinition": {"bucketCriteria": {}}})
 
         bad_values = [
@@ -243,13 +265,13 @@ def main():
         original_row = next(line for line in markdown(VALUES).splitlines() if "| name |" in line)
         duplicate = markdown(VALUES).replace(original_row, original_row + "\n" + original_row, 1)
         assert any("duplicate API" in error for error in check(text=duplicate))
-        assert any("unknown catalog" in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, "Macie.Unknown")))
+        assert any("display Mapping resource type missing" in error for error in check(text=markdown(VALUES).replace(MACIE_JOB, "Macie.Unknown")))
 
         # Model document owns fixed bucket mappings; rendered tables must match it.
         artifact = design.with_suffix("") / "job-scope.json"
         text = markdown(VALUES)
         assert not check(text=text), check(text=text)
-        assert "desired.row.002-006.artifactSha256=" in model.read_text(encoding="utf-8")
+        assert "desired.row.002-006.artifactSha256=" in read_model(model)
         artifact.write_text(json.dumps({"bucketDefinitions": [{"accountId": "123456789012", "buckets": ["wrong-bucket"]}]}), encoding="utf-8")
         assert any("bucket mapping differs from JSON artifact" in error for error in check(text=text))
         artifact.write_text(json.dumps(VALUES["s3JobDefinition"]), encoding="utf-8")
@@ -269,11 +291,11 @@ def main():
         noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `000000000000` | `other-bucket` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `third-bucket` |")
         assert any("account rows must be contiguous" in error for error in check(text=noncontiguous))
         assert not check()
-        authoritative = model.read_text(encoding="utf-8")
+        authoritative = read_model(model)
         doc_key = next(line.split("=", 1)[0] for line in authoritative.splitlines() if line.startswith("desired.row.") and ".document=" in line)
         definition = {**VALUES["s3JobDefinition"], "bucketDefinitions": [{"accountId": "123456789012", "buckets": ["new-bucket"]}], "scoping": {}}
         lines = [doc_key + "=" + json.dumps(definition) if line.startswith(doc_key + "=") else line for line in authoritative.splitlines()]
-        model.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_model(model, "\n".join(lines) + "\n")
         assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
         assert json.loads(artifact.read_text(encoding="utf-8"))["bucketDefinitions"][0]["buckets"] == ["new-bucket"]
         assert "scoping" in json.loads(artifact.read_text(encoding="utf-8"))
@@ -289,7 +311,7 @@ def main():
         assert any("API schema violation" in error for error in check(text=text))
         artifact.unlink()
         assert not check()
-        model.write_text(model.read_text(encoding="utf-8") + "desired.extra=stale\n", encoding="utf-8")
+        write_model(model, read_model(model) + "desired.extra=stale\n")
         validator = VALIDATOR.Validator(root)
         validator.check_generated_service_models()
         assert validator.errors
@@ -310,14 +332,16 @@ def main():
 
 
 if __name__ == "__main__":
-    if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
-        import cProfile
-        import pstats
-        profile = cProfile.Profile()
-        try:
-            profile.runcall(main)
-        finally:
-            profile.dump_stats(str(Path(directory) / (Path(__file__).stem + ".prof")))
-            pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
-    else:
-        main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
+            import cProfile
+            import pstats
+            profile = cProfile.Profile()
+            try:
+                profile.runcall(main)
+            finally:
+                profile.dump_stats(str(Path(directory) / (Path(__file__).stem + ".prof")))
+                pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+        else:
+            main()

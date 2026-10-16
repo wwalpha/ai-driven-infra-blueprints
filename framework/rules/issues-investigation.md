@@ -4,7 +4,7 @@
 
 The local issues-only entrypoint is `framework/scripts/issues_scan.py`. Process multiple services in the same environment/target in one process. Actual project models, generated designs, and IaC are read-only. There is no fallback to AWS API/SDK, change sets, Terraform init/plan/provider retrieval, deploy, or scenarios. Do not add new comparisons to implement/deploy/update or the post-save loop.
 
-Ordinary issues use `issues/<environment>/<target-directory>/issues.md`, model desired → IaC differences use `iac-issues.md` with full data only in the temporary external scan artifact, and environment comparisons retain `diff.md`. Ordinary gate implementation, service ownership format, and stop decisions remain unchanged. IaC differences alone must not cause failure exit, ordinary issue registration, suspension, or Issue remediation requirements. Retain existing validator diagnostics for schema, model/Markdown equality, references, policies, account/region, etc., and the post-save local loop.
+Ordinary issues use `issues/<environment>/<target-directory>/issues.md`, model desired → IaC differences use `iac-issues.md` with full data only in the temporary external scan artifact, and environment comparisons retain `diff.md`. Ordinary gate implementation, service ownership format, and stop decisions remain unchanged. IaC differences alone must not cause failure exit, ordinary issue registration, suspension, or Issue remediation requirements. Retain existing validator diagnostics for schema, model/Markdown equality, references, policies, account/region, etc., and post-save validation under [Validation policy](loop-engineering.md#validation-policy).
 
 ## Read and review
 
@@ -65,7 +65,22 @@ Exit 0 means command completion (IaC differences are non-blocking), 1 means ordi
 
 Desired properties are authoritative. Do not use observed/generated Markdown bodies for IaC comparison. Use CloudFormation formal catalog types, `cfn-logicalId`, stack models, per-stack parameters, and target context. Legacy mappings use only existing unique-ID compatibility. Read only reference-target model information for external services; do not expand investigation scope.
 
-Supported scope: literals, values with confirmed schema types, nested objects/ordered arrays, JSON documents/policies, Ref/GetAtt resource identities and attributes, parameters/defaults, Condition/If/Equals/And/Or/Not, parameter/pseudo-only Sub/Join, Select/Split/FindInMap, formal independent children, and inline children with unique parent Refs. Retain formal conversion of model `.Name` to Name tags and exclusions such as S3.Region/identifier outputs. Unselected settings present only in IaC are not violations. Only Tag arrays use formal key matching; other arrays retain order and duplicates. Compare the whole object/document when specified as a whole.
+Supported scope: literals, values with confirmed schema types, nested objects/ordered arrays, JSON documents/policies, Ref/GetAtt resource identities and attributes, parameters/defaults, Condition/If/Equals/And/Or/Not, parameter/pseudo-only Sub/Join, Select/Split/FindInMap, formal independent children, and inline children with unique parent Refs. Retain formal conversion of model `.Name` to Name tags and exclusions such as S3.Region/identifier outputs. Unselected settings present only in IaC are not violations. Tag arrays use formal key matching. IAM policy Statement arrays and ManagedPolicy role attachments compare without order while retaining duplicates; other arrays retain order and duplicates. ManagedPolicy Roles includes proven attachments through same-stack Role.ManagedPolicyArns. CodeBuild environment references require the explicit variable Type and a supported producer contract; secret selectors and KMS aliases retain their identity. Compare the whole object/document when specified as a whole.
+
+The repaired local KMS comparison contracts are limited to Athena WorkGroup result encryption
+(`KeyArn`, `KeyId`, or `AliasName`), Logs LogGroup `KmsKeyId`, Glue SecurityConfiguration S3/CloudWatch
+`KmsKeyArn`, and CodePipeline ArtifactStore encryption key ID (the latter three accept
+`AliasArn` only). Check both Model and IaC forms before comparing values. A prohibited
+form is a difference even on both sides; different forms are never equivalent. Keep
+same-form physical values unconfirmed when local inputs cannot prove them. Alias ARN
+derivation uses the explicitly mapped alias name and its owning stack context, not a
+fictional CloudFormation Alias GetAtt attribute. This does not apply new KMS rules to
+other services, IAM permission resources, or arbitrary CodeBuild environment strings.
+Local ARN comparison also supports explicitly named Logs LogGroups, CodeBuild Projects,
+and default-bus EventBridge Rules, including concrete Sub/Split/Select expressions.
+SQS QueuePolicy Model GetAtt resolves only through its current stack's validated resource
+mapping and supported attributes; missing/inactive resources and cross-stack guesses
+remain uncompared. These local contracts do not enable AWS or deployment evaluation.
 
 Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, external input for IMPORT references, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
 
@@ -94,6 +109,6 @@ All comparison records (including matched/excluded), unchanged `iac_key` identit
 
 ## Framework regression and fixture benchmark
 
-During development of this entrypoint, run the full loop with framework scope. This does not mean adding all framework regression to ordinary issues. `issues_scan.checks.py` checks isolated fixtures using existing checks format; `--benchmark --log-dir /tmp/issues-performance` repeatedly measures A (ordinary path equivalent to before changes in current checkout)/B (the same ordinary checks plus per-service reference comparison)/C (batch scan) with the same runtime, fresh cache, and no profile. Place benchmark fixtures and diagnostics only outside the repository.
+Select development checks and final validation of this entrypoint under [Validation policy](loop-engineering.md#validation-policy), keeping framework implementation scope separate from ordinary issues. `issues_scan.checks.py` checks isolated fixtures using existing checks format; `--benchmark --log-dir /tmp/issues-performance` repeatedly measures A (ordinary path equivalent to before changes in current checkout)/B (the same ordinary checks plus per-service reference comparison)/C (batch scan) with the same runtime, fresh cache, and no profile. Place benchmark fixtures and diagnostics only outside the repository.
 
 Measure A/B LLM volume as old-skill-required full model/Markdown reads and list reediting; C as actual scan stdout plus minimal review JSON UTF-8 bytes/characters. Add required rule input to A/B/C under the same conditions; C stdout shares patterns/scope/paths without duplicate body output. Actual LLM tokens, LLM wall time, and total actual project time are unmeasured. Do not call fixture Python scan/material extraction/formatting/saving whole-path wall/process/read/parse/decode/decision coverage measurements actual speed of the entire skill. Post-save local loops and actual LLM time are excluded from this benchmark and unmeasured. Separate read_text from input-integrity read_bytes; also include staged models in aggregation.

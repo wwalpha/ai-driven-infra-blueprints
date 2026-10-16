@@ -1,5 +1,6 @@
-__pycache__
-.pytest_cache/
 tasks/**
+__pycache__
 /.worktrees/
 .DS_Store
+.venv/
+.vscode/tasks.json

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Checks for authoritative properties, service displays and service failure protection."""
+from test_support.model_sources import snapshot_model
+from model_files import read_model, load_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model, write_fixture_files
 import sync_views
 import sync_runtime
 import sync_files
@@ -15,6 +18,8 @@ import json
 import os
 import shutil
 import pytest
+
+pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 import subprocess
 import sys
 from pathlib import Path
@@ -67,7 +72,13 @@ def model(service, kind, name, rows, logical_id=None, label=None):
 
 
 def text(values):
-    return "# Authoritative design values\n" + "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+    values = dict(values)
+    for key, value in list(values.items()):
+        if key.endswith('.document'):
+            document = json.loads(value)
+            values[key] = json.dumps(document, ensure_ascii=False, separators=(',', ':'))
+            values[key.removesuffix('.document')+'.artifactSha256'] = model_projection.document_sha256(document)
+    return "# Generated Model; edit registered template/parameters/observed, not this file.\n" + "".join(f"{key}={value}\n" for key, value in sorted(values.items()))
 
 
 def roundtrip(path, values, root):
@@ -77,6 +88,119 @@ def roundtrip(path, values, root):
     expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
     return path.read_text(encoding="utf-8")
+
+
+def check_route53_endpoint_dns_roundtrip(root, project):
+    directory = root / "docs/designs/dev/123456789012"
+    endpoint = model("vpc-endpoint", "EC2.VPCEndpoint", "vpce-app-dev-snowflake", [
+        ("Id", "[Endpoint](#vpc-endpoint-vpce-app-dev-snowflake)", "一意に識別するID"),
+        ("ServiceName", "`com.amazonaws.vpce.ap-northeast-1.vpce-svc-04feb508c997b211e`", "接続先service"),
+        ("Tags[].Key", "`Name`", "タグのキー"),
+        ("Tags[].Value", "`vpce-app-dev-snowflake`", "エンドポイント名"),
+        ("VpcEndpointType", "`Interface`", "接続方式"),
+        ("VpcId", "`vpc-00000000000000001`", "所属VPC"),
+    ], logical_id="Endpoint")
+    for field, value in [("property", "EC2.VPCEndpoint.Id"), ("value", "vpce-014d2843ef114f19d"), ("comment", "一意に識別するID")]:
+        endpoint[f"observed.row.001-001.{field}"] = value
+    roundtrip(directory / "vpc-endpoint.md", endpoint, root)
+    dns = "vpce-014d2843ef114f19d-m2klm0hu.vpce-svc-04feb508c997b211e.ap-northeast-1.vpce.amazonaws.com"
+    route = model("route53", "Route53.RecordSet", "snow.example.com", [
+        ("Name", "`snow.example.com`", "レコード名"),
+        ("ResourceRecords", "[Endpoint](vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake)", "CNAMEの接続先DNS"),
+        ("TTL", "`300`", "キャッシュ時間"), ("Type", "`CNAME`", "レコード種別"),
+    ])
+    for field, value in [("property", "Route53.RecordSet.ResourceRecords"), ("value", dns), ("comment", "CNAMEの接続先DNS")]:
+        route[f"observed.row.001-002.{field}"] = value
+    path = directory / "route53.md"
+    valid = roundtrip(path, route, root)
+    validator_module = load("validate-blueprint")
+    outputs = validator_module.Validator(ROOT).catalog_design_properties()[2]
+    def errors(content):
+        path.write_text(content, encoding="utf-8")
+        validator = validator_module.Validator(root)
+        validator.check_design_links(outputs)
+        return validator.errors
+    assert not errors(valid), errors(valid)
+    for bad in (valid.replace(dns, dns.replace("014d2843ef114f19d", "014d2843ef114f190")),
+                valid.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
+                valid.replace("ap-northeast-1.vpce.amazonaws.com", "us-east-1.vpce.amazonaws.com"),
+                valid.replace("vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake", "route53.md#route53-snow.example.com")):
+        assert errors(bad)
+    assert errors(valid.replace("`CNAME`", "`A`"))
+    # Endpoint configuration never becomes an observed identifier.
+    ordinary = valid.replace("ResourceRecords", "HostedZoneId")
+    for label in (dns, "Interface", "com.amazonaws.vpce.ap-northeast-1.vpce-svc-04feb508c997b211e"):
+        assert errors(ordinary.replace(dns, label))
+    endpoint_path = directory / "vpc-endpoint.md"
+    original_endpoint = endpoint_path.read_text(encoding="utf-8")
+    endpoint_path.write_text(original_endpoint.replace("`Interface`", "`Gateway`"), encoding="utf-8")
+    assert errors(valid)
+    endpoint_path.write_text(original_endpoint, encoding="utf-8")
+
+
+def check_firehose_import_pending_roundtrip(root, project):
+    values = model("data-firehose", "KinesisFirehose.DeliveryStream", "dummy", [
+        ("DeliveryStreamName", "`dummy`", "配信ストリーム名"),
+        ("DeliveryStreamType", "`DirectPut`", "入力方式"),
+        ("S3DestinationConfiguration.BucketARN", "Pending", "退避先bucket"),
+        ("S3DestinationConfiguration.RoleARN", "Pending", "配信IAM Role"),
+    ])
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    path = root / "docs/designs/dev/123456789012/data-firehose.md"
+    valid = roundtrip(path, values, root)
+    model_path = root / "model/dev/123456789012/data-firehose.properties"
+    model_path.parent.mkdir(parents=True)
+    write_model(model_path, text(values))
+    validator_module = load("validate-blueprint")
+    catalog = validator_module.Validator(ROOT).catalog_design_properties()
+    def errors(content):
+        path.write_text(content, encoding="utf-8")
+        validator = validator_module.Validator(root)
+        validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
+        validator.check_design_tables({}, *catalog)
+        validator.check_design_links(catalog[2])
+        return validator.errors
+    assert not errors(valid), errors(valid)
+    values["desired.resource.001.resourceMode"] = "CREATE"
+    write_model(model_path, text(values))
+    assert any("requires IMPORT" in error for error in errors(valid))
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    write_model(model_path, text(values))
+    assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
+    assert errors(valid.replace("Pending", "[dummy](data-firehose.md#data-firehose-dummy)"))
+
+
+def check_config_import_pending_roundtrip(root, project):
+    values = model("config", "Config.ConfigurationRecorder", "default", [
+        ("Id", "[default](#config-configuration-recorder-default)", "一意に識別するID"),
+        ("Name", "`default`", "記録設定名"),
+        ("RoleARN", "Pending", "記録用IAM Role"),
+    ])
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    for field, value in [("property", "Config.ConfigurationRecorder.Id"), ("value", "`PENDING_DEPLOY`"), ("comment", "一意に識別するID")]:
+        values[f"observed.row.001-001.{field}"] = value
+    path = root / "docs/designs/dev/123456789012/config.md"
+    valid = roundtrip(path, values, root)
+    model_path = root / "model/dev/123456789012/config.properties"
+    model_path.parent.mkdir(parents=True)
+    write_model(model_path, text(values))
+    validator_module = load("validate-blueprint")
+    catalog = validator_module.Validator(ROOT).catalog_design_properties()
+    def errors(content):
+        path.write_text(content, encoding="utf-8")
+        validator = validator_module.Validator(root)
+        validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
+        validator.check_design_tables({}, *catalog)
+        validator.check_design_links(catalog[2])
+        return validator.errors
+    assert not errors(valid), errors(valid)
+    values["desired.resource.001.resourceMode"] = "CREATE"
+    write_model(model_path, text(values))
+    assert any("requires IMPORT" in error for error in errors(valid))
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    write_model(model_path, text(values))
+    assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
+    assert errors(valid.replace("Pending", "[dummy](config.md#config-dummy)"))
 
 
 @pytest.fixture
@@ -90,6 +214,44 @@ def project(root):
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1",
         "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
+
+
+def check_desired_only_identifier_reference(root, project):
+    base=root/'docs/designs/dev/123456789012';base.mkdir(parents=True)
+    group=model('quicksight','QuickSight.Group','gr-dev-finance',[
+        ('GroupName','`gr-dev-finance`','分析グループ名'),
+        ('AwsAccountId','`123456789012`','所有するアカウント'),
+        ('Namespace','`default`','名前空間'),
+        ('PrincipalId','[Finance](#quicksight-gr-dev-finance)','グループの識別子')], 'Finance')
+    group.update({'observed.row.001-004.property':'QuickSight.Group.PrincipalId',
+                  'observed.row.001-004.value':'PENDING_DEPLOY',
+                  'observed.row.001-004.comment':'グループの識別子'})
+    roundtrip(base/'quicksight.md',group,root)
+    path=base/'references.md'
+    path.write_text("""# 参照
+- Design service ID: `references`
+- Owned catalog resource types: `QuickSight.DataSource`
+<a id="references-source"></a>
+### QuickSight.DataSource: source
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | QuickSight.DataSource.Permissions[].Principal | [gr-dev-finance](quicksight.md#quicksight-gr-dev-finance) | 分析グループへの権限 |
+""",encoding='utf-8')
+    source={'desired.resource.007.resourceType':'QuickSight.DataSource',
+            'desired.resource.007.logicalId':'Source','desired.resource.007.anchor':'references-source',
+            'desired.row.007-009.property':'QuickSight.DataSource.Permissions[].Principal',
+            'desired.row.007-009.value':'[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)',
+            'desired.row.007-009.comment':'分析グループへの権限'}
+    projected=properties(model_projection.model_for(path,root,source=source))
+    assert projected['desired.row.007-009.value']==source['desired.row.007-009.value']
+    assert not any(k.startswith('observed.') for k in projected)
+    inferred=properties(model_projection.model_for(path,root))
+    assert inferred['observed.row.001-001.value']=='gr-dev-finance'
+    source.update({'observed.row.007-009.property':source['desired.row.007-009.property'],
+                   'observed.row.007-009.value':'gr-dev-finance','observed.row.007-009.comment':source['desired.row.007-009.comment']})
+    assert properties(model_projection.model_for(path,root,source=source))['observed.row.007-009.value']=='gr-dev-finance'
+    path.write_text(path.read_text().replace('[gr-dev-finance]','[wrong-group]'))
+    assert properties(model_projection.model_for(path,root,source={k:v for k,v in source.items() if not k.startswith('observed.')}))['desired.row.007-009.value']!=source['desired.row.007-009.value']
 
 
 def check_catalog_display_order(tmp_path):
@@ -124,7 +286,7 @@ def check_catalog_display_order(tmp_path):
             continue  # Array source verification rejects altered elements directly.
         assert projected != {key: value for key, value in values.items() if not key.startswith("display.")}
     path.write_text(output, encoding="utf-8")
-    imported = properties(model_projection.model_for(path, ROOT, import_cfn_ids=True))
+    imported = properties(model_projection.model_for(path, ROOT))
     assert imported["desired.row.001-001.property"] == "EC2.VPC.Name"
     missing = "\n".join(line for line in output.splitlines() if " | CidrBlock | " not in line)
     path.write_text(missing, encoding="utf-8")
@@ -211,19 +373,19 @@ def check_kms_policy_execution_account(root):
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [target]}) + "\n", encoding="utf-8")
     source = root / f"model/dev/{identity}/kms.properties"
     source.parent.mkdir(parents=True)
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     path = root / f"docs/designs/dev/{identity}/kms.md"
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
     artifact = path.with_suffix("") / "test-key-policy.json"
     saved = path.read_bytes(), artifact.read_bytes()
     invalid = {**values, document_key: values[document_key].replace(execution, identity)}
-    source.write_text(text(invalid), encoding="utf-8")
+    write_model(source, text(invalid))
     for write in (False, True):
         with pytest.raises(ValueError) as error:
             SYNC.sync(root, write, "dev", identity, services=["kms"])
         assert "Principal.AWS" in str(error.value) and execution in str(error.value)
         assert (path.read_bytes(), artifact.read_bytes()) == saved
-        assert properties(source.read_text(encoding="utf-8")) == invalid
+        assert properties(read_model(source)) == properties(text(invalid))
     print("KMS policy account checks: PASS (root/Macie, arrays, fallback, explicit external principals, saved views)")
 
 
@@ -446,21 +608,21 @@ def check_subnet_model_validation(root, project):
         ("VpcConfig.SubnetIds", '`[ "subnet-00000000000000001", "subnet-00000000000000002" ]`', "配置先Subnet"),
     ])
     source = base / "lambda.properties"
-    source.write_text(text(values), encoding="utf-8")
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
-    before = source.read_bytes()
+    write_model(source, text(values))
+    write_model(base / "iam.properties", text(iam))
+    before = snapshot_model(source)
     assert SYNC.sync(root, True, "dev", "123456789012", services=["iam", "lambda"]) == 0
     path = root / "docs/designs/dev/123456789012/lambda.md"
     saved = path.read_bytes()
-    assert source.read_bytes() == before
+    assert snapshot_model(source) == before
     assert SYNC.sync(root, False, "dev", "123456789012", services=["lambda"]) == 0
     values["desired.row.001-006.value"] = "[]"
-    source.write_text(text(values), encoding="utf-8")
-    invalid = source.read_bytes()
+    write_model(source, text(values))
+    invalid = snapshot_model(source)
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012", services=["lambda"])
     assert "Subnet list" in str(error.value), str(error.value)
-    assert path.read_bytes() == saved and source.read_bytes() == invalid
+    assert path.read_bytes() == saved and snapshot_model(source) == invalid
     print("Subnet list display: PASS (15 properties, links, JSON/CSV source preservation, invalid displays, Lambda model roundtrip)")
 
 
@@ -468,10 +630,10 @@ def check_athena_configuration_display(root):
     kind = "Athena.WorkGroup"
     prefix = kind + ".WorkGroupConfiguration."
     fields = [line.partition("=")[0] for line in
-              (ROOT / "framework/materials/aws/athena_workgroup.properties").read_text(encoding="utf-8").splitlines()]
+              (ROOT / 'framework/materials/aws/athena_workgroup.properties').read_text(encoding="utf-8").splitlines()]
     rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
     displayed = display_rows(kind, rows)
-    from design_layout import DISPLAY_PROPERTY_ALIASES, formal_property
+    from design_layout import formal_property
     encryption_labels = {
         prefix + "ResultConfiguration.EncryptionConfiguration.EncryptionOption": "ResultConfiguration.Encryption.Option",
         prefix + "ResultConfiguration.EncryptionConfiguration.KmsKey": "ResultConfiguration.Encryption.KmsKey",
@@ -480,7 +642,7 @@ def check_athena_configuration_display(root):
         expected = encryption_labels.get(original[1], original[1].removeprefix(prefix if original[1].startswith(prefix) else kind + "."))
         assert shown == [original[0], expected, *original[2:]], (original, shown)
         restored = formal_property(shown[1], kind)
-        assert DISPLAY_PROPERTY_ALIASES.get(restored, restored) == original[1]
+        assert restored == original[1]
     values = model("athena", kind, "athwg-app-dev", [
         ("Name", "`athwg-app-dev`", "クエリ実行用の名前"),
         ("WorkGroupConfiguration.EnforceWorkGroupConfiguration", "true", "設定を強制する"),
@@ -536,7 +698,7 @@ def check_config_typed_anchors(root):
         "desired.row.002-002.comment": "構成情報を保存するS3 bucketの名前",
     })
     output = roundtrip(path, values, root)
-    assert properties(model_projection.imported_model(path, root)) == values
+    sync_views.validate_views(root, root, [path], {path: values})
     for kind, anchor, logical_id in ((recorder, recorder_anchor, "Recorder"), (channel, channel_anchor, "Channel")):
         assert f"### {kind}: default" in output
         assert f"| 1 | [default](#{anchor}) |" in output
@@ -586,10 +748,10 @@ def check_config_typed_anchors(root):
     assert not validator.errors, validator.errors
     source = root / "model/dev/cde/config.properties"
     source.parent.mkdir(parents=True)
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "cde", services=["config"]) == 0
     assert SYNC.sync(root, False, "dev", "cde", services=["config"]) == 0
-    assert source.read_text(encoding="utf-8") == text(values)
+    assert properties(read_model(source)) == properties(text(values))
     assert path.read_text(encoding="utf-8") == output
     print("Config anchors: PASS (same-name resources, typed links, roundtrip, namespaces and collision rejection)")
 
@@ -620,7 +782,7 @@ def check_kms_alias_display(root):
     assert f"### KMS.Key: {name}" in output
     assert "`alias/venus-dev-log-cde`" in output
     assert "<!-- resource-logical-id: CdeLogKey -->" in output
-    assert properties(model_projection.imported_model(path, root)) == values
+    roundtrip(path, values, root)
     metadata = {path: ("kms", ("KMS.Key", "KMS.Alias"))}
     validator = sync_views.view_validator(root, root)
     validator.check_resource_names(metadata, [path])
@@ -642,7 +804,7 @@ def check_kms_alias_display(root):
         assert "multiple aliases" in str(error.value), error.value
     values["display.resource.001.label"] = name
     roundtrip(path, values, root)
-    assert properties(model_projection.imported_model(path, root)) == values
+    roundtrip(path, values, root)
     assert resource_display_name("KMS.Key", []) is None
     for alias in ("alias/", "venus-dev-log-cde"):
         with pytest.raises(ValueError):
@@ -663,9 +825,8 @@ def check_nameless_type_display(root, project):
     assert output.count(f"### {kind}\n") == 2  # Overview and detail.
     assert f"### {kind}:" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
-    imported = properties(model_projection.imported_model(path, root))
-    assert "display.resource.001.label" not in imported
-    assert imported == values
+    sync_views.validate_views(root, root, [path], {path: values})
+    assert "display.resource.001.label" not in values
     assert model_projection.linked_resource(path, f"[{kind}](#{anchor})") == (kind, logical_id)
     metadata = {path: ("guardduty", (kind,))}
     catalog = validator_module.Validator(root).catalog_design_properties()
@@ -691,10 +852,10 @@ def check_nameless_type_display(root, project):
     assert not failures(output), failures(output)
     source = root / "model/dev/123456789012/guardduty.properties"
     source.parent.mkdir(parents=True)
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
-    assert source.read_text(encoding="utf-8") == text(values)
+    assert properties(read_model(source)) == properties(text(values))
     assert path.read_text(encoding="utf-8") == output
     hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub")
     hub["desired.note.001.text"] = f"参照: [{kind}](guardduty.md#{anchor})"
@@ -711,7 +872,8 @@ def check_nameless_type_display(root, project):
     labeled = {key: value.replace(anchor, "guardduty-primary-detector") for key, value in values.items()}
     labeled["display.resource.001.label"] = "primary-detector"
     assert f"### {kind}: primary-detector" in roundtrip(path, labeled, root)
-    assert properties(model_projection.imported_model(path, root))["display.resource.001.label"] == "primary-detector"
+    sync_views.validate_views(root, root, [path], {path: labeled})
+    assert "### GuardDuty.Detector: primary-detector" in path.read_text()
     second = model("guardduty", kind, "secondary-detector", [("Id", "[SecondDetector](#guardduty-secondary-detector)", rows[0][2]), rows[1]], "SecondDetector", "secondary-detector")
     second.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2]})
     additional = {key.replace(".001", ".002", 1): value for key, value in second.items()
@@ -757,19 +919,19 @@ def check_nameless_logical_id_label(root, project):
                      "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
                      "display.resource.001.comment": f"{label}の対象bucketを検査するplan"})
         values.update({key.replace(".001", f".{number:03d}", 1): value for key, value in item.items()})
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     output = roundtrip(path, values, root)
     metadata = {path: ("guardduty", (kind,))}
 
     def failures(model_values, markdown=output):
-        source.write_text(text(model_values), encoding="utf-8")
+        write_model(source, text(model_values))
         path.write_text(markdown, encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_resource_names(metadata, [path])
         return validator.errors
 
     assert not failures(values), failures(values)
-    assert properties(model_projection.imported_model(path, root)) == values
+    sync_views.validate_views(root, root, [path], {path: values})
     for identity, label in (("001", "BuildProtectionPlan"), ("002", "QuarantineProtectionPlan")):
         assert f"<!-- resource-logical-id: {label} -->" in output
         assert f"[{label}](#guardduty-{label.lower()})" in output
@@ -789,16 +951,17 @@ def check_nameless_logical_id_label(root, project):
     renumbered = {key.replace(".001", ".007", 1): value for key, value in values.items()}
     assert not failures(renumbered), failures(renumbered)
     named = {key: value.replace(kind, "SNS.Topic") for key, value in values.items()}
-    assert any("resource without a name requires a display label" in error for error in failures(named, output.replace(kind, "SNS.Topic")))
+    assert any("resource without a name requires a display label" in error or "display Mapping property missing" in error
+               for error in failures(named, output.replace(kind, "SNS.Topic")))
     failures(values)
-    source.unlink()
+    (root/'model/parameters/dev/123456789012/guardduty/bindings.json').unlink()
     validator = validator_module.Validator(root)
     validator.check_resource_names(metadata, [path])
-    assert any("resource without a name requires a display label" in error for error in validator.errors)
+    assert any("bindings.json" in error for error in validator.errors)
     assert not failures(values), failures(values)
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
-    assert source.read_text(encoding="utf-8") == text(values)
+    assert properties(read_model(source)) == properties(text(values))
     assert path.read_text(encoding="utf-8") == output
     print("Nameless logical ID label: PASS (explicit labels, missing labels, identity, hidden IDs, anchors and namespaces)")
 
@@ -848,10 +1011,10 @@ def check_stack_policy(root, project):
                        f"display.stack.{key}.comment": name + "を配置するstack"})
     source = root / "model/dev/123456789012/cloudformation-stacks.properties"
     source.parent.mkdir(parents=True)
-    source.write_text(text(values), encoding="utf-8")
-    before = source.read_bytes()
+    write_model(source, text(values))
+    before = snapshot_model(source)
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
-    assert source.read_bytes() == before
+    assert snapshot_model(source) == before
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     rendered = path.read_text(encoding="utf-8")
     assert "## Deployment設定" not in rendered and "| MaxConcurrentStacks |" not in rendered
@@ -871,20 +1034,20 @@ def check_stack_policy(root, project):
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     # Default policy stays hidden and preserves the model.
     del values["desired.deployment.maxConcurrentStacks"]
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert stack_deployment_policy(path) == 1
     saved = path.read_bytes()
     for field, value in (("desired.stack.001.deployOrder", "0"), ("desired.stack.001.deployOrder", "-1"),
                          ("desired.stack.001.deployOrder", "abc"), ("desired.deployment.maxConcurrentStacks", "0"),
                          ("desired.deployment.maxConcurrentStacks", "-1"), ("desired.deployment.maxConcurrentStacks", "1.5")):
-        source.write_text(text(values | {field: value}), encoding="utf-8")
+        write_model(source, text(values | {field: value}))
         with pytest.raises(ValueError) as error:
             SYNC.sync(root, True, "dev", "123456789012")
         assert "integer >= 1" in str(error.value), error.value
         assert path.read_bytes() == saved
     del values["desired.stack.001.deployOrder"]
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
     assert "migration required" in str(error.value)
@@ -920,7 +1083,7 @@ def check_stack_mapping_roundtrip(root):
     project.write_text(project.read_text().replace('"terraform"', '"cloudformation"'))
     stack_source = root / "model/dev/123456789012/cloudformation-stacks.properties"
     stack_source.parent.mkdir(parents=True)
-    stack_source.write_text("\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
+    write_model(stack_source, "\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
                                       for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()) + "\n")
     without_id = {key: value for key, value in values.items() if not key.endswith(".cfn-logicalId")}
     with pytest.raises(ValueError) as error:
@@ -946,26 +1109,18 @@ def check_stack_mapping_roundtrip(root):
             sync_views.validate_views(root, root, [path], {path: values})
         assert "projection mismatch" in str(error.value) or "absent from authoritative model" in str(error.value), error.value
     path.write_text(rendered)
-    with pytest.raises(ValueError) as error:
-        model_projection.imported_model(path, root)
-    assert "unavailable in Markdown" in str(error.value), error.value
     legacy = rendered + "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->\n<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->\n<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
     path.write_text(legacy)
     assert not any(key.endswith(".cfn-logicalId") for key in properties(model_projection.model_for(path, root)))
-    assert properties(model_projection.imported_model(path, root)) == values
-    for marker in ("<!-- cfn-logical-id: absent stack-Resource -->",
-                   "<!-- cfn-logical-id: ec2-vpc-app-dev-data invalid -->",
-                   "<!-- cfn-logical-id: ec2-vpc-app-dev-data stack-Resource -->"):
-        with pytest.raises(ValueError):
-            resource_identity_metadata(legacy.splitlines() + [marker], import_cfn_ids=True)
+    sync_views.validate_views(root, root, [path], {path: values})
     source = stack_source.with_name("ec2.properties")
-    source.write_text(text(values), encoding="utf-8")
-    before = {file: file.read_bytes() for file in (source, stack_source)}
+    write_model(source, text(values))
+    before = {file: file.read_bytes() for model in (source, stack_source) for file in load_model(model).files}
     assert SYNC.sync(root, True, "dev", "123456789012", services=["ec2"]) == 0
     assert path.read_text(encoding="utf-8") == rendered
     assert SYNC.sync(root, False, "dev", "123456789012", services=["ec2"]) == 0
     assert {file: file.read_bytes() for file in before} == before
-    assert properties(source.read_text())["desired.resource.001.cfn-logicalId"] == values["desired.resource.001.cfn-logicalId"]
+    assert properties(read_model(source))["desired.resource.001.cfn-logicalId"] == values["desired.resource.001.cfn-logicalId"]
     for invalid, message in (("invalid", "invalid cfn-logicalId"),
                              ("absent-DepartmentVpc", "undeclared stack")):
         with pytest.raises(ValueError) as error:
@@ -992,9 +1147,9 @@ def check_stack_mapping_roundtrip(root):
     kms_source = stack_source.with_name("kms.properties")
     part = kms_source.with_suffix("") / "part-001.properties"
     part.parent.mkdir()
-    part.write_text(text(kms), encoding="utf-8")
-    kms_source.write_text(INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n", encoding="utf-8")
-    before = {file: file.read_bytes() for file in (kms_source, part, stack_source)}
+    write_fixture_files({part: text(kms), kms_source: INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n"})
+    authority = __import__('model_templates').source_inputs(kms_source) - {kms_source, part}
+    before = {file: file.read_bytes() for file in authority}
     assert properties(model_projection.model_for(kms_path, root)) == {key: value for key, value in kms.items()
                                                         if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
     assert SYNC.sync(root, True, "dev", "123456789012", services=["kms"]) == 0
@@ -1033,7 +1188,7 @@ def check_security_naming():
             assert not naming_errors(ROOT, kind, [[row[0], kind + "." + row[1], *row[2:]] for row in rows]), kind
             for prop, value in fields:
                 assert schema.literal_errors(kind, prop, value) == [], (kind, prop)
-                selected = (ROOT / "framework/materials/aws" / (kind.replace(".", "_", 1) + ".properties")).read_text(encoding="utf-8")
+                selected = (ROOT / 'framework/materials/aws' / (kind.replace('.', '_', 1) + '.properties')).read_text(encoding="utf-8")
                 assert f"{kind}.{prop}=" in selected
     for kind in ("EC2.TransitGateway", "EC2.TransitGatewayVpcAttachment", "EC2.TransitGatewayRouteTable"):
         assert not naming_errors(ROOT, kind, [["1", "Tags[].Key", "`Name`", "タグ"], ["2", "Tags[].Value", "`tgw-app-dev-patching-01`", "名称"]])
@@ -1113,7 +1268,7 @@ def check_secret_naming_values(tmp_path):
 
 def check_design_naming_preflight(tmp_path):
     for kind in ("S3.Bucket", "EC2.Instance", "EC2.VPCEndpoint", "EC2.VPC", "IAM.Role",
-                 "SecurityHub.Hub", "SecretsManager.Secret", "Macie.ClassificationJob", "SSM.Association"):
+                 "SecurityHub.Hub", "SecretsManager.Secret", "Macie.ClassificationJob", "SSM.Association", "CloudFormation.Stack"):
         assert not design_naming_errors(ROOT, kind), kind
     assert design_naming_errors(ROOT, "CloudFront.CachePolicy") == ["naming rule missing: CloudFront.CachePolicy: CachePolicyConfig.Name"]
     assert not design_naming_errors(ROOT, "CloudFront.CachePolicy", "IMPORT")
@@ -1131,9 +1286,7 @@ def check_design_naming_preflight(tmp_path):
         "SecretsManager.Secret": ["Name", "Tags[].Key", "Tags[].Value"],
         "SecurityHub.Hub": ["EnableDefaultStandards", "Tags"],
     }.items():
-        (materials / (kind.replace(".", "_", 1) + ".properties")).write_text(
-            "".join(f"{kind}.{field}=" + ("IDENTIFIER_OUTPUT" if field in {"Arn", "InstanceId"} else "") + "\n" for field in fields),
-            encoding="utf-8")
+        (materials / (kind.replace('.', '_', 1) + '.properties')).write_text(''.join((f'{kind}.{field}=' + ('IDENTIFIER_OUTPUT' if field in {'Arn', 'InstanceId'} else '') + '\n' for field in fields)),encoding="utf-8")
     entrance = rules / "aws-resource-naming.md"
     entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `{{purpose}}` |\n", encoding="utf-8")
 
@@ -1157,6 +1310,13 @@ def check_design_naming_preflight(tmp_path):
     run("SecurityHub.Hub", "")
     run("EC2.Instance", "", "--mode", "IMPORT")
     run("Unknown.Type", "catalog resource type missing: Unknown.Type")
+    run("CloudFormation.Stack", "naming rule missing: CloudFormation.Stack: StackName")
+    run("CloudFormation.Stack", "", "--mode", "IMPORT")
+    run("CloudFormation.Stack", "Name tag is not selectable: CloudFormation.Stack", "--name-tag")
+    entrance.write_text("| Fixture | Stack | `CloudFormation.Stack` | `StackName` | `` |\n", encoding="utf-8")
+    run("CloudFormation.Stack", "naming rule missing: CloudFormation.Stack: StackName")
+    entrance.write_text("| Fixture | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}` |\n", encoding="utf-8")
+    run("CloudFormation.Stack", "")
     entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `` |\n", encoding="utf-8")
     run("S3.Bucket", "naming rule missing: S3.Bucket: BucketName")
     entrance.write_text("| `S3` | [S3](aws-resource-naming/S3.md) |\n", encoding="utf-8")
@@ -1212,6 +1372,12 @@ def check_naming_exclusions(root):
             "Route53.RecordSet": [("Type", "`A`", "レコードの種類")],
         }
         values = model(service, kind, "example", [(field, "`example`", "名前"), *required_rows.get(kind, [])])
+        if kind == "GuardDuty.Detector" and field == "Name":
+            # The naming exemption is retained; this synthetic non-Catalog field has no display Mapping.
+            assert not naming_errors(root, kind, [["1", kind + ".Name", "`example`", "名前"]])
+            with pytest.raises(ValueError, match="display Mapping property missing"):
+                markdown_for(path, values, root)
+            continue
         output = roundtrip(path, values, root)
         metadata = {path: (service, (kind,))}
         validator = validator_module.Validator(root)
@@ -1261,7 +1427,7 @@ def check_codebuild_required_name(root, project):
     output = roundtrip(path, values, root)
     source = root / "model/dev/123456789012/codebuild.properties"
     source.parent.mkdir(parents=True)
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     saved = path.read_bytes()
     metadata = {path: ("codebuild", (kind,))}
@@ -1283,7 +1449,7 @@ def check_codebuild_required_name(root, project):
         validator.check_resource_names(metadata)
         assert any("CodeBuild.Project.Name" in error for error in validator.errors), (bad_names, validator.errors)
     path.write_bytes(saved)
-    source.write_text(text(model("codebuild", kind, name, rows, "BuildProject", name)), encoding="utf-8")
+    write_model(source, text(model("codebuild", kind, name, rows, "BuildProject", name)))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
     assert "CodeBuild.Project.Name" in str(error.value), error.value
@@ -1304,7 +1470,7 @@ def check_iam_role_name(root, project):
     source.parent.mkdir(parents=True)
     values = model("iam", kind, name, [name_row, trust_row], logical_id, "fallback-label")
     values["desired.row.001-002.document"] = document
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     path = root / "docs/designs/dev/123456789012/iam.md"
@@ -1315,7 +1481,7 @@ def check_iam_role_name(root, project):
     projected = properties(model_projection.model_for(path, root))
     assert projected["desired.resource.001.logicalId"] == logical_id
     assert projected["desired.row.001-001.value"] == f"`{name}`"
-    assert source.read_text(encoding="utf-8") == text(values)
+    assert properties(read_model(source)) == properties(text(values))
     metadata = {path: ("iam", (kind,))}
     outputs = validator_module.Validator(root).catalog_design_properties()[2]
 
@@ -1387,7 +1553,7 @@ def check_required_name_tag(kind, root, project):
     base = root / "model/dev/123456789012"
     base.mkdir(parents=True)
     source = base / f"{service}.properties"
-    source.write_text(text(values), encoding="utf-8")
+    write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     saved = path.read_bytes()
     metadata = {path: (service, (kind,))}
@@ -1445,7 +1611,7 @@ def check_required_name_tag(kind, root, project):
         assert validator.errors, bad_tags
     path.write_bytes(saved)
     # A missing tag rejects this service before saved Markdown changes.
-    source.write_text(text(model(service, kind, name, [rows[0], *before, *after], logical_id, name)), encoding="utf-8")
+    write_model(source, text(model(service, kind, name, [rows[0], *before, *after], logical_id, name)))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
     assert "Tags[].Key=Name" in str(error.value)
@@ -1496,29 +1662,30 @@ def check_service_failure_protection(root, project):
     iam["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
     sources = {base / "vpc.properties": vpc, base / "logs.properties": logs, base / "iam.properties": iam}
     for path, values in sources.items():
-        path.write_text(text(values), encoding="utf-8")
+        write_model(path, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
-    saved_sources = {path: path.read_bytes() for path in sources}
+    saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
     docs = root / "docs/designs/dev/123456789012"
     assert "Version" in (docs / "iam.md").read_text(encoding="utf-8")
     assert "PENDING_DEPLOY" in (docs / "vpc.md").read_text(encoding="utf-8")
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
-    assert saved_sources == {path: path.read_bytes() for path in sources}
+    assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
     logs["desired.row.001-002.value"] = "`14`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    (base / "vpc.properties").write_text(text(vpc) + "desired.row.001-003.value=bad-duplicate\n", encoding="utf-8")
+    part = __import__("model_templates").source_paths(base / "vpc.properties")[1]
+    part.write_text(part.read_text().replace("desired.row.row_001-003.value=", "desired.row.row_001-003.value=bad-duplicate\ndesired.row.row_001-003.value=",1))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
-    assert "duplicate model property" in str(error.value)
+    assert "invalid template directive" in str(error.value) or "duplicate" in str(error.value)
     assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == old_docs[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+    write_model(base / "vpc.properties", text(vpc))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
     logs["desired.row.001-002.value"] = "`not-a-number`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
@@ -1532,53 +1699,53 @@ def check_service_failure_protection(root, project):
 
     # Missing JSON input preserves this service's Markdown and JSON; others save.
     logs["desired.row.001-002.value"] = "`7`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     without_document = {key: value for key, value in iam.items() if not key.endswith(".document")}
-    (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
+    write_model(base / "iam.properties", text(without_document))
     fails_with("authoritative JSON document missing")
     assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
     assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == old_docs[docs / "iam/flow-role-trust-policy.json"]
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
-    assert (base / "iam.properties").read_text(encoding="utf-8") == text(without_document)
+    assert properties(read_model(base / 'iam.properties')) == properties(text(without_document))
     # Read-only checks report stale successes without modifying any view.
     logs["desired.row.001-002.value"] = "`14`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     fails_with("generated Markdown is stale or missing", write=False)
     assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+    write_model(base / "iam.properties", text(iam))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
     # Failed targets use saved anchors; dependents must not publish broken links.
     renamed_logs = {**logs, "desired.resource.001.anchor": "logs-cwlogs-new-dev-flow",
                     "desired.row.001-001.value": "`cwlogs-new-dev-flow`",
                     "desired.row.001-002.value": "`not-a-number`"}
-    (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(renamed_logs))
     vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+    write_model(base / "vpc.properties", text(vpc))
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     fails_with("missing design anchor")
     assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     renamed_logs["desired.row.001-002.value"] = "`14`"
-    (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(renamed_logs))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text(encoding="utf-8")
     del vpc["desired.note.001.text"]
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "vpc.properties", text(vpc))
+    write_model(base / "logs.properties", text(logs))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
     # A failed source retains its old link, but must not block its valid target.
     old_link = "logs.md#logs-cwlogs-net-dev-flow"
     new_link = "logs.md#logs-cwlogs-new-dev-flow"
     vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+    write_model(base / "vpc.properties", text(vpc))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(renamed_logs))
     iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
-    saved_sources = {path: path.read_bytes() for path in sources}
+    write_model(base / "iam.properties", text(iam))
+    saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
     warnings = io.StringIO()
     with redirect_stderr(warnings):
         error = fails_with("missing design anchor")
@@ -1588,16 +1755,16 @@ def check_service_failure_protection(root, project):
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
     assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
-    assert saved_sources == {path: path.read_bytes() for path in sources}
+    assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     fails_with("missing design anchor", write=False)
     assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    assert saved_sources == {path: path.read_bytes() for path in sources}
+    assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
 
     # Matching source/target changes publish together, including in read-only verification.
     vpc["desired.note.001.text"] = f"参照: [cwlogs-new-dev-flow]({new_link})"
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
-    saved_sources = {path: path.read_bytes() for path in sources}
+    write_model(base / "vpc.properties", text(vpc))
+    saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
     # A source write failure retains its old link without rolling back the target.
     (docs / "logs.md").write_bytes(old_docs[docs / "logs.md"])
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
@@ -1613,28 +1780,28 @@ def check_service_failure_protection(root, project):
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
     assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    assert saved_sources == {path: path.read_bytes() for path in sources}
+    assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
     fails_with("generated Markdown is stale or missing", write=False)
     assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert new_link in (docs / "vpc.md").read_text(encoding="utf-8")
     assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
-    assert saved_sources == {path: path.read_bytes() for path in sources}
+    assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
 
     # Already broken links in a retained source do not reject an unrelated candidate.
     retained = docs / "retained.md"
     retained.write_text("参照: [旧参照](logs.md#logs-already-missing)\n", encoding="utf-8")
     logs["desired.row.001-002.value"] = "`7`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     del vpc["desired.note.001.text"]
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
-    error = fails_with("authoritative model missing")
+    write_model(base / "vpc.properties", text(vpc))
+    error = fails_with("authoritative YAML Model inputs missing")
     assert "candidate breaks saved reference" not in error
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     # Retained sources without a model also warn without blocking a scoped write.
     retained.write_text(retained.read_text(encoding="utf-8") + f"参照: [ログ]({old_link})\n", encoding="utf-8")
-    (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(renamed_logs))
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     warnings = io.StringIO()
     with redirect_stderr(warnings):
@@ -1645,7 +1812,7 @@ def check_service_failure_protection(root, project):
     assert all(path.read_bytes() == content for path, content in snapshot.items() if path.name != "logs.md")
     assert SYNC.sync(root, False, "dev", "123456789012", services=["logs"]) == 0
     retained.unlink()
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(logs))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
     # A JSON write followed by a Markdown write failure rolls back only IAM.
@@ -1654,10 +1821,10 @@ def check_service_failure_protection(root, project):
     document["Statement"][0]["Sid"] = "Trust"
     iam["desired.row.001-002.document"] = json.dumps(document)
     iam["desired.row.001-002.comment"] = "引受元に許可する権限を定義する設定"
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+    write_model(base / "iam.properties", text(iam))
     logs["desired.row.001-002.value"] = "`7`"
-    (base / "logs.properties").write_text(text(logs), encoding="utf-8")
-    saved_sources = {path: path.read_bytes() for path in sources}
+    write_model(base / "logs.properties", text(logs))
+    saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
     original_write = Path.write_text
     def fail_iam(path, *args, **kwargs):
         if path == docs / "iam.md":
@@ -1670,14 +1837,14 @@ def check_service_failure_protection(root, project):
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text(encoding="utf-8")) == document
-    assert {path: path.read_bytes() for path in sources} == saved_sources
+    assert {file: file.read_bytes() for model in sources for file in load_model(model).files} == saved_sources
     # If saving a target fails, roll back views that reference its new anchor.
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    (base / "logs.properties").write_text(text(renamed_logs), encoding="utf-8")
+    write_model(base / "logs.properties", text(renamed_logs))
     vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
-    (base / "vpc.properties").write_text(text(vpc), encoding="utf-8")
+    write_model(base / "vpc.properties", text(vpc))
     iam["desired.row.001-002.comment"] = "引受元に許可する権限と条件を定義する設定"
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+    write_model(base / "iam.properties", text(iam))
     def fail_logs(path, *args, **kwargs):
         if path == docs / "logs.md":
             raise OSError("test target write failure")
@@ -1690,6 +1857,9 @@ def check_service_failure_protection(root, project):
     # A Deferred JSON keeps its Markdown/JSON publication together. Other
     # services save first, then the same worker resumes without regenerating.
     import task_contract as tasks
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     owner, worker = "tasks/owner.md", "tasks/worker.md"
     json_path = docs / "iam/flow-role-trust-policy.json"
     outputs = [docs / "iam.md", json_path, docs / "logs.md", docs / "vpc.md"]
@@ -1699,14 +1869,16 @@ def check_service_failure_protection(root, project):
                     "## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n"
                     f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n")
     register(owner, [json_path])
-    register(worker, outputs)
+    import model_templates
+    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
+    register(worker, [*outputs, *generated])
     snapshot = {path: path.read_bytes() for path in outputs}
     logs.update(renamed_logs)
     logs["desired.row.001-002.value"] = "`3`"
-    (base / "logs.properties").write_text(text(logs))
+    write_model(base / "logs.properties", text(logs))
     document["Statement"][0]["Sid"] = "AutomaticallyAcquired"
     iam["desired.row.001-002.document"] = json.dumps(document)
-    (base / "iam.properties").write_text(text(iam))
+    write_model(base / "iam.properties", text(iam))
     sleeps = []
     def release(seconds):
         sleeps.append(seconds)
@@ -1722,10 +1894,12 @@ def check_service_failure_protection(root, project):
         (root / name).unlink()
     (root / "tasks").rmdir()
     register(owner, [json_path])
-    register(worker, outputs)
+    import model_templates
+    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
+    register(worker, [*outputs, *generated])
     document["Statement"][0]["Sid"] = "StillDeferred"
     iam["desired.row.001-002.document"] = json.dumps(document)
-    (base / "iam.properties").write_text(text(iam))
+    write_model(base / "iam.properties", text(iam))
     before = json_path.read_bytes()
     with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep") as sleep, patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write"]):
         assert SYNC.main() == 0 and sleep.call_count == 20
@@ -1739,9 +1913,16 @@ def check_service_failure_protection(root, project):
         (root / name).unlink()
     (root / "tasks").rmdir()
     register(owner, [json_path])
-    register(worker, outputs)
+    import model_templates
+    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
+    register(worker, [*outputs, *generated])
     before = json_path.read_bytes()
     source = base / "iam.properties"
+    # A changed sidecar must wait; unchanged outputs no longer require its reservation.
+    document["Statement"][0]["Sid"] = "InputDrift"
+    iam["desired.row.001-002.document"] = json.dumps(document)
+    write_model(source, text(iam))
+    source = __import__("model_templates").source_paths(source)[2]/"parameters.yaml"
     source_before = source.read_bytes()
     def change_input(seconds):
         assert seconds == 30
@@ -1759,14 +1940,14 @@ def check_service_failure_protection(root, project):
     # The CLI returns failure while persisting an unrelated successful service.
     (root / "tasks").mkdir()
     (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
-    (base / "iam.properties").write_text(text(without_document), encoding="utf-8")
+    write_model(base / "iam.properties", text(without_document))
     result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
                              "--repository-root", str(root), "--write", "--environment", "dev",
                              "--aws-account-id", "123456789012"], capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "authoritative JSON document missing" in result.stderr
     assert "logs.md" in result.stdout and "iam.md" not in result.stdout
     assert "cwlogs-new-dev-flow" in (docs / "logs.md").read_text(encoding="utf-8")
-    (base / "iam.properties").write_text(text(iam), encoding="utf-8")
+    write_model(base / "iam.properties", text(iam))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     # A late filesystem failure restores every previously changed generated file.
@@ -1778,7 +1959,7 @@ def check_service_failure_protection(root, project):
         return original_write(path, *args, **kwargs)
     with patch.object(Path, "write_text", fail_last):
         with pytest.raises(OSError):
-            sync_files.save_files({first: "changed\n", last: "changed\n"})
+            write_fixture_files({first: "changed\n", last: "changed\n"})
     assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
 
 
@@ -1903,6 +2084,28 @@ def check_cli_result(result, monkeypatch, capsys):
     Diagnostics().pytest_collectreport(report)
     assert capsys.readouterr().err == ("pytest failure\n" * 2 if result else "")
 
+
+
+def check_observed_arn_authority(tmp_path):
+    from validation.design import check_observed_values
+    from validation.design_tables import check_generated_identifier
+    from validation.findings import Findings
+    path = tmp_path / 'model/dev/123456789012/secrets-manager.properties'
+    document = tmp_path / 'docs/designs/dev/123456789012/secrets-manager.md'
+    arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:actual-id'
+    values = model('secrets-manager', 'SecretsManager.Secret', 'secret', [('Id', '[secret](#secret)', 'actual ID')])
+    values['desired.resource.001.anchor'] = 'secret'
+    values['observed.row.001-001.value'] = '`' + arn + '`'
+    for mode in ('IMPORT', 'CREATE'):
+        values['desired.resource.001.resourceMode'] = mode
+        write_model(path, values)
+        findings = Findings(tmp_path, True)
+        check_observed_values([path], findings=findings, root=tmp_path, scope=None)
+        assert any('generated ARN persisted' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
+        with patch('validation.design_tables.catalog_order_errors', return_value=[]):
+            check_generated_identifier(document, 'SecretsManager.Secret', 'secret', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
+                {'SecretsManager.Secret': {'SecretsManager.Secret.Id'}}, findings=findings)
+        assert any('generated ARN is forbidden' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
 
 
 def main():

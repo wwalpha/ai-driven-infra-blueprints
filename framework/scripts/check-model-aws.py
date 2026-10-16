@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read authoritative models and compare selected settings with read-only AWS SDK APIs.
+"""Read authoritative models and compare selected settings through read-only AWS CLI calls.
 
 Exit 0: complete match; 1: differences; 2: incomplete (possibly with differences).
 --coverage is offline. No AI, CloudFormation template comparison, or model writes.
@@ -12,8 +12,10 @@ from dataclasses import dataclass
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 from urllib.parse import unquote
 
@@ -22,10 +24,11 @@ sys.modules.setdefault("model_aws_compare", sys.modules[__name__])
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from model_references import catalog_outputs
-from service_rows import pipeline_rows
 from model_core import LINK, entries, properties
-from model_files import model_parts, read_model
+from model_templates import model_paths
+from model_files import load_model, read_model
 from policy_tables import invalid_constant, literal, unique_object
+from validation_cache import input_scope
 
 SERVICES = tuple("athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
                  "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
@@ -62,23 +65,6 @@ class Field:
     reason: str = ""
 
 
-def fields(resource_type, getter, mapping, norms=None, defaults=None):
-    """Explicit property/API-response mapping; inputs live in the service's fetch()."""
-    if isinstance(mapping, str):
-        mapping = {path: path for path in mapping.split()}
-    return {resource_type + "." + prop: Field(getter, path, (norms or {}).get(prop, "typed"),
-                                             (defaults or {}).get(prop, MISSING))
-            for prop, path in mapping.items()}
-
-
-def unavailable(reason):
-    return Field(classification="sdk_unavailable", reason=reason)
-
-
-def metadata(reason):
-    return Field(classification="local_metadata", reason=reason)
-
-
 class AcquisitionError(Exception):
     def __init__(self, api, code, status="acquisition_failed", request=None):
         self.api, self.code, self.status, self.request = api, code, status, request
@@ -87,6 +73,9 @@ class AcquisitionError(Exception):
 
 def sdk_error(api, error, request):
     detail = getattr(error, "response", {}).get("Error", {})
+    if isinstance(error, subprocess.CalledProcessError):
+        match = re.search(r"An error occurred \(([^)]+)\) when calling [^:]+: (.*)", error.stderr or "")
+        detail = {"Code": match[1], "Message": match[2]} if match else {"Code": "AwsCliError"}
     code = detail.get("Code", type(error).__name__)
     missing = code in {"ResourceNotFoundException", "ResourceNotFound", "EntityNotFoundException", "NoSuchEntity",
                       "NotFoundException", "NoSuchBucket", "QueueDoesNotExist", "AWS.SimpleQueueService.NonExistentQueue",
@@ -191,12 +180,17 @@ def redacted(value):
 
 
 class Context:
-    def __init__(self, root, target, session=None):
+    def __init__(self, root, target, session=None, cli_runner=None, services=None):
         self.root, self.target, self.session = Path(root), target, session
+        self.cli_runner = cli_runner
         self.clients, self.cache, self.models, self.fetch_cache, self.fetch_trace = {}, {}, {}, {}, {}
+        self.comparisons = {}
         self.verified = False
-        self.allowed = {("sts", "get_caller_identity"), ("kms", "describe_key"), ("cloudformation", "list_exports")}
-        for service in SERVICES:
+        self.services = services
+        self.allowed = {("sts", "get_caller_identity")}
+        if services is None:
+            self.allowed.update({("kms", "describe_key"), ("cloudformation", "list_exports")})
+        for service in SERVICES if services is None else services:
             self.allowed.update(service_module(service).APIS)
         self.catalog = DesignSchemaCatalog(ROOT)
         self.trace = []
@@ -205,6 +199,23 @@ class Context:
         if service not in self.clients:
             self.clients[service] = self.session.client(service, region_name=self.target["awsRegion"])
         return self.clients[service]
+
+    def cli(self, service, operation, inputs, paginate=False):
+        command = ["aws", {"s3": "s3api", "config": "configservice"}.get(service, service), operation.replace("_", "-"),
+                   "--region", self.target["awsRegion"], "--output", "json", "--no-cli-pager",
+                   "--cli-input-json", stable(inputs)]
+        if self.target.get("awsProfile"):
+            command.extend(["--profile", self.target["awsProfile"]])
+        if not paginate:
+            command.append("--no-paginate")
+        result = (self.cli_runner or subprocess.run)(command, capture_output=True, encoding="utf-8", errors="replace", timeout=60,
+                                env={**os.environ, "AWS_CLI_AUTO_PROMPT": "off", "AWS_PAGER": ""})
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, command[:3], stderr=result.stderr)
+        response = json.loads(result.stdout, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        if not isinstance(response, dict):
+            raise ValueError("AWS CLI response must be a JSON object")
+        return response
 
     def call(self, service, operation, **inputs):
         if (service, operation) not in self.allowed or operation in {"get_secret_value", "batch_get_secret_value"}:
@@ -216,7 +227,8 @@ class Context:
         self.trace.append({"api": api, "inputs": redacted(inputs)})
         if key not in self.cache:
             try:
-                self.cache[key] = getattr(self.client(service), operation)(**inputs)
+                self.cache[key] = (self.cli(service, operation, inputs) if self.session is None
+                                   else getattr(self.client(service), operation)(**inputs))
             except Exception as error:
                 self.cache[key] = sdk_error(api, error, key)
         result = self.cache[key]
@@ -231,9 +243,10 @@ class Context:
         api = service + "." + operation
         self.trace.append({"api": api, "inputs": redacted(inputs), "pagination": "all"})
         if key not in self.cache:
-            client = self.client(service)
             try:
-                if client.can_paginate(operation):
+                if self.session is None:
+                    self.cache[key] = self.cli(service, operation, inputs, paginate=True)
+                elif (client := self.client(service)).can_paginate(operation):
                     self.cache[key] = client.get_paginator(operation).paginate(**inputs).build_full_result()
                 else:
                     result, params, seen = {}, dict(inputs), set()
@@ -270,6 +283,9 @@ class Context:
         self.verified = True
 
     def model(self, path):
+        if self.services is not None and (path.stem not in self.services or
+                path.parent != self.root / 'model' / self.target['environment'] / self.target['directory']):
+            raise Unresolved('IMPORT reference is outside selected environment/target/service')
         if path.is_symlink():
             raise ValueError("model entrance must not be a symlink")
         path = path.resolve()
@@ -277,12 +293,19 @@ class Context:
             self.models[path] = Model(self, path)
         return self.models[path]
 
-    def fetch(self, resource, getter):
+    def comparison(self, service):
+        from aws_mapping_compare import comparison
+        if service not in self.comparisons:
+            self.comparisons[service] = comparison(ROOT, service)
+        return self.comparisons[service]
+
+    def fetch(self, resource, getter, definition=None):
         key = (resource.model.path, resource.number, getter)
         if key not in self.fetch_cache:
             start = len(self.trace)
             try:
-                self.fetch_cache[key] = resource.module.fetch(self, resource, getter)
+                self.fetch_cache[key] = (resource.module.fetch_sdk(self, resource, definition['operation'])
+                                         if definition else resource.module.fetch(self, resource, getter))
             except (AcquisitionError, Unresolved) as error:
                 self.fetch_cache[key] = error
             self.fetch_trace[key] = self.trace[start:]
@@ -297,12 +320,9 @@ class Context:
 class Model:
     def __init__(self, ctx, path):
         self.ctx, self.path, self.service = ctx, path, path.stem
-        self.values = properties(read_model(path))
-        self.locations = {}
-        for part in model_parts(path):
-            for line, text in enumerate(part.read_text(encoding="utf-8").splitlines(), 1):
-                if text and not text.startswith("#") and "=" in text:
-                    self.locations[text.partition("=")[0]] = {"file": str(part), "line": line}
+        loaded = load_model(path)
+        self.values = loaded.values
+        self.locations = {key: {"file":str(file), "line":line} for key,(file,line) in loaded.locations.items()}
         rows = entries(self.values, "desired.row.")
         self.resources = [Resource(self, number, spec, [(rid, row) for rid, row in rows if rid.startswith(number + "-")])
                           for number, spec in entries(self.values, "desired.resource.")]
@@ -364,10 +384,14 @@ class Resource:
         return matches[0]
 
     def identity(self, mode="id"):
-        descriptor = self.module.IDENTITIES.get(self.kind)
+        if self.model.service == "cloudformation-stacks":
+            raise Unresolved("resource has no SDK identity mapping")
+        mapping, _ = self.ctx.comparison(self.model.service)
+        descriptor = mapping.identities.get(self.kind)
         if not descriptor:
             raise Unresolved("resource has no SDK identity mapping")
-        getter, idpath, arnpath, nameprop = descriptor
+        getter, idpath, arnpath, nameprop = (descriptor.getter, descriptor.id_path,
+                                          descriptor.arn_path, descriptor.name_property)
         if mode == "name" and nameprop:
             self.ctx.fetch(self, getter)  # Confirm existence before using the selected name.
             return self.value(nameprop, "string")
@@ -437,7 +461,7 @@ class Resource:
             from iac_values import cfn_resource_identity
             stack = cfn_resource_identity(self.spec["cfn-logicalId"])[0] if "cfn-logicalId" in self.spec else None
             matches = []
-            for path in self.model.path.parent.glob("*.properties"):
+            for path in model_paths(self.ctx.root, self.model.path.parent.parent.name, self.model.path.parent.name):
                 for resource in self.ctx.model(path).resources:
                     if "cfn-logicalId" in resource.spec:
                         matched = stack is not None and cfn_resource_identity(resource.spec["cfn-logicalId"]) == (stack, logical)
@@ -533,7 +557,8 @@ def compare_resource(ctx, resource):
         grouped[row["property"]].append((rid, row))
     expected, actual, pending = {}, {}, {}
     parsed = []
-    field_map = resource.module.FIELDS
+    from aws_mapping_compare import value as mapped_value
+    mapping, property_map = ctx.comparison(resource.model.path.stem)
     outputs = set().union(*(catalog_outputs(ROOT, ".".join(prop.split(".")[:2])) for prop in grouped)) if grouped else set()
     for prop, rows in grouped.items():
         item = {"resource": resource.spec.get("logicalId", resource.number), "resourceType": resource.kind,
@@ -541,17 +566,16 @@ def compare_resource(ctx, resource):
                 "modelKeys": ["desired.row." + rid + ".value" for rid, _ in rows], "source": source(resource, rows),
                 "designValue": "[REDACTED]" if resource.module.sensitive(prop) else redacted([row["value"] for _, row in rows]),
                 "awsValue": None, "apis": []}
-        field = field_map.get(prop)
-        if not field:
-            results.append({**item, "status": "unimplemented", "reason": "no property/API mapping"})
-            continue
+        definition = property_map.get(prop)
+        if definition is None:
+            raise ValueError('missing AWS Compare Mapping: ' + prop)
+        field = definition.field
         if field.classification != "supported":
             results.append({**item, "status": field.classification, "reason": field.reason})
             continue
         start = len(ctx.trace)
         try:
-            response = ctx.fetch(resource, field.getter)
-            value = select(response, field.path)
+            response, value = mapped_value(ctx, resource, mapping, definition, prop)
             if value == MISSING:
                 value = field.default
             if resource.kind == "KMS.Alias" and response.get("ParentMismatch"):
@@ -589,25 +613,19 @@ def compare_resource(ctx, resource):
                             "apis": ctx.trace[start:]})
     # Restore catalog row order; grouping by property above must never reorder arrays.
     parsed.sort(key=lambda row: row[0])
-    if resource.kind == "CodePipeline.Pipeline":
-        rows = [[rid, prop.removeprefix(resource.kind + "."), stable(val) if isinstance(val, dict) else "`" + str(val) + "`", comment]
-                for rid, prop, val, comment in parsed]
-        for row in rows:
-            if row[1].endswith(".Configuration"):
-                row[3] = " / ".join(key + ": value" for key in json.loads(literal(row[2])))
-        for rid, path, raw, _ in pipeline_rows(rows):
-            path = re.sub(r"\.Actions\.(?!\[)", ".Actions[1].", path)
-            val = literal(raw)
-            try:
-                val = json.loads(val)
-            except ValueError:
-                pass
-            put_row(expected, resource.kind + "." + path, val)
-    else:
-        for rid, prop, value, _ in parsed:
+    unresolved = {}
+    for rid, prop, value, _ in parsed:
+        setting = re.sub(r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0])
+        try:
             put_row(expected, prop, value)
+        except Unresolved as error:
+            unresolved.setdefault(setting, str(error))
     expected, actual = canonical(expected), canonical(actual)
     for prop, item in pending.items():
+        setting = re.sub(r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0])
+        if setting in unresolved:
+            results.append({**item, "status": "design_unresolved", "reason": unresolved[setting]})
+            continue
         desired, aws = select(expected, prop), select(actual, prop)
         # Never reveal variable plaintext; retain equality diagnostics only.
         hidden = resource.module.sensitive(prop)
@@ -644,9 +662,7 @@ def inventory(root, selected_targets, services=None):
     found = []
     for target in selected_targets:
         directory = root / "model" / target["environment"] / target["directory"]
-        if not directory.is_dir():
-            raise ValueError("target model directory is missing")
-        paths = sorted(directory.glob("*.properties"))
+        paths = model_paths(root, target["environment"], target["directory"])
         if requested:
             paths = [path for path in paths if path.stem in requested]
         if not paths:
@@ -659,17 +675,27 @@ def inventory(root, selected_targets, services=None):
     return found
 
 
+@input_scope
 def coverage(root, items):
     counts, stack_counts, types, keys, models, problems, details = Counter(), Counter(), set(), set(), set(), [], []
+    adapter_types, comparison_types = {}, {}
     for target, path in items:
         service = path.stem
         models.add((target["environment"], target["directory"], service))
         try:
             module = service_module(service)
+            if service == 'cloudformation-stacks':
+                property_map, resource_types = {}, (module.STACK_TYPE,)
+            else:
+                from aws_mapping_compare import comparison
+                mapping, property_map = comparison(ROOT, service)
+                adapter_types[service] = sorted(mapping.adapter_resource_types)
+                resource_types = {'.'.join(key.split('.')[:2]) for key in property_map}
+            comparison_types[service] = sorted(resource_types)
             values = properties(read_model(path))
             for _, resource in entries(values, "desired.resource."):
                 types.add((service, resource["resourceType"]))
-                if resource["resourceType"] not in module.RESOURCE_TYPES:
+                if resource["resourceType"] not in resource_types:
                     problems.append({"service": service, "resourceType": resource["resourceType"], "reason": "unimplemented resource type"})
             for _, row in entries(values, "desired.row."):
                 prop = row["property"]
@@ -678,13 +704,14 @@ def coverage(root, items):
                 if (service, prop) in keys:
                     continue
                 keys.add((service, prop))
-                field = module.FIELDS.get(prop)
+                definition = property_map.get(prop)
+                field = definition.field if definition else None
                 classification = field.classification if field else "unimplemented"
                 counts[classification] += 1
                 details.append({"service": service, "resourceType": rt, "propertiesKey": prop,
                                 "classification": classification, "getter": field.getter if field else None,
                                 "responsePath": field.path if field else None, "reason": field.reason if field else "no mapping"})
-                if not field or rt not in module.RESOURCE_TYPES or (field.classification == "supported" and not field.getter):
+                if not field or rt not in resource_types or (field.classification == "supported" and not field.getter):
                     problems.append(details[-1])
                 if prop[len(rt) + 1:] not in selected_properties(ROOT, rt) and not prop.endswith((".Name", ".Region")):
                     problems.append({**details[-1], "reason": "key is outside catalog"})
@@ -700,6 +727,7 @@ def coverage(root, items):
     return {"status": "incomplete" if problems else "coverage_complete", "services": sorted({s for _, _, s in models}),
             "modelCount": len(models), "resourceTypeCount": len(types), "keyCount": len(keys), "classifications": dict(counts),
             "stackFieldCounts": dict(stack_counts),
+            "adapterResourceTypes": adapter_types, "comparisonResourceTypes": comparison_types,
             "mappings": sorted(details, key=lambda x: (x["service"], x["propertiesKey"])), "problems": problems}
 
 
@@ -726,22 +754,31 @@ def summarize(results):
     return {"status": state, "exitCode": {"matched": 0, "different": 1, "incomplete": 2}[state], "counts": dict(counts), "results": results}
 
 
+@input_scope
 def run(root, items, profile=None, session_factory=None):
-    # Reject every configured-profile conflict before creating any SDK session.
+    # Reject every configured-profile conflict before any AWS retrieval.
     for target, _ in items:
         if target.get("awsProfile") and profile is not None and profile != target["awsProfile"]:
             raise ValueError("explicit profile conflicts with target awsProfile")
-    if session_factory is None:
-        import boto3
-        session_factory = boto3.Session
+    from aws_mapping_compare import comparison
+    for service in sorted({path.stem for _, path in items} - {'cloudformation-stacks'}):
+        comparison(ROOT, service)  # Validate all Mapping inputs before AWS retrieval.
+    for _, path in items:
+        if path.stem != 'cloudformation-stacks':
+            _, definitions = comparison(ROOT, path.stem)
+            for _, row in entries(properties(read_model(path)), 'desired.row.'):
+                if row['property'] not in definitions:
+                    raise ValueError('missing AWS Compare Mapping: ' + row['property'])
     contexts, results = {}, []
     for target, path in items:
         prefix = {"environment": target["environment"], "target": target["directory"], "service": path.stem}
         connection = (target["environment"], target["directory"])
         if connection not in contexts:
             try:
-                session = session_factory(profile_name=target.get("awsProfile", profile), region_name=target["awsRegion"])
-                ctx = Context(root, target, session)
+                session = (session_factory(profile_name=target.get("awsProfile", profile), region_name=target["awsRegion"])
+                           if session_factory else None)
+                connection_target = dict(target, awsProfile=target.get("awsProfile", profile))
+                ctx = Context(root, connection_target, session)
                 ctx.verify()
                 contexts[connection] = ctx
             except Exception as error:
@@ -772,7 +809,7 @@ def main():
     parser.add_argument("--service", action="append", default=[], help="Exact service ID (repeatable)")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--profile")
-    parser.add_argument("--coverage", action="store_true", help="Offline key coverage; never creates an SDK session")
+    parser.add_argument("--coverage", action="store_true", help="Offline key coverage; never invokes AWS CLI")
     parser.add_argument("--output", type=Path, help="Optional JSON result outside model; stdout otherwise")
     args = parser.parse_args()
     if args.all == bool(args.environment or args.target or args.service) or (not args.all and not all((args.environment, args.target, args.service))):

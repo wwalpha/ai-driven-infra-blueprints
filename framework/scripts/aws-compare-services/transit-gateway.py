@@ -1,17 +1,8 @@
 """transit-gateway: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one
 
-RESOURCE_TYPES = ('EC2.TransitGatewayVpcAttachment',)
 APIS = {('ec2', 'describe_transit_gateway_vpc_attachments')}
-IDENTITIES = {'EC2.TransitGatewayVpcAttachment': ('base', 'TransitGatewayAttachmentId', None, None)}
-FIELDS = {}
-FIELDS.update(fields('EC2.TransitGatewayVpcAttachment', 'base', {
-    'Id': 'TransitGatewayAttachmentId',
-    'SubnetIds': 'SubnetIds',
-    'TransitGatewayId': 'TransitGatewayId',
-    'VpcId': 'VpcId',
-}, norms={'VpcId': 'id', 'SubnetIds': 'id'}))
 
 
 def sensitive(prop):

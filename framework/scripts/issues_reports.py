@@ -6,9 +6,9 @@ import json
 import os
 from pathlib import Path
 import re
-import tempfile
 from datetime import datetime, timezone, timedelta
 
+from sync_files import atomic_files
 from issue_gate import unresolved_services
 from task_contract import task_path, paths_in, require_writable, registration_lock, safe_path, section, reserved_batches
 from validation_scope import active_scope
@@ -178,6 +178,12 @@ def iac_key(item):
 IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
 
 
+def condition_disabled(item):
+    cause = item.get('cause', {})
+    return (item['category'] == 'difference' and cause.get('kind') == 'condition-disabled'
+            and cause.get('result') is False)
+
+
 def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value, reference=None):
     """Display only: use the detector's predicate, then redact the differing leaves."""
     missing = object()
@@ -276,6 +282,20 @@ def iac_actions(entries, environment, directory):
                 classification, status = '比較未完了', '要調査'
                 description = f'{path} の欠落により参照探索を完了できない。設定差分は未確定。'
                 remedy = '参照先とExport宣言・探索範囲を確認して再比較する。Model/IaCの修正要否は未確定。'
+        elif condition_disabled(item):
+            target = path
+            key = [environment, directory, 'condition-disabled', path, item['stack'], cause['logical'], cause['condition']]
+            title = f"Condition {cause['condition']} によるCREATE無効化"
+            classification, status = 'ConditionによるCREATE無効化', '要判断'
+            description = f"確認済み入力でCondition {cause['condition']} = falseとなり、CREATE対象が無効になる。"
+            remedy = '意図的な無効化か設計との不整合かを、Conditionと原因入力・取得元に基づいて確認する。修正要否・修正先は未確定。'
+        elif item['category'] == 'uncompared' and cause.get('kind') == 'cloudformation-unsupported':
+            target = None
+            key = [environment, directory, 'cloudformation-unsupported', cause['resource_type'], 'confirm-api-implementation-scope']
+            title = f"{cause['resource_type']} はCloudFormation非対応"
+            classification, status = 'CFn非対応・比較対象外', '要確認'
+            description = '既知のAPI専用リソースのためCFn比較対象外。API側の実装状態は未確認。'
+            remedy = '実装scopeとAPI側の実装状態を確認する。実装scopeに含まれる場合は未実装として扱い、実装完了にしない。CFn一致の根拠には含めない。'
         elif item['category'] == 'uncompared' and cause.get('kind') == 'import-unresolved':
             target = None
             key = [environment, directory, 'import-unresolved', cause['export']]
@@ -283,6 +303,14 @@ def iac_actions(entries, environment, directory):
             classification, status = '比較未完了', '要調査'
             description = '参照先Exportの一意性または値を確認できない。設定差分は未確定。'
             remedy = 'Export/Importの宣言・有効条件・参照先を確認して再比較する。Model/IaCの修正要否は未確定。'
+        elif item['category'] == 'difference' and item['reason'].startswith('KMS format'):
+            target = None
+            key = [environment, directory, 'kms-format', entry['id']]
+            title = f'{item["service"]} / {item["resource"]} / {item["property"]} のKMS指定形式が不適合'
+            classification, status = 'KMS指定形式違反', '要対応'
+            diagnostic = next(iter(item.get('reference_diagnostics', [])), {})
+            description = f"{diagnostic.get('path', item['property']).rsplit('.', 1)[-1]}: {item['reason']}"
+            remedy = '許可形式と両側の形式を確認し、形式不適合のModel/IaCを修正する。参照先が同じでも形式差は一致扱いしない。'
         elif item['category'] == 'difference' and item.get('iac') and item.get('stack') and item['reason'] in {
                 'value mismatch', 'property missing', 'resource missing', 'inline CREATE child missing', 'property omitted by AWS::NoValue'}:
             target = item['iac']['path']
@@ -299,7 +327,17 @@ def iac_actions(entries, environment, directory):
             key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), entry.get('legacy')]
             title = f'{item["service"]} / {item["resource"]} / {item["property"]} の確認が必要'
             classification, status = ('処理エラー' if item['category'] == 'error' else '比較未完了' if item['category'] == 'uncompared' else '原因未確定'), '要調査'
-            description = '原因または対応先を確定できない。'
+            children = item.get('deferred_children', [])
+            diagnostic = next(iter(item.get('reference_diagnostics', [])), None)
+            if children:
+                child = children[0]
+                description = f"{child['property'].rsplit('.', 1)[-1]}: {child['reason']}"
+                if len(children) > 1:
+                    description += f'（他{len(children) - 1}子項目、全文はartifact）'
+            elif diagnostic:
+                description = f"{diagnostic['path'].rsplit('.', 1)[-1]}: {item['reason']}"
+            else:
+                description = '原因または対応先を確定できない。'
             remedy = ('Export/Importの参照関係・宣言・有効条件と探索の完了を確認する。直接依存は未確定。'
                       if 'ImportValue' in item['reason'] else '記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。')
         group_id = 'ISSUE-' + identifier(key)
@@ -314,7 +352,7 @@ def iac_actions(entries, environment, directory):
     return sorted(groups.values(), key=lambda group: (group['status'] != '要対応', group['classification'], group['id']))
 
 
-IAC_CLASSES = ('要対応', '要判断', '比較未完了', '処理エラー', '原因未確定')
+IAC_CLASSES = ('要対応', '要判断', '比較未完了', 'CFn非対応・比較対象外', '処理エラー', '原因未確定')
 MAX_GROUPS = 8
 MAX_EXAMPLES = 3
 MAX_FIELDS = 1
@@ -386,6 +424,24 @@ def iac_summary(records, environment, directory, services, display=None):
             item = entries[i]['record']
             example = {name: brief(item[name]) for name in ('service', 'resource', 'property', 'reason')}
             example.update(issue_id=action['id'], record_id=entries[i]['id'])
+            if condition_disabled(item):
+                cause = item['cause']
+                example['condition'] = {name: brief(cause[name]) for name in ('condition', 'result', 'stack', 'logical')}
+                example['condition']['template'] = brief(json.dumps(item['iac'], ensure_ascii=False))
+                example['condition']['inputs'] = [{name: brief(json.dumps(value[name], ensure_ascii=False))
+                    for name in ('name', 'value', 'source')} for value in cause['inputs'][:MAX_EXAMPLES]]
+                example['condition']['omitted_inputs'] = max(0, len(cause['inputs']) - MAX_EXAMPLES)
+            children = item.get('deferred_children', [])
+            if children:
+                example['deferred_children'] = [{name: brief(child[name]) for name in ('property', 'reason', 'category')}
+                                                for child in children[:MAX_FIELDS]]
+                example['omitted_deferred_children'] = max(0, len(children) - MAX_FIELDS)
+            diagnostics = item.get('reference_diagnostics', [])
+            if diagnostics:
+                example['reference_diagnostics'] = [{name: brief(field[name]) for name in
+                    ('path', 'model', 'iac', 'identity', 'allowed_forms', 'format', 'reason')}
+                    for field in diagnostics[:MAX_FIELDS]]
+                example['omitted_reference_fields'] = max(0, len(diagnostics) - MAX_FIELDS)
             if item['category'] == 'difference' and item['reason'] == 'value mismatch':
                 fields = shown.get(identifier(item))
                 example['fields'] = [{name: brief(field[name]) for name in ('path', 'model', 'iac')} for field in (fields or [])[:MAX_FIELDS]]
@@ -410,7 +466,8 @@ def iac_summary(records, environment, directory, services, display=None):
                 proven_causes=sum(any((entries[i]['record'].get('cause', {}).get('kind') in {'template-missing', 'parameters-missing'}
                                         and entries[i]['record'].get('cause', {}).get('path')
                                         and entries[i]['record'].get('cause', {}).get('relationship') in {'direct', 'stack-input', 'export-search-incomplete', 'legacy-search-incomplete'})
-                                       or entries[i]['record'].get('cause', {}).get('kind') == 'import-unresolved'
+                                       or entries[i]['record'].get('cause', {}).get('kind') in {'import-unresolved', 'cloudformation-unsupported'}
+                                       or condition_disabled(entries[i]['record'])
                                        for i in action['members']) for action in actions),
                 direct_resources=len({(item['service'], item['resource'], item.get('stack')) for item in records if item['category'] == 'difference'}),
                 group_count=len(ordered), omitted_groups=max(0, len(ordered) - MAX_GROUPS),
@@ -447,7 +504,8 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         '未表示の分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['omitted_categories'].items()),
         '未表示の影響: ' + ' / '.join(f'{kind} {count}件' for kind, count in summary['omitted_record_categories'].items()), '']
     for group in summary['groups']:
-        target = ('不足入力: ' + brief(Path(group['target']).name) if group['target'] and group['category'] != '要判断' else
+        target = ('API専用リソース（実装scopeとAPI実装状態を確認）' if group['category'] == 'CFn非対応・比較対象外' else
+                  '不足入力: ' + brief(Path(group['target']).name) if group['target'] and group['category'] != '要判断' else
                   'Model／IaC（修正先は要判断）' if group['category'] == '要判断' else
                   '未特定（Model／IaC／比較器／不足入力を確認）')
         lines.extend([f'## {group["category"]}: {group["problem"]}',
@@ -457,6 +515,26 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
             lines.append(f'- 探索中断: {group["cascading"]}項目。直接Import依存は未確定。')
         for example in group['examples']:
             lines.append(f'対象: {example["service"]} / {example["resource"]} / {example["property"]}: {example["reason"]}')
+            for child in example.get('deferred_children', []):
+                lines.append(f"保留原因の子項目: {child['property']} / {child['category']}: {child['reason']}")
+            if example.get('omitted_deferred_children'):
+                lines.append(f"省略保留原因: {example['omitted_deferred_children']}件（全文はartifact）")
+            for field in example.get('reference_diagnostics', []):
+                lines.extend(['未比較field: ' + field['path'], '- Model参照: ' + field['model'],
+                              '- IaC参照: ' + field['iac'], '- 参照同一性: ' + field['identity'],
+                              '- 許容形式: ' + field['allowed_forms'], '- 両側の形式適合性: ' + field['format'],
+                              '- 形式／未比較理由: ' + field['reason']])
+            if example.get('omitted_reference_fields'):
+                lines.append(f'省略参照フィールド: {example["omitted_reference_fields"]}件')
+            if 'condition' in example:
+                condition = example['condition']
+                lines.extend([f"Condition: {condition['condition']} = false",
+                    f"Stack／論理ID: {condition['stack']}／{condition['logical']}",
+                    'テンプレート位置: ' + condition['template']])
+                for value in condition['inputs']:
+                    lines.append(f"原因入力: {value['name']} = {value['value']} / 取得元: {value['source']}")
+                if condition['omitted_inputs']:
+                    lines.append(f"省略原因入力: {condition['omitted_inputs']}件（全文はartifact）")
             if 'fields' in example:
                 if example['field_status']:
                     lines.append('相違項目: ' + example['field_status'])
@@ -494,42 +572,6 @@ def save_authority(root, environment, directory, services, filenames, check_writ
     return paths
 
 
-def atomic_files(contents):
-    originals = {path: path.read_bytes() if path.exists() else None for path in contents}
-    staged, published = {}, []
-    try:
-        for path, text in contents.items():
-            if text is None:
-                staged[path] = None
-                continue
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
-                staged[path] = Path(stream.name)
-                stream.write(text)
-                stream.flush()
-                os.fsync(stream.fileno())
-        for path, temporary in staged.items():
-            published.append(path)
-            if temporary is None:
-                path.unlink()
-            else:
-                os.replace(temporary, path)
-    except BaseException:
-        for path in reversed(published):
-            if staged[path] is not None and staged[path].exists():  # Rename did not consume the staged file.
-                continue
-            if originals[path] is None:
-                path.unlink(missing_ok=True)
-            else:
-                with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
-                    temporary = Path(stream.name)
-                    stream.write(originals[path])
-                os.replace(temporary, path)
-        raise
-    finally:
-        for temporary in staged.values():
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
 
 
 @input_scope

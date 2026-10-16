@@ -8,8 +8,10 @@ from collections import Counter
 from pathlib import Path
 import iac_values
 from array_display import indexed_rows
-from model_references import deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows
+from model_references import bound_resource_anchors, deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows
 from model_display import display_rows, catalog_display_rows, row_table, sg_tables
+from aws_mapping_display import selected_rows
+from model_templates import service_source
 from model_core import properties, entries, stack_model, deployment_settings, LINK, ARTIFACT_FIELDS
 
 from design_layout import (
@@ -20,6 +22,7 @@ from design_layout import (
     resource_anchor,
     resource_has_name_property,
     resource_mode,
+    is_import_pending_reference,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
     ROTATION_SCHEDULE,
@@ -99,7 +102,8 @@ def naming_coverage_errors(root: Path, kind: str, selected: set[str], name_tag: 
 
 def design_naming_errors(root: Path, kind: str, mode: str = "CREATE", name_tag: bool = False) -> list[str]:
     """Preflight a selected resource type before asking for design values."""
-    selected = set(selected_properties(root, kind))
+    # Deployment StackName is a model input, not a catalog resource property.
+    selected = {"StackName"} if kind == "CloudFormation.Stack" else set(selected_properties(root, kind))
     if not selected:
         raise ValueError(f"catalog resource type missing: {kind}")
     selected -= {field.removeprefix(kind + ".") for field in catalog_outputs(root, kind)}
@@ -141,7 +145,8 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
         kind = resource["resourceType"]
         rows = resource_rows(values, identity, kind, root)
         properties = {row[1] for row in rows
-                      if literal(row[2]).strip().strip('"').strip().lower()
+                      if (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
+                      or literal(row[2]).strip().strip('"').strip().lower()
                       not in {"", "unset", "pending", "pending_deploy", "tbd", "未確定"}}
         if "parentProperty" in resource:
             properties.add(resource["parentProperty"])
@@ -238,32 +243,48 @@ def validate_resource_identities(path, values, root, resources):
         if resource_mode(resource) != "CREATE":
             raise ValueError(f"{identity}: cfn-logicalId requires CREATE with a formal CFn type")
         identity_catalog.cloudformation_type(resource["resourceType"])
-        if target.get("iacEngine") == "cloudformation" and (stack_source is None or not stack_source.is_file()):
+        from import_scope import selected as import_selection, placement_names
+        if import_selection(root) is not None and stack_source is not None:
+            if stack_names is None:
+                stack_names = placement_names(stack_source, {iac_values.cfn_resource_identity(spec['cfn-logicalId'])[0]
+                    for _, spec in resources if spec.get('cfn-logicalId')})[0]
+            if iac_values.cfn_resource_identity(resource['cfn-logicalId'])[0] not in stack_names:
+                raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
+            continue
+        if target.get("iacEngine") == "cloudformation" and (stack_source is None or service_source(stack_source) is None):
             raise ValueError(f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties")
-        if stack_source is not None and stack_source.is_file():
+        if stack_source is not None and service_source(stack_source) is not None:
             if stack_names is None:
                 from model_files import read_model
                 _, stacks = stack_model(properties(read_model(stack_source)))
-                stack_names = {stack["name"] for _, stack in stacks}
+                from model_references import bound_stack_names
+                stack_names = set(bound_stack_names(stack_source)) or {stack["name"] for _, stack in stacks}
             if iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
                 raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
 
 
-def resource_details(values, root, service, owned, resources):
+def resource_presentation(values, identity, resource, root):
+    kind = resource['resourceType']
+    rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
+    rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
+    configured = None if rule_table else resource_display_name(
+        kind, resource_display_rows(values, identity, resource, root), values.get(f'display.resource.{identity}.label'), resource_mode(resource))
+    name = (values.get(f'display.resource.{identity}.label') or resource['logicalId']) if rule_table else configured or values.get(f'display.resource.{identity}.label')
+    return name, configured, rows
+
+
+def resource_details(values, root, service, owned, resources, bound_anchors):
     counts = Counter(resource["resourceType"] for _, resource in resources)
     by_anchor = {}
+    names = set()
     details = []
     for identity, resource in resources:
         kind = resource["resourceType"]
         mode = resource_mode(resource)
         if kind not in owned:
             raise ValueError(f"resource is outside service ownership: {kind}")
-        rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
-        rule_table = GROUPED.get(kind, {}).get("display") == "rule-table"
-        configured_name = None if rule_table else resource_display_name(
-            kind, resource_display_rows(values, identity, resource, root), values.get(f"display.resource.{identity}.label"), mode
-        )
-        name = (values.get(f"display.resource.{identity}.label") or resource["logicalId"]) if rule_table else configured_name or values.get(f"display.resource.{identity}.label")
+        name, configured_name, rows = resource_presentation(values, identity, resource, root)
+        rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
         type_display = not rule_table and configured_name is None and (name is None or name == kind)
         if type_display:
             if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
@@ -272,11 +293,14 @@ def resource_details(values, root, service, owned, resources):
         if not name or name in {"UNSET", "PENDING_DEPLOY"}:
             raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
         anchor = resource["anchor"]
-        if anchor != resource_anchor(service, name, kind) or anchor in by_anchor:
+        derived = resource_anchor(service, name, kind)
+        expected = bound_anchors.get((kind, resource["logicalId"]), derived)
+        if anchor != expected or anchor in by_anchor or derived in names:
             raise ValueError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
         errors = naming_errors(root, kind, rows, mode)
         if errors:
             raise ValueError("; ".join(errors))
+        names.add(derived)
         item = (identity, resource, name, rows)
         by_anchor[anchor] = item
         details.append(item)
@@ -316,14 +340,18 @@ def resource_table_lines(resource, name, rows, children, root):
     output = []
     kind = resource["resourceType"]
     if kind == "EC2.SecurityGroup":
-        output += sg_tables(rows, [(child, child_rows) for _, child, _, child_rows in children])
+        rules = [(child, selected_rows(child_rows, root)) for _, child, _, child_rows in children]
+        output += sg_tables(selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root)
     else:
-        display = display_rows(kind, rows)
+        display = display_rows(kind, rows, root)
         for _, child, child_name, child_rows in children:
+            child_rows = selected_rows(child_rows, root)
+            if not child_rows:
+                continue
             if child["resourceType"] == ROTATION_SCHEDULE:
                 child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                               for rid, prop, value, comment in child_rows]
-            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows)
+            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root)
             if child["resourceType"] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
@@ -350,7 +378,9 @@ def resource_table_lines(resource, name, rows, children, root):
 
 @input_scope
 def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
-    """Produce the complete base view; policy tables are rendered afterwards."""
+    """Validated generation used by ordinary design and explicit validation."""
+    from aws_mapping_display import validate_mappings
+    validate_mappings(values, root)
     validate_required_properties(values, root)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root)
@@ -362,9 +392,35 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
     validate_resource_identities(path, values, root, resources)
-    details, by_anchor = resource_details(values, root, service, owned, resources)
-    independent = [item for item in details if item[1]["resourceType"] not in GROUPED]
-    grouped = grouped_resources(values, details, by_anchor)
+    details, by_anchor = resource_details(values, root, service, owned, resources, bound_resource_anchors(path))
+    return render_markdown(path, values, root, owned, details, grouped_resources(values, details, by_anchor))
+
+
+@input_scope
+def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
+    """Render the selected service without deciding whether its design is correct."""
+    service = path.stem
+    owned = values.get(f"desired.service.{service}.ownedCatalogResourceTypes", "").split(",")
+    details = []
+    for identity, resource in entries(values, "desired.resource."):
+        kind = resource["resourceType"]
+        name, _, rows = resource_presentation(values, identity, resource, root)
+        name = name or kind
+        details.append((identity, resource, name, rows))
+    by_anchor = {item[1]["anchor"]: item for item in details}
+    grouped = {}
+    for item in details:
+        link = LINK.fullmatch(item[1].get('parentReference', ''))
+        parent = by_anchor.get(link[3]) if link and not link[2] else None
+        if item[1]['resourceType'] in GROUPED and parent:
+            grouped.setdefault(parent[0], []).append(item)
+    return render_markdown(path, values, root, owned, details, grouped, model_policy_views(values))
+
+
+def render_markdown(path, values, root, owned, details, grouped, policy_views=None):
+    service = path.stem
+    children = {item[0] for items in grouped.values() for item in items}
+    independent = [item for item in details if item[0] not in children]
     output = [values["display.service.title"], "", f"- Design service ID: `{service}`",
               "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned)]
     output += ["", "## リソース一覧"]
@@ -380,6 +436,7 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
         output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
         output += resource_table_lines(resource, name, rows, children, root)
+        output += (policy_views or {}).get(identity, [])
         if kind == "Macie.ClassificationJob":
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
             if definitions:
@@ -392,3 +449,32 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     for _, note in entries(values, "desired.note."):
         output += ["", note["text"]]
     return "\n".join(output) + "\n"
+
+
+def model_policy_views(values):
+    from policy_tables import (Policy, POLICY_FORMATS, INLINE_POLICY_DOCUMENTS, JSON_LINK,
+                               artifact_id, policy_document_lines, START, END, IAM_START, IAM_END)
+    from model_files import resource_row_index
+    result = {}
+    rows_by_resource = resource_row_index(values)
+    for identity, resource in entries(values, 'desired.resource.'):
+        policies = []
+        rows = rows_by_resource[identity]
+        for position, (_, row) in enumerate(rows):
+            prop = row['property']
+            link = JSON_LINK.fullmatch(row.get('value', ''))
+            if prop not in POLICY_FORMATS or not link or 'document' not in row:
+                continue
+            label, target = link.groups()
+            trust = prop == 'IAM.Role.AssumeRolePolicyDocument'
+            inline = prop in INLINE_POLICY_DOCUMENTS
+            if inline and position and rows[position - 1][1]['property'] == prop.removesuffix('PolicyDocument') + 'PolicyName':
+                label = literal(rows[position - 1][1]['value'])
+            suffix = 'trust' if trust else 'inline-' + artifact_id(label) if inline else 'policy-' + artifact_id(Path(target).stem)
+            kind = '信頼ポリシー' if trust else 'インラインポリシー' if inline else 'ポリシー設定' if POLICY_FORMATS[prop] == 'settings' else 'ポリシー'
+            policy = Policy(label, target, resource['anchor'] + '-' + suffix, kind, prop)
+            policies.extend(['', *policy_document_lines(json.loads(row['document']), policy)])
+        if policies:
+            start, end = (IAM_START, IAM_END) if resource['resourceType'] == 'IAM.Role' else (START, END)
+            result[identity] = ['', start, *policies, '', end]
+    return result

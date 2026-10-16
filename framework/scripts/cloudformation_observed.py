@@ -9,7 +9,9 @@ from iac_values import cfn_resource_identity
 from model_references import catalog_outputs
 from model_core import properties, entries, stack_model, LINK
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
-from model_files import read_model, model_parts, model_file_contents, resource_row_index, MAX_LINES
+from model_templates import design_source_digest
+from model_templates import model_paths, service_source
+from model_files import read_model, resource_row_index, load_model
 from task_contract import require_writable, task_path, paths_in, matches
 from validation_scope import active_scope
 from issue_gate import require_target_no_issues
@@ -34,7 +36,7 @@ def cfn_identity(logical):
 
 
 def models(root, environment, directory):
-    return {path: properties(read_model(path)) for path in sorted((root / "model" / environment / directory).glob("*.properties"))
+    return {path: properties(read_model(path)) for path in model_paths(root, environment, directory)
             if path.stem != "cloudformation-stacks"}
 
 
@@ -59,7 +61,9 @@ def resource_index(loaded, catalog):
 def validate_mapping_targets(root, environment, directory, values):
     """Validate resource-owned stack identities before templates exist."""
     stack_model(values)
-    names = {stack["name"] for _, stack in entries(values, "desired.stack.")}
+    from model_references import bound_stack_names
+    names = set(bound_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties')) or {
+        stack['name'] for _, stack in entries(values, 'desired.stack.')}
     loaded = models(root, environment, directory)
     direct, _ = resource_index(loaded, DesignSchemaCatalog(root))
     errors = {}
@@ -112,21 +116,43 @@ def mapped_resource(direct, legacy, name, logical, cfn_type, explicit):
     return entry
 
 
-def mappings(root, environment, directory, templates, units, removed=None, target=None):
+def require_fixed_stack_names(source, selected):
+    from model_references import bound_stack_names
+    bound = bound_stack_names(source)
+    for fixed, desired in bound.items():
+        if desired in selected and fixed != desired:
+            ambiguous(f'{desired}: renamed stack requires explicit placement reconciliation; fixed StackName={fixed}')
+    return bound
+
+
+def mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
     direct, legacy = resource_index(loaded, catalog)
+    import_only = set()
+    if implementation:
+        modes = {}
+        for values in loaded.values():
+            for _, resource in entries(values, "desired.resource."):
+                try:
+                    cfn_type = catalog.cloudformation_type(resource["resourceType"])
+                except (KeyError, ValueError):
+                    continue
+                mode = "mapped" if "cfn-logicalId" in resource else resource.get("resourceMode", "CREATE")
+                modes.setdefault(cfn_type, set()).add(mode)
+        import_only = {kind for kind, modes in modes.items() if kind and modes == {"IMPORT"}}
     integrated = {catalog.cloudformation_type(kind): (kind, rule) for kind, rule in GROUPED.items()
                   if rule["identityProperty"] is None} if catalog else {}
     source = root / "model" / environment / directory / "cloudformation-stacks.properties"
-    values = properties(read_model(source)) if source.is_file() else {}
+    values = properties(read_model(source)) if service_source(source) is not None else {}
+    bound = require_fixed_stack_names(source, {unit['name'] for unit in units})
     if values:
         stack_model(values)
     target = target or (load_target(root, environment, directory) if (root / "project.json").is_file() else {})
     result, owners, errors = {}, {}, {}
     if values:
-        names = {stack["name"] for _, stack in entries(values, "desired.stack.")}
+        names = set(bound) or {stack["name"] for _, stack in entries(values, "desired.stack.")}
         for name, logical in direct:
             if name not in names:
                 errors.setdefault(name, []).append(f"{name}/{logical}: cfn-logicalId references an undeclared stack")
@@ -151,6 +177,8 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
             try:
                 if not deleting and not condition_active(document, parameters, pseudo, definition):
                     continue
+                if not deleting and definition["Type"] in import_only:
+                    continue
                 kind, rule = integrated.get(definition["Type"], (None, None))
                 if rule:
                     reference = output_value(document, parameters, pseudo,
@@ -162,6 +190,8 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                     parent_type = catalog.cloudformation_type(rule["parent"])
                     if parent.get("Type") != parent_type or (not deleting and not condition_active(document, parameters, pseudo, parent)):
                         raise ValueError("integrated child parent missing, inactive or formal CFn type mismatch")
+                    if not deleting and parent_type in import_only:
+                        continue
                     entry = mapped_resource(direct, legacy, name, parent_logical, parent_type, explicit)
                 else:
                     entry = mapped_resource(direct, legacy, name, logical, definition["Type"], explicit)
@@ -286,29 +316,29 @@ def sync_successful(backend, units, states):
             states[unit["name"]]["observedSynced"] = True
         return
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    sync_files.save_files(destinations)
+    publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
     if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
         raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
     for unit in units:
         states[unit["name"]]["observedSynced"] = True
+    return destinations
 
 
 def propagate_references(root, loaded, changes, identifiers, by_identifier=None):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
-    for path in sorted((root / "model").glob("*/*/*.properties")) if identifiers else []:
+    for path in model_paths(root) if identifiers else []:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         linked = False
-        for part in model_parts(path):
-            for line in part.read_text(encoding="utf-8").splitlines():
-                key, _, value = line.partition("=")
-                link = LINK.fullmatch(value) if key.startswith("desired.row.") and key.endswith(".value") else None
-                if link:
-                    target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
-                    linked |= (target, link.group(3)) in identifiers
+        values = properties(read_model(path))
+        for key, value in values.items():
+            link = LINK.fullmatch(value) if key.startswith("desired.row.") and key.endswith(".value") else None
+            if link:
+                target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
+                linked |= (target, link.group(3)) in identifiers
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
@@ -333,31 +363,11 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
         service = tuple(path.relative_to(root / "model").with_suffix("").parts)
         if scope is not None and service not in scope or service[:2] != (environment, directory):
             raise ValueError(f"task scope violation: observed reference requires {'/'.join(service)}")
-        for key in list(updates):
-            if not key.endswith(".value"):
-                continue
-            rid = key.removeprefix("observed.row.").removesuffix(".value")
-            for field in ("property", "comment"):
-                observed = f"observed.row.{rid}.{field}"
-                updates[observed] = loaded[path].get(observed, loaded[path][f"desired.row.{rid}.{field}"])
-        # Preserve existing comments/order/parts and all desired/display inputs.
-        parts = model_parts(path)
-        remaining = dict(updates)
-        rewritten = {}
-        for part in parts:
-            lines = []
-            for line in part.read_text(encoding="utf-8").splitlines():
-                key = line.partition("=")[0]
-                lines.append(key + "=" + remaining.pop(key) if key in remaining else line)
-            rewritten[part] = lines
-        rewritten[parts[-1]].extend(key + "=" + value for key, value in remaining.items())
-        if all(len(lines) <= MAX_LINES for lines in rewritten.values()):
-            destinations.update({part: "\n".join(lines) + "\n" for part, lines in rewritten.items()})
-        else:
-            output = model_file_contents(path, "".join("\n".join(lines) + "\n" for lines in rewritten.values()))
-            if set(parts) - output.keys():
-                raise ValueError("task scope violation: observed update requires model part repartition")
-            destinations.update(output)
+        from model_templates import observed_outputs
+        projected = observed_outputs(path, {**loaded[path], **updates})
+        if projected is None:
+            raise ValueError(f'YAML Model sources missing for observed update: {path}')
+        destinations.update(projected)
     import sync_runtime as sync
     views = set()
     for path in changes:
@@ -384,6 +394,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     The returned plan is JSON serializable and remains stable after observed sync.
     """
     import hashlib
+    require_fixed_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties', stack_names)
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
     direct, _ = resource_index(loaded, catalog)
@@ -455,10 +466,6 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                     changes.setdefault(path, {}).setdefault(key, value)
         if changes:
             destinations, views, _ = observed_destinations(root, environment, directory, loaded, changes, check_scope)
-            for part, text in destinations.items():
-                intended = lambda content: {key: value for key, value in properties(content).items() if not key.startswith("observed.")}
-                if intended(part.read_text(encoding="utf-8") if part.exists() else "") != intended(text):
-                    ambiguous("destroy observed append requires model repartition; split in a separate task first")
             paths.update(destinations)
             paths.update(views)
         result[name] = {path.relative_to(root).as_posix(): updates for path, updates in changes.items()}
@@ -466,8 +473,8 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
             services.add(tuple(path.relative_to(root / "model").with_suffix("").parts))
             # Intended inputs remain immutable, observed transitions are idempotent on resume.
             inputs[path.relative_to(root).as_posix()] = hashlib.sha256(
-                repr(sorted((key, value) for key, value in loaded[path].items()
-                            if not key.startswith("observed."))).encode()).hexdigest()
+                (repr(sorted((key, value) for key, value in loaded[path].items()
+                            if not key.startswith("observed."))) + design_source_digest(path)).encode()).hexdigest()
     return {"updates": result, "owners": owners, "paths": sorted(path.relative_to(root).as_posix() for path in paths),
             "services": sorted("/".join(service) for service in services), "inputs": inputs,
             "unmappedResources": unmapped}
@@ -488,8 +495,8 @@ def sync_destroyed(backend, states, plan):
         for relative, updates in plan["updates"][name].items():
             path = root / relative
             values = properties(read_model(path))
-            current = hashlib.sha256(repr(sorted((key, value) for key, value in values.items()
-                                               if not key.startswith("observed."))).encode()).hexdigest()
+            current = hashlib.sha256((repr(sorted((key, value) for key, value in values.items()
+                                               if not key.startswith("observed."))) + design_source_digest(path)).encode()).hexdigest()
             if current != plan["inputs"][relative]:
                 raise ValueError(f"destroy observed inputs changed: {relative}; resume after restoring inputs")
             loaded[path] = values
@@ -498,7 +505,7 @@ def sync_destroyed(backend, states, plan):
         destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
         if {path.relative_to(root).as_posix() for path in set(destinations) | views} - set(plan["paths"]):
             raise ValueError("destroy observed output differs from pre-mutation reservations")
-        sync_files.save_files(destinations)
+        publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
         if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
             raise ValueError("destroy observed sync failed; resume same session")
     for name in completed:
@@ -525,7 +532,8 @@ def preflight(root, environment, directory, stack_names):
         except (OSError, ValueError, Blocked) as error:
             errors.setdefault(unit["name"], []).append(f"{unit['name']}: input unavailable: {error}")
     try:
-        plan = mappings(root, environment, directory, templates, [u for u in units if u["name"] in templates], target=target)
+        plan = mappings(root, environment, directory, templates, [u for u in units if u["name"] in templates],
+                        target=target, implementation=True)
     except MappingError as error:
         errors.update(error.errors)
     if errors:
@@ -551,3 +559,8 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def publish_observed(root, destinations, inputs=None):
+    from model_templates import publish
+    publish(root, destinations, inputs=inputs)

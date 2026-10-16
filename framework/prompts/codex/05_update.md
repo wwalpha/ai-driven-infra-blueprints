@@ -1,8 +1,21 @@
 # Manual Design Update and Deployment Prompt
+IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+
+
+[Service Model sources](../../rules/model-templates.md) define the YAML-only input
+contract for this prompt. Read runtime Models through model_files and use
+`model_files.py <service.properties> --trace <key>` for the exact source. Design edits
+use the common template, parameters.yaml and fixed bindings.json; authorized observed
+updates use observed.json. Reserve template entry/parts, parameters.yaml, bindings.json,
+observed.json and generated Markdown/JSON paths. Common template edits require all
+registered consumers in Validation scope. Read with the shared Model loader before
+matching IaC/issues/diff. Generation across environments grants no Deployment scope
+or AWS permission.
+
 
 Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
-Use this prompt to receive diffs manually edited by the human in existing model properties and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
+Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
 
 ## Check applicability and finish point first
 
@@ -37,9 +50,9 @@ Normally neither input is required. Treat delete/replacement as preapproved only
 
 Before file changes, determine targets and scope in the following order.
 
-1. Check `git status --short` and `git diff --name-only HEAD -- model/`.
-2. Obtain environment and target directory from existing model properties paths edited by the human. Single files use `model/<environment>/<target-directory>/<service-id>.properties`; map split model parts to the same service entry using existing `model_files.service_model_path`.
-3. Confirm exactly 1 environment/target directory combination matching a `project.json` target; obtain the alias if present and always the actual AWS account ID. Stop without file changes if no manually edited model properties exist, diffs mix multiple targets, or targets are unregistered.
+1. Check `git status --short` and `git diff --name-only HEAD -- model/templates/ model/parameters/`.
+2. Obtain environment and target directory from human-edited authoritative parameters.yaml and bindings.json, or the mechanically enumerated consumers of a common template. Resolve registered source impact with model_templates.py --alias <alias> --service <service> --affected. Enumerate service source directories through model_templates.model_paths; logical model/<environment>/<target-directory>/<service-id>.properties selectors do not require files.
+3. Confirm exactly 1 environment/target directory combination matching a `project.json` target; obtain the alias if present and always the actual AWS account ID. Stop without file changes if no human-edited authoritative design inputs exist, the requested deployment target is ambiguous, or targets are unregistered. For common edits, generate/validate every consumer in a separate design task, then explicitly hand off exactly one deployment target; never infer permission for other consumers.
 4. Design scope is all existing model properties edited by the human in the same target. Use model row documents as input for policy/setting JSON bodies; do not adopt manual Markdown/JSON artifact diffs as design values.
 5. Match corresponding authoritative service properties against existing IaC/parameters; implement only differing properties. Resolve CloudFormation stack scope only from authoritative `cloudformation-stacks.properties` in the same target. Use `desired.stack.*.name`, `.template`, `.parameters`, `.deployOrder`, and `desired.deployment.maxConcurrentStacks`; effective MaxConcurrentStacks is 1 when omitted. Confirm resource ownership and each shared-template stack instance/parameter mapping from service properties and existing IaC; stop if ambiguous. If changed design references resources owned by other stacks in the same account/region, also consider those producer stacks for necessary Output/Export additions.
 6. Deployment scope is the above StackNames, templates/parameters, or Terraform roots/resources and dependencies. For CloudFormation, stop without guessing/migration if DeployOrder is unset; the controller enforces order and parallel limits. Do not convert DeployOrder to template DependsOn. For Terraform, resolve roots, workspaces, backends, variable inputs, modules/resources, and dependencies from existing IaC; stop for missing/mismatched inputs. Different StackNames using the same template are separate units; include only stacks owning changed design resources in scope. If handling producers and consumers requiring cross-stack exports in the same task, include both stacks in scope.
@@ -54,7 +67,7 @@ Do not automatically interpret existing StackName deletions/renames in stack des
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
 5. `git status --short` and Design scope diffs identified from repository changes
-6. Authoritative Design scope `model/<environment>/<target-directory>/<service-id>.properties` and required parts. For CloudFormation, same-target `cloudformation-stacks.properties` needed for stack scope resolution
+6. Authoritative Design scope templates and model/parameters/<environment>/<target-directory>/<service-id>/ inputs, read via the logical Model selector. For CloudFormation, same-target `cloudformation-stacks.properties` needed for stack scope resolution
 7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
 9. [cloudformation](../../rules/cloudformation.md) or [terraform](../../rules/terraform.md) for the selected engine
@@ -196,3 +209,8 @@ Do not add overall validation after successful scoped validation. Rerun generati
 State targets, Design scope, display generation, IaC changes, deployment units/dependency order, plan/change set summaries, human confirmation waits/approval results, deploy completion status, observed value updates, and blockers in completion reports. Do not save verification output in the repository.
 
 Do not change, create, or execute scenarios, scenario results, other targets, or next tasks. If application behavior validation is needed, the human uses `framework/prompts/codex/06_scenario-test.md` as a separate task.
+
+Model source persistence uses optional `observed.json` with actual row values only;
+runtime property/comment come from desired metadata. File absence means unobserved,
+never observation success. Omit empty observed files and empty binding labels; preserve
+nonempty labels, fixed IDs, internal parameters, references and CFn placement.

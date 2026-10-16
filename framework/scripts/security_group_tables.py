@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from validation_cache import input_scope
 
 
 SECURITY_GROUP = "EC2.SecurityGroup"
@@ -125,8 +126,11 @@ def overview_groups(lines: list[str]) -> dict[str, str]:
     return groups
 
 
-def security_group_table_lines(lines: list[str]) -> list[str]:
+@input_scope
+def security_group_table_lines(lines: list[str], root=None) -> list[str]:
     """Expand SG detail tables while preserving rule identities and ownership."""
+    from aws_mapping_display import ROOT, formal_name, display_name, show
+    root = root or ROOT
     groups = overview_groups(lines)
     seen = set()
     result: list[str] = []
@@ -187,15 +191,21 @@ def security_group_table_lines(lines: list[str]) -> list[str]:
         if basic_headers != ["No.", "Property", "Value", "Source / Comment"]:
             raise ValueError("Security Group requires a basic property table before rules")
         basic_rows = [row[1:] for row in basic]
+        for prop, *_ in basic_rows:
+            formal = formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + '.') else SECURITY_GROUP + '.' + prop)
+            canonical = formal.removeprefix(SECURITY_GROUP + '.')
+            if display_name(formal, SECURITY_GROUP, root) != canonical and prop in {formal, canonical}:
+                raise ValueError('Security Group property must use its Mapping display name: ' + formal)
         basic_rows = [
-            [prop if prop.startswith(SECURITY_GROUP + ".") else f"{SECURITY_GROUP}.{prop}", value, comment]
+            [formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + ".") else f"{SECURITY_GROUP}.{prop}"), value, comment]
             for prop, value, comment in basic_rows
         ]
         if [row[0] for row in basic] != [str(number) for number in range(1, len(basic) + 1)]:
             raise ValueError("Security Group basic property numbering error")
         expected = [f"{SECURITY_GROUP}.{prop}" for prop in ("Id", "GroupDescription", "GroupName", "VpcId")]
+        expected = [prop for prop in expected if show(prop, root)]
         names = [row[0] for row in basic_rows]
-        if names not in ([expected[0], expected[1], expected[3]], expected) or any(
+        if names not in ([prop for prop in expected if prop != SECURITY_GROUP + ".GroupName"], expected) or any(
             row[1].strip("`").strip() in {"", "—"} or not row[2] for row in basic_rows
         ):
             raise ValueError("Security Group requires Id, GroupDescription and VpcId detail values")

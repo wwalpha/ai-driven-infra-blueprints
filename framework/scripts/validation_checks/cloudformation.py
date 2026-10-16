@@ -387,16 +387,16 @@ def check_stack_mapping_targets():
         path = target / "cloudformation-stacks.md"
         write(path, markdown_for(path, values, root))
         model = model_dir / "ec2.properties"
-        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-fixture-vpc\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
         def errors():
             validator = MODULE.Validator(root)
             validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
             validator.check_stack_designs()
             return validator.errors
         assert not errors(), errors()
-        write(model, model.read_text(encoding="utf-8") + "desired.resource.001.resourceMode=IMPORT\n")
+        write(model, __import__("model_files").read_model(model) + "desired.resource.001.resourceMode=IMPORT\n")
         assert any("CREATE" in error for error in errors()), errors()
-        write(model, model.read_text(encoding="utf-8").replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
+        write(model, __import__("model_files").read_model(model).replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
         assert any("undeclared stack" in error for error in errors()), errors()
     with project() as root:
         path = root / "docs/designs/dev/123456789012/iam.md"

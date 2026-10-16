@@ -11,6 +11,8 @@ from pathlib import Path
 
 from model_core import properties, LINK
 from model_files import read_model
+from model_templates import model_paths, service_source, source_inputs, authority_snapshot
+from validation_cache import digest_files
 from iac_values import fingerprint
 from cloudformation_inputs import Blocked
 from cloudformation_observed import MappingError, mappings, sync_successful, removed_resources
@@ -43,7 +45,7 @@ def design_digest(root, environment, directory):
     scope = validation_scope(root)
     pending = ([root / "model" / env / target / (service + ".properties") for env, target, service in scope
                 if (env, target) == (environment, directory)] if scope is not None
-               else list((root / "model" / environment / directory).glob("*.properties")))
+               else model_paths(root, environment, directory))
     pending.append(root / "model" / environment / directory / "cloudformation-stacks.properties")
     snapshot = {}
     while pending:
@@ -51,7 +53,7 @@ def design_digest(root, environment, directory):
         if path in snapshot:
             continue
         values = {key: value for key, value in properties(read_model(path)).items() if not key.startswith("observed.")}
-        snapshot[path] = values
+        snapshot[path] = {"values": values, "sources": digest_files(root, source_inputs(path))} if service_source(path) else values
         for value in values.values():
             link = LINK.fullmatch(value)
             if link and link.group(2):
@@ -84,7 +86,12 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
             return True
         started = time.perf_counter()
         try:
-            sync_successful(backend, unsynced, session["states"])
+            if hasattr(backend, 'guard'):
+                backend.guard()
+            previous = backend.before_observed() if hasattr(backend, 'before_observed') else None
+            outputs = sync_successful(backend, unsynced, session["states"])
+            if hasattr(backend, 'after_observed'):
+                backend.after_observed(previous, outputs or {})
             session.pop("observedError", None)
             return True
         except Exception as error:
@@ -281,6 +288,16 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             if validation_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("validationDigest"):
                 raise Blocked("validation dependencies changed before mutation")
         backend.guard = guard
+        backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
+        def after_observed(previous, outputs):
+            nonlocal current_design
+            expected = {**previous, **{path: text.encode('utf-8') for path, text in outputs.items()}}
+            if authority_snapshot(root, args.environment, directory) != expected:
+                raise Blocked('Model sources changed outside authorized observed publication')
+            # Only proven observed writer outputs advance the immutable session baseline.
+            current_design = design_digest(root, args.environment, directory)
+            session['designDigest'] = current_design
+        backend.after_observed = after_observed
         def refresh_validation(unit):
             # Reuse validator/cache, but schema/naming/policy/model checks concern only affected services.
             mapped = backend.mapping_plan[1][unit['name']]

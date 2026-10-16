@@ -2,10 +2,13 @@
 """Focused check for complete diagnostics and assertion-safe execution."""
 
 from __future__ import annotations
+from test_support.model_sources import snapshot_model
+from model_files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model, write_fixture_files
 import pytest
 from test_support.pytest_cli import run
 import os
@@ -43,6 +46,9 @@ def check_running_and_interruption(tmp_path):
     with redirect_stdout(io.StringIO()) as output:
         assert MODULE.run_commands(root, [command], environment, logs, heartbeat_seconds=0.03) == 0
     history = events(logs)
+    assert history[0]["jobs"] == 1 and history[0]["python_version"] == sys.version
+    assert history[0]["hash_seed"] == environment.get("PYTHONHASHSEED")
+    assert next(event for event in history if event["event"] == "step_start")["command"] == command
     assert any(event["event"] == "heartbeat" for event in history)
     assert "RUNNING slow.py" in output.getvalue()
     assert "before wait" in (logs / "01-slow.py.log").read_text(encoding="utf-8")
@@ -123,9 +129,17 @@ def check_deploy_scope_isolation(tmp_path):
                   "desired.stack.001.template": "shared.yaml", "desired.stack.001.parameters": "a.json",
                   "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "アプリケーションを配置するstack"}
         stack_values[env] = values
-        models[env].write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+        write_model(models[env], values)
         designs[env].write_text(markdown_for(designs[env], values, root))
         parameters[env].write_text("[]\n")
+    source_dir = root / "model/parameters/stg/123456789012/cloudformation-stacks"
+    source_template = root / "model/templates/123456789012/cloudformation-stacks.properties.tpl"
+    content = source_template.read_text().replace("# definition: Fixture_stg\n", '# definition: Fixture_stg\n# parameter: Comment {"type":"string","description":"表示用途","required":true}\n')
+    # This fixture changes one environment input while retaining its common template.
+    start = content.index('# definition: Fixture_stg')
+    content = content[:start]+content[start:].replace('display.stack.001.comment=アプリケーションを配置するstack', 'display.stack.001.comment=<<Comment>>')
+    source_template.write_text(content)
+    (source_dir / "parameters.yaml").write_text('instances:\n  fixture:\n    parameters:\n      Comment: アプリケーションを配置するstack\n')
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
@@ -133,7 +147,9 @@ def check_deploy_scope_isolation(tmp_path):
         name = f"tasks/{env}.md"
         files = [name, parameters[env].relative_to(root).as_posix()]
         files += [template.relative_to(root).as_posix()] if env == "dev" else [
-            models[env].relative_to(root).as_posix(), designs[env].relative_to(root).as_posix()]
+            models[env].relative_to(root).as_posix(), designs[env].relative_to(root).as_posix(),
+
+            f"model/parameters/{env}/123456789012/cloudformation-stacks/parameters.yaml"]
         listed = "\n".join(f"- `{path}`" for path in files)
         tasks.start(root, name, f"""# Task
 ## Task contract
@@ -155,7 +171,7 @@ def check_deploy_scope_isolation(tmp_path):
 {listed}
 """)
     values = stack_values["stg"] | {"display.stack.001.comment": "更新対象のstack"}
-    models["stg"].write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+    (source_dir / "parameters.yaml").write_text("instances:\n  fixture:\n    parameters:\n      Comment: 更新対象のstack\n")
     designs["stg"].write_text(markdown_for(designs["stg"], values, root))
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
 
@@ -238,7 +254,7 @@ desired.row.001-002.comment=ログを保持する日数
 display.service.title=# CloudWatch Logs 詳細設計
 display.resource.001.comment=通信ログを保存するLog Group
 """
-    model.write_text(original, encoding="utf-8")
+    write_model(model, original)
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     environment.pop("BLUEPRINT_PROFILE_DIR", None)  # The fixture profiles only its explicit --profile run.
     result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
@@ -257,18 +273,20 @@ display.resource.001.comment=通信ログを保存するLog Group
 ## Required changes
 - [R1] ログの保持期間を変更する。
 ## Acceptance checks
-- [R1] `changed:model/dev/123456789012/logs.properties`
+- [R1] `changed:model/templates/123456789012/logs.properties.tpl`
 - [R1] `changed:docs/designs/dev/123456789012/logs.md`
 ## Allowed paths
 - `tasks/active.md`
 - `model/**`
+- `model/parameters/**`
+- `model/templates/**`
 - `docs/designs/**`
 """, encoding="utf-8")
     design = root / "docs/designs/dev/123456789012/logs.md"
-    model.write_text(original.replace("value=30", "value=14"), encoding="utf-8")
+    write_model(model, original.replace("value=30", "value=14"))
     subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
                    cwd=root, env=environment, check=True, capture_output=True)
-    good_model, good_design = model.read_text(encoding="utf-8"), design.read_text(encoding="utf-8")
+    good_model, good_design = read_model(model), design.read_text(encoding="utf-8")
     command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
 
     def run():
@@ -284,8 +302,8 @@ display.resource.001.comment=通信ログを保存するLog Group
 
     result = run()
     assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
-    # A local password registration does not become a design-task scope error.
-    (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+    # A local password service_source does not become a design-task scope error.
+    (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
     warm = run()
     assert warm.returncode == 0 and "0 executed, 1 reused" in warm.stdout, warm.stdout + warm.stderr
     fresh = subprocess.run([*command, "--fresh", "--validation-jobs", "1", "--profile"],
@@ -307,11 +325,11 @@ display.resource.001.comment=通信ログを保存するLog Group
         ("schema violation", good_model.replace("value=14", "value=31"), good_design.replace("14", "31"), "schema"),
         ("broken reference", good_model, good_design.replace("14", "[missing](missing.md#missing)"), "broken design link"),
     ):
-        model.write_text(model_text, encoding="utf-8")
+        write_model(model, model_text)
         design.write_text(design_text, encoding="utf-8")
         result = run()
         assert result.returncode != 0 and diagnostic in result.stdout, (label, result.stdout, result.stderr)
-    model.write_text(good_model, encoding="utf-8")
+    write_model(model, good_model)
     design.write_text(good_design, encoding="utf-8")
     # Contract scope remains enforced before design validation.
     tasks.resume(root, "tasks/active.md")
@@ -324,27 +342,27 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert result.returncode != 0 and "changed design path is outside validation scope" in result.stdout, result.stdout
     active.write_text(contract, encoding="utf-8")
     (design.parent / "ec2.md").write_text("invalid unrelated service\n", encoding="utf-8")
-    (model.parent / "ec2.properties").write_text("invalid unrelated service\n", encoding="utf-8")
-    subprocess.run(["git", "add", "docs/designs/dev/123456789012/ec2.md", "model/dev/123456789012/ec2.properties"], cwd=root, check=True)
+    write_model(model.parent / 'ec2.properties', 'invalid=unrelated service\n')
+    subprocess.run(["git", "add", "docs/designs/dev/123456789012/ec2.md", "model/parameters/dev/123456789012/ec2", "model/templates/123456789012/ec2.properties.tpl"], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "unrelated service"], cwd=root, check=True)
     result = run()
     assert result.returncode == 0, result.stdout + result.stderr
     # The selected service still fails even with invalid unrelated input present.
-    model.write_text(good_model.replace("value=14", "value=7"), encoding="utf-8")
+    write_model(model, good_model.replace("value=14", "value=7"))
     result = run()
     assert result.returncode != 0 and "generated Markdown is stale" in result.stdout, result.stdout
-    model.write_text(good_model, encoding="utf-8")
+    write_model(model, good_model)
     active.write_text(contract.replace("- `dev/123456789012/logs`", "- `all`"), encoding="utf-8")
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "ec2" in result.stdout, result.stdout
     assert "Validation: all" in result.stdout and "framework regression: skipped" in result.stdout
     # Baseline view is already correct; repair only the authoritative model.
     active.write_text(contract.replace('- [R1] `changed:docs/designs/dev/123456789012/logs.md`\n', ''), encoding="utf-8")
-    model.write_text(good_model.replace("value=14", "value=7"), encoding="utf-8")
-    subprocess.run(["git", "add", str(model.relative_to(root)), str(design.relative_to(root))], cwd=root, check=True)
+    write_model(model, good_model.replace("value=14", "value=7"))
+    subprocess.run(["git", "add", *[str(path.relative_to(root)) for path in sorted(__import__("model_templates").source_inputs(model))], str(design.relative_to(root))], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "-qm", "model/view mismatch baseline"], cwd=root, check=True)
-    model.write_text(good_model, encoding="utf-8")
+    write_model(model, good_model)
     result = run()
     assert result.returncode == 0, result.stdout + result.stderr
     assert not subprocess.check_output(["git", "diff", "--", str(design.relative_to(root))], cwd=root)
@@ -472,10 +490,13 @@ def check_staged_snapshot(tmp_path):
     root = tmp_path / "source"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
-    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py"):
+    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py"):
         shutil.copyfile(SCRIPT.with_name(name), scripts / name)
     # These isolated runner fixtures exercise orchestration after authorization.
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
+    (scripts / "snapshot.checks.py").write_text(
+        "from pathlib import Path\nassert not Path('untracked.txt').exists()\n"
+        "print('snapshot regression assertion executed')\n", encoding="utf-8")
     (root / "tasks").mkdir()
     active = root / "tasks/snapshot.md"
     contract = ("## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
@@ -505,9 +526,9 @@ def check_staged_snapshot(tmp_path):
     MODULE.git(root, "add", ".")
     active.write_text("dirty workspace contract", encoding="utf-8")
     (root / "untracked.txt").write_text("not staged", encoding="utf-8")
-    (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+    (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
     validator.write_text(validator.read_text(encoding="utf-8") +
-                        "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture registration'}\n", encoding="utf-8")
+                        "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture service_source'}\n", encoding="utf-8")
     MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
     log_parent = tmp_path / "logs"
     command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--staged", "--base", base,
@@ -519,6 +540,7 @@ def check_staged_snapshot(tmp_path):
     saved_index = index.read_bytes()
     result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0 and "日本語 snapshot" in result.stdout, result.stdout + result.stderr
+    assert "snapshot regression assertion executed" in result.stdout
     assert index.read_bytes() == saved_index
     assert active.read_text(encoding="utf-8") == "dirty workspace contract"
     metadata = json.loads(next(log_parent.glob("*/snapshot.json")).read_text(encoding="utf-8"))
@@ -545,14 +567,14 @@ def check_staged_snapshot(tmp_path):
             assert "current runner and regression guard" in str(error.value)
     finally:
         guard.write_bytes(original_guard)
-    # Changing the source password registration makes a staged result stale.
+    # Changing the source password service_source makes a staged result stale.
     original_validator = validator.read_text(encoding="utf-8")
     validator.write_text(original_validator +
                         f"Path({str(root / '.lock')!r}).write_text('changed', encoding='utf-8')\n", encoding="utf-8")
     MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
     result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "HEAD/index/.lock changed" in result.stdout, result.stdout + result.stderr
-    (root / ".lock").write_text('{"local":"fixture registration"}\n', encoding="utf-8")
+    (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
     validator.write_text(original_validator, encoding="utf-8")
     # A concurrent index edit cannot be reported as current validation success.
     validator.write_text(validator.read_text(encoding="utf-8") +
@@ -625,9 +647,10 @@ def check_failure_suspension(tmp_path):
         root = tmp_path / "repository"
         scripts = root / "framework/scripts"
         scripts.mkdir(parents=True)
-        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py"):
+        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "run-python.py"):
             shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
+        (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
         validator = scripts / "validate-blueprint.py"
         validator.write_text("print('baseline: model/dev/cde/ec2.properties schema mismatch')\nraise SystemExit(1)\n", encoding="utf-8")
         check = scripts / "own.checks.py"
@@ -649,7 +672,7 @@ def check_failure_suspension(tmp_path):
             MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
 
         save_inputs()
-        command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
+        command = [sys.executable, str(scripts / "run-python.py"), str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
                    "--log-dir", str(tmp_path / "logs")]
         environment = MODULE.utf8_environment()
         result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
@@ -688,6 +711,137 @@ def check_failure_suspension(tmp_path):
         assert (root / other).read_bytes() == untouched
 
 
+@pytest.mark.parametrize("phase", ["contract", "git", "git-exit", "utf8", "print", "flush",
+                                  "banner-print", "banner-flush", "timing", "diagnostic-open", "unexpected"])
+def check_startup_diagnostics(tmp_path, phase):
+    root = tmp_path / "repository"
+    scripts = root / "framework/scripts"
+    scripts.mkdir(parents=True)
+    runner = scripts / SCRIPT.name
+    runner.write_text("# fixture\n", encoding="utf-8")
+    MODULE.git(root, "init", "-q")
+    selected, other = "tasks/first.md", "tasks/other.md"
+    for name in (selected, other):
+        tasks.start(root, name, f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+                    f"## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n"
+                    f"## Allowed paths\n- `{name}`\n")
+    untouched = (root / other).read_bytes()
+    logs = tmp_path / "日本語 logs"
+    real_read, real_open, real_run = Path.read_text, Path.open, subprocess.run
+    injected = False
+
+    def fail():
+        nonlocal injected
+        injected = True
+        if phase == "unexpected":
+            raise RuntimeError("unexpected fixture failure")
+        error = OSError(22, "Invalid argument", "日本語-input")
+        error.winerror = 87
+        raise error
+
+    def read(path, *args, **kwargs):
+        if phase == "contract" and path == root / selected and logs.exists() and not injected:
+            fail()
+        return real_read(path, *args, **kwargs)
+
+    def open_file(path, *args, **kwargs):
+        if (not injected and phase == "timing" and path.name == "timing.jsonl" or
+                phase == "diagnostic-open" and path.name == "startup.jsonl"):
+            fail()
+        return real_open(path, *args, **kwargs)
+
+    def run(command, *args, **kwargs):
+        if command[:3] == ["git", "config", "--get"]:
+            if phase in {"git", "unexpected"}:
+                fail()
+            if phase == "git-exit":
+                return subprocess.CompletedProcess(command, 7, "", "fixture git error")
+        if phase == "utf8" and "-c" in command:
+            fail()
+        return real_run(command, *args, **kwargs)
+
+    class Console(io.StringIO):
+        banner = False
+
+        def write(self, text):
+            if "Local loop logs:" in text:
+                self.banner = True
+            if phase == "print" or phase == "banner-print" and self.banner:
+                fail()
+            return super().write(text)
+
+        def flush(self):
+            if phase == "flush" or phase == "banner-flush" and self.banner:
+                fail()
+            return super().flush()
+
+    expected = {"contract": ("task.contract.read", "pathlib.Path.read_text"),
+                "git": ("git.config", "subprocess.run"), "git-exit": ("git.config", "subprocess.run"),
+                "utf8": ("utf8.subprocess", "subprocess.run"),
+                "print": ("stdout.print", "builtins.print"), "flush": ("stdout.flush", "sys.stdout.flush"),
+                "banner-print": ("stdout.print", "builtins.print"), "banner-flush": ("stdout.flush", "sys.stdout.flush"),
+                "timing": ("timing.open", "pathlib.Path.open"),
+                "diagnostic-open": ("diagnostics.start", "pathlib.Path.open"),
+                "unexpected": ("git.config", "subprocess.run")}
+    with patch.object(MODULE, "__file__", str(runner)), \
+         patch.object(MODULE, "active_scope", return_value={"framework"}), \
+         patch.object(MODULE, "changed_paths", return_value=set()), \
+         patch.object(MODULE, "task_changes", return_value=set()), \
+         patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
+         patch.object(MODULE.subprocess, "run", side_effect=run), \
+         patch.object(sys, "stdout", Console()), patch.object(sys, "stderr", Console()), \
+         patch.object(sys, "argv", [str(runner), "--mode", "task", "--task-file", selected,
+                                    "--log-dir", str(logs)]), \
+         patch.dict(os.environ, {tasks.SELECTOR: selected}):
+        assert MODULE.main() == 2
+    directory, = logs.iterdir()
+    details = json.loads((directory / "startup-error.json").read_text(encoding="utf-8"))
+    assert (details["step"], details["api"]) == expected[phase], details
+    assert details["cwd"] == str(root)
+    assert details["location"]["line"] > 0 and details["location"]["filename"]
+    assert "Traceback (most recent call last)" in details["traceback"]
+    assert "blueprint-loop.py" in details["traceback"]
+    if phase not in {"git-exit", "unexpected"}:
+        assert details["errno"] == 22 and details["winerror"] == 87
+        assert details["filename"] == "日本語-input"
+    if phase in {"git", "git-exit", "unexpected"}:
+        assert details["command"] == ["git", "config", "--get", "core.whitespace"]
+    if phase == "git-exit":
+        assert details["returncode"] == 7
+    if phase == "utf8":
+        assert details["command"][:3] == [sys.executable, "-X", "utf8"]
+    assert not (directory / "timing.jsonl").exists()
+    assert not list(directory.glob("*.log")), "validation must not start after startup failure"
+    if phase != "diagnostic-open":
+        history = [json.loads(line) for line in (directory / "startup.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert history[-1]["event"] == "error"
+    text = (root / selected).read_text(encoding="utf-8")
+    assert tasks.status(text) == "suspend" and str(directory / "startup-error.json") in text
+    assert (root / other).read_bytes() == untouched
+
+
+def check_windows_exit_propagation(tmp_path):
+    spec = importlib.util.spec_from_file_location("python_wrapper", SCRIPT.with_name("run-python.py"))
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+    for code in (0, 2, 7, 130):
+        with patch.object(wrapper.worktree_python, "runtime", return_value=None), \
+             patch.object(wrapper.sys, "platform", "win32"), \
+             patch.object(wrapper.sys, "argv", ["run-python.py", "-c", f"raise SystemExit({code})"]), \
+             patch.object(wrapper.os, "execvpe", side_effect=AssertionError("Windows must wait")):
+            assert wrapper.main() == code
+    # Execute the actual entrypoint's UTF-8 restart branch without changing host OS APIs.
+    entrypoint = SCRIPT.read_text(encoding="utf-8").split('if __name__ == "__main__":', 1)[1]
+    for code in (0, 2, 7, 130):
+        namespace = {**MODULE.__dict__, "sys": SimpleNamespace(flags=SimpleNamespace(utf8_mode=0),
+                     platform="win32", executable=sys.executable, argv=[str(SCRIPT), "--mode", "task"])}
+        with patch.object(MODULE.subprocess, "call", return_value=code) as child, \
+             patch.object(MODULE.signal, "signal"), pytest.raises(SystemExit) as result:
+            exec(compile("if True:" + entrypoint, str(SCRIPT), "exec"), namespace)
+        assert result.value.code == code
+        assert child.call_args.args[0][:3] == [sys.executable, "-X", "utf8"]
+
+
 def check_workflow(tmp_path) -> None:
     for check in SCRIPT.parent.glob("*.checks.py"):
         optimized = subprocess.run(
@@ -702,6 +856,7 @@ def check_workflow(tmp_path) -> None:
     shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
     shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
     shutil.copyfile(SCRIPT.with_name("task_contract.py"), scripts / "task_contract.py")
+    shutil.copyfile(SCRIPT.with_name("sync_files.py"), scripts / "sync_files.py")
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
     (scripts / "a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
@@ -717,6 +872,12 @@ def check_workflow(tmp_path) -> None:
     assert "validate-blueprint.py, a.checks.py" in result.stdout
     assert (root / "continued").read_text(encoding="utf-8") == "yes"
     failed_directory = next(log_parent.glob("blueprint-loop-*"))
+    startup = [json.loads(line) for line in (failed_directory / "startup.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert startup[0]["event"] == "directory_created"
+    assert {"task.contract.read", "git.config", "commands.prepare", "utf8.subprocess", "utf8.output",
+            "utf8.cleanup", "stdout.print", "stdout.flush", "timing.open"} <= {
+                event["step"] for event in startup if event["event"] == "end"}
+    assert not (failed_directory / "startup-error.json").exists(), "check failure is not a startup error"
     history = events(failed_directory)
     assert history[0]["event"] == "loop_start" and history[0]["step_count"] == 5
     ended = [event for event in history if event["event"] == "step_end"]
@@ -749,9 +910,9 @@ def check_workflow(tmp_path) -> None:
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     (root / "continued").unlink()
-    model = root / "model/dev/cde/ec2.properties"
+    model = root / "model/parameters/dev/cde/ec2/parameters.yaml"
     model.parent.mkdir(parents=True)
-    model.write_text("design change\n", encoding="utf-8")
+    model.write_text('design change\n')
     scoped_command = [argument for argument in command if argument != "--all"]
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
@@ -769,7 +930,7 @@ def check_workflow(tmp_path) -> None:
                  "framework/schema/schema.json", "framework/catalog/catalog.json", "framework/prompts/prompt.md",
                  ".agents/skills/example/SKILL.md", "AGENTS.md", "README.md"):
         assert MODULE.framework_changed({path}), path
-    assert not MODULE.framework_changed({"model/dev/cde/ec2.properties", "docs/designs/dev/cde/ec2.md", "tasks/active.md"})
+    assert not MODULE.framework_changed({"model/parameters/dev/cde/ec2/parameters.yaml", "docs/designs/dev/cde/ec2.md", "tasks/active.md"})
     scoped_command[scoped_command.index("local")] = "task"
     (scripts / "a.py").write_text("# validator change\n", encoding="utf-8")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
@@ -793,7 +954,21 @@ def check_workflow(tmp_path) -> None:
     with patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "failure")):
         with pytest.raises(ValueError):
             MODULE.changed_paths(root)
-    model.write_text(model.read_text(encoding="utf-8") + "trailing whitespace  \n", encoding="utf-8")
+    # CRLF is a preserved Model/view format; spaces before CRLF remain defects.
+    model.write_bytes(b"design change\r\nCRLF line\r\n")
+    result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert model.read_bytes() == b"design change\r\nCRLF line\r\n"
+    subprocess.run(["git", "add", str(model)], cwd=root, check=True)
+    result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    subprocess.run(["git", "config", "core.whitespace", "blank-at-eol,blank-at-eof,space-before-tab,indent-with-non-tab"], cwd=root, check=True)
+    model.write_bytes(b"design change\r\n        forbidden configured indent\r\n")
+    result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
+    assert result.returncode != 0 and "indent with spaces" in result.stdout, result.stdout + result.stderr
+    tasks.resume(root, "tasks/active.md")
+    subprocess.run(["git", "config", "--unset", "core.whitespace"], cwd=root, check=True)
+    model.write_bytes(b"design change\r\ntrailing whitespace  \r\n")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout
     tasks.resume(root, "tasks/active.md")
@@ -813,8 +988,22 @@ def check_workflow(tmp_path) -> None:
 
 
 
+def check_regression_discovery(tmp_path):
+    with pytest.raises(ValueError, match="no framework regression checks discovered"):
+        MODULE.select_checks(tmp_path, set())
+    root = Path(__file__).resolve().parents[2]
+    all_checks = {p.name for p in MODULE.select_checks(root, set())[0]}
+    assert all_checks and "cloudformation-naming.checks.py" in all_checks
+    assert "service-parameter-inputs.checks.py" in all_checks
+    assert not any("parameter-migration" in name for name in all_checks)
+    for helper, expected in (("parameter_cases", "service-parameter-inputs.checks.py"),
+                             ("service_contracts", "model_parameter_inputs.checks.py")):
+        selected, reason = MODULE.select_checks(root, {f"framework/scripts/test_support/{helper}.py"}, True)
+        assert {p.name for p in selected} == {expected}, reason
+
+
 def main():
-    return run(__file__, ['check_deploy_scope_isolation', 'check_failure_suspension', 'check_regression_authorization', 'check_parallel_and_selection', 'check_fixture_independence', 'check_staged_snapshot', 'check_running_and_interruption', 'check_task_service_validation', 'check_workflow'], 'blueprint-loop: PASS')
+    return run(__file__, ['check_startup_diagnostics', 'check_windows_exit_propagation', 'check_regression_discovery', 'check_deploy_scope_isolation', 'check_failure_suspension', 'check_regression_authorization', 'check_parallel_and_selection', 'check_fixture_independence', 'check_staged_snapshot', 'check_running_and_interruption', 'check_task_service_validation', 'check_workflow'], 'blueprint-loop: PASS')
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Fake-only destroy acceptance: no network, credentials or live AWS mutations."""
 from __future__ import annotations
+from test_support.model_sources import snapshot_model
+from model_files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import pytest
 from test_support.pytest_cli import run
 import importlib.util
@@ -256,7 +259,7 @@ def fixture(root, names, models=False):
     for number, (name, order) in enumerate(names.items(), 1):
         values.update({f"desired.stack.{number:03d}.{key}": str(value) for key, value in
                        {"name": name, "deployOrder": order, "template": name + ".yaml", "parameters": name + ".json"}.items()})
-    (root / "model/dev/123456789012/cloudformation-stacks.properties").write_text("\n".join(key + "=" + value for key, value in values.items()) + "\n")
+    write_model(root / "model/dev/123456789012/cloudformation-stacks.properties", "\n".join(key + "=" + value for key, value in values.items()) + "\n")
     if models:
         shutil.copytree(ROOT / "framework", root / "framework")
         values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC,EC2.Subnet",
@@ -291,7 +294,7 @@ def fixture(root, names, models=False):
             for field in ("property", "comment"):
                 values[f"observed.row.{rid}.{field}"] = values[f"desired.row.{rid}.{field}"]
         source = root / "model/dev/123456789012/ec2.properties"
-        source.write_text("\n".join(key + "=" + value for key, value in values.items()) + "\n")
+        write_model(source, "\n".join(key + "=" + value for key, value in values.items()) + "\n")
         design = root / "docs/designs/dev/123456789012/ec2.md"
         design.parent.mkdir(parents=True)
         design.write_text(markdown_for(design, values, root))
@@ -299,8 +302,8 @@ def fixture(root, names, models=False):
     contract = root / "tasks/destroy.md"
     contract.parent.mkdir()
     paths = ["tasks/destroy.md"]
-    paths += [path.relative_to(root).as_posix() for path in (root / "model").rglob("*.properties")]
     paths += [path.relative_to(root).as_posix() for path in (root / "docs/designs").rglob("*.md")]
+    paths += [path.relative_to(root).as_posix() for path in (root / "model/parameters").rglob("*.json")]
     contract.write_text("# Destroy\n\n## Task contract\n\n- Task type: `infrastructure`\n- Task status: `running`\n"
                         "- Infrastructure phase: `destroy`\n- AWS API execution: `allowed`\n- Destroy: `allowed`\n"
                         "- Target environment: `dev`\n- Target AWS account: `123456789012`\n- Destroy scope: " + " ".join("`" + name + "`" for name in names) +
@@ -422,15 +425,15 @@ def check_observed(tmp_path):
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
         # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
-        values = properties(source.read_text())
+        values = properties(read_model(source))
         for key, value in list(values.items()):
             if key.startswith(("desired.resource.003.", "display.resource.003.", "desired.row.003-", "observed.row.003-")):
                 values[key.replace(".003", ".004", 1)] = value.replace("test-dev-c", "test-dev-unimplemented").replace("vpc-old-C", "PENDING_DEPLOY").replace("[003]", "[SnowCatConn]")
         del values["desired.resource.004.cfn-logicalId"]
         values["desired.resource.004.logicalId"] = "SnowCatConn"
-        source.write_text("\n".join(key + "=" + value for key, value in values.items()) + "\n")
+        write_model(source, "\n".join(key + "=" + value for key, value in values.items()) + "\n")
         design.write_text(markdown_for(design, values, root))
-        before = properties(source.read_text())
+        before = properties(read_model(source))
         plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
         assert plan["observed"]["unmappedResources"] == [{
             "model": source.relative_to(root).as_posix(), "resource": "004", "logicalId": "SnowCatConn",
@@ -438,7 +441,7 @@ def check_observed(tmp_path):
         assert all(owner["resource"] != "004" for owners in plan["observed"]["owners"].values() for owner in owners)
         assert all(not key.startswith("observed.row.004-")
                    for changes in plan["observed"]["updates"].values() for updates in changes.values() for key in updates)
-        assert set(plan["observed"]["paths"]) == {source.relative_to(root).as_posix(), design.relative_to(root).as_posix()}
+        assert set(plan["observed"]["paths"]) == {design.relative_to(root).as_posix(), "model/parameters/dev/123456789012/ec2/observed.json"}
         backend = Fake(["A", "B", "C"])
         backend.root, backend.environment, backend.directory = root, "dev", "123456789012"
         states = session({"A": 30, "B": 20, "C": 10})["states"]
@@ -451,7 +454,7 @@ def check_observed(tmp_path):
             return real_sync(*args, **kwargs)
         with patch.object(sync_runtime, "sync", side_effect=batch), redirect_stdout(io.StringIO()):
             observed.sync_destroyed(backend, states, plan["observed"])
-        after = properties(source.read_text())
+        after = properties(read_model(source))
         assert after["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
         assert after["observed.row.099-002.value"] == "PENDING_DEPLOY"
         assert after["observed.row.002-002.value"] == before["observed.row.002-002.value"]
@@ -469,30 +472,30 @@ def check_observed(tmp_path):
         with patch.object(sync_runtime, "sync", side_effect=batch), redirect_stdout(io.StringIO()):
             observed.sync_destroyed(backend, batched, plan["observed"])
         assert calls == [["ec2"]] and all(batched[name]["observedSynced"] for name in ("A", "B"))
-        assert properties(source.read_text())["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
+        assert properties(read_model(source))["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
         # Fresh absence must not synchronize even with a valid planned owner.
         absent = session({"A": 30})["states"]; absent["A"]["status"] = "ALREADY_ABSENT"
-        snapshot = source.read_bytes(); observed.sync_destroyed(backend, absent, plan["observed"])
-        assert source.read_bytes() == snapshot
+        snapshot = snapshot_model(source); observed.sync_destroyed(backend, absent, plan["observed"])
+        assert snapshot_model(source) == snapshot
         print("D12: PASS identifiers/incoming refs pending, desired unchanged, actual generation once")
         print("D13: PASS only proven A changed; failed B/unexecuted C unchanged")
         # Detect incoming links beyond target before mutation, not during successful-deletion sync.
         outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
-        outside.write_text("desired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc](../../dev/123456789012/ec2.md#ec2-vpc-test-dev-a)\ndesired.row.001-001.comment=参照\n")
+        write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.anchor=ec2-outside-subnet\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc](../../dev/123456789012/ec2.md#ec2-vpc-test-dev-a)\ndesired.row.001-001.comment=参照\n")
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
-        outside.unlink()
+        __import__("shutil").rmtree(__import__("model_templates").source_paths(outside)[2])
         # Missing reservation blocks locally, before controller authentication.
         task = root / "tasks/destroy.md"; text = task.read_text(); task.write_text(text.replace("- `docs/designs/dev/123456789012/ec2.md`\n", ""))
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "reservation")
         task.write_text(text)
-        original = source.read_text(); source.write_text(original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
+        original = read_model(source); write_model(source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
         # Pending/absent identifiers can stay unmapped, even with a legacy ID.
         pending = M.local_plan(root, "dev", "123456789012", ["A"])
         assert pending["observed"]["owners"]["A"] == []
         assert {entry["resource"] for entry in pending["observed"]["unmappedResources"]} == {"001", "004"}
-        source.write_text(source.read_text().replace("observed.row.001-002.value=`PENDING_DEPLOY`", "observed.row.001-002.value=`vpc-existing`"))
+        write_model(source, read_model(source).replace("observed.row.001-002.value=`PENDING_DEPLOY`", "observed.row.001-002.value=`vpc-existing`"))
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "explicit cfn-logicalId")
-        source.write_text(original.replace("desired.resource.002.cfn-logicalId=B-Vpc", "desired.resource.002.cfn-logicalId=A-Vpc"))
+        write_model(source, original.replace("desired.resource.002.cfn-logicalId=B-Vpc", "desired.resource.002.cfn-logicalId=A-Vpc"))
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "duplicate ownership")
         print("D15: PASS unmapped pending design reported/unchanged; observed and duplicate ownership still block")
 

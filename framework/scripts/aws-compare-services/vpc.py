@@ -1,51 +1,11 @@
 """vpc: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import Field, one, MISSING, Unresolved
 
-RESOURCE_TYPES = ('EC2.FlowLog', 'EC2.RouteTable', 'EC2.Subnet', 'EC2.SubnetRouteTableAssociation', 'EC2.VPC')
 APIS = {('ec2', 'describe_vpc_attribute'), ('ec2', 'describe_subnets'), ('ec2', 'describe_flow_logs'), ('ec2', 'describe_route_tables'), ('ec2', 'describe_vpcs')}
-IDENTITIES = {'EC2.VPC': ('base', 'VpcId', None, 'Name'), 'EC2.Subnet': ('base', 'SubnetId', None, 'Name'), 'EC2.RouteTable': ('base', 'RouteTableId', None, 'Name'), 'EC2.FlowLog': ('base', 'FlowLogId', None, 'Name')}
-FIELDS = {}
-FIELDS.update(fields('EC2.VPC', 'base', {
-    'CidrBlock': 'CidrBlock',
-    'Name': 'NameTag',
-    'VpcId': 'VpcId',
-}))
-FIELDS.update(fields('EC2.VPC', 'hostnames', {
-    'EnableDnsHostnames': 'EnableDnsHostnames.Value',
-}))
-FIELDS.update(fields('EC2.VPC', 'support', {
-    'EnableDnsSupport': 'EnableDnsSupport.Value',
-}))
-FIELDS.update(fields('EC2.Subnet', 'base', {
-    'AvailabilityZone': 'AvailabilityZone',
-    'CidrBlock': 'CidrBlock',
-    'MapPublicIpOnLaunch': 'MapPublicIpOnLaunch',
-    'Name': 'NameTag',
-    'SubnetId': 'SubnetId',
-    'VpcId': 'VpcId',
-}, norms={'VpcId': 'id'}))
-FIELDS.update(fields('EC2.SubnetRouteTableAssociation', 'association', {
-    'RouteTableId': 'RouteTableId',
-}, norms={'RouteTableId': 'id'}))
-FIELDS.update(fields('EC2.RouteTable', 'base', {
-    'Name': 'NameTag',
-    'RouteTableId': 'RouteTableId',
-    'VpcId': 'VpcId',
-}, norms={'VpcId': 'id'}))
-FIELDS.update(fields('EC2.FlowLog', 'base', {
-    'DeliverLogsPermissionArn': 'DeliverLogsPermissionArn',
-    'Id': 'FlowLogId',
-    'LogDestinationType': 'LogDestinationType',
-    'LogGroupName': 'LogGroupName',
-    'MaxAggregationInterval': 'MaxAggregationInterval',
-    'Name': 'NameTag',
-    'ResourceId': 'ResourceId',
-    'TrafficType': 'TrafficType',
-}, norms={'DeliverLogsPermissionArn': 'arn', 'LogGroupName': 'name', 'ResourceId': 'id'}))
-FIELDS.update(fields('EC2.FlowLog', 'resource_type', {
-    'ResourceType': 'ResourceType',
-}))
+
+MODEL_FIELDS = {kind + '.Name': Field('base', 'NameTag', default=MISSING)
+                for kind in ('EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog')}
 
 
 def sensitive(prop):

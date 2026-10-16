@@ -107,12 +107,10 @@ def environment(root):
             versions[distribution] = importlib.metadata.version(distribution)
         except (ImportError, importlib.metadata.PackageNotFoundError):
             errors.append(f"missing Python dependency: {distribution}")
-    requirement = (root / "framework/scripts/requirements-aws-compare.txt").read_text(encoding="utf-8")
-    for line in requirement.splitlines():
-        if line.strip() and not line.startswith("#"):
-            name, version = line.split("==")
-            if name in versions and versions[name] != version:
-                errors.append(f"{name} requires {version}; found {versions[name]}")
+    result = subprocess.run([sys.executable, "-m", "pip", "check"],
+                            capture_output=True, encoding="utf-8")
+    if result.returncode:
+        errors.append("Python dependency consistency failed: " + (result.stdout + result.stderr).strip())
     tools = {name: shutil.which(name) for name in ("aws", "cfn-lint", "git")}
     errors.extend(f"missing command: {name}" for name, path in tools.items() if path is None)
     if errors:
@@ -193,7 +191,7 @@ def rule_readings(root, source, text, engine=None):
 
 
 def candidate(root, task, env, directory, target, stacks, services):
-    from model_files import model_parts, read_model, model_file_contents
+    from model_files import read_model
     from model_core import properties, entries
     from task_contract import safe_path
     sync = module("preparation_sync", root / "framework/scripts/sync-model.py")
@@ -203,17 +201,13 @@ def candidate(root, task, env, directory, target, stacks, services):
         design = root / "docs/designs" / env / directory / (service + ".md")
         text = read_model(source)
         values = properties(text)
-        parts = model_parts(source)
-        sources.update([source, *parts, design])
+        from model_templates import source_inputs, service_source, source_paths
+        sources.update(source_inputs(source) | {design})
+        if service_source(source):
+            files.update(p.relative_to(root).as_posix() for p in source_inputs(source) | {source_paths(source)[2]/'observed.json'})
         generated_views.add(design)
-        files.update(path.relative_to(root).as_posix() for path in [source, *parts, design])
-        # Reserve possible part growth before observed sync; no model values are written.
-        additions = []
+        files.add(design.relative_to(root).as_posix())
         for rid, row in entries(values, "desired.row."):
-            for field in ("property", "value", "comment"):
-                key = f"observed.row.{rid}.{field}"
-                if key not in values:
-                    additions.append(key + "=" + row[field])
             if match := model_projection.JSON_LINK.fullmatch(row["value"]):
                 artifact = (design.parent / match.group(1)).resolve()
                 if not artifact.is_relative_to(design.parent / service):
@@ -223,8 +217,6 @@ def candidate(root, task, env, directory, target, stacks, services):
                 files.add(artifact.relative_to(root).as_posix())
                 sources.add(artifact)
                 generated_views.add(artifact)
-        projected = text if not additions else text.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
-        files.update(path.relative_to(root).as_posix() for path in model_file_contents(source, projected))
     for path in files:
         safe_path(root, path)
     scope = [f"{env}/{directory}/{service}" for service in services]

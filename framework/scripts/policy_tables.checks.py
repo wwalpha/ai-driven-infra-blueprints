@@ -5,6 +5,8 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 from test_support.pytest_cli import run
 import model_projection
 import json
@@ -17,13 +19,26 @@ import tempfile
 
 from array_display import indexed_rows
 from design_layout import HEADER, ALIGNMENT
-from policy_tables import IAM_END as END, IAM_START as START, policy_lines, rendered_design, resources_in, without_policy_tables
+from policy_tables import IAM_END as END, IAM_START as START, iam_role_policy_artifact_filename, policy_lines, rendered_design, resources_in, without_policy_tables
 
 SCRIPTS = Path(__file__).resolve().parent
 
 
 
 VALIDATOR = load("validate-blueprint")
+
+
+@pytest.mark.parametrize(("logical_id", "role_id"), [
+    ("cde-stg-example-role", "stg-example-role"),
+    ("CDEIFINBOUNDGLUEROLE01", "ifinboundgluerole01"),
+    ("cdemwaaexecutionrole01", "mwaaexecutionrole01"),
+    ("RoleA", "role-a"),
+    ("non-cde-role", "non-cde-role"),
+    ("VPCFlowLogsToCloudWatchLogs", "vpc-flow-logs-to-cloud-watch-logs"),
+])
+def check_iam_artifact_names(logical_id, role_id):
+    assert iam_role_policy_artifact_filename(logical_id) == f"{role_id}-trust-policy.json"
+    assert iam_role_policy_artifact_filename(logical_id, "CDEAccess") == f"{role_id}-cde-access.json"
 
 
 def check_iam(tmp_path):
@@ -457,8 +472,18 @@ check_service_policies = service_policy_checks
 check_grouping_and_settings = grouping_and_settings_checks
 
 
+def check_lossless_generation():
+    from policy_tables import Policy, policy_document_lines, validate_policy_document
+    policy = Policy('ResourcePolicy', 'Policy', 'policy.json', 'policy', 'Logs.ResourcePolicy.PolicyDocument')
+    document = {'PolicyDocument': {'Statement': [{'Effect': 'Unknown', 'Extra': {'keep': 1}}]}}
+    rendered = '\n'.join(policy_document_lines(document, policy))
+    assert json.dumps(document, ensure_ascii=False, indent=2) in rendered
+    with pytest.raises(ValueError):
+        validate_policy_document(document, policy)
+
+
 def main():
-    return run(__file__, ['check_iam', 'check_service_policies', 'check_grouping_and_settings'])
+    return run(__file__, ['check_iam_artifact_names', 'check_iam', 'check_service_policies', 'check_grouping_and_settings', 'check_lossless_generation'])
 
 
 if __name__ == "__main__":

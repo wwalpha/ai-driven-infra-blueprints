@@ -1,10 +1,8 @@
 """Only stack presence/state is remote; deployment files/policy are local metadata."""
-from model_aws_compare import entries, metadata, AcquisitionError
+from model_aws_compare import entries, AcquisitionError
 
-RESOURCE_TYPES = ('CloudFormation.Stack',)
+STACK_TYPE = 'CloudFormation.Stack'
 APIS = {('cloudformation', 'describe_stacks')}
-IDENTITIES = {}
-FIELDS = {}
 
 
 def sensitive(prop):
@@ -28,7 +26,7 @@ def compare(ctx,model):
     for number,stack in entries(model.values,'desired.stack.'):
         key='desired.stack.'+number+'.name'
         name=stack['name']
-        item={'resource':name,'resourceType':'CloudFormation.Stack','propertiesKey':key,'modelKeys':[key],
+        item={'resource':name,'resourceType':STACK_TYPE,'propertiesKey':key,'modelKeys':[key],
               'source':[dict(model.locations[key],key=key)],'designValue':name,'awsValue':None,'apis':[]}
         start=len(ctx.trace)
         try:

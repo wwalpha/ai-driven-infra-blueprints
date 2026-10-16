@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from validation_cache import input_scope
 import argparse
 from dataclasses import dataclass
 import html
@@ -75,7 +76,8 @@ def artifact_id(value: str) -> str:
 
 def iam_role_policy_artifact_filename(role_logical_id: str, policy_name: str | None = None) -> str:
     suffix = "trust-policy" if policy_name is None else artifact_id(policy_name)
-    return f"{artifact_id(role_logical_id)}-{suffix}.json"
+    role_id = artifact_id(role_logical_id).removeprefix("cde").removeprefix("-")
+    return f"{role_id}-{suffix}.json"
 
 
 def without_policy_tables(lines: list[str]) -> list[str]:
@@ -144,7 +146,8 @@ class Resource:
     table_end: int
 
 
-def resources_in(lines: list[str]) -> list[Resource]:
+@input_scope
+def resources_in(lines: list[str], root: Path | None = None) -> list[Resource]:
     lines = resource_heading_lines(lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
@@ -171,9 +174,9 @@ def resources_in(lines: list[str]) -> list[Resource]:
                 raise ValueError(f"invalid resource property row: {logical_id}")
             rows.append(cells)
             index += 1
-        rows = restored_rows(rows, current_type)
+        rows = restored_rows(rows, current_type, root) if root else restored_rows(rows, current_type)
         for row in rows:
-            row[1] = formal_property(row[1], current_type)
+            row[1] = formal_property(row[1], current_type, root)
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]
         if len(names) > 1:
             raise ValueError(f"duplicate IAM RoleName: {logical_id}")
@@ -229,6 +232,64 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     document = json.loads(artifact.read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
+    validate_policy_document(document, policy)
+    return policy_document_lines(document, policy)
+
+
+def validate_policy_document(document, policy):
+    style = POLICY_FORMATS[policy.property_name]
+    if style == 'settings':
+        if policy.property_name == 'ECR.Repository.LifecyclePolicy' and 'LifecyclePolicyText' in document:
+            raw = document['LifecyclePolicyText']
+            if not isinstance(raw, str):
+                raise ValueError('LifecyclePolicyText must be a JSON string')
+            if not isinstance(json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant), dict):
+                raise ValueError('LifecyclePolicyText must encode an object')
+        return
+    if style == 'wrapped-statement':
+        if set(document) != {'PolicyDocument'}:
+            raise ValueError(f'unsupported resource policy wrapper: {policy.link}')
+        document = document['PolicyDocument']
+    if not isinstance(document, dict) or set(document) - POLICY_KEYS:
+        raise ValueError(f'unsupported policy document keys: {policy.link}')
+    statements = document.get('Statement')
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or not statements:
+        raise ValueError(f'policy requires non-empty Statement: {policy.link}')
+    for statement in statements:
+        if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
+            raise ValueError(f'unsupported policy Statement keys: {policy.link}')
+        if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement:
+            if not isinstance(statement['Sid'], str) or len(statement['Sid']) > 16:
+                raise ValueError(f'IAM inline policy Sid must be a string of at most 16 characters: {policy.link}')
+        if statement.get('Effect') not in ('Allow', 'Deny'):
+            raise ValueError(f'invalid policy Statement Effect: {policy.link}')
+        for key in ('Principal', 'NotPrincipal'):
+            principal = statement.get(key)
+            if isinstance(principal, dict):
+                if not principal:
+                    raise ValueError('empty policy Principal')
+                for kind in principal:
+                    if kind not in {'AWS', 'Service', 'Federated', 'CanonicalUser'}:
+                        raise ValueError(f'unsupported policy Principal type: {kind}')
+        if 'Condition' in statement:
+            condition = statement['Condition']
+            if not isinstance(condition, dict) or not condition:
+                raise ValueError('policy Condition must be a non-empty object')
+            if any(not isinstance(entry, dict) or not entry for entry in condition.values()):
+                raise ValueError('policy Condition operator must contain context keys')
+
+
+def raw_policy_lines(document, policy):
+    return [f'<a id="{policy.anchor}"></a>', '', f'#### {policy.kind}：{policy.label}', '',
+            '```json', json.dumps(document, ensure_ascii=False, indent=2), '```']
+
+
+def policy_document_lines(document, policy):
+    """Lossless display conversion; unsupported table shapes retain the entire JSON."""
+    original = document
+    if not isinstance(document, dict):
+        return raw_policy_lines(original, policy)
     result = [f'<a id="{policy.anchor}"></a>', "", f"#### {policy.kind}：{policy.label}", ""]
     style = POLICY_FORMATS[policy.property_name]
     if style == "settings":
@@ -236,33 +297,30 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         if policy.property_name == "ECR.Repository.LifecyclePolicy" and "LifecyclePolicyText" in document:
             encoded = document["LifecyclePolicyText"]
             if not isinstance(encoded, str):
-                raise ValueError("LifecyclePolicyText must be a JSON string")
-            decoded = json.loads(encoded, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                return raw_policy_lines(original, policy)
+            try:
+                decoded = json.loads(encoded, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            except ValueError:
+                return raw_policy_lines(original, policy)
             if not isinstance(decoded, dict):
-                raise ValueError("LifecyclePolicyText must encode an object")
+                return raw_policy_lines(original, policy)
             result.extend(["", "LifecyclePolicyTextの内容：", "", *table(["Property", "Type", "Value"], settings_rows(decoded))])
         return result
     if style == "wrapped-statement":
         if set(document) != {"PolicyDocument"}:
-            raise ValueError(f"unsupported resource policy wrapper: {policy.link}")
+            return raw_policy_lines(original, policy)
         document = document["PolicyDocument"]
     if not isinstance(document, dict) or set(document) - POLICY_KEYS:
-        raise ValueError(f"unsupported policy document keys: {policy.link}")
+        return raw_policy_lines(original, policy)
     statements = document.get("Statement")
     if isinstance(statements, dict):
         statements = [statements]
     if not isinstance(statements, list) or not statements:
-        raise ValueError(f"policy requires non-empty Statement: {policy.link}")
+        return raw_policy_lines(original, policy)
     flattened = []
     for statement in statements:
         if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
-            raise ValueError(f"unsupported policy Statement keys: {policy.link}")
-        if policy.property_name == "IAM.Role.Policies[].PolicyDocument" and "Sid" in statement:
-            sid = statement["Sid"]
-            if not isinstance(sid, str) or len(sid) > 16:
-                raise ValueError(f"IAM inline policy Sid must be a string of at most 16 characters: {policy.link}")
-        if not isinstance(statement.get("Effect"), str) or statement["Effect"] not in {"Allow", "Deny"}:
-            raise ValueError(f"invalid policy Statement Effect: {policy.link}")
+            return raw_policy_lines(original, policy)
         flat = {}
         for key in STATEMENT_KEYS:
             if key not in statement:
@@ -270,18 +328,16 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
             value = statement[key]
             if key in {"Principal", "NotPrincipal"} and isinstance(value, dict):
                 for principal_type in sorted(value):
-                    if principal_type not in {"AWS", "Service", "Federated", "CanonicalUser"}:
-                        raise ValueError(f"unsupported policy Principal type: {principal_type}")
                     flat[f"{key}.{principal_type}"] = cell(value[principal_type])
                 if not value:
-                    raise ValueError("empty policy Principal")
+                    return raw_policy_lines(original, policy)
             elif key == "Condition":
                 if not isinstance(value, dict) or not value:
-                    raise ValueError("policy Condition must be a non-empty object")
+                    return raw_policy_lines(original, policy)
                 conditions = []
                 for operator, entries in sorted(value.items()):
                     if not isinstance(entries, dict) or not entries:
-                        raise ValueError("policy Condition operator must contain context keys")
+                        return raw_policy_lines(original, policy)
                     for context_key, expected in sorted(entries.items()):
                         conditions.append(f"{code(operator)}：{code(context_key)} = {code(expected)}")
                 flat[key] = "<br>".join(conditions)
@@ -293,6 +349,9 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         columns.extend(sorted({column for flat in flattened for column in flat if column == key or column.startswith(key + ".")}))
     if policy.property_name == "IAM.Role.AssumeRolePolicyDocument" and "Version" in document:
         result.extend([*table(["Version"], [[code(document["Version"])]]), ""])
+    for key in ('Id', 'Version'):
+        if key in document and (key == 'Id' or (document[key] != '2012-10-17' and policy.property_name != 'IAM.Role.AssumeRolePolicyDocument')):
+            result.extend([*table([key], [[code(document[key])]]), ''])
     result.extend(table(["No.", *columns], [
         [str(number), *(flat.get(column, "—") for column in columns)]
         for number, flat in enumerate(flattened, 1)
@@ -300,10 +359,12 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     return result
 
 
+@input_scope
 def rendered_design(path: Path) -> str:
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
-    resources = resources_in(lines)
+    root = next((parent for parent in path.resolve().parents if (parent / "framework/mappings/aws").is_dir()), None)
+    resources = resources_in(lines, root)
     if not resources:
         if START in original or IAM_START in original:
             raise ValueError("policy tables have no owning resource")

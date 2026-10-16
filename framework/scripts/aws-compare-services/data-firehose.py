@@ -1,28 +1,8 @@
 """data-firehose: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, Unresolved
 
-RESOURCE_TYPES = ('KinesisFirehose.DeliveryStream',)
 APIS = {('firehose', 'describe_delivery_stream')}
-IDENTITIES = {'KinesisFirehose.DeliveryStream': ('base', 'DeliveryStreamName', 'DeliveryStreamARN', 'DeliveryStreamName')}
-FIELDS = {}
-FIELDS.update(fields('KinesisFirehose.DeliveryStream', 'base', {
-    'DeliveryStreamEncryptionConfigurationInput.KeyType': 'DeliveryStreamEncryptionConfiguration.KeyType',
-    'DeliveryStreamName': 'DeliveryStreamName',
-    'DeliveryStreamType': 'DeliveryStreamType',
-}))
-FIELDS.update(fields('KinesisFirehose.DeliveryStream', 'destination', {
-    'S3DestinationConfiguration.BucketARN': 'BucketARN',
-    'S3DestinationConfiguration.BufferingHints.IntervalInSeconds': 'BufferingHints.IntervalInSeconds',
-    'S3DestinationConfiguration.BufferingHints.SizeInMBs': 'BufferingHints.SizeInMBs',
-    'S3DestinationConfiguration.CloudWatchLoggingOptions.Enabled': 'CloudWatchLoggingOptions.Enabled',
-    'S3DestinationConfiguration.CloudWatchLoggingOptions.LogGroupName': 'CloudWatchLoggingOptions.LogGroupName',
-    'S3DestinationConfiguration.CloudWatchLoggingOptions.LogStreamName': 'CloudWatchLoggingOptions.LogStreamName',
-    'S3DestinationConfiguration.CompressionFormat': 'CompressionFormat',
-    'S3DestinationConfiguration.ErrorOutputPrefix': 'ErrorOutputPrefix',
-    'S3DestinationConfiguration.Prefix': 'Prefix',
-    'S3DestinationConfiguration.RoleARN': 'RoleARN',
-}, norms={'S3DestinationConfiguration.BucketARN': 'arn', 'S3DestinationConfiguration.RoleARN': 'arn', 'S3DestinationConfiguration.CloudWatchLoggingOptions.LogGroupName': 'name'}))
 
 
 def sensitive(prop):
@@ -47,3 +27,11 @@ def fetch(ctx, r, getter):
         destinations.extend(record.get('Destinations', []))
     destination = one(destinations, 'firehose.describe_delivery_stream')
     return destination.get('ExtendedS3DestinationDescription', destination.get('S3DestinationDescription', {}))
+
+
+SDK_OPERATIONS = {'KinesisFirehose.DeliveryStream': 'describe_delivery_stream'}
+
+
+def fetch_sdk(ctx, r, operation):
+    ctx.fetch(r, 'destination')  # Validate the complete paginated destination selection.
+    return ctx.call('firehose', operation, DeliveryStreamName=r.value('DeliveryStreamName'))

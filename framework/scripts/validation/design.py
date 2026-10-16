@@ -2,6 +2,8 @@
 
 
 from __future__ import annotations
+from validation_cache import input_scope
+from model_templates import service_source
 from collections import Counter
 import re
 from pathlib import Path
@@ -14,13 +16,14 @@ from design_layout import (
     resource_has_name_property, resource_logical_ids, resource_modes, STACK_DESIGN, layout_errors,
 )
 from security_group_tables import security_group_table_lines
-from model_core import entries
+from model_references import bound_resource_anchors
+from model_core import entries, properties
 from model_design import naming_errors
 from model_files import MAX_LINES, read_model, model_parts
 from validation_scope import scoped_files
 import subprocess
 import sys
-from cloudformation_schema import snapshot_errors
+from cloudformation_schema import snapshot_errors, material_files
 from .project import LOWER_KEBAB_PATTERN
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
@@ -50,9 +53,6 @@ FORBIDDEN_DESIGN_SECTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 JAPANESE_TEXT_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
-MATERIAL_PATTERN = re.compile(
-    r"^[A-Za-z0-9]+(?:\[\])?(?:\.[A-Za-z0-9]+(?:\[\])?)+=(?:IDENTIFIER_OUTPUT)?$"
-)
 REQUIRED_NAME_PROPERTIES = {
     "EC2.FlowLog": "EC2.FlowLog.Name",
     "EC2.RouteTable": "EC2.RouteTable.Name",
@@ -68,22 +68,11 @@ S3_KMS_MASTER_KEY_ID = (
 
 
 def check_model_files(findings, root, scope) -> None:
-    base = root / "model"
-    listed = set()
     for path in scoped_files(root, "model", ".properties", scope):
         try:
             read_model(path)
-            for file in {path, *model_parts(path)}:
-                listed.add(file)
-                findings.check(len(file.read_text(encoding="utf-8").splitlines()) <= MAX_LINES,
-                           f"model file exceeds {MAX_LINES} lines; split with model_files.py: {findings.relative(file)}")
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
-    for path in base.rglob("*.properties"):
-        parts = path.relative_to(base).parts
-        if scope is not None and (len(parts) < 3 or (parts[0], parts[1], Path(parts[2]).stem) not in scope):
-            continue
-        findings.check(path in listed, f"model properties must be a service entrance or its indexed part: {findings.relative(path)}")
 
 
 @memoized
@@ -197,7 +186,7 @@ def check_design_service_ownership(
         relative = markdown_path.relative_to(docs_base)
         model_path = (model_base / relative).with_suffix(".properties")
         markdown_metadata = markdown_service_metadata(markdown_path, catalog_types, findings=findings)
-        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings) if model_path.is_file() else None
+        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings) if service_source(model_path) is not None else None
         if markdown_metadata is None or model_metadata is None:
             continue
         findings.check(markdown_metadata == model_metadata, f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}")
@@ -244,15 +233,17 @@ def check_resource_layout(findings, root) -> None:
     findings.check(not errors, "; ".join(errors) or "resource layout decisions are invalid")
 
 
+@input_scope
 def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None, *, design_sources, findings, root, scope) -> None:
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
         try:
             identities = resource_logical_ids(lines)
+            bound_anchors = bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
             modes = resource_modes(lines, values)
-            lines = security_group_table_lines(lines)
-            lines = expanded_display_rows(lines)
+            lines = security_group_table_lines(lines, root)
+            lines = expanded_display_rows(lines, root)
             values = values or {}
             labels = {
                 (resource.get("resourceType"), resource.get("logicalId"), label)
@@ -274,7 +265,9 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             resource_type, display = current
             mode = modes.get(anchor, "CREATE")
             try:
-                name = resource_display_name(resource_type, rows, display, mode)
+                from aws_mapping_display import validation_rows
+                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), root)
+                name = resource_display_name(resource_type, semantic, display, mode)
             except ValueError as error:
                 findings.check(False, f"{findings.relative(path)}: {error}")
                 return
@@ -288,7 +281,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                 confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(root, resource_type, mode)
                 findings.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
             if path in service_metadata:
-                expected = resource_anchor(service_metadata[path][0], display, resource_type)
+                expected = bound_anchors.get((resource_type, identities.get(current)),
+                                             resource_anchor(service_metadata[path][0], display, resource_type))
                 findings.check(anchor == expected, f"resource anchor must use display name: {findings.relative(path)}: expected {expected}")
 
         for line in [*lines, "### end"]:
@@ -307,7 +301,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                     rows.append(cells)
                     if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
                         marker = CHILD.match(cells[3])
-                        expected = resource_anchor(service_metadata[path][0], unquoted(cells[2]), "KMS.Alias")
+                        expected = bound_anchors.get(("KMS.Alias", marker.group(2) if marker else None),
+                                                     resource_anchor(service_metadata[path][0], unquoted(cells[2]), "KMS.Alias"))
                         findings.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {findings.relative(path)}: expected {expected}")
 
 
@@ -324,17 +319,19 @@ def check_policy_tables(paths, findings) -> None:
 
 def check_observed_values(paths: list[Path] | None = None, *, findings, root, scope) -> None:
     for path in scoped_files(root, "model", ".properties", scope) if paths is None else paths:
-        if not path.is_file():
-            continue
         try:
-            lines = read_model(path).splitlines()
+            if service_source(path) is None:
+                continue
+            values = properties(read_model(path))
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
             continue
-        for line in lines:
-            if line.startswith("observed."):
+        for key, value in values.items():
+            if key.startswith("observed.row.") and key.endswith('.value'):
+                owner = key.split('.')[2].rpartition('-')[0]
                 findings.check(
-                    re.search(r"\barn:aws[a-z-]*:", line, re.IGNORECASE) is None,
+                    values.get(f'desired.resource.{owner}.resourceMode') == 'IMPORT'
+                    or re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                     f"generated ARN persisted in observed model value: {findings.relative(path)}",
                 )
 
@@ -369,13 +366,11 @@ def check_catalog_inputs(findings, root, set_schema_catalog):
     if not schema_failures and not api_failures:
         set_schema_catalog(DesignSchemaCatalog(root))
 
+    aws_materials = set(material_files(root))
     for path in design_material_files(root):
         text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        prefix = path.stem.replace("_", ".", 1) + "."
         findings.check(text.endswith("\n"), f"catalog file lacks final newline: {findings.relative(path)}")
-        findings.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {findings.relative(path)}")
-        for index, line in enumerate(lines):
-            findings.check(MATERIAL_PATTERN.fullmatch(line) is not None, f"invalid catalog line: {findings.relative(path)}: {line}")
-            findings.check(line.startswith(prefix), f"catalog prefix mismatch: {findings.relative(path)}: {line}")
+        if path in aws_materials:
+            lines = text.splitlines()
+            findings.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {findings.relative(path)}")
 

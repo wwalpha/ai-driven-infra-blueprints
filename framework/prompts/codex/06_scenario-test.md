@@ -36,7 +36,7 @@ Do not execute scenarios requiring AWS mutation or destructive operations until 
 6. Target `tests/scenarios/<scenario-id>/`
 7. Target `tests/results/<scenario-id>/<environment>/<target-directory>/`
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
-9. Read necessary `model/<environment>/<target-directory>/<service-id>.properties` as authoritative read-only design input
+9. Read necessary runtime Models through logical `model/<environment>/<target-directory>/<service-id>.properties` selectors as read-only design input
 - [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md).
 
 Obtain design values from `desired.*` and necessary current identifiers from `observed.*`. Check entry indexes, locate needed properties/identifiers with existing `model_files.py --find`, and partially read only target resources and necessary referenced resources with `model_files.py --resource`. For split models, load only relevant portions of required parts into LLM context; do not preread generated `docs/designs/**` Markdown bodies as ordinary design input.
@@ -61,7 +61,7 @@ As the first repository change, newly register `tasks/<task-name>.md` under the 
 - Map `Acceptance checks` to each Requirement ID using `changed:` for target scenario files and result files.
 - Record AWS mutation and destructive operation values exactly as confirmed in User input.
 - Limit Allowed paths to target `tests/scenarios/<scenario-id>/**`, `tests/results/<scenario-id>/<environment>/<target-directory>/**`, and `tasks/<task-name>.md` only.
-- Changes to `docs/**`, `model/**`, and `infra/**` are prohibited.
+- Changes to `docs/**`, `model/parameters/**`, `model/templates/**`, and `infra/**` are prohibited.
 
 ## Define and execute
 

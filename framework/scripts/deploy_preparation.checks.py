@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Offline preparation, reservation, dependency and timing regressions; no consumer/AWS."""
+from model_files import read_model
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model, write_fixture_files
 from contextlib import redirect_stdout, redirect_stderr
 import io
 import hashlib
@@ -28,7 +30,7 @@ STACKS = ["cfn-stack-app-dev-one", "cfn-stack-app-dev-two"]
 
 def fixture(root):
     (root / "framework/scripts").mkdir(parents=True)
-    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "requirements-aws-compare.txt"):
+    for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "sync_files.py", "requirements.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
     shutil.copytree(ROOT / "framework/scripts/deployment", root / "framework/scripts/deployment")
     shutil.copytree(ROOT / "framework/rules", root / "framework/rules")
@@ -46,16 +48,15 @@ def fixture(root):
         values.update({f"desired.stack.{i:03d}.{key}": value for key, value in {
             "name": name, "template": "shared.yaml", "parameters": f"{i}.json", "deployOrder": str(i * 10)}.items()})
         values[f"display.stack.{i:03d}.comment"] = "アプリケーションの配置"
-    (model / "cloudformation-stacks.properties").write_text("\n".join(f"{k}={v}" for k, v in values.items()), encoding="utf-8")
+    write_model(model / "cloudformation-stacks.properties", "\n".join(f"{k}={v}" for k, v in values.items()))
     view = design / "cloudformation-stacks.md"
     view.write_text(markdown_for(view, values, root), encoding="utf-8")
     # Exercise the existing split reader and reservations for observed-driven part growth.
     text = "\n".join(f"desired.row.001-{i:03d}.{field}={value}" for i in range(1, 205)
                      for field, value in (("property", "EC2.VPC.VpcId"), ("value", "[vpc](#ec2-vpc)"), ("comment", "識別子"))) + "\n"
     source = model / "ec2.properties"
-    for path, content in model_file_contents(source, text).items():
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+    text += "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-vpc\n"
+    write_model(source, text)
     (design / "ec2.md").write_text("# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8")
     # A real JSON-owning model; the synthetic EC2 view above only measures I/O.
     examples = M.module("preparation_model_examples", ROOT / "framework/scripts/model_design.checks.py")
@@ -65,7 +66,7 @@ def fixture(root):
     ], "WorkerRole")
     document = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}
     values["desired.row.001-002.document"] = json.dumps(document, separators=(",", ":"))
-    (model / "iam.properties").write_text(examples.text(values), encoding="utf-8")
+    write_model(model / "iam.properties", examples.text(values))
     (design / "iam").mkdir()
     (design / "iam/worker-role-trust-policy.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     (design / "iam.md").write_text(markdown_for(design / "iam.md", values, ROOT), encoding="utf-8")
@@ -89,6 +90,8 @@ REAL_RUN = subprocess.run
 
 def invoke(args):
     def local_contract(command, **kwargs):
+        if command == [sys.executable, "-m", "pip", "check"]:
+            return REAL_RUN(command, **kwargs)
         assert command[:2] == [sys.executable, str(Path(command[1]).parents[2] / "framework/scripts/task_contract.py")], "preparation invoked AWS/controller"
         return REAL_RUN(command, **kwargs)
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
@@ -115,7 +118,9 @@ def check_preparation():
         assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
         text = (run / "contract.md").read_text(encoding="utf-8")
         reserved = paths_in(text, "## Modified files")
-        assert "model/dev/123456789012/ec2/part-003.properties" in reserved
+        assert "model/parameters/dev/123456789012/ec2/observed.json" in reserved
+        from model_templates import source_paths
+        assert not any(source_paths(root/p) is not None or p.endswith("source.json") for p in reserved)
         assert {p for p in reserved if p.startswith("infra/")} == {
             "infra/cloudformation/templates/shared.yaml",
             "infra/cloudformation/parameters/dev/123456789012/1.json",
@@ -135,9 +140,9 @@ def check_preparation():
         assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()}
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
-        assert all(p.relative_to(root).as_posix() in documents for p in [entrance, *model_parts(entrance)])
-        iam = documents["model/dev/123456789012/iam.properties"]
-        assert "desired.row.001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
+        assert all(p.relative_to(root).as_posix() in documents for p in __import__("model_templates").source_inputs(entrance))
+        iam = documents["model/templates/123456789012/iam.properties.tpl"]
+        assert "desired.row.row_001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
         assert all("infra/cloudformation/parameters/dev/123456789012/" + str(i) + ".json" in documents for i in (1, 2))
         assert "AGENTS.md" in documents
         assert all(name in plan["controllerArgv"] for name in STACKS)
@@ -195,7 +200,7 @@ def check_stale_and_conflicts():
                     generated.write_text("changed", encoding="utf-8")
             elif reason == "model":
                 source = root / "model/dev/123456789012/iam.properties"
-                source.write_text(source.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+                write_model(source, read_model(source) + "# changed\n")
             elif reason == "input":
                 # Unread sections still invalidate the full-file immutable input guard.
                 path_to_rule = root / "framework/rules/model-information.md"
@@ -228,23 +233,23 @@ def check_generated_boundaries():
         root = base / "repo"
         fixture(root)
         source = root / "model/dev/123456789012/iam.properties"
-        original = source.read_text(encoding="utf-8")
-        source.write_text("\n".join(line for line in original.splitlines() if ".document=" not in line) + "\n", encoding="utf-8")
+        original = read_model(source)
+        write_model(source, "\n".join(line for line in original.splitlines() if ".document=" not in line) + "\n")
         try:
             M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         except ValueError as error:
             assert all(value in str(error) for value in ("authoritative JSON document missing", "resource 001", "row 001-002", "iam/worker-role-trust-policy.json"))
         else:
             raise AssertionError("missing document accepted")
-        source.write_text(original, encoding="utf-8")
-        source.write_text(original.replace("iam/worker-role-trust-policy.json", "ec2/worker-role-trust-policy.json"), encoding="utf-8")
+        write_model(source, original)
+        write_model(source, original.replace("iam/worker-role-trust-policy.json", "ec2/worker-role-trust-policy.json"))
         try:
             M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         except ValueError as error:
             assert "belong to selected service" in str(error)
         else:
             raise AssertionError("foreign JSON accepted")
-        source.write_text(original, encoding="utf-8")
+        write_model(source, original)
         controller = M.module("boundary_controller", root / "framework/scripts/cloudformation-deploy.py")
         real_module = M.module
         real_load = controller.load_units
@@ -341,6 +346,18 @@ def check_dependencies_and_timing():
             assert all(name in str(error) for name in ("boto3", "botocore", "PyYAML", "cfn-lint", "aws", "git"))
         else:
             raise AssertionError("missing dependencies accepted")
+    with patch.object(M.importlib, "import_module"), patch.object(M.importlib.metadata, "version", return_value="different.patch"), patch.object(M.shutil, "which", return_value="tool"), patch.object(M.subprocess, "run") as run:
+        run.return_value.returncode = 0
+        assert M.environment(ROOT)["versions"]["boto3"] == "different.patch"
+        assert run.call_args.args[0] == [sys.executable, "-m", "pip", "check"]
+        run.return_value.returncode = 1
+        run.return_value.stdout, run.return_value.stderr = "conflicting dependency", ""
+        try:
+            M.environment(ROOT)
+        except ValueError as error:
+            assert "conflicting dependency" in str(error)
+        else:
+            raise AssertionError("pip check failure accepted")
     with tempfile.TemporaryDirectory() as directory:
         try:
             M.Timing(Path(directory), Path(directory) / "timing.jsonl")
@@ -396,11 +413,13 @@ def check_rule_section_boundaries():
 
 
 if __name__ == "__main__":
-    check_rule_section_boundaries()
-    check_dependencies_and_timing()
-    check_preparation()
-    check_stale_and_conflicts()
-    check_generated_boundaries()
-    check_service_generated_equality()
-    check_workflow_contract()
-    print("Deployment preparation checks: PASS")
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        check_rule_section_boundaries()
+        check_dependencies_and_timing()
+        check_preparation()
+        check_stale_and_conflicts()
+        check_generated_boundaries()
+        check_service_generated_equality()
+        check_workflow_contract()
+        print("Deployment preparation checks: PASS")

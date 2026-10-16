@@ -20,7 +20,7 @@ def rejected(operation, exception=ValueError):
         operation()
     except exception:
         return
-    raise AssertionError("unsafe authorization/registration was accepted")
+    raise AssertionError("unsafe authorization/service_source was accepted")
 
 
 def main():
@@ -35,13 +35,13 @@ def main():
         with patch.object(guard, "__file__", str(root / "framework/scripts/regression_guard.py")), \
              patch.object(guard, "password_input", return_value=password) as entry:
             guard.install()
-            assert [path.name for path in root.iterdir()] == [".lock"], "registration created extra files/directories"
+            assert [path.name for path in root.iterdir()] == [".lock"], "service_source created extra files/directories"
             saved = lock.read_text(encoding="utf-8")
             assert password not in saved
             entry.reset_mock()
             rejected(guard.install)
             entry.assert_not_called()
-            assert lock.read_text(encoding="utf-8") == saved, "registration overwrote existing .lock"
+            assert lock.read_text(encoding="utf-8") == saved, "service_source overwrote existing .lock"
         record = json.loads(saved)
         assert record["version"] == 1 and len(bytes.fromhex(record["salt"])) == 16
         assert bytes.fromhex(record["hash"]) == guard.password_hash(password, bytes.fromhex(record["salt"]))
@@ -85,7 +85,7 @@ def main():
                  patch.object(guard, "install", side_effect=error), redirect_stderr(output):
                 assert guard.main() == 2
             assert visible in output.getvalue() and "fixture-private-password-and-hash" not in output.getvalue()
-    print("regression_guard: PASS (single repo .lock, preserved registration, password matching and failure checks)")
+    print("regression_guard: PASS (single repo .lock, preserved service_source, password matching and failure checks)")
 
 
 if __name__ == "__main__":

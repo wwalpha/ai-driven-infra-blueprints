@@ -6,6 +6,7 @@ from design_document import DesignIndex
 from model_core import properties
 from model_projection import model_for, identifier_outputs
 from design_layout import STACK_DESIGN
+from aws_mapping_display import projection
 from validation_cache import input_scope
 
 
@@ -42,12 +43,12 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
                    design_index: DesignIndex | None = None) -> None:
     """Use the existing parsers/schema validator before touching any saved view."""
-    design_index = design_index or DesignIndex()
+    design_index = design_index or DesignIndex(root)
     for path in paths:
         source = sources[root / path.relative_to(stage)]
         actual = properties(model_for(path, root, source=source, design_index=design_index))
         # CFn identity is model-only and has no Markdown projection.
-        formal = {key: value for key, value in source.items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
+        formal = {key: value for key, value in projection(source, root).items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
         if path.name == STACK_DESIGN:
             from model_core import stack_model, deployment_settings

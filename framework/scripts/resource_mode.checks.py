@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """CREATE compatibility and IMPORT's naming-only exemption through generated views."""
+from test_support.model_sources import snapshot_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from model_files import read_model
+from test_support.model_sources import write_model
 import sync_views
 import model_projection
 import json
@@ -75,13 +78,14 @@ def main():
 
         def check(values):
             original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
-            source.write_text(original, encoding="utf-8")
+            write_model(source, original)
+            original = read_model(source)
             try:
                 path.write_text(markdown_for(path, values, root), encoding="utf-8")
                 sync_views.validate_views(root, root, [path], {path: values})
             except (ValueError, KeyError) as error:
                 return str(error)
-            assert source.read_text(encoding="utf-8") == original
+            assert read_model(source) == original
             projected = properties(model_projection.model_for(path, root))
             assert projected == {key: value for key, value in values.items() if not key.startswith("display.")}
             assert "resource-mode:" not in path.read_text(encoding="utf-8")
@@ -134,7 +138,7 @@ def main():
         bad = {**imported, "desired.row.001-004.property": "EC2.VPC.EnableDnsSupport",
                "desired.row.001-004.value": "broken", "desired.row.001-004.comment": "DNS解決の有効化"}
         assert "provider schema violation" in check(bad)
-        assert "not selected by design catalog" in check({**bad, "desired.row.001-004.property": "EC2.VPC.Unknown"})
+        assert "display Mapping property missing: EC2.VPC.Unknown" in check({**bad, "desired.row.001-004.property": "EC2.VPC.Unknown"})
         assert "invalid resource row" in check({key: value for key, value in imported.items() if key != "desired.row.001-001.comment"})
         # The EC2 tag schema specifies string only; use its actual boolean constraint above.
         assert "requires the corresponding Tags[].Value" in check({
@@ -176,10 +180,10 @@ def main():
         assert naming_errors(root, "IAM.Role", [], "IMPORT")
         assert naming_errors(root, "CodeBuild.Project", [], "IMPORT")
         assert not (error := check(imported)), error
-        before = source.read_bytes()
+        before = snapshot_model(source)
         assert SYNC.sync(root, True, "dev", "123456789012", services=["ec2"]) == 0
         assert SYNC.sync(root, False, "dev", "123456789012", services=["ec2"]) == 0
-        assert source.read_bytes() == before
+        assert snapshot_model(source) == before
         assert "PRIVATE_SUBNET_01" in path.read_text(encoding="utf-8")
         # Identified grouped children carry their own mode without a new property row.
         kms_path = path.with_name("kms.md")
@@ -217,4 +221,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

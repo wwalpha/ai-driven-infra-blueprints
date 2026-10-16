@@ -1,4 +1,6 @@
 # AGENTS.md
+IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](framework/rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+
 
 Operate this repository in Codex with the repository root as the working directory.
 
@@ -9,8 +11,8 @@ Operate this repository in Codex with the repository root as the working directo
 - Apply unresolved-issue stop decisions and the exceptions for explicit repair and save-only tasks.
 - Perform AWS mutation and deploy/apply only within the permission scope explicitly stated by the infrastructure contract. Limit design AWS APIs to read-only retrieval of explicitly specified existing resources.
 - `framework/materials/aws/` is an immutable catalog that ordinary tasks do not change. `docs/system-overview.md` is a background reference; do not uniformly treat `UNSET` as a blocker.
-- Treat `model/**/*.properties` as the authority for design values and generate Markdown/JSON. Do not persist generated ARNs.
-- After changes, run the local loop corresponding to the task type; mark completed only after success.
+- Follow [service Model sources](framework/rules/model-templates.md): service templates, parameters.yaml, bindings.json and optional environment observed values are authoritative; Models expand at runtime. Observed metadata derives from desired; absent observed means unobserved. Human inputs use parameters.yaml. Generate Markdown/JSON; do not persist generated ARNs.
+- Follow [Validation policy](framework/rules/loop-engineering.md#validation-policy) for development checks and classified final validation; mark completed only after the required checks succeed.
 - Apply [Debug read reporting](framework/rules/debug-read-reporting.md) from task start only for tasks whose Human active task instruction explicitly specifies `debug` as the execution mode. For ordinary tasks, do not perform this rule's additional reads, tracking, report generation, or saving; do not save the mode or carry it into the next task.
 
 ## Task transition

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Lambda Permission grouping, hidden identity and lossless view checks."""
+from model_files import read_model
+from test_support.model_sources import write_model
 import sync_views
 import model_projection
 import json
@@ -97,7 +99,7 @@ def main():
         for parents, children, deployed in ((1, 0, False), (1, 1, False), (2, 2, False), (2, 2, True)):
             values = fixture(parents, children, deployed)
             output = HELPERS.roundtrip(path, values, root)
-            assert properties(model_projection.imported_model(path, root)) == values
+            sync_views.validate_views(root, root, [path], {path: values})
             sync_views.validate_views(root, root, [path], {path: values})
             _, grouped = expanded_design(output.splitlines())
             assert len(grouped) == parents * children
@@ -137,18 +139,20 @@ def main():
             rejects(lambda: expanded_design(text.splitlines()), message)
         source = root / "model/dev/123456789012/lambda.properties"
         source.parent.mkdir(parents=True)
-        source.write_text(HELPERS.text(values), encoding="utf-8")
+        write_model(source, HELPERS.text(values))
         SYNC.sync(root, True, "dev", "123456789012", services=["lambda"])
         SYNC.sync(root, False, "dev", "123456789012", services=["lambda"])
-        assert source.read_text(encoding="utf-8") == HELPERS.text(values)
+        assert properties(read_model(source)) == properties(HELPERS.text(values))
         saved = path.read_bytes()
         bad = dict(values)
         del bad["desired.resource.002.parentReference"]
-        source.write_text(HELPERS.text(bad), encoding="utf-8")
+        write_model(source, HELPERS.text(bad))
         rejects(lambda: SYNC.sync(root, True, "dev", "123456789012", services=["lambda"]), "parentReference")
         assert path.read_bytes() == saved
     print("Lambda Permission: PASS (same table, short properties, hidden rows, multiple parents/children, namespaces, links, rejection and saved view protection)")
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

@@ -22,6 +22,8 @@ class DesignView:
     """A selected set of lines; callers treat parser outputs as read-only."""
 
     lines: tuple[str, ...]
+    root: Path | None = field(default=None, repr=False, compare=False)
+    bound_anchors: dict[tuple[str, str], str] = field(default_factory=dict, repr=False, compare=False)
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
     @cached_property
@@ -35,7 +37,7 @@ class DesignView:
 
     @cached_property
     def _expanded(self) -> tuple[tuple[str, ...], dict[str, dict]]:
-        lines, children = expanded_design(list(self.lines), logical_ids=self.logical_ids)
+        lines, children = expanded_design(list(self.lines), logical_ids=self.logical_ids, bound_anchors=self.bound_anchors, root=self.root)
         return tuple(lines), children
 
     @property
@@ -45,7 +47,7 @@ class DesignView:
 
     @cached_property
     def _display_lines(self) -> tuple[str, ...]:
-        return tuple(expanded_display_rows(security_group_table_lines(list(self.lines))))
+        return tuple(expanded_display_rows(security_group_table_lines(list(self.lines), self.root), self.root))
 
     @property
     def display_lines(self) -> tuple[str, ...]:
@@ -57,6 +59,7 @@ class DesignView:
 class DesignDocument:
     path: Path
     text: str
+    root: Path | None = None
     _views: dict[tuple[frozenset[str] | None, bool], DesignView] = field(default_factory=dict, repr=False, compare=False)
     _parses: dict[tuple[str, ...], DesignView] = field(default_factory=dict, repr=False, compare=False)
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
@@ -83,7 +86,9 @@ class DesignDocument:
         lines = tuple(lines)
         with self._lock:
             if lines not in self._parses:
-                self._parses[lines] = DesignView(lines)
+                from model_references import bound_resource_anchors
+                self._parses[lines] = DesignView(lines, self.root, bound_resource_anchors(self.path)
+                                               if any(line.startswith('### ') for line in lines) else {})
             return self._parses[lines]
 
     @property
@@ -112,7 +117,8 @@ class DesignDocument:
 class DesignIndex:
     """Path -> immutable text snapshot; explicitly scoped to a read-only phase."""
 
-    def __init__(self) -> None:
+    def __init__(self, root: Path | None = None) -> None:
+        self.root = root
         self._documents: dict[Path, DesignDocument] = {}
         self._lock = RLock()
 
@@ -120,7 +126,8 @@ class DesignIndex:
         path = path.resolve()
         with self._lock:
             if path not in self._documents:
-                document = DesignDocument(path, path.read_text(encoding="utf-8"))
+                document = DesignDocument(path, path.read_text(encoding="utf-8"), self.root or next(
+                    (parent for parent in path.parents if (parent / "framework/mappings/aws").is_dir()), None))
                 # Construct these cheap text views once before sharing across workers.
                 document.lines, document.anchors, document.visible_text
                 self._documents[path] = document

@@ -4,7 +4,10 @@
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import pytest
+
+pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 from test_support.pytest_cli import run
 import sync_runtime
 import model_design
@@ -16,7 +19,7 @@ import shutil
 from pathlib import Path
 from test_support.validator import load
 
-from design_layout import DISPLAY_PROPERTY_ALIASES, HIDDEN_PROPERTIES, LAYOUTS, RESOURCE_REFERENCE_PROPERTIES, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
+from design_layout import HIDDEN_PROPERTIES, LAYOUTS, RESOURCE_REFERENCE_PROPERTIES, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
 from policy_tables import resources_in
 from service_rows import pipeline_rows
 from model_display import display_rows, row_table
@@ -196,7 +199,11 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
     assert "desired.row.002-002.value=`30`" in model
     assert "desired.row.002-003.value=[AppKey](#secretsmanager-app-dev-key)" in model
     assert "observed.row.002-003" not in model
-    values = model_core.properties(model_projection.imported_model(path, REPOSITORY))
+    values = model_core.properties(model)
+    values.update({'display.service.title': '# Secrets Manager 詳細設計',
+                   'display.resource.001.comment': '定期更新する連携用key',
+                   'display.resource.003.comment': '連携用token',
+                   'display.resource.002.label': 'app-dev-key_rotate'})
     rendered = model_design.markdown_for(path, values, REPOSITORY)
     assert rendered == text
     assert not errors(rendered), errors(rendered)
@@ -691,6 +698,13 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
 
 
 def check_config_firehose_references(tmp_path, catalog) -> None:
+    from design_layout import is_import_pending_reference
+    assert is_import_pending_reference("Config.ConfigurationRecorder.RoleARN", "Pending")
+    assert not is_import_pending_reference("Config.ConfigurationRecorder.RoleARN", "`Pending`")
+    assert not is_import_pending_reference("Config.DeliveryChannel.S3BucketName", "Pending")
+    assert is_import_pending_reference("KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN", "Pending")
+    assert not is_import_pending_reference("KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN", "Pending")
+    assert not is_import_pending_reference("KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN", "`arn:aws:s3:::dummy`")
     def design(service, kind, rows):
         return "\n".join([
             f"# {service} 詳細設計", f"- Design service ID: `{service}`",
@@ -809,7 +823,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})
     model_path = root / "model/dev/123456789012/config.properties"
     model_path.parent.mkdir(parents=True)
-    model_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+    write_model(model_path, "".join(f"{key}={value}\n" for key, value in values.items()))
     path.unlink()
     assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
     assert "| RoleName | `AWSServiceRoleForConfig` |" in path.read_text(encoding="utf-8")
@@ -964,8 +978,6 @@ def check_workflow(tmp_path, catalog) -> None:
     for kind in LAYOUTS:
         assert formal_property(kind + ".Name", "S3.Bucket") == kind + ".Name"
         assert formal_property(kind + "Extra.Name", "S3.Bucket") == "S3.Bucket." + kind + "Extra.Name"
-    for alias in DISPLAY_PROPERTY_ALIASES:
-        assert formal_property(alias, "S3.Bucket") == alias
     assert formal_property("BucketName", "S3.Bucket") == "S3.Bucket.BucketName"
     assert formal_property("BucketName", "") == "BucketName"
     assert not layout_errors(REPOSITORY)
@@ -1079,12 +1091,7 @@ def check_workflow(tmp_path, catalog) -> None:
     layout_path = root / "framework/rules/resource-layout.json"
     layout_path.parent.mkdir(parents=True)
     layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")
-    alias_path = layout_path.with_name("display-property-aliases.json")
-    shutil.copy(REPOSITORY / "framework/rules/display-property-aliases.json", alias_path)
     assert not layout_errors(root)
-    alias_path.write_text(json.dumps({"S3.Bucket.BucketEncryption[].SSEAlgorithm": "S3.Bucket.Unknown"}), encoding="utf-8")
-    assert any("invalid display property alias" in error for error in layout_errors(root))
-    shutil.copy(REPOSITORY / "framework/rules/display-property-aliases.json", alias_path)
     (root / "framework/materials/aws/Example_Child.properties").write_text("Example.Child.Name=\n", encoding="utf-8")
     assert any("unclassified=['Example.Child']" in error for error in layout_errors(root))
     broken = {**LAYOUTS, "Example.Child": "independent", "KMS.Alias": {**LAYOUTS["KMS.Alias"], "parentProperty": "Missing"}}

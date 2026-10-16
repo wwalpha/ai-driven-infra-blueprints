@@ -63,7 +63,12 @@ def fixture(branch="main"):
 
 def cli(root, command, task_id="example", success=True, approval=None):
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
-    result = subprocess.run([sys.executable, "-B", str(SCRIPT), command,
+    # Package setup is covered separately; Git safety cases use an offline stub.
+    result = subprocess.run([sys.executable, "-B", "-c",
+                             "import sys; from unittest.mock import patch; "
+                             f"sys.path.insert(0, {str(SCRIPT.parent)!r}); import worktree_task as wt; "
+                             "p=patch.object(wt.python_env, 'setup', return_value={'status':'ready'}); p.start(); "
+                             "raise SystemExit(wt.main())", command,
                              "--repository-root", str(root), "--task-id", task_id,
                              *(["--human-approved-validation-failure", approval] if approval is not None else [])],
                             cwd=root, env=environment, capture_output=True, encoding="utf-8")
@@ -76,6 +81,8 @@ def cli(root, command, task_id="example", success=True, approval=None):
 def start(root, task_id="example", files=("file.txt",)):
     state = cli(root, "create", task_id)
     target = Path(state["worktree"])
+    assert target == Path(state["primary"]) / ".worktrees" / task_id
+    assert not (Path(state["primary"]) / ".worktree").exists()
     tasks.start(target, state["task_file"], contract(task_id, files))
     return target, state
 
@@ -119,8 +126,34 @@ def check_success_and_empty():
     print("Normal/zero-change lifecycle: PASS")
 
 
+def check_finalize_line_endings():
+    for newline in (b"\n", b"\r\n"):
+        for staged in (False, True):
+            for suffix in (b"", b"  ", b"\t"):
+                with fixture() as root:
+                    git(root, "config", "core.whitespace", "blank-at-eol,blank-at-eof,space-before-tab")
+                    target, state = start(root)
+                    content = b"task" + suffix + newline
+                    (target / "file.txt").write_bytes(content)
+                    if staged:
+                        git(target, "add", "file.txt")
+                    finish_contract(target, state)
+                    before = git(root, "rev-parse", "HEAD")
+                    result = cli(root, "finalize", success=not suffix)
+                    if suffix:
+                        assert "trailing whitespace" in result["error"]
+                        retained(root, target, state, before)
+                        assert git(target, "rev-parse", "HEAD") == state["start"]
+                    else:
+                        assert result["cleaned"]
+                        assert (root / "file.txt").read_bytes() == content
+                    assert git(root, "config", "core.whitespace") == "blank-at-eol,blank-at-eof,space-before-tab"
+    print("LF/CRLF integration and real trailing whitespace rejection: PASS")
+
+
 def check_incomplete_and_ownership():
-    for mode in ("running", "suspend", "deferred", "outside", "foreign", "unexpected-commit", "git-conflict"):
+    for mode in ("running", "suspend", "deferred", "outside", "foreign", "unexpected-commit", "git-conflict",
+                 "missing-python-setup", "missing-python-status"):
         with fixture() as root:
             target, state = start(root)
             (target / "file.txt").write_text("task\n")
@@ -133,6 +166,14 @@ def check_incomplete_and_ownership():
                 text = path.read_text().replace("- Task status: `running`", "- Task status: `completed`")
                 text = text.replace("## Active files\n\n- `file.txt`\n", "## Active files\n\n")
                 path.write_text(text.replace("## Deferred files\n", "## Deferred files\n\n- `file.txt`\n"))
+            elif mode in ("missing-python-setup", "missing-python-status"):
+                finish_contract(target, state)
+                _, _, path, record = wt.load(root, "example")
+                if mode == "missing-python-setup":
+                    record.pop("python_setup")
+                else:
+                    record["python_setup"].pop("status")
+                wt.save(path, record)
             elif mode in ("outside", "foreign", "unexpected-commit", "git-conflict"):
                 finish_contract(target, state)
                 if mode == "outside":
@@ -147,7 +188,9 @@ def check_incomplete_and_ownership():
                     task_head = git(target, "rev-parse", "HEAD")
                 else:
                     (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
-            cli(root, "finalize", success=False)
+            result = cli(root, "finalize", success=False)
+            if mode in ("missing-python-setup", "missing-python-status"):
+                assert "Python setup is incomplete" in result["error"], mode
             retained(root, target, state, before)
             assert git(target, "rev-parse", "HEAD") == task_head, mode
             assert (target / "file.txt").read_text() == "task\n"
@@ -233,6 +276,87 @@ def check_collisions_and_base_selection():
     with fixture("feature") as root:
         assert "no configured base" in cli(root, "create", success=False)["error"]
     print("Branch/path/stale collisions and configured/main/master base: PASS")
+
+
+def check_directory_layout():
+    with fixture() as root:
+        ignore = root / ".gitignore"
+        ignore.write_text(ignore.read_text().replace("/.worktrees/\n", ""), encoding="utf-8")
+        git(root, "add", ".gitignore")
+        git(root, "commit", "-qm", "missing worktree ignore")
+        assert "/.worktrees/ must be ignored" in cli(root, "create", success=False)["error"]
+        assert not (root / ".worktrees").exists() and not wt.branch_exists(root, "codex/worktree/example")
+    with fixture() as root:
+        target, state = start(root)
+        _, _, path, _ = wt.load(root, "example")
+        for invalid in (root / ".other/example", root / ".worktrees/other",
+                        root / ".worktrees/example/extra", root / ".git/worktrees/example"):
+            wt.save(path, {**state, "worktree": str(invalid)})
+            assert "state does not match" in cli(root, "setup", success=False)["error"]
+        wt.save(path, state)
+        legacy = root / ".worktree/example"
+        legacy.parent.mkdir()
+        git(root, "worktree", "move", target, legacy)
+        state["worktree"] = str(legacy)
+        wt.save(path, state)
+        for command in ("setup", "finalize", "cleanup"):
+            assert "state does not match" in cli(legacy, command, success=False)["error"]
+        assert legacy.is_dir() and (root / "file.txt").read_text() == "original\n"
+        assert wt.branch_exists(root, state["branch"])
+    print("Repo-root .worktrees creation/ignore, invalid paths and unsupported .worktree rejection: PASS")
+
+
+def check_metadata_storage():
+    with fixture() as root:
+        target, first = start(root, "one")
+        other, second = start(target, "two")
+        directory = root / ".worktrees/.blueprint"
+        path = directory / "tasks/one.json"
+        sibling = directory / "tasks/two.json"
+        assert wt.load(target, "one")[2] == path
+        assert wt.load(other, "one")[2] == path
+        assert json.loads(path.read_text(encoding="utf-8"))["worktree"] == str(target)
+        assert sibling.is_file() and not path.with_suffix(".tmp").exists()
+        assert not (root / ".git/blueprint-worktree-tasks").exists()
+        assert not (root / ".git/blueprint-worktree-lifecycle.lock").exists()
+        assert not (target / ".worktrees").exists()
+        with wt.lifecycle_lock(root):
+            lock = directory / "lifecycle.lock"
+            assert lock.is_dir()
+            assert "lifecycle busy" in cli(other, "setup", "two", success=False)["error"]
+            assert lock.is_dir() and not sibling.with_suffix(".setup-lock").exists()
+        assert not lock.exists()
+        # Old metadata and locks neither authorize a task nor block the new lifecycle.
+        old = root / ".git/blueprint-worktree-tasks/one.json"
+        old.parent.mkdir()
+        old.write_text("invalid old state", encoding="utf-8")
+        (root / ".git/blueprint-worktree-lifecycle.lock").mkdir()
+        saved = path.read_bytes()
+        path.unlink()
+        assert "one.json" in cli(target, "setup", "one", success=False)["error"]
+        path.write_bytes(saved)
+        cli(other, "setup", "one")
+        sibling_before = sibling.read_bytes()
+        finish_contract(target, first)
+        assert cli(target, "finalize", "one")["cleaned"]
+        assert not path.exists() and not target.exists()
+        assert sibling.read_bytes() == sibling_before and other.is_dir()
+        assert old.read_text(encoding="utf-8") == "invalid old state"
+        cli(root, "setup", "two")
+        finish_contract(other, second)
+        assert cli(root, "finalize", "two")["cleaned"]
+        assert directory.is_dir() and not list((directory / "tasks").iterdir())
+    for relative in (".worktrees", ".worktrees/.blueprint", ".worktrees/.blueprint/tasks"):
+        with fixture() as root:
+            external = root.parent / "external"
+            external.mkdir()
+            link = root / relative
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(external, target_is_directory=True)
+            assert "metadata must not use symlinks" in cli(root, "create", success=False)["error"]
+            assert not list(external.iterdir())
+            assert not wt.branch_exists(root, "codex/worktree/example")
+    print("Shared .worktrees/.blueprint state/locks, no old-location fallback, sibling retention and symlink guards: PASS")
 
 
 def check_cleanup_failure_and_retry():
@@ -370,7 +494,8 @@ def check_real_loop_integration():
     spec.loader.exec_module(loop_checks)
     with fixture() as root:
         loop_checks.make_framework_fixture(SCRIPT.parents[2], root)
-        for name in ("docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
+        for name in ("docs/designs", "model/parameters", "model/templates", "infra", "tests/scenarios", "tests/results"):
+            (root/name).mkdir(parents=True,exist_ok=True)
             (root / name / ".gitkeep").touch()
         # This fixture tests the real child loop, not recursively the entire regression.
         for path in (root / "framework/scripts").glob("*.checks.py"):
@@ -407,9 +532,10 @@ def check_real_loop_integration():
 
 
 def main():
-    for check in (check_success_and_empty, check_incomplete_and_ownership,
+    for check in (check_success_and_empty, check_finalize_line_endings, check_incomplete_and_ownership,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
-                  check_collisions_and_base_selection, check_cleanup_failure_and_retry,
+                  check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
+                  check_cleanup_failure_and_retry,
                   check_merge_retry_and_commit_failure,
                   check_human_approved_validation_failure, check_real_loop_integration):
         check()

@@ -51,8 +51,11 @@ def active_scope(root: Path, full: bool = False) -> set[tuple[str, str, str]] | 
 
 def scoped_files(root: Path, base: str, suffix: str, scope) -> list[Path]:
     directory = root / base
+    if base == 'model':
+        from model_templates import model_paths
+        return model_paths(root) if scope is None else sorted(directory/env/target/(service+suffix) for env,target,service in scope)
     if scope is None:
-        return sorted(directory.glob(f"*/*/*{suffix}")) if base == "model" else sorted(directory.rglob(f"*{suffix}"))
+        return sorted(directory.rglob(f"*{suffix}"))
     return sorted(path for environment, target, service in scope
                   if (path := directory / environment / target / f"{service}{suffix}").is_file())
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import os
@@ -14,11 +15,63 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
 from task_contract import (SELECTOR, task_path, task_changes, suspend, contracts, reservations,
                            bind_worktree, worktree_owner, local_contract)
+
+
+class StartupDiagnostics:
+    """Persist startup progress without depending on the console or timing log."""
+
+    def __init__(self, root, directory):
+        self.root = root
+        self.directory = directory
+        self.current = {"step": "diagnostics.start", "api": "pathlib.Path.open", "cwd": str(root)}
+
+    def record(self, event, **fields):
+        with (self.directory / "startup.jsonl").open("a", encoding="utf-8", errors="backslashreplace") as stream:
+            stream.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(),
+                                     "event": event, **self.current, **fields}, ensure_ascii=True) + "\n")
+            stream.flush()
+
+    @contextmanager
+    def step(self, name, api, **fields):
+        previous = self.current
+        self.current = {"step": name, "api": api, "cwd": str(self.root), **fields}
+        self.record("start")
+        yield
+        self.record("end")
+        self.current = previous
+
+    def print(self, message):
+        with self.step("stdout.print", "builtins.print"):
+            print(message)
+        with self.step("stdout.flush", "sys.stdout.flush"):
+            sys.stdout.flush()
+
+    def failure(self, error):
+        frames = traceback.extract_tb(error.__traceback__)
+        last = frames[-1] if frames else None
+        details = {**self.current, "exception_type": type(error).__name__, "message": str(error),
+                   "errno": getattr(error, "errno", None), "winerror": getattr(error, "winerror", None),
+                   "filename": getattr(error, "filename", None), "filename2": getattr(error, "filename2", None),
+                   "command": getattr(error, "cmd", None) or self.current.get("command"),
+                   "returncode": getattr(error, "returncode", None),
+                   "location": {"filename": last.filename, "line": last.lineno, "function": last.name,
+                                "source": last.line} if last else None,
+                   "traceback": "".join(traceback.format_exception(error))}
+        # A separate file still works when opening/writing startup.jsonl itself failed.
+        for save in (lambda: (self.directory / "startup-error.json").write_text(
+                json.dumps(details, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"),
+                     lambda: self.record("error", **details)):
+            try:
+                save()
+            except OSError:
+                pass
+        return details
 
 
 def changed_paths(root: Path) -> set[str]:
@@ -40,7 +93,8 @@ def framework_changed(paths: set[str]) -> bool:
 
 
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
-                 directory: Path, heartbeat_seconds: float = 30, jobs: int = 1) -> int:
+                 directory: Path, heartbeat_seconds: float = 30, jobs: int = 1,
+                 diagnostics=None) -> int:
     """Only adjacent regression scripts overlap; diagnostics retain command order."""
     started = time.perf_counter()
     failed = []
@@ -49,8 +103,11 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
     completed = {}
     next_index = 0
     displayed = 0
-    print(f"Local loop logs: {directory}", flush=True)
-    with (directory / "timing.jsonl").open("w", encoding="utf-8", buffering=1) as timing:
+    diagnostics = diagnostics or StartupDiagnostics(root, directory)
+    diagnostics.print(f"Local loop logs: {directory}")
+    with diagnostics.step("timing.open", "pathlib.Path.open", target_path=str(directory / "timing.jsonl")):
+        timing = (directory / "timing.jsonl").open("w", encoding="utf-8", buffering=1)
+    with timing:
         def record(event, **fields):
             timing.write(json.dumps({"event": event,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -70,7 +127,8 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
             completed[index] = (step, output, duration, result, error)
 
         record("loop_start", repository=str(root), pid=os.getpid(), python=sys.executable,
-               step_count=len(commands), jobs=jobs)
+               step_count=len(commands), jobs=jobs, python_version=sys.version,
+               hash_seed=environment.get("PYTHONHASHSEED"))
         try:
             while next_index < len(commands) or running:
                 while next_index < len(commands) and len(running) < jobs:
@@ -82,7 +140,7 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     step = "git-diff-check" if command[0] == "git" else Path(command[1]).name
                     output = directory / f"{index + 1:02d}-{step}.log"
                     began = time.perf_counter()
-                    record("step_start", step=step, output=str(output))
+                    record("step_start", step=step, output=str(output), command=command)
                     print(f"[{index + 1}/{len(commands)}] START {step}", flush=True)
                     stream = output.open("w", encoding="utf-8")
                     item = [None, stream, step, output, began, began]
@@ -155,24 +213,33 @@ def utf8_environment():
             "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 
-def utf8_preflight(directory, environment):
+def utf8_preflight(directory, environment, diagnostics=None):
+    diagnostics = diagnostics or StartupDiagnostics(Path.cwd(), directory)
     command = [sys.executable, "-X", "utf8", "-c",
                "from pathlib import Path; import sys; "
                "p=Path(sys.argv[1]); p.write_text('日本語', encoding='utf-8'); "
                "assert p.read_text(encoding='utf-8') == '日本語'; print('日本語')",
                str(directory / "utf8.txt")]
-    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8", check=True)
-    if result.stdout.strip() != "日本語":
-        raise ValueError("UTF-8 preflight failed")
-    (directory / "utf8.txt").unlink()
+    with diagnostics.step("utf8.subprocess", "subprocess.run", command=command):
+        result = subprocess.run(command, cwd=diagnostics.root, env=environment,
+                                capture_output=True, encoding="utf-8", check=True)
+    with diagnostics.step("utf8.output", "str.strip"):
+        if result.stdout.strip() != "日本語":
+            raise ValueError("UTF-8 preflight failed")
+    with diagnostics.step("utf8.cleanup", "pathlib.Path.unlink", target_path=str(directory / "utf8.txt")):
+        (directory / "utf8.txt").unlink()
 
 
 def select_checks(root, paths, affected=False):
     checks = sorted((root / "framework/scripts").glob("*.checks.py"))
+    if not checks:
+        raise ValueError("no framework regression checks discovered")
     if not affected:
         return checks, "all requested"
     # Exact paths only: unknown siblings and unresolved deletions stay full regression.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
+    mapping["framework/scripts/test_support/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
+    mapping["framework/scripts/test_support/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
     mapping["framework/scripts/blueprint-loop.py"] = {"blueprint-loop.checks.py"}
     mapping.update({f"framework/scripts/validation_checks/{name}.py": {"validate-blueprint.checks.py"}
                     for name in ("task", "design", "references", "cloudformation", "scope", "contracts")})
@@ -262,6 +329,9 @@ def staged_snapshot(root, args, directory, environment):
     for name, text in contracts(snapshot, include_foreign=True).items():
         if worktree_owner(text) is not None and local_contract(root, text):
             (snapshot / name).write_text(bind_worktree(snapshot, text), encoding="utf-8")
+    if any('- Workflow: `import`' in text for text in contracts(root).values()):
+        from import_guard import copy_import_proof
+        copy_import_proof(root, snapshot)
     metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
     (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
@@ -314,7 +384,10 @@ def suspend_selected(root, selected, reason):
         if suspend(root, selected, reason):
             print(f"Task suspended: {selected}; reservations released; reason recorded in the contract.", flush=True)
     except (OSError, ValueError) as error:
-        print(f"Task suspension failed: {selected}: {error}", file=sys.stderr)
+        try:
+            print(f"Task suspension/notification failed: {selected}: {error}", file=sys.stderr, flush=True)
+        except OSError:
+            pass  # Suspension and the caller's failure exit must not depend on the console.
 
 
 def failure_reason(directory, returncode):
@@ -379,14 +452,12 @@ def main() -> int:
     full_validation = scope is None
     regression = (args.mode == "full" or args.all or framework_changed(repository_changed)
                   or (args.mode == "local" and scope is None))
-    checks, reason = select_checks(root, repository_changed, args.affected) if regression else ([], "shared framework unchanged")
-    if not args.staged:
-        print(f"Validation: {'all' if full_validation else 'active scope'}; "
-              f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}", flush=True)
-    if regression and not args.staged:
-        print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}", flush=True)
-        omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
-        print(f"Not executed: {', '.join(omitted) or 'none'}", flush=True)
+    try:
+        checks, reason = select_checks(root, repository_changed, args.affected) if regression else ([], "shared framework unchanged")
+    except ValueError as error:
+        print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
+        suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
+        return 2
     if regression and not args.staged and (not args.affected or
             set(checks) == set((root / "framework/scripts").glob("*.checks.py"))):
         try:
@@ -404,40 +475,60 @@ def main() -> int:
         parser.error("--log-dir must be outside the repository")
     log_parent.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="blueprint-loop-", dir=log_parent))
-    diff_scope = []
-    if not regression and not full_validation and selected_name:
-        contract = (root / selected_name).read_text(encoding="utf-8").splitlines()
-        if "- Task type: `infrastructure`" in contract and any(
-                f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
-            # Ownership was checked by task_changes above, including every unreserved change.
-            diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]
-    commands = [
-        [
-            sys.executable,
-            str(root / "framework" / "scripts" / "validate-blueprint.py"),
-            "--repository-root",
-            str(root),
-            "--jobs", str(args.validation_jobs),
-            *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
-            *(["--all"] if full_validation else []),
-            *(["--repository-wide-iac"] if regression else []),
-            *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
-        ],
-        *(
-            [sys.executable, str(path)]
-            for path in checks
-        ),
-        ["git", "diff", "--check", *diff_scope],
-        ["git", "diff", "--cached", "--check", *diff_scope],
-    ]
-    environment = utf8_environment()
-    if args.profile:
-        environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
+    diagnostics = StartupDiagnostics(root, directory)
     try:
-        utf8_preflight(directory, environment)
+        diagnostics.record("directory_created", directory=str(directory), pid=os.getpid(), python=sys.executable)
+        diff_scope = []
+        with diagnostics.step("task.contract.read", "pathlib.Path.read_text", task=selected_name):
+            if not regression and not full_validation and selected_name:
+                contract = (root / selected_name).read_text(encoding="utf-8").splitlines()
+                if "- Task type: `infrastructure`" in contract and any(
+                        f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
+                    # Ownership was checked by task_changes above, including every unreserved change.
+                    diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]
+        command = ["git", "config", "--get", "core.whitespace"]
+        with diagnostics.step("git.config", "subprocess.run", command=command):
+            whitespace = subprocess.run(command, cwd=root, capture_output=True, encoding="utf-8")
+            diagnostics.record("result", returncode=whitespace.returncode)
+            if whitespace.returncode not in (0, 1):
+                raise subprocess.CalledProcessError(whitespace.returncode, command,
+                                                    whitespace.stdout, whitespace.stderr)
+        with diagnostics.step("commands.prepare", "utf8_environment"):
+            whitespace_rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
+            diff_check = ["git", "-c", "core.whitespace=" + whitespace_rules + ",cr-at-eol", "diff"]
+            commands = [
+                [
+                    sys.executable,
+                    str(root / "framework" / "scripts" / "validate-blueprint.py"),
+                    "--repository-root",
+                    str(root),
+                    "--jobs", str(args.validation_jobs),
+                    *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
+                    *(["--all"] if full_validation else []),
+                    *(["--repository-wide-iac"] if regression else []),
+                    *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
+                ],
+                *(
+                    [sys.executable, str(path)]
+                    for path in checks
+                ),
+                [*diff_check, "--check", *diff_scope],
+                [*diff_check, "--cached", "--check", *diff_scope],
+            ]
+            environment = utf8_environment()
+            if args.profile:
+                environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
+        if not args.staged:
+            diagnostics.print(f"Validation: {'all' if full_validation else 'active scope'}; "
+                              f"framework regression: {('selected' if args.affected else 'all') if regression else 'skipped (shared framework unchanged)'}")
+        if regression and not args.staged:
+            diagnostics.print(f"Regression selection: {reason}; selected: {', '.join(path.name for path in checks) or 'none'}")
+            omitted = sorted(path.name for path in (root / "framework/scripts").glob("*.checks.py") if path not in checks)
+            diagnostics.print(f"Not executed: {', '.join(omitted) or 'none'}")
+        utf8_preflight(directory, environment, diagnostics)
         if args.staged:
             return staged_snapshot(root, args, directory, environment)
-        result = run_commands(root, commands, environment, directory, jobs=args.jobs)
+        result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics)
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         elif selected_name:
@@ -445,12 +536,20 @@ def main() -> int:
             if pending:
                 print("Blueprint task: DEFERRED (Active checks passed; remains running): " + ", ".join(pending), flush=True)
         return result
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as error:
+        diagnostics.failure(error)
         suspend_selected(root, selected_name, f"Local loop interrupted; checks incomplete; logs: {directory}")
         return 130
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        print(f"Blueprint local loop: ERROR ({error}); logs: {directory}", file=sys.stderr)
-        suspend_selected(root, selected_name, f"Local loop error: {error}; logs: {directory}")
+    except Exception as error:
+        details = diagnostics.failure(error)
+        suspend_selected(root, selected_name,
+                         f"Local loop error at {details['step']} ({details['api']}): {error}; "
+                         f"logs: {directory}; traceback: {directory / 'startup-error.json'}")
+        try:
+            print(f"Blueprint local loop: ERROR ({error}); logs: {directory}\n{details['traceback']}",
+                  file=sys.stderr, flush=True)
+        except OSError:
+            pass  # The saved exception must survive a broken console.
         return 2
 
 
@@ -464,7 +563,11 @@ if __name__ == "__main__":
         signal.signal(signal.SIGBREAK, interrupt)
     # UTF-8 mode must be set before Python initializes file/subprocess defaults.
     if not sys.flags.utf8_mode:
-        os.execvpe(sys.executable, [sys.executable, "-X", "utf8", *sys.argv], utf8_environment())
+        command = [sys.executable, "-X", "utf8", *sys.argv]
+        if sys.platform == "win32":
+            # Wait on Windows so the caller receives the restarted loop's failure code.
+            raise SystemExit(subprocess.call(command, env=utf8_environment()))
+        os.execvpe(sys.executable, command, utf8_environment())
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
     raise SystemExit(main())

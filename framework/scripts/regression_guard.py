@@ -19,7 +19,7 @@ ITERATIONS = 600_000
 
 
 class GuardError(ValueError):
-    """A fixed public diagnostic containing no password or registration data."""
+    """A fixed public diagnostic containing no password or service_source data."""
 
 
 def password_input(prompt):
@@ -40,7 +40,7 @@ def password_hash(password, salt):
 def install():
     lock = Path(__file__).resolve().parents[2] / ".lock"
     if lock.exists() or lock.is_symlink():
-        raise GuardError("repo .lock already exists; registration will not overwrite it")
+        raise GuardError("repo .lock already exists; service_source will not overwrite it")
     password = password_input("New full-regression password (at least 12 characters): ")
     if len(password) < 12 or len(password.encode("utf-8")) > 1024:
         raise GuardError("password must contain at least 12 characters and at most 1024 UTF-8 bytes")
@@ -73,7 +73,7 @@ def verify(root):
         if len(salt) != 16 or len(expected) != 32:
             raise ValueError()
     except (ValueError, TypeError):
-        raise GuardError("invalid repo .lock registration") from None
+        raise GuardError("invalid repo .lock service_source") from None
     password = password_input("Full regression password: ")
     if len(password.encode("utf-8")) > 1024 or not hmac.compare_digest(password_hash(password, salt), expected):
         raise GuardError("full regression password does not match; no checks started")

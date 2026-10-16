@@ -1,27 +1,8 @@
 """secrets-manager: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import Unresolved
 
-RESOURCE_TYPES = ('SecretsManager.RotationSchedule', 'SecretsManager.Secret')
 APIS = {('secretsmanager', 'describe_secret')}
-IDENTITIES = {'SecretsManager.Secret': ('base', 'Name', 'ARN', 'Name'), 'SecretsManager.RotationSchedule': ('rotation', 'Name', 'ARN', None)}
-FIELDS = {}
-FIELDS.update(fields('SecretsManager.Secret', 'base', {
-    'Description': 'Description',
-    'Id': 'ARN',
-    'KmsKeyId': 'KmsKeyId',
-    'Name': 'Name',
-    'Type': 'Type',
-}, norms={'KmsKeyId': 'kms'}))
-FIELDS.update(fields('SecretsManager.RotationSchedule', 'rotation', {
-    'ExternalSecretRotationMetadata[].Key': 'ExternalSecretRotationMetadata[].Key',
-    'ExternalSecretRotationMetadata[].Value': 'ExternalSecretRotationMetadata[].Value',
-    'ExternalSecretRotationRoleArn': 'ExternalSecretRotationRoleArn',
-    'Id': 'ARN',
-    'RotationRules.AutomaticallyAfterDays': 'RotationRules.AutomaticallyAfterDays',
-    'RotationRules.Duration': 'RotationRules.Duration',
-    'SecretId': 'Name',
-}, norms={'ExternalSecretRotationRoleArn': 'arn', 'SecretId': 'name'}))
 
 
 def sensitive(prop):

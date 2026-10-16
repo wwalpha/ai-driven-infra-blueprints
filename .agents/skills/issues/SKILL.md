@@ -3,6 +3,14 @@ name: issues
 description: Use when locally investigating/validating the specified AWS Blueprint environment, target, and service and saving/updating issue lists under issues, or when saving already presented investigation results. AWS API checks are handled by the aws-check skill.
 ---
 
+[Service Model source authority](../../../framework/rules/model-templates.md) applies
+for runtime Models: read through model_files and trace expanded keys with `--trace`.
+Design edits use the common template, parameters.yaml and fixed bindings.json;
+authorized observed updates use observed.json. Include mechanically identified
+common-template consumers in generation/Validation scope. Retain this skill's
+single deployment target, issue gate, reservations and AWS permission boundary.
+
+
 Follow [task-contract](../../../framework/rules/task-contract.md) for save/repair contract registration.
 
 
@@ -23,7 +31,7 @@ If saving separately retrieved/investigated AWS check results is requested, trea
 - Save with the same environment/target directory structure as `docs/designs/<environment>/<target-directory>/`. Separate multiple targets into different files and create only necessary directories.
 - For ordinary `issues.md`, Python extracts existing list scope/ownership/human confirmation. The LLM checks only existing issues with unconfirmed correspondence; immediately before saving, Python rereads, uses shared mutual exclusion, and atomically writes scope-limited updates. Remove only resolutions supported by explicit revalidation; retain problems absent from the new scan. Retain problems with detected specific inconsistencies/deficiencies whose resolution is unconfirmed, stating that they are unconfirmed. Do not register unverified scope alone as a new issue. Preserve services/problems outside this scope.
 - Record update time (Asia/Tokyo) and this confirmed scope at the file start. Explicitly state any unverified scope at the start. Even when the target has no remaining problems, retain the file and record `未解決issueなし` and confirmed scope. Do not add history/timestamp-specific files.
-- After saving, run `python3 framework/scripts/blueprint-loop.py --mode local`; report links to saved files and validation results in chat. Even on validation failure, retain saved investigation results and report failure; do not proceed to out-of-scope repair or another task.
+- After saving, complete final validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy); report links to saved files and validation results in chat. Even on validation failure, retain saved investigation results and report failure; do not proceed to out-of-scope repair or another task.
 
 ## Scope confirmation
 
@@ -46,7 +54,7 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 - Python validates/parses target service authoritative properties once from entry indexes/parts and extracts all resource names and actual file/part/key/line positions. From all extracted materials, the LLM confirms selected `desired.*` name properties, mandatory `.Name`, and mandatory or human-selected `Name` tags. Do not limit confirmation to names in diagnostics; judge independent child resources by their own resourceMode. Do not use observed values or generated Markdown display labels as name authority.
 - For CREATE (including unspecified mode), map resource types/formal properties to naming rule Naming targets and confirm coverage, patterns, service-specific constraints, and mandatory Name presence. Compare `environment`, `target_alias`, `account_id`, and `region` against the `project.json` target, and application/purpose etc. against human-confirmed components. Do not infer unknown components from name strings and treat them as conforming.
-- Do not apply framework naming conventions, coverage, or mandatory Name policy to IMPORT. Confirm evidence/applicable scope and respect property-specific exemptions and naming exceptions explicitly stated by the human. Do not extend coverage-only exemptions to pattern/value validation exemptions or automatically apply env-diff-only exceptions to issues. Do not apply name patterns to AWS-generated IDs/ARNs/DNS names/IPs/display labels. Retain provider schema, catalog, reference, and confirmed-value validation.
+- Do not apply framework naming conventions, coverage, or mandatory Name policy to IMPORT. Confirm evidence/applicable scope and respect property-specific exemptions and naming exceptions explicitly stated by the human. Do not extend coverage-only exemptions to pattern/value validation exemptions. Do not apply name patterns to AWS-generated IDs/ARNs/DNS names/IPs/display labels. Retain provider schema, catalog, reference, and confirmed-value validation.
 - Record applicable mismatches, unregistered naming rules, and missing mandatory Names as problems supported by the target resource/property/actual value and applicable rule. For insufficient component/exception evidence or read/validation failures, specify missing confirmation as `未確認`; do not treat it as `問題なし` or resolved.
 - Resolve reference values to desired targets in the same environment/target and distinguish them from name properties. If the reference target service is within investigation scope, collect naming mismatches under that service. For out-of-scope services, confirm only information necessary for reference resolution; do not automatically expand to naming investigation. Do not correct names, rename, add tags, or change models.
 

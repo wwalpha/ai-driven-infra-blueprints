@@ -98,7 +98,11 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
 
 def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:
     errors = []
-    for path in sorted((root / "issues").glob("*/*/issues.md")):
+    paths = ((root / "issues").glob("*/*/issues.md") if scope is None else
+             (root / "issues" / env / directory / "issues.md" for env, directory in {entry[:2] for entry in scope}))
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
         identity = path.parent.relative_to(root / "issues").parts
         if target is not None and identity != target:
             continue

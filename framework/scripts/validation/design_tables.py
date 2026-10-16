@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from model_references import bound_resource_anchors
 import json
 import re
 from pathlib import Path
@@ -9,14 +10,16 @@ from policy_tables import iam_role_policy_artifact_filename
 from design_catalog import property_paths_with_parents
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
-    SUBNET_LIST_PROPERTIES, DISPLAY_PROPERTY_ALIASES, GROUPED, REQUIRED_NAME_TAG_TYPES,
-    is_service_role_reference, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
+    SUBNET_LIST_PROPERTIES, GROUPED, REQUIRED_NAME_TAG_TYPES,
+    is_service_role_reference, is_import_pending_reference, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES, RESOURCE as RESOURCE_HEADING_PATTERN, expanded_display_rows,
     expanded_design, resource_anchor, resource_display_name, resource_heading_lines,
     resource_logical_ids, resource_modes, catalog_order_errors,
 )
 from security_group_tables import security_group_table_lines
-from model_core import properties
+from model_core import properties, entries, literal
+from aws_mapping_display import validation_rows
+from validation_cache import input_scope
 from .design import (
     ANCHOR_PATTERN, DESIGN_ONLY_PROPERTIES, FORBIDDEN_DESIGN_METADATA_PATTERN,
     FORBIDDEN_DESIGN_SECTION_PATTERN, GROUPED_CHILD_RESOURCE_TYPES, JAPANESE_TEXT_PATTERN,
@@ -39,6 +42,18 @@ def check_generated_identifier(
     rows: list[list[str]],
     identifier_outputs: dict[str, set[str]],
  *, findings) -> None:
+    acquired = set()
+    from model_files import load_model
+    model = findings.canonical_root / 'model' / path.resolve().relative_to(findings.canonical_root / 'docs/designs').with_suffix('.properties')
+    try:
+        values = load_model(model).values
+        for rid, resource in entries(values, 'desired.resource.'):
+            if resource.get('resourceMode') == 'IMPORT' and resource.get('logicalId') == logical_id:
+                acquired.update((row['property'], str(literal(values['observed.row.' + row_id + '.value'])))
+                                for row_id, row in entries(values, 'desired.row.')
+                                if row_id.startswith(rid + '-') and 'observed.row.' + row_id + '.value' in values)
+    except (OSError, ValueError):
+        pass  # Model validity is reported separately; unidentified ARNs remain forbidden.
     expected_properties = sorted(identifier_outputs.get(resource_type, set()))
     for property_name in expected_properties:
         generated_rows = [row for row in rows if row[1] == property_name]
@@ -56,7 +71,8 @@ def check_generated_identifier(
             f"identifier output must use a physical value, not the logical ID: {findings.relative(path)}: {property_name}",
         )
         findings.check(
-            re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
+            re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None
+            or (property_name, value) in acquired,
             f"generated ARN is forbidden in design: {findings.relative(path)}: {property_name}",
         )
     if resource_type != "EC2.SecurityGroup" and resource_type not in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}:
@@ -162,6 +178,7 @@ def check_markdown_iam_policy_artifacts(
         markdown_iam_policy_artifacts.setdefault(key, artifact)
 
 
+@input_scope
 def check_design_tables(
         service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
     catalog_types: set[str],
@@ -173,7 +190,9 @@ def check_design_tables(
         lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
         try:
             identities = resource_logical_ids(lines)
-            modes = resource_modes(lines, design_model_values(path, design_sources=design_sources, root=root))
+            bound_anchors = bound_resource_anchors(path)
+            values = design_model_values(path, design_sources=design_sources, root=root)
+            modes = resource_modes(lines, values)
             heading_modes = {}
             anchor = ""
             for line in lines:
@@ -181,9 +200,11 @@ def check_design_tables(
                     anchor = match.group(1)
                 elif match := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     heading_modes[match.groups()] = modes.get(anchor, "CREATE")
-        except ValueError as error:
+        except (OSError, ValueError) as error:
             findings.check(False, f"invalid resource identity: {findings.relative(path)}: {error}")
+            values = None
             identities = {}
+            bound_anchors = {}
             heading_modes = {}
         resource_type = ""
         for index, line in enumerate(lines):
@@ -204,14 +225,15 @@ def check_design_tables(
                     findings.check(False, f"resource table Property must omit heading resource type: {findings.relative(path)}:{cursor + 1}: {cells[1]}")
                 cursor += 1
         try:
-            lines = security_group_table_lines(lines)
-            _, children = expanded_design(lines, normalized=True)
-            lines = expanded_display_rows(lines)
+            lines = security_group_table_lines(lines, root)
+            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=root)
+            lines = expanded_display_rows(lines, root)
         except ValueError as error:
             findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
             children = {}
         for child in children.values():
             resource_type = child["resourceType"]
+            child["rows"] = validation_rows(child["rows"], values, resource_type, child["logicalId"], root)
             if schema_catalog is not None:
                 present = {
                     resource_property_path(resource_type, prop)
@@ -271,23 +293,26 @@ def check_design_tables(
             while index < len(lines) and lines[index].startswith("|"):
                 table.append(lines[index])
                 index += 1
-            findings.check(len(table) >= 3, f"incomplete table: {findings.relative(path)}")
-            if len(table) < 3:
+            findings.check(len(table) >= (2 if values else 3), f"incomplete table: {findings.relative(path)}")
+            if len(table) < (2 if values else 3):
                 continue
             findings.check(table[0] == TABLE_HEADER, f"invalid table header: {findings.relative(path)}")
             findings.check(table[1] == TABLE_ALIGNMENT, f"invalid table alignment: {findings.relative(path)}")
             rows: list[list[str]] = []
-            for number, row in enumerate(table[2:], 1):
-                cells = [cell.strip() for cell in row.strip("|").split("|")]
+            shown = [[cell.strip() for cell in row.strip("|").split("|")] for row in table[2:]]
+            for number, cells in enumerate(shown, 1):
+                findings.check(len(cells) == 4 and cells[0] == str(number), f"table numbering error: {findings.relative(path)}")
+            semantic = shown
+            if all(len(row) == 4 for row in shown):
+                try:
+                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), root)
+                except ValueError as error:
+                    findings.check(False, f"invalid Model display projection: {findings.relative(path)}: {error}")
+            for number, cells in enumerate(semantic, 1):
                 findings.check(len(cells) == 4, f"table row must have four cells: {findings.relative(path)}")
                 if len(cells) == 4:
                     display_property = cells[1]
-                    cells[1] = DISPLAY_PROPERTY_ALIASES.get(display_property, display_property)
-                    if cells[1] in DISPLAY_PROPERTY_ALIASES.values():
-                        findings.check(
-                            display_property in DISPLAY_PROPERTY_ALIASES,
-                            f"formal property must use its Markdown display alias: {findings.relative(path)}: {display_property}",
-                        )
+                    cells[1] = display_property
                     rows.append(cells)
                     check_cidr_value(path, cells[1], cells[2], findings=findings)
                     findings.check(cells[0] == str(number), f"table numbering error: {findings.relative(path)}")
@@ -333,7 +358,13 @@ def check_design_tables(
                         raw_value = unquoted(cells[2])
                         if cells[1] in SUBNET_LIST_PROPERTIES and raw_value.lstrip().startswith("["):
                             property_path = property_path.removesuffix("[]")
-                        errors = [] if is_service_role_reference(cells[1], cells[2]) or (
+                        pending_reference = is_import_pending_reference(cells[1], cells[2])
+                        if pending_reference:
+                            findings.check(
+                                heading_modes.get((current_resource_type, current_logical_id), "CREATE") == "IMPORT",
+                                f"Pending reference requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                            )
+                        errors = [] if pending_reference or is_service_role_reference(cells[1], cells[2]) or (
                             cells[1] in identifier_outputs.get(schema_type, set())
                             and raw_value == "PENDING_DEPLOY"
                         ) else schema_catalog.literal_errors(schema_type, property_path, raw_value)
@@ -458,7 +489,8 @@ def check_design_tables(
                 if path in service_metadata:
                     logical_id = heading_match.group(2)
                     if anchor_match is not None:
-                        expected = resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1))
+                        expected = bound_anchors.get((heading_match.group(1), identities.get(heading_match.groups())),
+                                                     resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
                         findings.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {findings.relative(path)}: expected {expected}")
             if line.strip():
                 previous = line.strip()

@@ -17,11 +17,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--write", action="store_true")
-    parser.add_argument("--import-markdown", action="store_true", help="Explicit one-time migration; requires a migration task and absent models")
     parser.add_argument("--environment")
     parser.add_argument("--aws-account-id")
     parser.add_argument("--alias")
     parser.add_argument("--service", action="append", help="Exact design service ID (repeatable)")
+    parser.add_argument("--scope", action="append", help="Exact environment/target/service selection (repeatable)")
     parser.add_argument("--all", action="store_true", help="Explicit full generation/validation")
     parser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4, help="Read-only service/target validation workers")
     args = parser.parse_args()
@@ -30,14 +30,25 @@ def main() -> int:
         parser.error(
             "--environment must be used with exactly one of --aws-account-id or --alias"
         )
+    if args.scope and (args.all or args.environment or selectors or args.service):
+        parser.error("--scope cannot be combined with other target/service selectors or --all")
     try:
         root = args.repository_root.resolve()
         if args.all:
             if args.service or args.environment:
                 parser.error("--all cannot be combined with target/service selectors")
-            return sync(root, args.write, import_markdown=args.import_markdown, jobs=args.jobs)
+            return sync(root, args.write, jobs=args.jobs)
         contract_scope = active_scope(root)
-        if args.service:
+        if args.scope:
+            scope = set()
+            for entry in args.scope:
+                parts = entry.split("/")
+                if len(parts) != 3 or any(not re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", part) for part in parts):
+                    raise ValueError("invalid generation scope: expected environment/target/service")
+                scope.add(tuple(parts))
+            if contract_scope is not None and not scope <= contract_scope:
+                raise ValueError("requested services are outside active task validation scope")
+        elif args.service:
             if not args.environment or any(not re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", service) for service in args.service):
                 parser.error("--service requires a complete environment/target and valid service ID")
             scope = {(args.environment, args.alias or args.aws_account_id, service) for service in args.service}
@@ -46,18 +57,37 @@ def main() -> int:
         else:
             scope = contract_scope
             if scope is None:
-                return sync(root, args.write, args.environment, args.alias or args.aws_account_id, args.import_markdown, jobs=args.jobs)
+                return sync(root, args.write, args.environment, args.alias or args.aws_account_id, jobs=args.jobs)
             if args.environment:
                 scope = {item for item in scope if item[:2] == (args.environment, args.alias or args.aws_account_id)}
             if not scope:
                 raise ValueError("no service validation scope; specify environment/target/service")
+        from model_templates import affected
+        import subprocess
+        changed = set()
+        if (root / 'model/templates').is_dir() or (root / 'model/parameters').is_dir():
+            for arguments in (['diff', '--name-only', '--no-renames', '-z'],
+                              ['diff', '--cached', '--name-only', '--no-renames', '-z'],
+                              ['ls-files', '--others', '--exclude-standard', '-z']):
+                result = subprocess.run(['git', *arguments], cwd=root, capture_output=True, text=True)
+                if result.returncode:
+                    raise ValueError('cannot determine template impact for generation')
+                changed.update(filter(None, result.stdout.split('\0')))
+        from task_contract import contracts, task_changes, task_path
+        if contracts(root):
+            changed = task_changes(root, changed, task_path(root).relative_to(root).as_posix())
+        impact = affected(root, changed)
+        from import_scope import selected as import_selection
+        impact_scope = contract_scope if import_selection(root) is not None else scope
+        if impact_scope is None or not impact <= impact_scope:
+            raise ValueError('include all affected Model services in generation/Validation scope: ' + ', '.join('/'.join(entry) for entry in sorted(impact - scope)))
         groups = {}
         for environment, target, service in sorted(scope):
             groups.setdefault((environment, target), []).append(service)
         def generate(item):
             (environment, target), services = item
             try:
-                sync(root, args.write, environment, target, args.import_markdown, services,
+                sync(root, args.write, environment, target, services,
                      jobs=args.jobs if len(groups) == 1 else 1)
             except DeferredExhausted as error:
                 return error

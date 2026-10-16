@@ -34,4 +34,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

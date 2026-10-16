@@ -1,30 +1,8 @@
 """guardduty: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one
 
-RESOURCE_TYPES = ('GuardDuty.Detector', 'GuardDuty.MalwareProtectionPlan')
 APIS = {('guardduty', 'get_malware_protection_plan'), ('guardduty', 'get_detector'), ('guardduty', 'list_malware_protection_plans'), ('guardduty', 'list_detectors')}
-IDENTITIES = {'GuardDuty.Detector': ('detector', 'DetectorId', None, None), 'GuardDuty.MalwareProtectionPlan': ('plan', 'MalwareProtectionPlanId', 'Arn', None)}
-FIELDS = {}
-FIELDS.update(fields('GuardDuty.Detector', 'detector', {
-    'DataSources.Kubernetes.AuditLogs.Enable': 'DataSources.Kubernetes.AuditLogs.Enable',
-    'DataSources.MalwareProtection.ScanEc2InstanceWithFindings.EbsVolumes': 'DataSources.MalwareProtection.ScanEc2InstanceWithFindings.EbsVolumes',
-    'DataSources.S3Logs.Enable': 'DataSources.S3Logs.Enable',
-    'Enable': 'Enabled',
-    'Features[].Name': 'Features[].Name',
-    'Features[].Status': 'Features[].Status',
-    'FindingPublishingFrequency': 'FindingPublishingFrequency',
-}))
-FIELDS.update(fields('GuardDuty.Detector', 'detector', {
-    'Id': 'DetectorId',
-}))
-FIELDS.update(fields('GuardDuty.MalwareProtectionPlan', 'plan', {
-    'Actions.Tagging.Status': 'Actions.Tagging.Status',
-    'MalwareProtectionPlanId': 'MalwareProtectionPlanId',
-    'ProtectedResource.S3Bucket.BucketName': 'ProtectedResource.S3Bucket.BucketName',
-    'ProtectedResource.S3Bucket.ObjectPrefixes[]': 'ProtectedResource.S3Bucket.ObjectPrefixes[]',
-    'Role': 'Role',
-}, norms={'ProtectedResource.S3Bucket.BucketName': 'name', 'Role': 'arn'}))
 
 
 def sensitive(prop):

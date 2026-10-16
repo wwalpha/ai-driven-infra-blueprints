@@ -1,5 +1,16 @@
 # Infrastructure Implementation Prompt
 
+[Service Model sources](../../rules/model-templates.md) define the YAML-only input
+contract for this prompt. Read runtime Models through model_files and use
+`model_files.py <service.properties> --trace <key>` for the exact source. Design edits
+use the common template, parameters.yaml and fixed bindings.json; authorized observed
+updates use observed.json. Reserve template entry/parts, parameters.yaml, bindings.json,
+observed.json and generated Markdown/JSON paths. Common template edits require all
+registered consumers in Validation scope. Read with the shared Model loader before
+matching IaC/issues/diff. Generation across environments grants no Deployment scope
+or AWS permission.
+
+
 Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
 
 Use this prompt for an `infrastructure` task converting authoritative model properties, the authority for approved detailed designs, into CloudFormation or Terraform selected in `project.json`, through local static validation. Do not execute AWS APIs, change sets, plans, or deploy/apply. For deploy/apply, use `framework/prompts/codex/04_deploy.md` in a separate task.
@@ -34,7 +45,7 @@ Present only environment, alias, and AWS account candidates belonging to the sam
 2. [task-contract](../../rules/task-contract.md)
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
-5. Authoritative `model/<environment>/<target-directory>/<service>.properties` corresponding to implementation scope (read ranges follow below)
+5. Runtime Model selector `model/<environment>/<target-directory>/<service>.properties` corresponding to implementation scope (read ranges follow below)
 6. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 7. `framework/rules/aws-resource-naming.md`
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
@@ -113,7 +124,7 @@ If Jobs are in requested scope, explicitly state them as unimplemented; implemen
 Identify necessary templates/modules, parameters, and dependencies from target scope. Reuse existing boundaries/common components; do not create unused resources, future modules, or compatibility layers.
 
 For CloudFormation, follow `1 template = 1 deploy responsibility` in `framework/rules/cloudformation.md`. Do not mechanically split by AWS service. For dependency cycles, missing parameters, or unknown reference targets, report missing information and stop.
-For CloudFormation, read only the target's authoritative `model/<environment>/<target-directory>/cloudformation-stacks.properties`. Obtain StackName from existing `desired.stack.*.name`, template filenames from `.template`, individual parameter filenames from `.parameters`, DeployOrder from `.deployOrder`, and MaxConcurrentStacks from `desired.deployment.maxConcurrentStacks`. When omitted, effective MaxConcurrentStacks remains 1 under the existing contract; do not infer DeployOrder. `cloudformation-stacks.md` is a display generated artifact; do not read it as Implement input. Do not convert DeployOrder into IaC resource dependencies or add DependsOn to templates for this feature. Confirm scope resource template placement from approved service properties and existing IaC; if ambiguous, do not create by guessing and report that a design task is required. Even when multiple stacks share a template, confirm per-stack parameters and generated resource/Export name uniqueness.
+For CloudFormation, read only the target's runtime Model through the logical `model/<environment>/<target-directory>/cloudformation-stacks.properties`. Obtain StackName from existing `desired.stack.*.name`, template filenames from `.template`, individual parameter filenames from `.parameters`, DeployOrder from `.deployOrder`, and MaxConcurrentStacks from `desired.deployment.maxConcurrentStacks`. When omitted, effective MaxConcurrentStacks remains 1 under the existing contract; do not infer DeployOrder. `cloudformation-stacks.md` is a display generated artifact; do not read it as Implement input. Do not convert DeployOrder into IaC resource dependencies or add DependsOn to templates for this feature. Confirm scope resource template placement from approved service properties and existing IaC; if ambiguous, do not create by guessing and report that a design task is required. Even when multiple stacks share a template, confirm per-stack parameters and generated resource/Export name uniqueness.
 Include CloudWatch Logs resources and Security Groups in the templates of resources using them; do not create templates containing only them. Include IAM Roles in the template of directly using resources in the same target when present. When no design resource in the same target directly references a Role and purpose/AssumeRole source are confirmed in service properties, place only the Role and associated IAM Policy/ManagedPolicy in a dedicated template and declare `RolePlacement: standalone` directly under `Metadata`. If consumer resources or Role-only stack design are unknown, stop without guessing.
 
 Check `!Ref`, `!GetAtt`, `!Sub`, and resource references in policy/setting strings to target resources. For resources outside the template, identify actual owning stacks, necessary values, and producer Output/Export from properties logical references and existing IaC. If producer exports are not yet deployed, add only necessary Output/Export to producer templates within scope and leave consumer `!ImportValue` changes to tasks after producer deploy. Do not execute AWS APIs/deploy in implement; report prerequisites if deployed export confirmation is needed. If producers are out of scope or ownership is unknown, stop without expanding changes.

@@ -1,44 +1,8 @@
 """lambda: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, MISSING, Unresolved
 
-RESOURCE_TYPES = ('Lambda.Function', 'Lambda.Permission')
 APIS = {('lambda', 'get_function_recursion_config'), ('lambda', 'get_policy'), ('lambda', 'get_function')}
-IDENTITIES = {'Lambda.Function': ('base', 'Configuration.FunctionName', 'Configuration.FunctionArn', 'FunctionName'), 'Lambda.Permission': ('permission', 'Sid', None, None)}
-FIELDS = {}
-FIELDS.update(fields('Lambda.Function', 'base', {
-    'Architectures': 'Configuration.Architectures',
-    'EphemeralStorage.Size': 'Configuration.EphemeralStorage.Size',
-    'FunctionName': 'Configuration.FunctionName',
-    'Handler': 'Configuration.Handler',
-    'LoggingConfig.LogFormat': 'Configuration.LoggingConfig.LogFormat',
-    'LoggingConfig.LogGroup': 'Configuration.LoggingConfig.LogGroup',
-    'MemorySize': 'Configuration.MemorySize',
-    'PackageType': 'Configuration.PackageType',
-    'Role': 'Configuration.Role',
-    'Runtime': 'Configuration.Runtime',
-    'Timeout': 'Configuration.Timeout',
-    'TracingConfig.Mode': 'Configuration.TracingConfig.Mode',
-    'VpcConfig.Ipv6AllowedForDualStack': 'Configuration.VpcConfig.Ipv6AllowedForDualStack',
-    'VpcConfig.SecurityGroupIds': 'Configuration.VpcConfig.SecurityGroupIds',
-    'VpcConfig.SubnetIds': 'Configuration.VpcConfig.SubnetIds',
-}, norms={'LoggingConfig.LogGroup': 'name', 'Role': 'arn', 'VpcConfig.SecurityGroupIds': 'id', 'VpcConfig.SubnetIds': 'id'}, defaults={'VpcConfig.Ipv6AllowedForDualStack': False}))
-FIELDS.update(fields('Lambda.Function', 'base', {
-    'Code.S3Bucket': 'Code.ResolvedS3Object.S3Bucket',
-    'Code.S3Key': 'Code.ResolvedS3Object.S3Key',
-    'ReservedConcurrentExecutions': 'Concurrency.ReservedConcurrentExecutions',
-}, norms={'Code.S3Bucket': 'name'}))
-FIELDS.update(fields('Lambda.Function', 'recursion', {
-    'RecursiveLoop': 'RecursiveLoop',
-}))
-FIELDS.update(fields('Lambda.Permission', 'permission', {
-    'Action': 'Action',
-    'FunctionName': 'FunctionName',
-    'Id': 'Sid',
-    'Principal': 'Principal',
-    'SourceAccount': 'SourceAccount',
-    'SourceArn': 'SourceArn',
-}, norms={'FunctionName': 'name', 'SourceArn': 'arn'}))
 
 
 def sensitive(prop):
@@ -77,3 +41,10 @@ def fetch(ctx, r, getter):
         principal=one(list(principal.values()),'lambda.get_policy')
     condition=statement.get('Condition',{})
     return dict(statement,FunctionName=name,Principal=principal,SourceArn=condition.get('ArnLike',condition.get('ArnEquals',{})).get('AWS:SourceArn',MISSING),SourceAccount=condition.get('StringEquals',{}).get('AWS:SourceAccount',MISSING))
+
+
+SDK_OPERATIONS = {'Lambda.Function': 'get_function'}
+
+
+def fetch_sdk(ctx, r, operation):
+    return ctx.call('lambda', operation, FunctionName=r.value('FunctionName'))

@@ -9,6 +9,8 @@ if not __debug__:
 import importlib.util
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
+import subprocess
 
 
 SCRIPT = Path(__file__).with_name("export-design-pdf.py")
@@ -93,12 +95,27 @@ def main() -> None:
         assert '| No. | Property |\n| ---: | --- |\n| 1 | RoleName |' in merged
         assert '<a id="dev-cde-vpc-a"></a>\n\n#### EC2.VPC: A' in merged
 
+        output = root / "existing.pdf"
+        output.write_bytes(b"existing PDF")
+        missing_native = "cannot load library 'libgobject-2.0-0': error 0x7e"
+        with patch.object(MODULE.shutil, "which", return_value="available"), \
+                patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    ["weasyprint", "--info"], 1, "", missing_native)) as run:
+            try:
+                MODULE.export(root, output)
+            except RuntimeError as error:
+                assert "README.md#pdf-dependencies" in str(error) and missing_native in str(error)
+            else:
+                raise AssertionError("missing native libraries must stop PDF export")
+            assert run.call_count == 1 and run.call_args.args[0] == ["weasyprint", "--info"]
+            assert output.read_bytes() == b"existing PDF"
+
         vpc.write_text(vpc.read_text(encoding="utf-8").replace('iam.md#iam-role', 'iam.md#missing'), encoding="utf-8")
         expect_error(root, "missing PDF link target")
         vpc.write_text(vpc.read_text(encoding="utf-8").replace('iam.md#missing', 'iam.md#iam-role'), encoding="utf-8")
         iam.write_text(iam.read_text(encoding="utf-8") + '<a id="iam-role"></a>\n', encoding="utf-8")
         expect_error(root, "duplicate design anchor")
-    print("export-design-pdf: PASS (bundle, links, appendix, fences, missing/duplicate anchors)")
+    print("export-design-pdf: PASS (bundle, links, appendix, fences, anchors, native dependency failure retains output)")
 
 
 if __name__ == "__main__":

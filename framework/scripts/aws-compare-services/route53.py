@@ -1,30 +1,8 @@
 """route53: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one
 
-RESOURCE_TYPES = ('Route53.HostedZone', 'Route53.RecordSet')
 APIS = {('route53', 'list_resource_record_sets'), ('route53', 'list_hosted_zones'), ('route53', 'get_hosted_zone')}
-IDENTITIES = {'Route53.HostedZone': ('zone', 'Id', None, 'Name'), 'Route53.RecordSet': ('record', 'Name', None, 'Name')}
-FIELDS = {}
-FIELDS.update(fields('Route53.HostedZone', 'zone', {
-    'HostedZoneConfig.Comment': 'Config.Comment',
-    'Id': 'Id',
-    'Name': 'Name',
-}, norms={'Name': 'dns'}))
-FIELDS.update(fields('Route53.HostedZone', 'vpcs', {
-    'VPCs[].VPCRegion': 'VPCs[].VPCRegion',
-    'VPCs[].VPCId': 'VPCs[].VPCId',
-}, norms={'VPCs[].VPCId': 'id'}))
-FIELDS.update(fields('Route53.RecordSet', 'record', {
-    'AliasTarget.DNSName': 'AliasTarget.DNSName',
-    'AliasTarget.EvaluateTargetHealth': 'AliasTarget.EvaluateTargetHealth',
-    'AliasTarget.HostedZoneId': 'AliasTarget.HostedZoneId',
-    'HostedZoneId': 'HostedZoneId',
-    'Name': 'Name',
-    'ResourceRecords': 'ResourceRecords[].Value',
-    'TTL': 'TTL',
-    'Type': 'Type',
-}, norms={'HostedZoneId': 'id', 'Name': 'dns', 'AliasTarget.DNSName': 'dns', 'ResourceRecords': 'set'}))
 
 
 def sensitive(prop):

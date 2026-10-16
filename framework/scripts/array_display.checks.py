@@ -8,6 +8,7 @@ from pathlib import Path
 
 from array_display import indexed_rows, restored_rows
 from design_catalog import DesignSchemaCatalog, design_material_files
+from validation_cache import input_scope
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +27,7 @@ def rejected(shown, kind):
         raise AssertionError("invalid array display accepted")
 
 
+@input_scope
 def main():
     source = rows([
         ("LifecycleConfiguration.Rules[].Id", "`first`"),

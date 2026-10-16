@@ -1,49 +1,8 @@
 """security-group: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, select
 
-RESOURCE_TYPES = ('EC2.SecurityGroup', 'EC2.SecurityGroupEgress', 'EC2.SecurityGroupIngress')
 APIS = {('ec2', 'describe_security_groups'), ('ec2', 'describe_security_group_rules')}
-IDENTITIES = {'EC2.SecurityGroup': ('group', 'GroupId', None, 'GroupName'), 'EC2.SecurityGroupIngress': ('rule', 'SecurityGroupRuleId', None, None), 'EC2.SecurityGroupEgress': ('rule', 'SecurityGroupRuleId', None, None)}
-FIELDS = {}
-FIELDS.update(fields('EC2.SecurityGroup', 'group', {
-    'GroupDescription': 'Description',
-    'GroupName': 'GroupName',
-    'Id': 'GroupId',
-    'SecurityGroupEgress[].CidrIp': 'SecurityGroupEgress[].CidrIp',
-    'SecurityGroupEgress[].Description': 'SecurityGroupEgress[].Description',
-    'SecurityGroupEgress[].DestinationSecurityGroupId': 'SecurityGroupEgress[].DestinationSecurityGroupId',
-    'SecurityGroupEgress[].FromPort': 'SecurityGroupEgress[].FromPort',
-    'SecurityGroupEgress[].IpProtocol': 'SecurityGroupEgress[].IpProtocol',
-    'SecurityGroupEgress[].ToPort': 'SecurityGroupEgress[].ToPort',
-    'SecurityGroupIngress[].CidrIp': 'SecurityGroupIngress[].CidrIp',
-    'SecurityGroupIngress[].Description': 'SecurityGroupIngress[].Description',
-    'SecurityGroupIngress[].FromPort': 'SecurityGroupIngress[].FromPort',
-    'SecurityGroupIngress[].IpProtocol': 'SecurityGroupIngress[].IpProtocol',
-    'SecurityGroupIngress[].SourceSecurityGroupId': 'SecurityGroupIngress[].SourceSecurityGroupId',
-    'SecurityGroupIngress[].ToPort': 'SecurityGroupIngress[].ToPort',
-    'Tags[].Key': 'Tags[].Key',
-    'Tags[].Value': 'Tags[].Value',
-    'VpcId': 'VpcId',
-}, norms={'VpcId': 'id', 'SecurityGroupIngress[].IpProtocol': 'protocol', 'SecurityGroupEgress[].IpProtocol': 'protocol', 'SecurityGroupIngress[].SourceSecurityGroupId': 'id', 'SecurityGroupEgress[].DestinationSecurityGroupId': 'id'}))
-FIELDS.update(fields('EC2.SecurityGroupIngress', 'rule', {
-    'CidrIp': 'CidrIpv4',
-    'Description': 'Description',
-    'FromPort': 'FromPort',
-    'Id': 'SecurityGroupRuleId',
-    'IpProtocol': 'IpProtocol',
-    'SourceSecurityGroupId': 'ReferencedGroupInfo.GroupId',
-    'ToPort': 'ToPort',
-}, norms={'IpProtocol': 'protocol', 'SourceSecurityGroupId': 'id'}))
-FIELDS.update(fields('EC2.SecurityGroupEgress', 'rule', {
-    'CidrIp': 'CidrIpv4',
-    'Description': 'Description',
-    'DestinationSecurityGroupId': 'ReferencedGroupInfo.GroupId',
-    'FromPort': 'FromPort',
-    'Id': 'SecurityGroupRuleId',
-    'IpProtocol': 'IpProtocol',
-    'ToPort': 'ToPort',
-}, norms={'IpProtocol': 'protocol', 'DestinationSecurityGroupId': 'id'}))
 
 
 def sensitive(prop):

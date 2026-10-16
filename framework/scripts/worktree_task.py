@@ -10,6 +10,7 @@ import re
 import subprocess
 
 import task_contract as tasks
+import worktree_python as python_env
 
 
 class Blocked(ValueError):
@@ -74,10 +75,18 @@ def base_branch(root):
     raise Blocked("no configured base, main or master branch exists")
 
 
-def state_path(common, task_id):
+def metadata_directory(primary):
+    directory = primary / ".worktrees" / ".blueprint"
+    for path in (directory.parent, directory, directory / "tasks"):
+        if path.is_symlink():
+            raise Blocked(f"worktree metadata must not use symlinks: {path}")
+    return directory
+
+
+def state_path(primary, task_id):
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", task_id):
         raise Blocked("task-id must use the existing lower-kebab-case task naming rule")
-    return common / "blueprint-worktree-tasks" / f"{task_id}.json"
+    return metadata_directory(primary) / "tasks" / f"{task_id}.json"
 
 
 def save(path, state):
@@ -87,9 +96,11 @@ def save(path, state):
 
 
 @contextmanager
-def lifecycle_lock(common):
+def lifecycle_lock(primary):
     # One short Git integration at a time; this is not a file reservation/AWS lock.
-    lock = common / "blueprint-worktree-lifecycle.lock"
+    directory = metadata_directory(primary)
+    directory.mkdir(parents=True, exist_ok=True)
+    lock = directory / "lifecycle.lock"
     try:
         lock.mkdir()
     except FileExistsError:
@@ -102,10 +113,12 @@ def lifecycle_lock(common):
 
 def create(where, task_id):
     root, common, primary = repository(where)
-    state_file = state_path(common, task_id)
+    state_file = state_path(primary, task_id)
     branch = f"codex/worktree/{task_id}"
     target = primary / ".worktrees" / task_id
-    with lifecycle_lock(common):
+    if git(primary, "check-ignore", "--quiet", str(target), check=False).returncode:
+        raise Blocked("/.worktrees/ must be ignored before creating nested worktrees")
+    with lifecycle_lock(primary):
         base = base_branch(root)
         if state_file.exists() or branch_exists(root, branch):
             raise Blocked(f"task state/branch collision: {task_id}; nothing overwritten")
@@ -113,8 +126,6 @@ def create(where, task_id):
             raise Blocked(f"worktree path collision: {target}; nothing overwritten")
         if any(Path(entry["worktree"]).resolve() == target for entry in worktrees(root)):
             raise Blocked(f"registered/stale worktree path collision: {target}; do not prune automatically")
-        if git(primary, "check-ignore", "--quiet", str(target), check=False).returncode:
-            raise Blocked("/.worktrees/ must be ignored before creating nested worktrees")
         start = output(root, "rev-parse", f"refs/heads/{base}")
         git(root, "worktree", "add", "-b", branch, str(target), start)
         state = dict(task_id=task_id, branch=branch, worktree=str(target), primary=str(primary),
@@ -122,12 +133,41 @@ def create(where, task_id):
                      identity=tasks.worktree_identity(target), tip=start, commit=None, verified=False, merged=None)
         state_file.parent.mkdir(exist_ok=True)
         save(state_file, state)
+    return setup(where, task_id)
+
+
+def setup(where, task_id):
+    root, common, path, state = load(where, task_id)
+    # Per-task setup serialization does not hold the common Git lifecycle mutex.
+    lock = path.with_suffix(".setup-lock")
+    try:
+        lock.mkdir()
+    except FileExistsError:
+        raise Blocked("Python setup busy; retain work and retry") from None
+    try:
+        with lifecycle_lock(root):
+            target = task_worktree(root, state)
+            if state["merged"]:
+                raise Blocked("merged worktree awaits cleanup; setup refused")
+            previous = state.get("python_setup", {})
+            state["python_setup"] = {"status": "setting-up"}
+            save(path, state)
+        try:
+            state["python_setup"] = python_env.setup(target, state["identity"], previous)
+        except (Exception, KeyboardInterrupt) as error:
+            message = f"{type(error).__name__}: {str(error) or 'Python setup interrupted'}"
+            state["python_setup"] = {"status": "failed", "error": message}
+            save(path, state)
+            raise Blocked(f"Python setup failed; worktree retained. Retry setup --task-id {task_id}: {message}") from error
+        save(path, state)
         return state
+    finally:
+        lock.rmdir()
 
 
 def load(where, task_id):
     root, common, primary = repository(where)
-    path = state_path(common, task_id)
+    path = state_path(primary, task_id)
     state = json.loads(path.read_text(encoding="utf-8"))
     if (state["task_id"] != task_id or state["branch"] != f"codex/worktree/{task_id}"
             or state["task_file"] != f"tasks/{task_id}.md" or state["primary"] != str(primary)
@@ -139,8 +179,8 @@ def load(where, task_id):
 
 def committed_task_paths(root, task_file):
     """Reuse the managed worktree's pinned start; never read another checkout's diff."""
-    common = Path(output(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-    path = state_path(common, Path(task_file).stem)
+    _, _, primary = repository(root)
+    path = state_path(primary, Path(task_file).stem)
     if not path.exists():
         return None  # Legacy/non-managed contracts retain their acquired file scope.
     _, _, _, state = load(root, Path(task_file).stem)
@@ -223,12 +263,17 @@ def cleanup_state(root, path, state):
             raise Blocked("task HEAD changed since merge; cleanup refused")
         if changed_paths(target):
             raise Blocked("task worktree is dirty; cleanup refused")
-        # Git removes ignored files too: preserve everything except this contract/bytecode.
+        if path.with_suffix(".setup-lock").exists():
+            raise Blocked("Python setup busy; cleanup refused")
+        managed_venv = python_env.owned(target, state["identity"])
+        # Preserve user artifacts before removing the owned environment or checkout.
         ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-        extras = {p for p in ignored if p != state["task_file"] and not (
-            "__pycache__" in Path(p).parts and p.endswith(".pyc"))}
+        extras = {p for p in ignored if p != state["task_file"]
+                  and not (managed_venv.exists() and Path(p).parts[0] == ".venv")
+                  and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
         if extras:
             raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
+        python_env.remove(target, state["identity"])
         git(root, "worktree", "remove", str(target))
     if branch_exists(root, state["branch"]):
         tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
@@ -242,7 +287,7 @@ def cleanup_state(root, path, state):
 
 def cleanup(where, task_id):
     root, common, path, state = load(where, task_id)
-    with lifecycle_lock(common):
+    with lifecycle_lock(root):
         return cleanup_state(root, path, state)
 
 
@@ -250,13 +295,21 @@ def finalize(where, task_id, human_approved_validation_failure=None):
     if human_approved_validation_failure is not None and not human_approved_validation_failure.strip():
         raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
-    with lifecycle_lock(common):
+    with lifecycle_lock(root):
+        if path.with_suffix(".setup-lock").exists():
+            raise Blocked("Python setup busy; integration refused")
+        if state.get("python_setup", {}).get("status") != "ready":
+            raise Blocked("Python setup is incomplete; retry setup before integration")
         if state["merged"]:
             return cleanup_state(root, path, state)
         target = task_worktree(root, state)
         approval = human_approved_validation_failure or state.get("validation_failure_approval")
         entry = integration_task(target, state, approval)
         changed = changed_paths(target)
+        model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
+        if any(p.startswith('model/') or p == 'project.json' for p in model_changes):
+            from import_guard import require_import_changes
+            require_import_changes(target)
         if tasks.task_changes(target, changed, state["task_file"]) != changed or changed - entry.active:
             raise Blocked("changes outside this task; nothing committed")
         if any(p.startswith("tasks/") for p in changed):
@@ -271,8 +324,13 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         if approval:
             state["validation_failure_approval"] = approval
         if changed:
-            git(target, "diff", "--check", check=not approval)
-            git(target, "diff", "--cached", "--check", check=not approval)
+            whitespace = git(target, "config", "--get", "core.whitespace", check=False)
+            if whitespace.returncode not in (0, 1):
+                raise Blocked("cannot determine Git whitespace checks")
+            rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
+            diff_check = ("-c", "core.whitespace=" + rules + ",cr-at-eol", "diff")
+            git(target, *diff_check, "--check", check=not approval)
+            git(target, *diff_check, "--cached", "--check", check=not approval)
             literal = [f":(top,literal){p}" for p in sorted(changed)]
             git(target, "add", "--", *literal)
             # Staged edits canceled by working-tree edits are an effective zero-change task.
@@ -321,7 +379,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "finalize", "cleanup"))
+    parser.add_argument("command", choices=("create", "setup", "finalize", "cleanup"))
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--human-approved-validation-failure", metavar="APPROVAL",

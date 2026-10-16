@@ -15,17 +15,28 @@ class Evaluation:
         self.property_schema, self.symbol, self.import_value = property_schema, symbol, import_value
         self.local_comparison = local_comparison
 
-    def string_operand(self, value):
-        if isinstance(value, str):
-            return True
-        if isinstance(value, Expression):
-            return value.operation in {'Select', 'Join', 'Sub'}
+    def symbolic_schema(self, value, *, element=False):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
             kind = self.resources[service][identity]['resourceType']
-            node = self.property_schema(kind, value['$attribute'])
+            return self.property_schema(kind, value['$attribute'] + ('[]' if element else ''))
+        if isinstance(value, Expression):
+            if value.operation == 'Select':
+                node = self.symbolic_schema(value.operands[1], element=True)
+                return node.get('items', {}) if element else node
+            if value.operation == 'Split':
+                return {'type': 'string'} if element else {'type': 'array', 'minItems': 1}
+            if value.operation in {'Join', 'Sub'} and not element:
+                return {'type': 'string'}
+        return {}
+
+    def string_operand(self, value):
+        if isinstance(value, str):
+            return True
+        if isinstance(value, (Expression, ResourceReference)):
+            node = self.symbolic_schema(value)
             if 'type' not in node:
-                raise Blocked('reference string type is unproven')
+                raise Blocked('reference/expression string type is unproven')
             return node['type'] == 'string'
         return False
 
@@ -45,6 +56,9 @@ class Evaluation:
             if document.get('Transform'):
                 raise Blocked('Transform requires external evaluation')
             properties = document['Resources'][logical].get('Properties', {})
+            # Glue's returned Name lives inside ConnectionInput, not Properties.Name.
+            if resource['resourceType'] == 'Glue.Connection' and attribute == 'Name':
+                properties = properties.get('ConnectionInput', {})
             if attribute not in properties:
                 if self.string_operand(value):
                     return value
@@ -94,15 +108,25 @@ class Evaluation:
             if key == 'Fn::Select':
                 if not isinstance(arg, list) or len(arg) != 2:
                     raise ValueError('invalid Fn::Select')
-                index, items = self.evaluate(stack, arg, seen)
+                index, items = (self.evaluate(stack, child, seen) for child in arg)
                 if isinstance(index, str) and index.isdigit():
                     index = int(index)
                 if self.local_comparison and (isinstance(index, Expression) or isinstance(index, ResourceReference)):
                     raise Blocked('Select index is unproven')
                 if type(index) is not int or index < 0:
                     raise ValueError('invalid Select operands')
+                if self.local_comparison and isinstance(items, (ResourceReference, Expression)):
+                    node = self.symbolic_schema(items)
+                    if 'type' not in node:
+                        raise Blocked('Select array type is unproven for symbolic operand')
+                    if node['type'] != 'array':
+                        raise ValueError('invalid Select operands: symbolic operand is not an array')
+                    if 'maxItems' in node and index >= node['maxItems']:
+                        raise ValueError(f'invalid Select operands: index {index} exceeds schema maxItems {node["maxItems"]}')
+                    if index >= node.get('minItems', 0):
+                        raise Blocked(f'Select bounds are unproven: index {index}, symbolic array minItems={node.get("minItems", 0)}')
+                    return Expression('Select', [index, items])
                 if isinstance(items, Expression) and items.operation == 'Split':
-                    # Split always has element zero; other bounds need a concrete string.
                     if index != 0:
                         raise Blocked('Select bounds are unproven for symbolic Split')
                     return Expression('Select', [index, items])

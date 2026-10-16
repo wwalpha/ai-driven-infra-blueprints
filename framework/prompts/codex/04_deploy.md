@@ -38,7 +38,7 @@ If `project.json`, target approved authoritative service models, corresponding g
 2. [task-contract](../../rules/task-contract.md)
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
-5. Authoritative `model/<environment>/<target-directory>/<service-id>.properties` entries/required parts for services owned/referenced by deployment scope, and referenced models needed for reference resolution
+5. Runtime `model/<environment>/<target-directory>/<service-id>.properties` selectors and their source inputs for services owned/referenced by deployment scope, and referenced models needed for reference resolution
 6. For CloudFormation, same-target `cloudformation-stacks.properties`. Delegate StackName mappings/generated stack Markdown matching to existing controller `load_units()`; AI must not manually compare the same values twice
 7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).

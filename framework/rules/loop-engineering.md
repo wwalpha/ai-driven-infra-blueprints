@@ -1,6 +1,13 @@
 # Loop Engineering Rules
 
-Loop engineering is mandatory. “Each change” means each coherent logical change set within the active task, not each editor save.
+Validation follows the change classification below. “Each change” means each coherent logical change set within the active task, not each editor save.
+
+## Dedicated import boundary
+
+For `/import`, [IMPORT configuration authority](model-information.md#import-configuration-authority)
+replaces the design validation/completion rules below: source and display transactions
+are separate, and issues runs only when explicitly requested. Other workflows retain these rules.
+
 
 ## Task boundary
 
@@ -14,13 +21,87 @@ Follow [issue-gate](issue-gate.md) for stop decisions, investigation/repair/save
 
 The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In command examples, `python` means an available Python 3 launcher; use `py -3` on Windows when only Python Launcher is available, or `python3` on Unix-like OSes when only `python3` is available.
 
+In managed worktrees, replace the launcher in Python examples with
+`python3 -B framework/scripts/run-python.py` (use an available Python 3 launcher on Windows).
+The wrapper runs the task's registered ready Python Interpreter (global or its owned worktree-local venv)
+and sets its CLI PATH for this process
+and all children; fresh shells need no activation. Use the same wrapper for standalone
+checks/pytest and `--command cfn-lint` for Python CLIs. Failed/stale setup must be recovered
+with `worktree_task.py setup --task-id <task-id>` before task execution. Lifecycle helpers
+use the ordinary launcher from a surviving checkout.
+
+### Validation policy
+
+This section is the single authority for development checks and final validation across
+AGENTS, Skills, Prompts and task completion sections. Their local-loop instructions apply
+when the classification requires a loop. Choose from actual dependencies and behavior,
+not directory names alone; inspect callers, imports, shared fixtures, registered template
+consumers and affected outputs before narrowing. Use the broadest applicable row for a
+mixed change. Task contracts, reservations, Acceptance requirements, issue gates and
+phase-specific schema, generation, IaC, AWS and approval checks remain mandatory where
+applicable; a lightweight documentation check is not evidence that these runtime checks ran.
+Generated design Markdown/JSON is validated with its authoritative Model inputs, not
+classified as an independent documentation edit.
+
+| Change | Required final validation |
+| --- | --- |
+| Markdown, Skill or Prompt text only | `git diff --check`, diff review and necessary reference/description checks; no local loop or regression |
+| Isolated test fixture only | Tests consuming that fixture |
+| Individual Model Template or environment inputs | Target service validation, including every registered consumer of a shared template |
+| Individual module with proven bounded impact | Related tests and validation of the affected scope |
+| Shared Framework logic | Full local loop once |
+| Validation infrastructure or execution control | Related tests plus Full local loop once |
+| Unknown impact | Full local loop once |
+
+During development, run directly related tests first. After a failure and a material fix,
+rerun the failed test or affected service; for a fixture fix, run its consuming tests.
+Do not run Full after each correction, repeat unchanged results, or retry Full with known
+failures left unfixed. Reuse the existing `--affected` mapping when it selects the needed
+subset. If it selects all regression, directly invoke the relevant existing
+`framework/scripts/<name>.checks.py` entrypoints or installed pytest test nodes during
+repair. This narrowing does not replace a required final Full or prove unknown impact safe.
+For bounded final validation, use these tests and the existing scoped validator rather
+than a loop that would automatically add all regression:
+
+```console
+python3 -B framework/scripts/<name>.checks.py
+python3 -m pytest -q framework/scripts/<suite>.checks.py::<test-node>
+python3 framework/scripts/validate-blueprint.py --repository-root . --task-file tasks/<task-name>.md
+```
+
+Use pytest only for existing pytest suites and an already available dependency; retain
+script entrypoints for other suites. The standalone validator uses the contract's explicit
+Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
+Existing test selection, caches, worker counts and validation commands are unchanged.
+The current loop still adds regression for framework paths and `--affected` still falls
+back to all for shared/unknown dependencies. Documentation-only completion therefore
+uses the lightweight row without invoking it. Explicit Full uses
+`blueprint-loop.py --mode full --task-file tasks/<task-name>.md` once after repairs stabilize;
+Full does not expand service scope to `all`.
+
+If final Full fails, identify its direct causes, repair within the active task scope,
+and rerun failed tests/affected services first. Re-run Full only after those fixes stabilize;
+this is an allowed additional final attempt, subject to existing suspension/resume and
+retry/stop rules. A failed, interrupted or stale run is never PASS. If inputs change after
+successful validation, reassess the affected dependencies and classification before
+integration; do not reuse stale success or repeat Full on unchanged inputs.
+
+For human-authorized multi-phase work, each phase completes changes, targeted checks,
+its classified final validation, commit, local-main merge and worktree cleanup before
+starting the next authorized phase. Full is normally once per phase when required;
+text-only phases use lightweight checks. Do not start an unrequested phase or create
+another task merely because validation succeeds. Report executed checks, omitted checks
+and classification reasons in the completion response; add no permanent reports/logs.
+
+### Local loop execution
+
 Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, active task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type; do not run task-specific checks when this task's reserved files have no changes. Blocking failure at any layer is FAIL. Common CloudFormation template/parameter file findings retain their existing scan scope; in ordinary task/local validation, only current-task files block completion. Report findings in unrelated files as non-blocking. Global checks (contracts, reservations, Validation scope, required inputs, project/catalog/framework integrity, cross-stack ownership, Acceptance, and failed commands) always block. `--all`, scope `all`, and `--repository-wide-iac` (including full/framework regression dispatch) gate every file finding.
 
 File gating reuses current-worktree Active grants from the selected contract. Managed worktrees additionally reuse their existing pinned lifecycle start-to-HEAD diff plus unstaged/staged/untracked paths, intersected with those grants; commits do not erase task scope, and planned but unchanged files do not enter the gate. For legacy/non-managed contracts without pinned lifecycle metadata, acquired exact Modified files are the stable contract authority, including committed files; Deferred and foreign-worktree grants do not count. Missing/invalid authority remains blocking. Classification occurs when a finding is emitted, without another repository/content scan.
 
-Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). A partial run reports Active validation and pending Deferred Acceptance checks, not full completion. Before the final successful loop and `--complete`, finish all requested work under the mandatory [Task transition](task-contract.md#task-transition), including its Active-first acquisition, retry budgets, clean exhaustion and suspension rules. Reservation polls refresh dynamic ownership without repeating validation.
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). A partial run reports Active validation and pending Deferred Acceptance checks, not full completion. Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under the mandatory [Task transition](task-contract.md#task-transition), including its Active-first acquisition, retry budgets, clean exhaustion and suspension rules. Reservation polls refresh dynamic ownership without repeating validation.
 
-After each coherent logical change, deterministically confirm the following.
+When running a local loop, retain the following checks in its applicable scope. During development and at completion, choose the checks under [Validation policy](#validation-policy).
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
@@ -52,15 +133,15 @@ After each coherent logical change, deterministically confirm the following.
 - Each resource has exactly 1 `CodeBuild.Project.Name` row with a confirmed non-empty literal. Common name validation for design validation/model generation rejects missing, empty, unconfirmed, and duplicate values; Name tags/display labels are not substitutes
 - If CloudFormation stack detailed designs exist, validate stack names, template filenames, and parameter filenames, and confirm equality with generated stack models
 - No generated ARNs exist in `model/`
-- Model service entry indexes and each part are at most 600 lines, without missing parts, invalid references, unregistered parts, or duplicate keys. Validate scope, task boundaries, generation equality, and observed values across all parts as the same service
+- Service template entry indexes and each part are at most 600 lines, without missing parts, invalid references, unregistered parts, or duplicate keys. Validate scope, task boundaries, generation equality, and observed values across all parts as the same service
 - Scenario/result structure and metadata are valid
 - Formatting/static checks succeed
 
-Task-type-specific checks cannot be omitted from the active task; confirm at least the following.
+For tasks affecting runtime inputs or behavior, task-type-specific checks cannot be omitted; confirm at least the following. Text-only tasks use the documentation row of [Validation policy](#validation-policy), with contract scope and Required changes reviewed before completion.
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
-- `design`: Target authoritative model properties change first, and Markdown/JSON artifacts match their deterministic generation results
-- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed model properties, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
+- `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change
 - `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change
@@ -68,7 +149,25 @@ Task-type-specific checks cannot be omitted from the active task; confirm at lea
 
 ## Validation scope
 
-Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing model/Markdown. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
+Registered template services follow [Model templates](model-templates.md). Include all
+direct registered consumers of changed templates in generation/Validation scope;
+parameter, binding and observed changes are environment/service scoped. Apply the common
+active resource-reference impact comparison from Model templates to downstream services:
+include only changed reference results/identities and unresolved consumers, stopping
+transitive propagation at unchanged reference results. Unknown baselines retain
+conservative dependency scope. The shared reader expands sources
+before all existing Model/catalog/schema/reference/view checks. Cache and immutable
+plan guards include source bytes, including comment-only edits and observed inputs.
+Broken/missing YAML authorities stop, stale generated views fail, and observed writes route
+only to observed.json. This does not authorize multi-environment deployment.
+
+The import workflow pins one environment/target/service. Its evidence/ownership scope
+may include preservation YAML for direct shared-Definition users, but never their views
+or recursive dependencies. Import completion checks acquisition/source evidence only;
+it runs no design validation or local loop. This exception does not apply to framework
+implementation changes or ordinary design workflows.
+
+Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing authoritative Model source/Markdown. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
 
 ```md
 ## Validation scope
@@ -114,10 +213,10 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
 - Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
-- Ordinary design, implement, deploy, update, destroy, scenario/evidence, initialization, and target migration use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
-- Tasks changing framework scripts, rules, validators/generators, or common processing use `python framework/scripts/blueprint-loop.py --mode full`. In addition to specified-scope validation, run every `framework/scripts/*.checks.py` with at most 2 parallel workers and aggregate diagnostics/failure lists in name order. Separate only framework-internal regression using fixtures, mocks, and fixed catalog inputs from ordinary tasks.
-- Even in `task` / `local`, automatically add all regression when unstaged, staged, or untracked changed paths include `framework/**`, `.agents/**`, `AGENTS.md`, or `README.md`. Include rules, materials (catalog/schema snapshots), future schema/catalog directories, prompts, and distributed skills as well as scripts. Detect deletion/rename sources too. If Git cannot determine changes, stop without omitting regression. Use explicit `full` to revalidate committed changes.
-- `--mode local` is also valid as the same scoped validation as `task`. If a skill specifies `local`, that execution suffices; do not require additional `task` / `full`. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
+- When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
+- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/*.checks.py` with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep framework-internal regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Read-only registered service contracts may examine current authorities without copying consumer state into fixtures. Service parameter fixtures share one entrypoint; typed service contracts remain part of the input regression. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
+- The existing runner automatically adds regression in `task` / `local` for changed `framework/**`, `.agents/**`, `AGENTS.md` or `README.md`, including deletion/rename sources. This describes runner behavior, not an obligation to launch it for every edit; select the entrypoint under [Validation policy](#validation-policy). If Git cannot determine changes, stop rather than infer bounded impact.
+- `--mode local` is also valid as the same scoped validation as `task`. For a classification requiring a scoped loop, a skill's `local` execution suffices; do not add another `task` run. For a classification requiring Full, select the final Full directly instead of adding it after a redundant scoped loop. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
 - Retain existing mandatory CloudFormation `cfn-lint`, deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
@@ -126,8 +225,8 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
 - After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
 - Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
-- Explicitly select validation with `--mode task --affected` (`local` is also permitted). This is an exception to ordinary automatic full regression addition; select checks only using the runner's explicit mapping. The mapping covers regression entries, the standalone runner, exact validator test modules, shared test support consumers, and dynamic reference/layout fixture consumers. Unknown files (including siblings in these directories), missing mapped files, and unresolved deletion/rename sources fall back to full regression. Common validators/generators, rules, catalogs and prompts remain full regression. Do not omit merely because changes are incoming.
-- `--affected` cannot be combined with `full` / `--all`. Do not omit common validation, task-specific checks, Acceptance checks, or diff checks. Display selection reasons, selected checks, and unexecuted checks. Framework development task completion continues to use `--mode full`.
+- When using an affected loop, select `--mode task --affected` (`local` is also permitted). The runner narrows regression only through its explicit mapping. The mapping covers regression entries, the standalone runner, exact validator test modules, shared test support consumers, and dynamic reference/layout fixture consumers. Unknown files (including siblings in these directories), missing mapped files, and unresolved deletion/rename sources fall back to full regression. The current mapping conservatively selects all for common validators/generators, rules, catalogs and prompts; choose development and final entrypoints under [Validation policy](#validation-policy). Do not omit merely because changes are incoming.
+- `--affected` cannot be combined with `full` / `--all`. Do not omit common validation, task-specific checks, Acceptance checks, or diff checks. Display selection reasons, selected checks, and unexecuted checks. Final validation follows [Validation policy](#validation-policy).
 - Regression fixtures contain only necessary framework inputs and project/task/model generated within tests; do not copy actual consumer issues, projects, models, designs, or active tasks. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
 - Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
 
@@ -144,11 +243,11 @@ For new inputs, changed contents, added/deleted files, missing/corrupt caches, u
 
 ## Design task completion
 
-Before design questions, on resume, target changes, before design contract registration, and before saving, run `check-design-naming.py` for all targets as the start gate in `aws-resource-naming.md`. Do not start/continue design for unregistered rules, empty patterns, read failures, or unexecuted/failed checks; identify missing resource types/properties and stop before model updates. Follow common naming rules for CREATE/IMPORT and explicit exclusion scope.
+Before design questions, on resume, target changes, before design contract registration, and before saving, run `check-design-naming.py` for all targets as the start gate in `aws-resource-naming.md`, except for the dedicated `/import` workflow (including `--dry-run`). That workflow uses source/acquisition safety checks and separate display generation; design validation is deferred to explicit issues. Do not start/continue ordinary design for unregistered rules, empty patterns, read failures, or unexecuted/failed checks; identify missing resource types/properties and stop before model updates. Follow common naming rules for CREATE/IMPORT and explicit exclusion scope.
 
-1. Update authoritative properties in `model/**` specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
-2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in model observed rows. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding `model/**` first. Before generation, `framework/scripts/sync-model.py --write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
+1. Update authoritative template/parameters.yaml/bindings.json inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
+2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.json. Do not save secrets, generated ARNs, or resource provenance.
+3. Save confirmed design values in the corresponding template/parameters.yaml/bindings inputs first. Before generation, `framework/scripts/sync-model.py --write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
 4. Run the local loop.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 
@@ -173,8 +272,8 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 
 `update` phase:
 
-1. Confirm only uncommitted model properties manually edited by the human before task start as immutable intended-design input.
-2. Generate Markdown from properties, create/change target IaC, and perform local static validation.
+1. Confirm only uncommitted authoritative service Model inputs manually edited by the human before task start as immutable intended-design input.
+2. Generate Markdown from runtime Models, create/change target IaC, and perform local static validation.
 3. Run deterministic preflight and confirm change set/plan scope. For unapproved delete/replacement, wait for human confirmation with an explanation; after approval, resume authorized deploy/apply in the same task with the same change set or saved plan.
 4. Update model observed values and regenerate Markdown only after successful AWS mutation.
 5. Confirm Codex has not changed the human's intended-design diff; after the local loop, finish without proceeding to scenario tests.
@@ -192,7 +291,7 @@ Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
 8. Finish without scenario tests or another task.
 
-Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary/reservations, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes still require normal full regression.
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary/reservations, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
 
 ## Scenario-test task completion
 
@@ -204,12 +303,12 @@ Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate
 
 ## Other task completion
 
-- `initialization`, `governance`, `catalog-maintenance`, and `migration` validate only active prompt scope and finish.
-- Non-scenario tasks must not save verification output under `tests/scenarios/**` or `tests/results/**`.
+- `initialization`, `governance`, `catalog-maintenance`, and `migration` select final validation under [Validation policy](#validation-policy), validate only active prompt scope and finish.
+- Non-scenario tasks must not save verification output under `tests/scenarios/**` or `tests/results/**`. Human-run `/model-test` audit logs follow the separate [Task boundary](task-contract.md#task-boundary) exception; offline mock verification still uses temporary directories outside the repository.
 - By default, non-scenario task verification results belong only in Codex completion reports.
 
 ## Retry and stop
 
 Follow [task-contract](task-contract.md#retry-and-stop) for stopping/retry and authorization scope.
 
-Local loop PASS displays executed Requirement IDs, Acceptance check count, task type, and framework regression script count. Do not treat generic validation results unable to display these as proof of task completion.
+When a local loop is required, its PASS displays executed Requirement IDs, Acceptance check count, task type, and framework regression script count. Do not substitute generic validation for that required evidence. For classifications completed without a loop, confirm their required checks and Acceptance requirements; report that no local loop ran.

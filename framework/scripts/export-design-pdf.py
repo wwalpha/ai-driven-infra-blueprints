@@ -221,6 +221,11 @@ def export(root: Path, output: Path) -> None:
     for program in ("pandoc", "weasyprint"):
         if shutil.which(program) is None:
             raise RuntimeError(f"{program} is required for HTML-to-PDF conversion")
+    result = subprocess.run(["weasyprint", "--info"], cwd=root, capture_output=True,
+                            encoding="utf-8", errors="replace", check=False)
+    if result.returncode:
+        raise RuntimeError("WeasyPrint PDF dependencies are unavailable; see README.md#pdf-dependencies.\n"
+                           + (result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"))
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="design-pdf-", dir=output.parent) as temporary:
         temp = Path(temporary)

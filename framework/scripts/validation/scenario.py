@@ -90,6 +90,26 @@ def check_result_metadata(path, scenario_id, environment, target_directory, acco
             findings.check(executed_at == "NOT_EXECUTED", f"NOT_EXECUTED result must use NOT_EXECUTED timestamp: {findings.relative(path)}")
 
 
+def check_audit_logs(repository, directory, accounts, template_mode, findings):
+    environment = directory.name
+    for target in sorted(directory.iterdir()):
+        findings.check(target.is_dir() and not target.is_symlink() and (environment, target.name) in accounts,
+                       f"audit log target is not defined in project.json: {findings.relative(target)}")
+        if not target.is_dir() or target.is_symlink():
+            continue
+        findings.check(not template_mode, f"template mode cannot contain audit logs: {findings.relative(target)}")
+        for path in sorted(target.iterdir()):
+            match = re.fullmatch(r"([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9]{8}-[0-9]{6})(?:-[0-9]{6})?\.log", path.name)
+            valid = path.is_file() and not path.is_symlink() and match is not None
+            if valid:
+                try:
+                    datetime.strptime(match[2], '%Y%m%d-%H%M%S')
+                except ValueError:
+                    valid = False
+                valid = valid and (repository / 'tests' / environment / target.name / (match[1] + '.py')).is_file()
+            findings.check(valid, f"invalid audit log or missing generated test: {findings.relative(path)}")
+
+
 def check_results(repository, accounts, template_mode, result_files, findings) -> None:
     root = repository / "tests" / "results"
     if not root.is_dir():
@@ -99,6 +119,9 @@ def check_results(repository, accounts, template_mode, result_files, findings) -
             continue
         findings.check(scenario_entry.is_dir(), f"tests/results root may contain only .gitkeep or scenario directories: {findings.relative(scenario_entry)}")
         if not scenario_entry.is_dir():
+            continue
+        if scenario_entry.name in {environment for environment, _ in accounts}:
+            check_audit_logs(repository, scenario_entry, accounts, template_mode, findings)
             continue
         scenario_id = scenario_entry.name
         findings.check(LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None, f"invalid result scenario ID: {scenario_id}")

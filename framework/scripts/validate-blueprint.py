@@ -146,7 +146,8 @@ class Validator:
                 reused[entry] = checks
         self.service_keys = keys
         missing = self.scope - reused.keys()
-        generator = Validator(self.root, missing, workers=self.workers, model_check=self.model_check)
+        # Generation needs the whole selected consumer scope, even with partial cache hits.
+        generator = Validator(self.root, self.scope, workers=self.workers, model_check=self.model_check)
         generator.accounts = self.accounts
         if missing:
             generator.check_generated_service_models()
@@ -205,20 +206,12 @@ class Validator:
             return
         command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
                    "--jobs", str(self.workers)]
-        commands = []
         if self.scope is None:
-            commands.append([*command, "--all"])
+            command.append("--all")
         else:
-            groups = {}
-            for environment, target, service in sorted(self.scope):
-                groups.setdefault((environment, target), []).append(service)
-            for (environment, target), services in groups.items():
-                selector = "--alias" if self.accounts[environment, target]["alias"] else "--aws-account-id"
-                commands.append([*command, "--environment", environment, selector, target,
-                                 *(arg for service in services for arg in ("--service", service))])
-        for command in commands:
-            result = subprocess.run(command, cwd=self.root, check=False, capture_output=True, text=True)
-            self.check(result.returncode == 0, result.stdout.strip() + "\n" + result.stderr.strip() or "generated service model check failed")
+            command.extend(arg for entry in sorted(self.scope) for arg in ("--scope", "/".join(entry)))
+        result = subprocess.run(command, cwd=self.root, check=False, capture_output=True, text=True)
+        self.check(result.returncode == 0, result.stdout.strip() + "\n" + result.stderr.strip() or "generated service model check failed")
 
 
     def check_catalog(self) -> None:
@@ -444,7 +437,7 @@ class Validator:
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                            design_index: DesignIndex | None = None) -> None:
-        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, findings=self.findings, root=self.root, scope=self.scope)
+        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope)
 
     def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
         return design_links.check_design_artifacts(paths, accounts=self.accounts, findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, root=self.root)

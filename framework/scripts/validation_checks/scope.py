@@ -134,7 +134,8 @@ def check_task_file_gating() -> None:
 {listed}
 """
 
-    with project() as primary, patch.dict(os.environ, {}, clear=True):
+    with project() as primary, patch.dict(os.environ, {}, clear=True), \
+            patch.object(wt.python_env, "setup", return_value={"status": "ready"}):
         wt.git(primary, "init", "-q", "-b", "main")
         wt.git(primary, "config", "user.name", "Fixture")
         wt.git(primary, "config", "user.email", "fixture@example.invalid")

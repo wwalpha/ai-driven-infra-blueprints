@@ -21,7 +21,8 @@ REQUIRED_RULES = {
 }
 REQUIRED_DIRECTORIES = (
     "docs/designs",
-    "model",
+    "model/parameters",
+    "model/templates",
     "infra",
     "tests/scenarios",
     "tests/results",
@@ -132,7 +133,17 @@ def check_framework_rule_readings(findings, root):
                 reading = sections.get("read-first", sections.get("read-before-changing-files", ""))
                 required = {root / "framework/rules" / name for name in
                             ("task-contract.md", "issue-gate.md", "project-configuration.md")}
-                findings.check(required <= rule_readings(root, source, reading).keys(),
+                readings = rule_readings(root, source, reading)
+                if source.name == "08_import.md":
+                    required.remove(root / "framework/rules/issue-gate.md")
+                    worktree = root / ".agents/skills/worktree/SKILL.md"
+                    if worktree in readings:
+                        delegated = markdown_sections(readings[worktree]["text"]).get("read-before-execution", "")
+                        task = root / "framework/rules/task-contract.md"
+                        inherited = rule_readings(root, worktree, delegated)
+                        if task in inherited:
+                            readings[task] = inherited[task]
+                findings.check(required <= readings.keys(),
                            f"workflow lacks canonical rule readings: {source.relative_to(root)}")
         except (OSError, ValueError) as error:
             findings.check(False, f"rule reading reference: {error}")
@@ -146,7 +157,25 @@ def check_framework_design_handoff(findings, root):
     prompt = path.read_text(encoding="utf-8")
     findings.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
     findings.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
-    findings.check("blueprint-loop.py --mode task" in prompt, "service design prompt lacks local validation")
+    from deploy_preparation import markdown_prose, markdown_sections, rule_readings
+    try:
+        completion = markdown_sections(prompt).get("completion", "")
+        validation = next((line for _, line in markdown_prose(completion) if re.match(
+            r"^\d+\. Select development checks and final validation under ", line)), "")
+        readings = rule_readings(root, path, validation)
+        policy = readings.get((root / "framework/rules/loop-engineering.md").resolve(), {})
+        findings.check("validation-policy" in policy.get("sections", []),
+                       "service design handoff lacks canonical Validation policy reference")
+        for required in (
+            ". Validate in-scope service designs/models, generated Markdown/JSON, schemas, naming, "
+            "references, active task contracts, and task-specific checks.",
+            ". Do not add entire-scope validation “just in case” after scoped validation.",
+            ". Report executed checks and diff-check results,",
+        ):
+            findings.check(required in validation,
+                           f"service design handoff lacks required validation instruction: {required}")
+    except (OSError, ValueError) as error:
+        findings.check(False, f"service design handoff Validation policy reference: {error}")
     findings.check("03_apply-design.md" not in prompt, "service design prompt still depends on apply-design")
     gate = "## Naming rule preflight (design start gate)"
     findings.check(gate in prompt and "## Determine what to ask" in prompt
@@ -163,7 +192,9 @@ def check_framework_design_handoff(findings, root):
         "Fall back to target-service-specific read-only APIs only when Cloud Control API does not support List/Read": "service design prompt lacks service API fallback",
         "stop until humans select, even for a single candidate": "service design prompt may auto-select an existing resource",
         "ask one logical ID per response": "service design prompt may invent a logical ID for an existing resource",
-        "Directly apply differences to model properties": "service design prompt lacks direct existing-value synchronization",
+        "For CREATE only, directly apply differences to model properties": "service design prompt lacks CREATE-only existing-value synchronization",
+        "[/import](../../../.agents/skills/import/SKILL.md)": "service design prompt lacks IMPORT delegation",
+        "The retrieval/copy steps below apply\nto CREATE only": "service design prompt lacks IMPORT delegation boundary",
         "delete optional property rows absent from AWS current values": "service design prompt lacks absent optional-property removal",
         "Do not display or save passwords, secrets, tokens, or credentials": "service design prompt lacks sensitive-value exclusion",
         "do not save generated ARNs in Markdown, JSON artifacts, or models": "service design prompt may persist generated ARNs",

@@ -6,6 +6,7 @@ from __future__ import annotations
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
+from test_support.model_sources import write_model
 import model_projection
 import io
 import shutil
@@ -135,7 +136,7 @@ def main() -> None:
         for design, contents in ((glue, glue_model), (datazone, datazone_model)):
             output = root / "model" / design.relative_to(root / "docs/designs").with_suffix(".properties")
             output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(contents, encoding="utf-8")
+            write_model(output, contents)
         original = {path: path.read_bytes() for path in (glue, datazone)}
         with redirect_stdout(io.StringIO()):
             try:
@@ -149,4 +150,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

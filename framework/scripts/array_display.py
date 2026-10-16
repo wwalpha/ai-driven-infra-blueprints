@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from design_catalog import DesignSchemaCatalog
-from validation_cache import memoized
+from validation_cache import memoized, input_scope
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,17 +18,17 @@ ARRAY = re.compile(r"\[\]")
 @memoized
 def display_catalog(root):
     catalog = DesignSchemaCatalog(root)
-    aliases = json.loads((root / "framework/rules/display-property-aliases.json").read_text(encoding="utf-8"))
     types = {name.removeprefix("AWS::").replace("::", ".", 1) for name in catalog.resource_types}
     types.update(catalog.api_schemas)
-    return catalog, aliases, tuple(kind + "." for kind in sorted(types))
+    return catalog, tuple(kind + "." for kind in sorted(types))
 
 
 def array_template(prop, kind, root):
-    catalog, aliases, prefixes = display_catalog(root)
+    catalog, prefixes = display_catalog(root)
     qualified = prop if prop.startswith(prefixes) else kind + "." + prop
     owner = ".".join(qualified.split(".")[:2])
-    formal = aliases.get(qualified, qualified)
+    from aws_mapping_display import formal_name
+    formal = (formal_name(prop, kind, root) if kind + "." in prefixes else None) or qualified
     template = prop
     # Retain a displayed ancestor when an alias hides an array component.
     if formal != qualified and "[]" in formal and "[]" not in template:
@@ -76,6 +76,7 @@ def numbered_property(prop, states, compact=False):
     return prop
 
 
+@input_scope
 def indexed_rows(rows, kind, root=ROOT):
     """Index all remaining catalog arrays after existing compact service displays."""
     result, states = [], {}
@@ -111,6 +112,7 @@ def indexed_rows(rows, kind, root=ROOT):
     return result
 
 
+@input_scope
 def restored_rows(rows, kind, root=ROOT):
     """Restore sources, then regenerate to reject wrong indexes, values or comments."""
     result = []

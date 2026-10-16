@@ -40,7 +40,8 @@ def commit(root, paths, message):
 
 
 def write(path, text):
-    path.write_text(text, encoding="utf-8")
+    from test_support.model_sources import write_fixture_files
+    write_fixture_files({path: text})
 
 
 def schema_validator(root):

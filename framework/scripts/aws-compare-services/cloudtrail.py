@@ -1,30 +1,7 @@
 """cloudtrail: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
 
-RESOURCE_TYPES = ('CloudTrail.Trail',)
 APIS = {('cloudtrail', 'get_trail_status'), ('cloudtrail', 'get_trail'), ('cloudtrail', 'get_event_selectors')}
-IDENTITIES = {'CloudTrail.Trail': ('base', 'Name', 'TrailARN', 'TrailName')}
-FIELDS = {}
-FIELDS.update(fields('CloudTrail.Trail', 'base', {
-    'CloudWatchLogsLogGroupArn': 'CloudWatchLogsLogGroupArn',
-    'CloudWatchLogsRoleArn': 'CloudWatchLogsRoleArn',
-    'EnableLogFileValidation': 'LogFileValidationEnabled',
-    'IncludeGlobalServiceEvents': 'IncludeGlobalServiceEvents',
-    'IsMultiRegionTrail': 'IsMultiRegionTrail',
-    'KMSKeyId': 'KmsKeyId',
-    'S3BucketName': 'S3BucketName',
-    'TrailName': 'Name',
-}, norms={'KMSKeyId': 'kms', 'CloudWatchLogsLogGroupArn': 'log_group_arn', 'CloudWatchLogsRoleArn': 'arn', 'S3BucketName': 'name'}))
-FIELDS.update(fields('CloudTrail.Trail', 'status', {
-    'IsLogging': 'IsLogging',
-}))
-FIELDS.update(fields('CloudTrail.Trail', 'selectors', {
-    'EventSelectors[].DataResources[].Type': 'EventSelectors[].DataResources[].Type',
-    'EventSelectors[].DataResources[].Values': 'EventSelectors[].DataResources[].Values',
-    'EventSelectors[].IncludeManagementEvents': 'EventSelectors[].IncludeManagementEvents',
-    'EventSelectors[].ReadWriteType': 'EventSelectors[].ReadWriteType',
-}, norms={'EventSelectors[].DataResources[].Values': 'arn'}))
 
 
 def sensitive(prop):

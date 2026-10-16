@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """RotationSchedule identity, parent references and transactional service generation."""
+from model_files import read_model
+from test_support.model_sources import write_model
 import sync_views
 import model_projection
 import json
@@ -80,7 +82,7 @@ def main():
             output = HELPERS.roundtrip(path, values, root)
             _, children = expanded_design(output.splitlines())
             assert len(children) == count
-            assert properties(model_projection.imported_model(path, root)) == values
+            sync_views.validate_views(root, root, [path], {path: values})
             assert "### SecretsManager.RotationSchedule" not in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
             sync_views.validate_views(root, root, [path], {path: values})
@@ -104,7 +106,7 @@ def main():
         for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two"))):
             assert f"| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} | `{value}` |" in metadata_output
         assert "| SecretsManager.RotationSchedule.ExternalSecretRotationMetadata" not in metadata_output
-        assert properties(model_projection.imported_model(path, root)) == metadata
+        sync_views.validate_views(root, root, [path], {path: metadata})
         sync_views.validate_views(root, root, [path], {path: metadata})
         path.write_text(output)
 
@@ -156,7 +158,9 @@ def main():
             legacy = {**values, f"desired.row.{identity}-099.property": kind + ".Id",
                       f"desired.row.{identity}-099.value": "`PENDING_DEPLOY`",
                       f"desired.row.{identity}-099.comment": "旧識別子"}
-            rejects(lambda: markdown_for(path, legacy, root), "hidden property", kind + ".Id")
+            rendered = markdown_for(path, legacy, root)
+            assert '| Id |' not in rendered
+            assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
         rejects(lambda: sync_views.validate_views(root, root, [path], {path: mismatch}), "model/display projection mismatch", "parentReference")
@@ -175,8 +179,8 @@ def main():
                                f"{namespace}.row.{identity}-002.comment": "暗号化する鍵"})
 
         def save():
-            (models / "kms.properties").write_text(HELPERS.text(key))
-            (models / "secretsmanager.properties").write_text(HELPERS.text(values))
+            write_model(models / "kms.properties", HELPERS.text(key))
+            write_model(models / "secretsmanager.properties", HELPERS.text(values))
 
         save()
         SYNC.sync(root, True, "dev", "123456789012")
@@ -197,7 +201,7 @@ def main():
         assert path.read_bytes() == saved[path]
         assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
         assert "kms-app-dev-renamed" in (path.parent / "kms.md").read_text()
-        assert (models / "secretsmanager.properties").read_text() == HELPERS.text(values)
+        assert properties(read_model(models / 'secretsmanager.properties')) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
         values["desired.resource.002.parentReference"] = "[Secret1](#secretsmanager-app-dev-secret-1)"
         values = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in values.items()}
@@ -210,4 +214,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

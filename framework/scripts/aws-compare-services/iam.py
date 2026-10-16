@@ -1,46 +1,8 @@
 """iam: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one
 
-RESOURCE_TYPES = ('IAM.InstanceProfile', 'IAM.ManagedPolicy', 'IAM.Role', 'IAM.User')
 APIS = {('iam', 'list_attached_user_policies'), ('iam', 'list_role_policies'), ('iam', 'get_user_policy'), ('iam', 'list_attached_role_policies'), ('iam', 'get_policy_version'), ('iam', 'list_entities_for_policy'), ('iam', 'list_policies'), ('iam', 'get_instance_profile'), ('iam', 'get_role_policy'), ('iam', 'list_user_policies'), ('iam', 'get_user'), ('iam', 'get_role')}
-IDENTITIES = {'IAM.Role': ('base', 'RoleName', 'Arn', 'RoleName'), 'IAM.User': ('base', 'UserName', 'Arn', 'UserName'), 'IAM.ManagedPolicy': ('base', 'PolicyName', 'Arn', 'ManagedPolicyName'), 'IAM.InstanceProfile': ('base', 'InstanceProfileName', 'Arn', 'InstanceProfileName')}
-FIELDS = {}
-FIELDS.update(fields('IAM.Role', 'base', {
-    'AssumeRolePolicyDocument': 'AssumeRolePolicyDocument',
-    'Description': 'Description',
-    'RoleName': 'RoleName',
-}, norms={'AssumeRolePolicyDocument': 'policy'}))
-FIELDS.update(fields('IAM.Role', 'attached', {
-    'ManagedPolicyArns': 'Arns',
-}, norms={'ManagedPolicyArns': 'arn'}))
-FIELDS.update(fields('IAM.Role', 'inline', {
-    'Policies[].PolicyDocument': 'Policies[].PolicyDocument',
-    'Policies[].PolicyName': 'Policies[].PolicyName',
-}, norms={'Policies[].PolicyDocument': 'policy'}))
-FIELDS.update(fields('IAM.User', 'base', {
-    'UserName': 'UserName',
-}))
-FIELDS.update(fields('IAM.User', 'attached', {
-    'ManagedPolicyArns': 'Arns',
-}, norms={'ManagedPolicyArns': 'arn'}))
-FIELDS.update(fields('IAM.User', 'inline', {
-    'Policies[].PolicyDocument': 'Policies[].PolicyDocument',
-    'Policies[].PolicyName': 'Policies[].PolicyName',
-}, norms={'Policies[].PolicyDocument': 'policy'}))
-FIELDS.update(fields('IAM.ManagedPolicy', 'base', {
-    'ManagedPolicyName': 'PolicyName',
-}))
-FIELDS.update(fields('IAM.ManagedPolicy', 'document', {
-    'PolicyDocument': 'Document',
-}, norms={'PolicyDocument': 'policy'}))
-FIELDS.update(fields('IAM.ManagedPolicy', 'entities', {
-    'Roles': 'Roles',
-}, norms={'Roles': 'name'}))
-FIELDS.update(fields('IAM.InstanceProfile', 'base', {
-    'InstanceProfileName': 'InstanceProfileName',
-    'Roles': 'Roles[].RoleName',
-}, norms={'Roles': 'name'}))
 
 
 def sensitive(prop):

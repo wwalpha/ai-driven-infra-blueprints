@@ -71,12 +71,12 @@ class PassCache:
     def common_key(self):
         paths = [self.root / "project.json", self.root / "AGENTS.md", self.root / "README.md"]
         paths.extend(path for directory in ("framework", ".agents")
-                     for path in (self.root / directory).rglob("*") if path.is_file() or path.is_symlink())
+                     for path in (self.root / directory).rglob("*") if (path.is_file() or path.is_symlink()) and not (path.suffix == ".pyc" and "__pycache__" in path.parts))
         inputs = [digest_files(self.root, paths)]
         runtime = Path(__file__).resolve().parents[2]
         if runtime != self.root:
             inputs.append(digest_files(runtime, [path for path in (runtime / "framework").rglob("*")
-                                                 if path.is_file() or path.is_symlink()]))
+                                                 if (path.is_file() or path.is_symlink()) and not (path.suffix == ".pyc" and "__pycache__" in path.parts)]))
         return hashlib.sha256(json.dumps(inputs).encode()).hexdigest()
 
     def key(self, kind, inputs=""):
@@ -86,7 +86,7 @@ class PassCache:
                                          self.common, inputs]).encode("utf-8")).hexdigest()
 
     def service_key(self, entry):
-        from model_files import model_parts
+        from model_templates import source_inputs, service_source, source_paths
         environment, target, service = entry
         docs = self.root / "docs/designs"
         models = self.root / "model"
@@ -100,17 +100,20 @@ class PassCache:
                 raise ValueError("unknown design dependency; require fresh validation")
             paths.add(path)
             model = (models / path.relative_to(docs)).with_suffix(".properties")
-            if model.is_file():
-                paths.update([model, *model_parts(model)])
+            if service_source(model) is not None:
+                paths.update(source_inputs(model))
             elif path == docs / environment / target / f"{service}.md":
                 raise ValueError("missing service model")
             # Include the complete file set to detect orphan artifacts and unlisted parts.
-            for entrance in (path, model):
+            for entrance in (path,):
                 paths.update(file for file in entrance.with_suffix("").rglob("*")
                              if file.is_file() or file.is_symlink())
+            paths.update(file for file in source_paths(model)[2].rglob("*")
+                         if file.is_file() or file.is_symlink())
             texts = [path.read_text(encoding="utf-8")]
-            if model.is_file():
-                texts.extend(part.read_text(encoding="utf-8") for part in model_parts(model))
+            if service_source(model) is not None:
+                from model_files import read_model
+                texts.append(read_model(model))
             for text in texts:
                 for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
                     if raw.startswith(("https://", "http://", "mailto:")):

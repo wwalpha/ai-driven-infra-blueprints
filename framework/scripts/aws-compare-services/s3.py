@@ -1,48 +1,10 @@
 """s3: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import Field, one, MISSING, AcquisitionError
 
-RESOURCE_TYPES = ('S3.Bucket', 'S3.BucketPolicy')
 APIS = {('s3', 'get_bucket_policy'), ('s3', 'get_bucket_lifecycle_configuration'), ('s3', 'get_bucket_encryption'), ('s3', 'get_public_access_block'), ('s3', 'list_buckets'), ('s3', 'get_bucket_versioning'), ('s3', 'get_object_lock_configuration'), ('s3', 'get_bucket_ownership_controls'), ('s3', 'get_bucket_location')}
-IDENTITIES = {'S3.Bucket': ('base', 'Name', 'BucketArn', 'BucketName')}
-FIELDS = {}
-FIELDS.update(fields('S3.Bucket', 'base', {
-    'BucketName': 'Name',
-    'Region': 'BucketRegion',
-}))
-FIELDS.update(fields('S3.Bucket', 'encryption', {
-    'BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled': 'ServerSideEncryptionConfiguration[].BucketKeyEnabled',
-    'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': 'ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID',
-    'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm': 'ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm',
-}, norms={'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': 'kms'}))
-FIELDS.update(fields('S3.Bucket', 'lifecycle', {
-    'LifecycleConfiguration.Rules[].ExpirationInDays': 'Rules[].Expiration.Days',
-    'LifecycleConfiguration.Rules[].Id': 'Rules[].Id',
-    'LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays': 'Rules[].NoncurrentVersionExpiration.NoncurrentDays',
-    'LifecycleConfiguration.Rules[].Prefix': 'Rules[].Prefix',
-    'LifecycleConfiguration.Rules[].Status': 'Rules[].Status',
-}))
-FIELDS.update(fields('S3.Bucket', 'ownership', {
-    'OwnershipControls.Rules[].ObjectOwnership': 'OwnershipControls.Rules[].ObjectOwnership',
-}))
-FIELDS.update(fields('S3.Bucket', 'public', {
-    'PublicAccessBlockConfiguration.BlockPublicAcls': 'PublicAccessBlockConfiguration.BlockPublicAcls',
-    'PublicAccessBlockConfiguration.BlockPublicPolicy': 'PublicAccessBlockConfiguration.BlockPublicPolicy',
-    'PublicAccessBlockConfiguration.IgnorePublicAcls': 'PublicAccessBlockConfiguration.IgnorePublicAcls',
-    'PublicAccessBlockConfiguration.RestrictPublicBuckets': 'PublicAccessBlockConfiguration.RestrictPublicBuckets',
-}))
-FIELDS.update(fields('S3.Bucket', 'versioning', {
-    'VersioningConfiguration.Status': 'Status',
-}))
-FIELDS.update(fields('S3.Bucket', 'lock', {
-    'ObjectLockConfiguration.ObjectLockEnabled': 'ObjectLockConfiguration.ObjectLockEnabled',
-    'ObjectLockConfiguration.Rule.DefaultRetention.Days': 'ObjectLockConfiguration.Rule.DefaultRetention.Days',
-    'ObjectLockConfiguration.Rule.DefaultRetention.Mode': 'ObjectLockConfiguration.Rule.DefaultRetention.Mode',
-    'ObjectLockEnabled': 'LockBoolean',
-}, norms={'ObjectLockEnabled': 'boolean'}, defaults={'ObjectLockEnabled': False}))
-FIELDS.update(fields('S3.BucketPolicy', 'policy', {
-    'PolicyDocument': 'Policy',
-}, norms={'PolicyDocument': 'policy'}))
+
+MODEL_FIELDS = {'S3.Bucket.Region': Field('base', 'BucketRegion', default=MISSING)}
 
 
 def sensitive(prop):
@@ -77,3 +39,11 @@ def fetch(ctx, r, getter):
         result['ObjectLockConfiguration']['ObjectLockEnabled'] = result['ObjectLockConfiguration'].get('ObjectLockEnabled')
         result['LockBoolean'] = result['ObjectLockConfiguration'].get('ObjectLockEnabled') == 'Enabled'
     return result
+
+
+SDK_OPERATIONS = {'S3.Bucket': 'get_bucket_lifecycle_configuration'}
+
+
+def fetch_sdk(ctx, r, operation):
+    # Preserve the adapter's optional-configuration absence classification.
+    return ctx.fetch(r, 'lifecycle')

@@ -6,10 +6,12 @@ from pathlib import Path
 from model_core import LINK, literal
 from ec2_display import ec2_display_rows
 from service_rows import codebuild_display_row, pipeline_rows, glue_argument_rows, CODEBUILD_FORMAL_VARIABLE
-from design_layout import (HEADER, ALIGNMENT, DISPLAY_PROPERTY_ALIASES, GROUPED, HIDDEN_PROPERTIES, REQUIRED_NAME_TAG_TYPES,
+from design_layout import (HEADER, ALIGNMENT, GROUPED, REQUIRED_NAME_TAG_TYPES,
     GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE, CLOUDTRAIL_RESOURCE_TYPES,
     LINKED_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, subnet_list_items, catalog_property_order)
 from policy_tables import table
+from aws_mapping_display import ROOT, rule, selected_rows, compact_group, display_name
+from validation_cache import input_scope
 
 
 def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
@@ -42,16 +44,16 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
         block[0][1].split("[]", 1)[0] + "[]", order.get(block[0][1], len(order)))) for row in block]
 
 
-def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
+@input_scope
+def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT) -> list[list[str]]:
     """Apply the existing service displays without changing formal model values."""
-    aliases = {formal: display for display, formal in DISPLAY_PROPERTY_ALIASES.items()}
+    rows = selected_rows(rows, root)
+    formal_properties = {row[1] for row in rows}
     result = []
     index = 0
     counts: dict[str, int] = {}
     while index < len(rows):
         identity, prop, value, comment = rows[index]
-        if prop in HIDDEN_PROPERTIES:
-            raise ValueError(f"hidden property must not be a display row: {prop}")
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
             _, prop, value, comment = codebuild_display_row(rows, index, comment)
             index += 2
@@ -92,7 +94,9 @@ def display_rows(kind: str, rows: list[list[str]]) -> list[list[str]]:
             index += 1
         elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
             raise ValueError(f"incomplete compact display group: {prop}")
-        prop = aliases.get(prop, prop).removeprefix(kind + ".")
+        # Compact producers own their dynamic names; ordinary rows use Mapping names.
+        item = rule(prop, root) if not compact_group(prop) and prop in formal_properties else None
+        prop = display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
         result.append([identity, prop, value, comment])
         index += 1
     if kind == "CodePipeline.Pipeline":
@@ -108,7 +112,8 @@ def row_table(rows: list[list[str]]) -> list[str]:
     return [HEADER, ALIGNMENT, *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1))]
 
 
-def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]]) -> list[str]:
+@input_scope
+def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]], root: Path = ROOT) -> list[str]:
     basic, tags, rules = [], [], []
     current = None
     for row in rows:
@@ -129,7 +134,7 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
             else:
                 raise ValueError("SG tags require contiguous Key/Value pairs")
         else:
-            basic.append([row[0], prop, *row[2:]])
+            basic.append([row[0], display_name(row[1], "EC2.SecurityGroup", root), *row[2:]])
     output = row_table(basic)
     if tags:
         if any(set(tag) != {"Key", "Value"} for tag in tags):

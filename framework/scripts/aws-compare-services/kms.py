@@ -1,31 +1,8 @@
 """kms: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, Unresolved
 
-RESOURCE_TYPES = ('KMS.Alias', 'KMS.Key')
 APIS = {('kms', 'list_aliases'), ('kms', 'get_key_rotation_status'), ('kms', 'get_key_policy'), ('kms', 'describe_key')}
-IDENTITIES = {'KMS.Key': ('base', 'KeyId', 'Arn', None), 'KMS.Alias': ('alias', 'TargetKeyId', 'AliasArn', 'AliasName')}
-FIELDS = {}
-FIELDS.update(fields('KMS.Key', 'base', {
-    'Description': 'Description',
-    'Enabled': 'Enabled',
-    'KeyId': 'KeyId',
-    'KeySpec': 'KeySpec',
-    'KeyUsage': 'KeyUsage',
-    'MultiRegion': 'MultiRegion',
-    'Origin': 'Origin',
-}))
-FIELDS.update(fields('KMS.Key', 'rotation', {
-    'EnableKeyRotation': 'KeyRotationEnabled',
-    'RotationPeriodInDays': 'RotationPeriodInDays',
-}))
-FIELDS.update(fields('KMS.Key', 'policy', {
-    'KeyPolicy': 'Policy',
-}, norms={'KeyPolicy': 'policy'}))
-FIELDS.update(fields('KMS.Alias', 'alias', {
-    'AliasName': 'AliasName',
-}))
-FIELDS['KMS.Key.PendingWindowInDays'] = unavailable('ScheduleKeyDeletion input; DescribeKey does not retain the future deletion waiting period on an active key.')
 
 
 def sensitive(prop):

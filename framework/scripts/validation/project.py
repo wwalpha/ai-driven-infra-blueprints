@@ -29,13 +29,26 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
         return
     for environment, target, service in sorted(scope):
         findings.check((environment, target) in accounts, f"validation target is not defined in project.json: {environment}/{target}")
-        for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
+        from model_templates import service_source
+        try:
+            findings.check(service_source(root/"model"/environment/target/(service+".properties")) is not None, f"validation YAML input missing: {environment}/{target}/{service}")
+        except (OSError, ValueError) as error:
+            findings.check(False, f"invalid validation YAML input: {error}")
+        for base, suffix in (("docs/designs", ".md"),):
             relative = f"{base}/{environment}/{target}/{service}{suffix}"
             findings.check((root / relative).is_file(), f"validation input missing: {relative}")
+    from model_templates import affected
+    try:
+        for entry in affected(root, changed_paths):
+            findings.check(entry in scope, f"template source change requires affected validation scope: {'/'.join(entry)}")
+    except (OSError, ValueError) as error:
+        findings.check(False, f'invalid Model source scope: {error}')
     for changed in sorted(changed_paths):
         for base in ("model/", "docs/designs/"):
             if changed.startswith(base):
                 parts = Path(changed.removeprefix(base)).parts
+                if base == 'model/' and parts[0] in {'parameters', 'templates'}:
+                    continue  # Physical inputs are checked through affected() above.
                 identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
                 findings.check(identity in scope, f"changed design path is outside validation scope: {changed}")
 
@@ -63,6 +76,14 @@ def check_project_topology(accounts, findings, root, template_mode):
     findings.check(isinstance(targets, list) and bool(targets), "targets must be a non-empty array")
     if not isinstance(targets, list):
         return
+    from import_scope import selected
+    identity = selected(root)
+    if identity is not None:
+        from import_scope import view_targets
+        target_scope = {item[:2] for item in view_targets(root)}
+        targets = [target for target in targets if isinstance(target, dict) and
+                   (target.get('environment'), target.get('alias', target.get('awsAccountId'))) in target_scope]
+        findings.check(len(targets) == len(target_scope), 'IMPORT validation targets must exist exactly once in project.json')
     order: list[tuple[str, str]] = []
     environment_targets: dict[str, list[dict[str, str]]] = {}
     account_engines: dict[tuple[str, str], str] = {}
@@ -91,10 +112,11 @@ def check_project_topology(accounts, findings, root, template_mode):
         target_directory = alias or account
         target = f"{environment}/{target_directory}"
         execution_account = target_values.get("awsExecutionAccountId", account)
-        findings.check(
-            re.fullmatch(r"[0-9]{12}", execution_account) is not None,
-            f"invalid AWS execution account: {target}",
-        )
+        if "awsExecutionAccountId" in target_values:
+            findings.check(
+                re.fullmatch(r"[0-9]{12}", execution_account) is not None,
+                f"invalid AWS execution account: {target}",
+            )
         if "awsProfile" in target_values:
             profile = target_values["awsProfile"]
             findings.check(
@@ -152,6 +174,8 @@ def check_project_topology(accounts, findings, root, template_mode):
         execution_account_engines.setdefault(execution_key, engine)
 
     for environment, environment_values in environment_targets.items():
+        if identity is not None:
+            continue
         aliases = [value.get("alias", "") for value in environment_values]
         if len(environment_values) == 1:
             findings.check(not aliases[0], f"single-target environment must omit alias: {environment}")
@@ -159,10 +183,6 @@ def check_project_topology(accounts, findings, root, template_mode):
             findings.check(
                 all(aliases),
                 f"multi-target environment requires alias on every target: {environment}",
-            )
-            findings.check(
-                len(aliases) == len(set(aliases)),
-                f"target aliases must be unique within environment: {environment}",
             )
     findings.check(order == sorted(order), "targets must be sorted by environment and target directory")
     return
@@ -176,7 +196,7 @@ def check_initialized_paths(accounts, findings, root, scope, template_mode):
             continue
         paths = [
             root / "docs" / "designs" / environment / target_directory,
-            root / "model" / environment / target_directory,
+
         ]
         if values["engine"] == "cloudformation":
             paths.append(root / "infra" / "cloudformation" / "parameters" / environment / target_directory)

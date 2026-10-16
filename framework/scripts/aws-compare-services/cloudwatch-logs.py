@@ -1,18 +1,8 @@
 """cloudwatch-logs: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one
 
-RESOURCE_TYPES = ('Logs.LogGroup',)
 APIS = {('logs', 'describe_log_groups')}
-IDENTITIES = {'Logs.LogGroup': ('base', 'logGroupName', 'logGroupArn', 'LogGroupName')}
-FIELDS = {}
-FIELDS.update(fields('Logs.LogGroup', 'base', {
-    'DeletionProtectionEnabled': 'deletionProtectionEnabled',
-    'KmsKeyId': 'kmsKeyId',
-    'LogGroupClass': 'logGroupClass',
-    'LogGroupName': 'logGroupName',
-    'RetentionInDays': 'retentionInDays',
-}, norms={'KmsKeyId': 'kms'}, defaults={'DeletionProtectionEnabled': False, 'LogGroupClass': 'STANDARD'}))
 
 
 def sensitive(prop):

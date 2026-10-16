@@ -1,22 +1,8 @@
 """sqs: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import MISSING, Unresolved
 
-RESOURCE_TYPES = ('SQS.Queue', 'SQS.QueuePolicy')
 APIS = {('sqs', 'get_queue_url'), ('sqs', 'get_queue_attributes')}
-IDENTITIES = {'SQS.Queue': ('queue', 'QueueUrl', 'Attributes.QueueArn', 'QueueName'), 'SQS.QueuePolicy': ('policy', 'Queues', None, None)}
-FIELDS = {}
-FIELDS.update(fields('SQS.Queue', 'queue', {
-    'QueueName': 'QueueName',
-    'QueueUrl': 'QueueUrl',
-    'FifoQueue': 'Attributes.FifoQueue',
-    'MessageRetentionPeriod': 'Attributes.MessageRetentionPeriod',
-}, norms={'FifoQueue': 'boolean', 'MessageRetentionPeriod': 'number'}, defaults={'FifoQueue': 'false'}))
-FIELDS.update(fields('SQS.QueuePolicy', 'policy', {
-    'PolicyDocument': 'Policy',
-    'Queues[]': 'Queues',
-}, norms={'PolicyDocument': 'policy', 'Queues[]': 'id'}))
-FIELDS['SQS.QueuePolicy.Id'] = unavailable('SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document.')
 
 
 def sensitive(prop):

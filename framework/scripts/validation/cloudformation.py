@@ -1,3 +1,4 @@
+from model_templates import service_source
 """CloudFormation syntax, Environment and stack design checks."""
 
 
@@ -334,7 +335,7 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             stacks = stack_design(path)
             from cloudformation_observed import validate_mapping_targets
             source = (root / "model" / path.relative_to(root / "docs" / "designs")).with_suffix(".properties")
-            if source.is_file():
+            if service_source(source) is not None:
                 mapping_values = properties(read_model(source))
                 from model_core import stack_model
                 stack_model(mapping_values)

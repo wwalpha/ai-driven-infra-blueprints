@@ -27,6 +27,7 @@ def main() -> None:
     task.check_optional_alias_targets()
     contracts.check_optional_alias_contract()
     task.check_model_task_boundaries()
+    design.check_catalog_inputs()
     design.check_schema_backed_design_rows()
     design.check_description_design_constraints()
     contracts.check_implementation_preflight_prompt()
@@ -51,4 +52,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from test_support.model_sources import catalog_display
+    with catalog_display():
+        main()

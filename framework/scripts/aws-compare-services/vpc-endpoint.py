@@ -1,26 +1,8 @@
 """vpc-endpoint: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import fields, unavailable, metadata, one, select, MISSING, Unresolved, AcquisitionError
+from model_aws_compare import one, Unresolved
 
-RESOURCE_TYPES = ('EC2.VPCEndpoint',)
 APIS = {('ec2', 'describe_vpc_endpoints')}
-IDENTITIES = {'EC2.VPCEndpoint': ('base', 'VpcEndpointId', None, None)}
-FIELDS = {}
-FIELDS.update(fields('EC2.VPCEndpoint', 'base', {
-    'DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint': 'DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint',
-    'Id': 'VpcEndpointId',
-    'IpAddressType': 'IpAddressType',
-    'PolicyDocument': 'PolicyDocument',
-    'PrivateDnsEnabled': 'PrivateDnsEnabled',
-    'RouteTableIds': 'RouteTableIds',
-    'SecurityGroupIds': 'Groups[].GroupId',
-    'ServiceName': 'ServiceName',
-    'SubnetIds': 'SubnetIds',
-    'Tags[].Key': 'Tags[].Key',
-    'Tags[].Value': 'Tags[].Value',
-    'VpcEndpointType': 'VpcEndpointType',
-    'VpcId': 'VpcId',
-}, norms={'PolicyDocument': 'policy', 'VpcId': 'id', 'SecurityGroupIds': 'id', 'SubnetIds': 'id', 'RouteTableIds': 'id'}, defaults={'DnsOptions.PrivateDnsOnlyForInboundResolverEndpoint': False}))
 
 
 def sensitive(prop):

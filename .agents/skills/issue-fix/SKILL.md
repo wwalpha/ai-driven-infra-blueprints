@@ -3,6 +3,14 @@ name: issue-fix
 description: Use when locally investigating targets/services within one explicitly specified AWS Blueprint environment with the issues skill and repairing only display-related problems in its results. Environment specification is mandatory; execution across multiple environments is prohibited.
 ---
 
+[Service Model source authority](../../../framework/rules/model-templates.md) applies
+for runtime Models: read through model_files and trace expanded keys with `--trace`.
+Design edits use the common template, parameters.yaml and fixed bindings.json;
+authorized observed updates use observed.json. Include mechanically identified
+common-template consumers in generation/Validation scope. Retain this skill's
+single deployment target, issue gate, reservations and AWS permission boundary.
+
+
 # Display-related issue repair
 
 The common authority is maintained in the `ai-driven-infra-blueprints` repository. Invoking this skill authorizes investigation and repair of display-related issues within the request scope. It does not include design-value changes, IaC repair, AWS APIs, deploy/apply, or scenarios.
@@ -24,7 +32,7 @@ The common authority is maintained in the `ai-driven-infra-blueprints` repositor
 - Targets are heading/list/table format and numbering, property display aliases, descriptions, link display text/anchors, and display mismatches between authoritative models and generated Markdown/JSON. Preserve resource ownership, formal properties, setting values, names, tags, policy bodies, reference target resources, resourceMode, logical IDs, and current identifiers.
 - For display input repair, first change corresponding model properties such as `display.*` and explanatory comments. Limit descriptions to contents supported by confirmed design; do not invent unknown uses or display names. Do not include formal name renaming, mandatory Name/tag additions, or filling missing design values in display repair.
 - If setting values are correct and only generated artifacts are stale, regenerate without changing the model. For links, confirm correspondence to actual resources in the same environment/target and repair display while retaining existing reference targets. If the target is unknown, has multiple candidates, or is undesigned, retain it as unconfirmed.
-- Do not directly edit generated Markdown/JSON. Do not overwrite existing models with `--import-markdown`. If a generator/validator/common display rule defect is detected, report the cause and necessary framework repair; do not work around it in consumer models. Do not automatically start framework repair as another task from this skill.
+- Do not directly edit generated Markdown/JSON. If a generator/validator/common display rule defect is detected, report the cause and necessary framework repair; do not work around it in consumer models. Do not automatically start framework repair as another task from this skill.
 
 ## Repair contract and generation
 

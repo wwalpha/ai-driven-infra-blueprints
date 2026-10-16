@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from model_core import properties
 from model_files import service_model_path
+from model_templates import affected, service_source
 from validation_scope import active_scope
 from issue_gate import require_no_issues
 from task_contract import task_path, task_changes, contracts, reservations, TASK_NAME, matches
@@ -150,6 +151,11 @@ class TaskValidation:
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
         self.check_task_boundary(prompt)
+        from import_guard import require_import_changes
+        try:
+            require_import_changes(self.root, self.changed_paths)
+        except (OSError, ValueError, KeyError) as error:
+            self.check(False, str(error))
 
 
     @staticmethod
@@ -187,7 +193,7 @@ class TaskValidation:
                 forbidden = self.under(changed, "tests")
                 self.check(not forbidden, f"infrastructure task boundary violation: {changed}")
                 if self.infrastructure_phase == "destroy":
-                    permitted = changed == prompt_path or changed.startswith("model/") and changed.endswith(".properties") or changed.startswith("docs/designs/") and Path(changed).suffix in {".md", ".json"}
+                    permitted = changed == prompt_path or changed.startswith("model/parameters/") and Path(changed).name in {"observed.json"} or changed.startswith("docs/designs/") and Path(changed).suffix in {".md", ".json"}
                     self.check(permitted, f"infrastructure destroy phase permits only observed models/generated views/active contract: {changed}")
             elif self.task_type == "scenario-test":
                 permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
@@ -228,9 +234,18 @@ class TaskValidation:
             markdown = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".md")}
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
-            models = {service_model_path(self.root / path, self.root / "model").relative_to(self.root).as_posix()
-                      for path in model_files}
-            self.check(bool(models), "design task must change authoritative service properties")
+            design_sources = {path for path in changed if path.startswith('model/templates/') or
+                              path.startswith('model/parameters/') and Path(path).name in {'parameters.yaml', 'bindings.json'}}
+            text = task_path(self.root).read_text(encoding='utf-8')
+            if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
+                from import_guard import require_import_changes
+                try:
+                    require_import_changes(self.root, self.changed_paths)
+                    design_sources |= {path for path in changed if path.startswith('model/parameters/') and Path(path).name == 'observed.json'}
+                except (OSError, ValueError) as error:
+                    self.check(False, str(error))
+            models = {'model/' + '/'.join(entry) + '.properties' for entry in affected(self.root, design_sources)}
+            self.check(bool(models), "design task must change authoritative YAML service inputs")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
                 self.check(expected in models, f"changed design Markdown lacks changed service model: {path}")
@@ -258,34 +273,17 @@ class TaskValidation:
                     "infrastructure update phase must include generated detailed-design Markdown",
                 )
                 self.check(
-                    any(path.startswith("model/") and path.endswith(".properties") for path in changed),
-                    "infrastructure update phase must include human-changed authoritative service properties",
+                    any(path.startswith("model/templates/") or path.startswith("model/parameters/") and Path(path).name in {"parameters.yaml", "bindings.json"} for path in changed),
+                    "infrastructure update phase must include human-changed authoritative YAML service inputs",
                 )
             elif self.infrastructure_phase == "destroy":
                 self.check(not iac_changed, "infrastructure destroy phase must not change IaC")
                 for relative in sorted(changed):
-                    if not relative.startswith("model/") or not relative.endswith(".properties"):
-                        continue
-                    before = subprocess.run(["git", "show", "HEAD:" + relative], cwd=self.root,
-                                            capture_output=True, text=True, encoding="utf-8")
-                    path = self.root / relative
-                    try:
-                        old = properties(before.stdout) if before.returncode == 0 else {}
-                        new = properties(path.read_text(encoding="utf-8")) if path.is_file() else {}
-                        intended = lambda values: {key: value for key, value in values.items() if not key.startswith("observed.")}
-                        self.check(intended(old) == intended(new), f"infrastructure destroy phase must not change desired/display model: {relative}")
-                    except (OSError, ValueError) as error:
-                        self.check(False, f"destroy observed-only validation: {relative}: {error}")
-        elif self.task_type == "scenario-test":
-            self.check(any(self.under(path, "tests/scenarios") for path in changed), "scenario-test task must change a scenario")
-            self.check(any(self.under(path, "tests/results") for path in changed), "scenario-test task must change its current result")
-        elif self.task_type == "governance":
-            self.check(bool(changed), "governance task must change framework files")
-        elif self.task_type == "catalog-maintenance":
-            self.check(any(self.under(path, "framework/materials/aws") for path in changed), "catalog-maintenance task must change catalog files")
-            self.check("framework/materials/catalog.sha256" in changed, "catalog-maintenance task must update framework/materials/catalog.sha256")
-        elif self.task_type == "migration":
-            self.check(bool(changed), "migration task must change its required outputs")
+                    if relative.startswith('model/parameters/'):
+                        self.check(Path(relative).name in {'observed.json'}, f'destroy cannot change template parameters: {relative}')
+                    if relative.startswith('model/templates/'):
+                        self.check(False, f'destroy cannot change template: {relative}')
+
 
 
     def check_acceptance_checks(self, registered) -> None:
