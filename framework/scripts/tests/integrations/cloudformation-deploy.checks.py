@@ -355,6 +355,7 @@ def check_inputs(tmp_path):
 def check_delivery(tmp_path):
     base = tmp_path
     root = base / "repo"
+    copy_framework(root / 'framework/materials', relative='materials')
     backend = DeliveryAws(root, base / "session.files")
     unit = units(10)[0]
     template, params = backend.paths(unit)

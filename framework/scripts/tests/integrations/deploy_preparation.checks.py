@@ -210,8 +210,6 @@ def check_service_generated_equality():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve() / "repo"
         fixture(root)
-        copy_framework(root / 'framework/materials', relative='materials')
-        copy_framework(root / 'framework/mappings', relative='mappings')
         sync = M.module("equality_sync", ROOT / "framework/scripts/sync-model.py")
         contract, _, _, _ = M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         start(root, "tasks/deploy-offline.md", contract)

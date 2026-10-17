@@ -50,6 +50,8 @@ STACKS = ["cfn-stack-app-dev-one", "cfn-stack-app-dev-two"]
 from support.it_workspace import copy_framework
 
 def fixture(root):
+    copy_framework(root / 'framework/materials', relative='materials')
+    copy_framework(root / 'framework/mappings', relative='mappings')
     (root / "framework/scripts").mkdir(parents=True)
     for name in ("sync-model.py", "cloudformation-deploy.py", "check-deploy-context.py", "task_contract.py", "worktree_task.py", "worktree_python.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "requirements.txt"):
         shutil.copy(ROOT / "framework/scripts" / name, root / "framework/scripts" / name)
