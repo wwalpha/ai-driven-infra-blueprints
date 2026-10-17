@@ -1605,12 +1605,12 @@ def check_service_failure_protection(root, project):
     write_model(source, text(iam))
     source = model_templates.source_paths(source)[2] / "parameters.yaml"
     source_before = source.read_bytes()
-    publish = sync_runtime.publish
+    publish = sync_runtime.publish_generation
     def change_input(*args, **kwargs):
         source.write_bytes(source_before + b"# concurrent input\n")
         return publish(*args, **kwargs)
     errors = io.StringIO()
-    with patch.object(sync_runtime, "publish", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write", "--environment", "dev", "--aws-account-id", "123456789012"]), redirect_stderr(errors):
+    with patch.object(sync_runtime, "publish_generation", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write", "--environment", "dev", "--aws-account-id", "123456789012"]), redirect_stderr(errors):
         assert SYNC.main() == 1
     assert "changed" in errors.getvalue(), errors.getvalue()
     assert json_path.read_bytes() == before

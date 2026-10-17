@@ -968,8 +968,13 @@ def reference_values(path, identity, kind, mode, _context=None):
 
 
 @scoped_read
-@memoized
 def load_expansion(path, _context=None):
+    expanded = _load_expansion(path, _context)
+    return expanded._replace(files=dict(expanded.files)) if expanded is not None else None
+
+
+@memoized
+def _load_expansion(path, _context=None):
     return load_sources(path, expand)
 
 

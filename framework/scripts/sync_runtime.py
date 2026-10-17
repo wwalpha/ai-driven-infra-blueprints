@@ -23,7 +23,7 @@ from issue_gate import require_no_issues
 from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
 from utils.aws_mappings import mapping_alias
-from sync_files import changed_files, save_files, restore_files
+from sync_files import changed_files, save_files, restore_files, markdown_newlines
 import sync_views
 from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total, output_file
 from import_scope import selected as import_selection, scoped as import_scoped
@@ -116,7 +116,7 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
             if len(key) != 2 or not callable(key[0]):
                 continue
             function, args = key
-            if (function.__module__, function.__name__) in {('model_files', 'load_model'), ('model_templates', 'load_expansion')} and args[0].is_relative_to(root):
+            if (function.__module__, function.__name__) in {('model_files', 'load_model'), ('model_templates', '_load_expansion')} and args[0].is_relative_to(root):
                 staged = stage / args[0].relative_to(root)
                 memo[(function, (staged, *args[1:]))] = value._replace(files={stage / p.relative_to(root): text for p, text in value.files.items()})
                 if snapshot is not None:
@@ -164,7 +164,7 @@ def generate_views(stage, root, destinations, failures):
                 artifacts[artifact] = content
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
-            save_files({staged: markdown_for(staged, values, stage, definitions_root=root)})
+            staged.write_text(markdown_for(staged, values, stage, definitions_root=root), encoding='utf-8', newline='')
             generated[path] = [*artifacts, staged]
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
@@ -174,7 +174,7 @@ def generate_views(stage, root, destinations, failures):
         try:
             staged = stage / path.relative_to(root)
             if path.name != STACK_DESIGN:
-                save_files({staged: rendered_design(staged, definitions_root=root)})
+                staged.write_text(rendered_design(staged, definitions_root=root), encoding='utf-8', newline='')
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
             del generated[path]
@@ -492,7 +492,7 @@ def prepare_generation(root, scope, *, write=True, environment=None, target_dire
                         if path in plan.read_inputs and plan.read_inputs[path] != data:
                             raise ValueError(f'generation inputs changed while reading: {path}')
                         plan.read_inputs[path] = data
-                        if file.name == 'parameters.yaml':
+                        if file.name == 'parameters.yaml' and not (file.parent / 'observed.json').is_file():
                             plan.read_inputs.setdefault(path.parent / 'observed.json', None)
         plan.generated = generate_views(stage, root, plan.destinations, plan.failures)
         return plan
@@ -521,7 +521,8 @@ def validate_generation(plan, *, jobs=4, write=True):
         plan.candidate = plan.validation[None].candidate
     for path, files in plan.generated.items():
         expected = {plan.root / file.relative_to(plan.stage): file.read_bytes().decode('utf-8') for file in files}
-        # Normalize in the candidate stage using the original bytes, before validation/publication.
+        # Validate canonical candidates, then preserve the saved view's newline format.
+        expected[path] = markdown_newlines(path, expected[path])
         plan.expected_outputs[path] = expected
         if plan.snapshot is not None:
             for file in expected:

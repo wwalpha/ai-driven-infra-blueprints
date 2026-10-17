@@ -259,7 +259,9 @@ display.resource.001.comment=通信ログを保存するLog Group
                            cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert fresh.returncode == 0 and "1 executed, 0 reused; workers: 1" in fresh.stdout, fresh.stdout + fresh.stderr
     assert list((tmp_path / "logs").glob("*/validate-blueprint.prof"))
-    assert list((tmp_path / "logs").glob("*/sync-model-*.prof"))
+    import pstats
+    profile = next((tmp_path / "logs").glob("*/validate-blueprint.prof"))
+    assert any(Path(file).name == "sync_runtime.py" for file, _, _ in pstats.Stats(str(profile)).stats)
     issue = root / "issues/dev/123456789012/issues.md"
     issue.parent.mkdir(parents=True)
     issue.write_text("### logs\n\n1. 未解決の設定問題\n", encoding="utf-8")

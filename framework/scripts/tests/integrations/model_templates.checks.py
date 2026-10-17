@@ -274,6 +274,7 @@ def check_template_snapshot(root):
     from validation_cache import input_scope
     path = write_model(root / 'model/dev/team/config.properties', config_model())
     template = templates.service_source(path)[1]
+    original = template.read_text(encoding='utf-8')
 
     @input_scope
     def reuse():
@@ -293,12 +294,14 @@ def check_template_snapshot(root):
             assert not any('parameters' in file.parts for file in files)
             first.files[root / 'foreign'] = 'unrelated'
             assert root / 'foreign' not in second.files
-        original = template.read_text(encoding='utf-8')
         template.write_text('invalid', encoding='utf-8')
-        rejected(lambda: templates.load_expansion(path), 'header required')
+        assert templates.load_expansion(path).values == second.values
         template.write_text(original, encoding='utf-8')
         assert templates.load_expansion(path).values == first.values
     reuse()
+    template.write_text('invalid', encoding='utf-8')
+    rejected(lambda: templates.load_expansion(path), 'header required')
+    template.write_text(original, encoding='utf-8')
 
 
 def check_creation(root):
@@ -357,8 +360,7 @@ def check_sync(root):
         publish_observed(root,changes)
         assert load_model(path).values['observed.row.007-009.value']=='`new-id`'
         with redirect_stdout(io.StringIO()):sync_runtime.sync(root,True,'dev','team',services=['config'])
-        # The four newline combinations remain in sync-model.checks.py::check_markdown_newlines.
-        for newline,final in (('\r\n',False),):
+        for newline,final in (('\n',True), ('\n',False), ('\r\n',True), ('\r\n',False)):
             original=view.read_text();content=original.rstrip('\n').replace('\n',newline)+(newline if final else '')
             view.write_bytes(content.encode())
             with redirect_stdout(io.StringIO()):sync_runtime.sync(root,True,'dev','team',services=['config'])
@@ -367,7 +369,7 @@ def check_sync(root):
         def drift(*args,**kwargs):real(*args,**kwargs);template.write_bytes(saved+b'# changed\n')
         with patch.object(sync_runtime,'validate_candidates',drift),redirect_stdout(io.StringIO()):rejected(lambda:sync_runtime.sync(root,True,'dev','team',services=['config']),'inputs changed')
         template.write_bytes(saved)
-    assert calls.call_count == 6, 'initial/write/match/observed/newline/drift coverage'
+    assert calls.call_count == 9, 'initial/write/match/observed/newline/drift coverage'
 
 
 def check_common_shape(root):
