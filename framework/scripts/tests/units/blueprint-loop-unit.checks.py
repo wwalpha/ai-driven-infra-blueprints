@@ -392,9 +392,9 @@ def check_it_inventory(tmp_path):
     original = [value for value in cases.values() if value[0] in ('direct', 'pytest')]
     assert len(original) == 279 and sum(count for _, count in original) == 357
     assert sum(mode == 'direct' for mode, _ in original) == 112
-    assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 12
-    assert sum(mode == 'module' for mode, _ in cases.values()) == 7
-    assert len(list((Path(run_it.__file__).parent / 'integrations').rglob('*.checks.py'))) == 66
+    assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 13
+    assert sum(mode == 'module' for mode, _ in cases.values()) == 6
+    assert len(list((Path(run_it.__file__).parent / 'integrations').rglob('*.checks.py'))) == 65
     folder = tmp_path / 'integrations'
     folder.mkdir()
     entry = folder / 'example.checks.py'

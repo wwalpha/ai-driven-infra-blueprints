@@ -8,6 +8,27 @@
 
 pytest件数はテスト定義・aliasと設定から算出する。直接実行入口で選択されるcallbackとpytestラッパーは重ねて合計しない。
 
+## Lambda依存IT統合のassertion対応
+
+旧独立Lambda依存ITの全検証地点（削除前行番号）。完全重複は既存ITへ委譲し、部分重複の環境別byte snapshotと未カバーのPassCache依存を `validation_cache.check_producer_inputs` に統合。旧2構成の全体コピー・独立fixture生成ヘルパーの移植なし。
+
+| 旧行 / assertion・拒否目的 | 重複判定 | 継続する検証 |
+|---|---|---|
+| 54 / 分割Templateのpartが解析入力に含まれる | 部分 | validation_cache.mainのpart変更キー、check_producer_inputsの`part in inputs` |
+| 77 / Producer source_inputsがConsumerに包含 | 完全 | attribute-reference-resolution.check_pairの`loaded.files`、eventbridge-producer-name-reference.checkの`load_model(producer).files <= files`。統合fixtureでも同じ包含を確認 |
+| 84 / 全Producer入力の空白変更で共有両環境・固有環境だけdigest変化 | 部分 | check_producer_inputsの入力全件×preview/release×依存/無関係サービスdigest比較。check_fixed_labelは値不変のdigestを既存検証 |
+| 85 / 同条件でConsumer service_key変化 | 未カバー | check_producer_inputs。共有index/partとpreviewのparameters/bindings/observedを順に変更し、releaseと無関係sqsの非影響もassert |
+| 86 / 入力空白変更中のConsumer値完全一致 | 部分 | check_producer_inputsの各入力変更中のvalues全体一致（JSONの型・配列順も含む） |
+| 91 / affectedが共有両環境・固有環境のProducer/Consumerのみ | 完全 | model_impact.check_shared_environmentsの共有/環境固有分離、check_precisionのLambda含む変更伝播・値不変snapshot、check_selectionの無関係サービス除外。attribute-reference-resolution.check_fixed_labelの値不変入力でもConsumer包含。baseline無しの保守的集合とbaseline有りの精密集合は区別 |
+| 93 / 復元後Consumer値一致 | 完全 | attribute-reference-resolution.check_pairのdigest/values復元一致。統合caseは全キー復元も確認 |
+| 101 / 相互参照でもConsumer filesをProducer source_inputsが包含 | 完全 | attribute-reference-resolution.check_pairの相互fixtureとProducer files追跡、eventbridge-producer-name-reference.checkのLambda.Permission→Rule逆リンクとfiles包含 |
+| 102 / 相互リンクがあっても値再帰しない | 完全 | attribute-reference-resolution.check_pairのLambda/EventBridge相互参照値解決と真の属性cycle拒否、eventbridge-producer-name-reference.checkの逆リンク付きLambda値解決 |
+| 110–112 / Producer parameters欠落の拒否 | 完全 | attribute-reference-resolution.check_preparation_cacheのparameters.yaml欠落拒否、eventbridge-producer-name-reference.checkのProducer欠落拒否 |
+| 120–122 / Producer型破損の拒否 | 完全 | eventbridge-producer-name-reference.checkのLambda型不一致拒否、attribute-reference-resolution.checkのresourceType不一致拒否 |
+| 128–130 / Producer parameters欠落の再検証 | 完全（旧内でも重複） | 同上のProducer欠落拒否 |
+
+実行入口単位：新規1 case、旧module case 1削除、独立suiteは1減。旧module内のflat/parts 2 fixture構築を廃止し、既存cache suiteに最小2環境fixture 1構築を追加。既存のwrite_modelで合成入力だけを作成する。run_itの共有seed bundle生成は1回のまま、suite processは1減。run_it.pyとFramework IT workflowは変更不要（自動発見と本台帳の照合を継続）。
+
 ## design_catalog の検証経路
 
 - API異常値24件は `integrations/design_catalog.checks.py` に維持。23件は `DesignSchemaCatalog.api_value_errors()` の型・範囲・required・additionalPropertiesと `job_errors()` の具体的違反を検証し、`jobId` ARN拒否1件はMarkdown→Model→Validatorで検証する。UTへの移動なし。
@@ -1459,7 +1480,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `integrations/lambda_permission.checks.py:20` | 4: `((1, 0, False), (1, 1, False), (2, 2, False), (2, 2, True))` |
 | `integrations/lambda_permission.checks.py:38` | 2: `('parentProperty', 'parentReference')` |
 | `integrations/lambda_permission.checks.py:48` | 10: `((output.replace('Permission.Action', 'Permission.Id', 1), 'must not be displayed'), (output.replace('Permission.Action', 'Permission.FunctionName', 1), 'must not be displayed'), (output.replace('<!-- lambda-permission: [', '<!-- lambda-permission: broken[', 1), 'invalid Lambda Permission metadata'), (output.replace('Permission.Action', 'Lambda.Permission.Action', 1), 'Permission.*'), (output.replace('<!-- lambda-permission:', '<!-- invalid-permission:', 1), 'complete identity'), (output.replace('<!-- logical-id: Invoke1_1 -->', '', 1), 'complete identity'), (output.replace('<!-- logical-id: Invoke1_2 -->', '<!-- logical-id: Invoke1_1 -->', 1), 'duplicate grouped'), (output.replace('Permission.Principal', 'Permission.Action', 1), 'duplicate Lambda Permission'), (output.replace('[Worker1]\\u0028#lambda-app-dev-worker-1\\u0029', '[Wrong]\\u0028#lambda-wrong\\u0029', 1), 'must reference enclosing'), (output.replace('"Lambda.Permission.Id"', '"Wrong.Id"', 1), 'invalid Lambda Permission metadata'))` |
-| `integrations/legacy-lambda-dependencies.checks.py:132` | 2: `(False, True)` |
 | `integrations/model_files.checks.py:124` | 4: `(0, 600, 601, 1700)` |
 | `integrations/model_files.checks.py:136` | 動的: `model_parts(source)` |
 | `integrations/model_files.checks.py:142` | 動的: `range(1, 111)` |
@@ -1562,7 +1582,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `group-03-input-references.checks.py` | `__module__` | IT | [group](integrations/group-03-input-references.checks.py) | module / 1 |
 | `issue_gate.checks.py` | `main` | IT | [group](integrations/issue_gate.checks.py) | direct_group / 1 |
 | `lambda_permission.checks.py` | `main` | IT | [group](integrations/lambda_permission.checks.py) | direct_group / 1 |
-| `legacy-lambda-dependencies.checks.py` | `__module__` | IT | [group](integrations/legacy-lambda-dependencies.checks.py) | module / 1 |
 | `quicksight-display.checks.py` | `main` | IT | [group](integrations/quicksight-display.checks.py) | direct_group / 1 |
 | `regression_guard.checks.py` | `main` | IT | [group](integrations/regression_guard.checks.py) | direct_group / 1 |
 | `resource_mode.checks.py` | `main` | IT | [group](integrations/resource_mode.checks.py) | direct_group / 1 |
@@ -1571,6 +1590,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `security_group_tables.checks.py` | `main` | IT | [group](integrations/security_group_tables.checks.py) | direct_group / 1 |
 | `service-parameter-inputs.checks.py` | `__module__` | IT | [group](integrations/service-parameter-inputs.checks.py) | module / 1 |
 | `validate-blueprint.checks.py` | `main` | IT | [integrations/validate-blueprint.checks.py:15](integrations/validate-blueprint.checks.py#L15) | direct_group / 1 |
+| `validation_cache.checks.py` | `check_producer_inputs` | IT | [producer inputs](integrations/validation_cache.checks.py#L46) | direct_group / 1 |
 | `validation_cache.checks.py` | `main` | IT | [group](integrations/validation_cache.checks.py) | direct_group / 1 |
 `model_templates.checks.py::check_expansion` also checks a substantive shared trust-policy change in both consumer outputs and unchanged regeneration bytes/exit status.
 
