@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only parameters.yaml comparison for dev/stg and stg/prod."""
+"""Read-only parameters.yaml comparison between project.json targets."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ import math
 from pathlib import Path
 
 from model_parameter_inputs import yaml_read
-
-PAIRS = [(left, right, target) for target in ("cde", "non-cde")
-         for left, right in (("dev", "stg"), ("stg", "prod"))]
+from validation.findings import Findings
+from validation.project import check_project_topology
 
 
 def validate_value(value, ancestors=None):
@@ -51,34 +50,46 @@ def value_differences(left, right, path=""):
 
 
 def compare(root: Path, pairs: list[tuple], services: list[str]) -> list[dict]:
+    """Compare explicit (from-env, to-env, from-target, to-target) selections."""
     base = root / "model/parameters"
     inputs = {}
     directories = {}
+    accounts = {}
+    findings = Findings(root)
     try:
-        targets = json.loads((root / "project.json").read_text(encoding="utf-8"))["targets"]
-        if not isinstance(targets, list) or not all(isinstance(item, dict) for item in targets):
-            raise ValueError("project.json targets must be an array of objects")
-        project_error = None
+        check_project_topology(accounts, findings, root, template_mode=False, scope_import=False)
+        project_error = "; ".join(findings.errors)
     except (OSError, ValueError, KeyError, TypeError) as error:
-        targets, project_error = [], str(error)
-    for left, right, target in pairs:
-        for environment in (left, right):
-            key = environment, target
+        project_error = f"invalid project.json: {error}"
+    resolved = {}
+    for left, right, left_selector, right_selector in pairs:
+        for environment, selector in ((left, left_selector), (right, right_selector)):
+            key = environment, selector
             if key in directories:
                 continue
+            target = selector
             try:
                 if project_error:
                     raise ValueError(project_error)
-                if not any(item.get("environment") == environment and item.get("alias") == target for item in targets):
-                    raise ValueError(f"unregistered environment/alias: {environment}/{target}")
+                candidates = [directory for env, directory in accounts if env == environment]
+                if not candidates:
+                    raise ValueError(f"unregistered environment: {environment}")
+                if selector is None:
+                    if len(candidates) != 1:
+                        raise ValueError(f"multiple targets in {environment}; specify target: {', '.join(candidates)}")
+                    target, = candidates
+                elif selector not in candidates:
+                    raise ValueError(f"unregistered target: {environment}/{selector}; available: {', '.join(candidates)}")
                 directory = base / environment / target
                 if not directory.is_dir():
-                    raise ValueError(f"parameters environment/alias directory missing: {environment}/{target}")
+                    raise ValueError(f"parameters environment/target directory missing: {environment}/{target}")
                 available = {path.parent.name for path in directory.glob("*/parameters.yaml")}
                 directories[key] = available, None
                 selected = sorted(set(services) if services else available)
                 for service in selected:
                     path = directory / service / "parameters.yaml"
+                    if path in inputs:
+                        continue
                     try:
                         value = yaml_read(path.read_text(encoding="utf-8"))
                         if type(value) is not dict:
@@ -91,36 +102,42 @@ def compare(root: Path, pairs: list[tuple], services: list[str]) -> list[dict]:
                         inputs[path] = True, None, str(error)
             except (OSError, ValueError) as error:
                 directories[key] = set(), str(error)
+            resolved[key] = target
     results = []
-    for left, right, target in pairs:
-        available = [directories[environment, target] for environment in (left, right)]
+    for left, right, left_selector, right_selector in pairs:
+        keys = ((left, left_selector), (right, right_selector))
+        left_target, right_target = (resolved[key] for key in keys)
+        placements = ((left, left_target), (right, right_target))
+        target = left_target if left_target == right_target else None
+        available = [directories[key] for key in keys]
         selected = sorted(set(services) if services else available[0][0] | available[1][0])
-        result = {"left": left, "right": right, "target": target, "status": "complete",
+        result = {"left": left, "right": right, "target": target, "left_target": left_target, "right_target": right_target, "status": "complete",
                   "services": selected, "differences": [], "difference_count": 0, "errors": []}
 
         def record(service, path, kind, before, after, left_exists, right_exists):
-            paths = [(base / env / target / service / "parameters.yaml" if service else base / env / target).relative_to(root).as_posix()
-                     for env in (left, right)]
-            result["differences"].append({"pair": f"{left}-{right}", "alias": target, "service": service,
+            paths = [f"model/parameters/{env}" + (f"/{directory}" if directory is not None else "")
+                     + (f"/{service}/parameters.yaml" if service else "") for env, directory in placements]
+            result["differences"].append({"pair": f"{left}-{right}", "alias": target, "left_target": left_target,
+                                          "right_target": right_target, "service": service,
                                           "key_path": path, "kind": kind, "left": before, "right": after,
                                           "left_exists": left_exists, "right_exists": right_exists,
                                           "source_paths": {"left": paths[0], "right": paths[1]}})
 
         if any(error for _, error in available):
-            for environment, (_, error) in zip((left, right), available):
+            for (environment, directory), (_, error) in zip(placements, available):
                 if error:
-                    result["errors"].append({"service": None, "path": f"model/parameters/{environment}/{target}", "message": error})
+                    result["errors"].append({"service": None, "path": f"model/parameters/{environment}" + (f"/{directory}" if directory is not None else ""), "message": error})
             record(None, "", "incomplete", None, None, available[0][1] is None, available[1][1] is None)
         elif not selected:
             result["errors"].append({"service": None, "message": "no parameters YAML inputs on either side"})
             record(None, "", "incomplete", None, None, True, True)
         else:
             for service in selected:
-                sides = [inputs.get(base / env / target / service / "parameters.yaml", (False, None, None)) for env in (left, right)]
+                sides = [inputs.get(base / env / directory / service / "parameters.yaml", (False, None, None)) for env, directory in placements]
                 before, after = sides
-                for environment, (_, _, error) in zip((left, right), sides):
+                for (environment, directory), (_, _, error) in zip(placements, sides):
                     if error:
-                        result["errors"].append({"service": service, "path": f"model/parameters/{environment}/{target}/{service}/parameters.yaml", "message": error})
+                        result["errors"].append({"service": service, "path": f"model/parameters/{environment}/{directory}/{service}/parameters.yaml", "message": error})
                 if any(side[2] for side in sides) or not (before[0] or after[0]):
                     if not (before[0] or after[0]):
                         result["errors"].append({"service": service, "message": "parameters YAML missing on both sides"})
@@ -140,15 +157,16 @@ def compare(root: Path, pairs: list[tuple], services: list[str]) -> list[dict]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--pair", choices=("dev-stg", "stg-prod"))
-    parser.add_argument("--target", choices=("cde", "non-cde"))
+    parser.add_argument("--from-env", required=True)
+    parser.add_argument("--from-target")
+    parser.add_argument("--to-env", required=True)
+    parser.add_argument("--to-target")
     parser.add_argument("--service", action="append", default=[])
     args = parser.parse_args()
     if any(not service or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in service)
            for service in args.service):
         parser.error("--service must be a lowercase service ID")
-    pairs = [pair for pair in PAIRS if (args.pair is None or args.pair == f"{pair[0]}-{pair[1]}")
-             and (args.target is None or args.target == pair[2])]
+    pairs = [(args.from_env, args.to_env, args.from_target, args.to_target)]
     results = compare(args.repository_root.resolve(), pairs, args.service)
     print(json.dumps({"namespace": "parameters", "comparisons": results}, ensure_ascii=False, sort_keys=True, allow_nan=False))
     return int(any(result["status"] != "complete" for result in results))

@@ -37,16 +37,21 @@ compare = importlib.util.module_from_spec(spec)
 
 spec.loader.exec_module(compare)
 
-PAIR = [("dev", "stg", "cde")]
+PAIR = [("dev", "stg", "cde", "cde")]
 
 def path(root, environment, service="vpc", target="cde"):
     return root / "model/parameters" / environment / target / service / "parameters.yaml"
 
+def write_project(root, placements):
+    targets = [{"environment": env, "awsAccountId": account, "awsRegion": "ap-northeast-1",
+                "iacEngine": "cloudformation", **({"alias": alias} if alias is not None else {})}
+               for env, alias, account in placements]
+    targets.sort(key=lambda item: (item["environment"], item.get("alias", item["awsAccountId"])))
+    (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": targets}) + "\n", encoding="utf-8")
+
 def copy_inputs(root, services=("vpc",)):
-    project = {"projectName":"fixture", "targets":[
-        {"environment":env, "alias":alias, "awsAccountId":account, "awsRegion":"ap-northeast-1", "iacEngine":"cloudformation"}
-        for env in ("dev","stg","prod") for alias,account in (("cde","123456789012"),("non-cde","210987654321"))]}
-    (root/"project.json").write_text(json.dumps(project),encoding="utf-8")
+    write_project(root, [(env, alias, account) for env in ("dev", "stg", "prod")
+                         for alias, account in (("cde", "123456789012"), ("non-cde", "210987654321"))])
     for environment in ("dev", "stg"):
         for service in services:
             if (service,environment) in (("datazone","stg"),("data-firehose","dev")):
@@ -72,4 +77,4 @@ def cli(root, *args):
     return result.returncode, report, result.stdout
 
 
-__all__ = ['Counter', 'PAIR', 'Path', 'ROOT', 'SCRIPT', 'cli', 'compare', 'copy_inputs', 'importlib', 'json', 'patch', 'path', 'pytest', 'run', 'shutil', 'spec', 'subprocess', 'sys', 'yaml']
+__all__ = ['Counter', 'PAIR', 'Path', 'ROOT', 'SCRIPT', 'cli', 'compare', 'copy_inputs', 'importlib', 'json', 'patch', 'path', 'pytest', 'run', 'shutil', 'spec', 'subprocess', 'sys', 'yaml', 'write_project']

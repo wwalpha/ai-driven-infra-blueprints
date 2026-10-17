@@ -66,7 +66,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
     return impact
 
 
-def check_project_topology(accounts, findings, root, template_mode):
+def check_project_topology(accounts, findings, root, template_mode, *, scope_import=True):
     path = root / "project.json"
     if template_mode:
         return
@@ -90,7 +90,7 @@ def check_project_topology(accounts, findings, root, template_mode):
     if not isinstance(targets, list):
         return
     from import_scope import selected
-    identity = selected(root)
+    identity = selected(root) if scope_import else None
     if identity is not None:
         from import_scope import view_targets
         target_scope = {item[:2] for item in view_targets(root)}

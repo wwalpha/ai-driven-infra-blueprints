@@ -70,8 +70,8 @@ pytest件数はテスト定義・aliasと設定から算出する。直接実行
 
 | 種別 | ファイル数 | 台帳登録pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
-| units | 52 | 90 / 116 | 23 |
-| integrations | 76 | 167 / 245 | 112 |
+| units | 52 | 150 / 261 | 23 |
+| integrations | 76 | 186 / 290 | 112 |
 | unknown | 0 | 0 / 0 | 0 |
 | support | 42 | 0 / 0 | 0 |
 
@@ -82,7 +82,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 公式入口は `run_it.py`。`.checks.py` は66スイートを自動検出する。上表のファイル数には補助Pythonモジュールも含む。
 ケース台帳を実行時に読み、pytestの収集・成功した検証本体のパラメータ件数、直接実行関数の呼出記録と照合する。未登録の `check_*`、消えた関数、未実行・skip・パターン不足はFAIL。ケース名だけの存在確認でPASSにしない。
 
-基準 `2647f97` は67スイート、IT台帳285関数・374入口パターン（pytest172/261、direct113/113）。未登録のsync-performance 7関数/21パターンとmanaged authority 1関数/1パターンを別途確認した。現在はIT279関数/357入口パターン。sync-performanceからUTへ3関数/6パターン、ITへ4関数/15パターンをそのまま移管。内部動的ループは従来の詳細表どおりで、入口パターン数には加算しない。
+基準 `2647f97` は67スイート、IT台帳285関数・374入口パターン（pytest172/261、direct113/113）。未登録のsync-performance 7関数/21パターンとmanaged authority 1関数/1パターンを別途確認した。現在のIT通常入口は298関数/402入口パターン（pytest186/290、direct112/112）。別途direct_group 13、module 6を登録し、台帳登録は合計317件。sync-performanceからUTへ3関数/6パターン、ITへ4関数/15パターンをそのまま移管。内部動的ループは従来の詳細表どおりで、入口パターン数には加算しない。
 
 - `check_quicksight_group_principal_reference` 1パターンと `check_incoming_reference_models` のFalse/Trueを通常pytest収集へ復帰。各ITの手書き選択リストも廃止した。
 - `sync-model.check_projection` は `design_document.check_projection` を呼ぶだけだったため削除。`validate-blueprint` の `design_document.check_links` 呼出も削除。両検証本体はdesign_documentの通常入口に存在し、同じ実装モジュールを渡して実行するため完全重複。
@@ -124,6 +124,12 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/cloudformation-deploy.checks.py:98` | `check_scheduler` | UT | [units/cloudformation-deploy-unit.checks.py:11](units/cloudformation-deploy-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:102` | `check_yaml_values` | UT | [units/compare-environments-unit.checks.py:11](units/compare-environments-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:147` | `check_missing_and_read_errors` | UT | [units/compare-environments-unit.checks.py:44](units/compare-environments-unit.checks.py#L44) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
+| `units/compare-environments-unit.checks.py:91` | `check_project_targets` | UT | [units/compare-environments-unit.checks.py:91](units/compare-environments-unit.checks.py#L91) | pytest / 6 | 任意Environment、単一account、同一/異なるAlias、同一account複数Alias、ハイフン名の解決とJSON/path | project.json対象選択の汎用化 |
+| `units/compare-environments-unit.checks.py:121` | `check_selection_errors` | UT | [units/compare-environments-unit.checks.py:121](units/compare-environments-unit.checks.py#L121) | pytest / 8 | 左右の曖昧・未登録選択をincomplete、accountでAliasを代用しない | project.json対象選択の汎用化 |
+| `units/compare-environments-unit.checks.py:138` | `check_project_errors` | UT | [units/compare-environments-unit.checks.py:138](units/compare-environments-unit.checks.py#L138) | pytest / 7 | 既存project topology検証による不正・欠落入力の拒否 | project.json対象選択の汎用化 |
+| `units/compare-environments-unit.checks.py:162` | `check_yaml_errors` | UT | [units/compare-environments-unit.checks.py:162](units/compare-environments-unit.checks.py#L162) | pytest / 6 | YAML不正をincompleteとして保持 | project.json対象選択の汎用化 |
+| `units/compare-environments-unit.checks.py:170` | `check_read_counts_and_read_only` | UT | [units/compare-environments-unit.checks.py:170](units/compare-environments-unit.checks.py#L170) | pytest / 1 | project一回・YAML各一回、Service和集合、変更ゼロ・process/network呼出ゼロ | project.json対象選択の汎用化 |
+| `units/compare-environments-unit.checks.py:200` | `check_task_scope_independence` | UT | [units/compare-environments-unit.checks.py:200](units/compare-environments-unit.checks.py#L200) | pytest / 1 | IMPORT契約のscopeがread-only比較を制限しない | project.json対象選択の汎用化 |
 | `unknown/deploy_preparation.checks.py:334` | `check_workflow_contract` | UT | [units/deploy_preparation-unit.checks.py:11](units/deploy_preparation-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:344` | `check_dependencies_and_timing` | UT | [units/deploy_preparation-unit.checks.py:21](units/deploy_preparation-unit.checks.py#L21) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:382` | `check_rule_section_boundaries` | UT | [units/deploy_preparation-unit.checks.py:59](units/deploy_preparation-unit.checks.py#L59) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
@@ -409,6 +415,10 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/compare-environments.checks.py:66` | `check_fixture_parameters` | IT | [integrations/compare-environments.checks.py:11](integrations/compare-environments.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:137` | `check_yaml_errors` | IT | [integrations/compare-environments.checks.py:49](integrations/compare-environments.checks.py#L49) | pytest / 6 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/compare-environments.checks.py:180` | `check_scope_reads_and_templates` | IT | [integrations/compare-environments.checks.py:59](integrations/compare-environments.checks.py#L59) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `integrations/compare-environments.checks.py:105` | `check_single_target_cli` | IT | [integrations/compare-environments.checks.py:105](integrations/compare-environments.checks.py#L105) | pytest / 2 | CLIでaccount自動/明示指定、ハイフンEnvironmentとJSON | project.json対象選択の汎用化 |
+| `integrations/compare-environments.checks.py:122` | `check_independent_targets_cli` | IT | [integrations/compare-environments.checks.py:122](integrations/compare-environments.checks.py#L122) | pytest / 1 | CLIで同一accountの異なるAliasを左右独立に選択 | project.json対象選択の汎用化 |
+| `integrations/compare-environments.checks.py:142` | `check_unknown_selection_cli` | IT | [integrations/compare-environments.checks.py:142](integrations/compare-environments.checks.py#L142) | pytest / 2 | CLIで未登録Environment/Targetの非ゼロとincomplete | project.json対象選択の汎用化 |
+| `integrations/compare-environments.checks.py:154` | `check_cli_arguments` | IT | [integrations/compare-environments.checks.py:154](integrations/compare-environments.checks.py#L154) | pytest / 4 | 旧CLI・環境指定不足・不正serviceを拒否 | project.json対象選択の汎用化 |
 | `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py:16](integrations/deploy_preparation.checks.py#L16) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py:92](integrations/deploy_preparation.checks.py#L92) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py:132](integrations/deploy_preparation.checks.py#L132) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
@@ -684,7 +694,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/cloudtrail-input-reference.checks.py::check` | L68: 2 ([original + '# annotation\n', original.replace('audit-preview', 'audit-next')])<br>L72: 5 ([(original.replace('resourceType=CloudTrail.Trail', 'resourceType=S3.Bucket'), 'type-mismatched'), (original.replace('017', '018'), 'type-mismatched'), (original.replace('CloudTrail.Trail.TrailName', 'CloudTrail.Trail.Description'), 'exactly one name'), (original.replace('`audit-preview`', '``'), 'exactly one name'), (original + 'desired.row.017-004.property=CloudTrail.Trail.TrailName\ndesired.row.017-004.value=`duplicate`\n', 'exactly one name')])<br>L?: 動的 (values.items()) |
 | `integrations/compare-environments.checks.py::check_fixture_parameters` | L25: 2 ((('datazone', 'only_left'), ('data-firehose', 'only_right')))<br>L30: 2 ((('ec2-vpcendpoint-sts-01', 'only_left'), ('ec2-vpc-endpoint-sts-01', 'only_right')))<br>L?: 動的 (pair['differences'])<br>L?: 動的 (report['comparisons'][0]['differences'])<br>L?: 動的 (pair['differences'])<br>L?: 2 ((('left', 'dev'), ('right', 'stg')))<br>L?: 2 (('dev', 'stg'))<br>L?: 動的 (differences)<br>L?: 動的 (pair['differences']) |
 | `integrations/compare-environments.checks.py::check_yaml_errors` | L?: 動的 (pair['differences']) |
-| `integrations/compare-environments.checks.py::check_scope_reads_and_templates` | L61: 2 (('cde', 'non-cde'))<br>L62: 3 (('dev', 'stg', 'prod'))<br>L?: 動的 (tmp_path.rglob('*'))<br>L?: 動的 (pairs)<br>L?: 動的 (tmp_path.rglob('*'))<br>L?: 動的 (report['comparisons'])<br>L?: 動的 (report['comparisons'])<br>L?: 3 (('dev', 'stg', 'prod'))<br>L?: 2 (('cde', 'non-cde')) |
+| `integrations/compare-environments.checks.py::check_scope_reads_and_templates` | 2 targets × 3 environments、明示2組×2 targetsの共有入力読込、選択scope以外の変更非影響、曖昧な左右指定の2パターン拒否 |
 | `integrations/deploy_preparation.checks.py::check_preparation` | L44: 動的 (plan['documents'])<br>L52: 動的 (plan['inputs'].items())<br>L?: 動的 (root.rglob('*'))<br>L?: 動的 (plan['documents'])<br>L?: 4 (('ec2.md', 'iam.md', 'cloudformation-stacks.md', 'iam/worker-role-trust-policy.json'))<br>L?: 動的 ((run / 'timing.jsonl').read_text().splitlines())<br>L?: 動的 (root.rglob('*'))<br>L?: 動的 (declared)<br>L?: 動的 (plan['documents'])<br>L?: 動的 (d['chunks'])<br>L?: 動的 ((run / 'documents').iterdir())<br>L?: 動的 (__import__('model_templates').source_inputs(entrance))<br>L?: 2 ((1, 2))<br>L?: 動的 (STACKS)<br>L?: 動的 (model_rules['chunks'])<br>L?: 動的 (events)<br>L?: 動的 (events)<br>L?: 動的 (events)<br>L?: 動的 (declared)<br>L?: 動的 (document['chunks'])<br>L?: 動的 (iam['chunks']) |
 | `integrations/deploy_preparation.checks.py::check_stale_and_conflicts` | L93: 11 (('input', 'issue', 'runtime', 'candidate', 'model', 'markdown-change', 'markdown-delete', 'json-change', 'json-delete', 'legacy-change', 'legacy-delete')) |
 | `integrations/deploy_preparation.checks.py::check_generated_boundaries` | L181: 動的 (plan['inputs'].items())<br>L?: 動的 (plan['documents'])<br>L?: 動的 (original.splitlines())<br>L?: 4 (('authoritative JSON document missing', 'resource 001', 'row 001-002', 'iam/worker-role-trust-policy.json')) |
