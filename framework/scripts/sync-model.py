@@ -2,10 +2,11 @@
 """Generate detailed-design Markdown from authoritative service properties."""
 
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
-from sync_progress import reported_main, phase, consumers
+from contextvars import Context, copy_context
+from sync_progress import reported_main, phase, consumers, diagnostics, output_file
 import argparse
 import hashlib
+import io
 import os
 import re
 import sys
@@ -14,9 +15,27 @@ from sync_runtime import sync, run_generation
 from validation_scope import active_scope
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    def _print_message(self, message, file=None):
+        super()._print_message(message, output_file(error=file is not sys.stdout))
+
+
+def run(argv, *, repository_root):
+    """Run the CLI logic with fresh invocation state and return code/diagnostics."""
+    def invoke():
+        output = io.StringIO()
+        with diagnostics(output):
+            try:
+                code = main([*argv, '--repository-root', str(repository_root)])
+            except SystemExit as error:
+                code = error.code
+        return code, output.getvalue()
+    return Context().run(invoke)
+
+
 @reported_main
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser()
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--environment")
@@ -110,7 +129,7 @@ def main(argv=None) -> int:
             raise ValueError("\n- ".join(failures))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(f"Design Markdown sync: FAIL\n- {error}", file=sys.stderr)
+        print(f"Design Markdown sync: FAIL\n- {error}", file=output_file(error=True))
         return 1
 
 

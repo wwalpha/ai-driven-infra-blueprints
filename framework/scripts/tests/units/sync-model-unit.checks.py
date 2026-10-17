@@ -113,6 +113,139 @@ import threading
 import sync_progress as progress
 
 
+@pytest.fixture
+def internal_sync_project(tmp_path):
+    from support.model_templates_fixtures import fixture, config_model, write_fixture
+    import subprocess
+    fixture(tmp_path, ('dev', 'stg'))
+    for env in ('dev', 'stg'):
+        write_fixture(tmp_path, env, 'config', config_model())
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+@pytest.mark.parametrize('selection', [
+    ['--scope', 'dev/team/config', '--scope', 'stg/team/config'], ['--all']])
+@pytest.mark.parametrize('jobs', [1, 4])
+def check_internal_sync_isolation(internal_sync_project, selection, jobs, capsys):
+    from script_loader import module
+    from validation_cache import input_scope, memo_table
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    root = internal_sync_project
+    entry = ('dev', 'team', 'config')
+    source = root/'model/dev/team/config.properties'
+    design = root/'docs/designs/dev/team/config.md'
+    saved = design.read_bytes()
+    inputs = root/'model/parameters/dev/team/config/parameters.yaml'
+    original = inputs.read_bytes()
+    memories = []
+    sync = runner.sync
+    def observed(*args, **kwargs):
+        assert memo_table() is None
+        assert sync_views._saved_design_validation.get() is None
+        assert progress._current.get()[0] is not parent_progress
+        return sync(*args, **kwargs)
+    @input_scope
+    def calls():
+        parent = memo_table()
+        load_model(source)
+        parent_snapshot = dict(parent)
+        with sync_views.saved_design_validation(root, entry), \
+             parent_progress.worker('parent'), patch.object(runner, 'sync', side_effect=observed):
+            for invalid in (False, True, False):
+                # Parent memo retains the old source; the runner must read it again.
+                inputs.write_bytes(original + (b'broken: [\n' if invalid else b''))
+                code, text = runner.run(['--jobs', str(jobs), *selection], repository_root=root)
+                assert code == (1 if invalid else 0), text
+                assert ('Design Markdown sync: FAIL' if invalid else 'Design Markdown sync: PASS') in text, text
+                assert 'consumer=parent' not in text
+                assert memo_table() is parent and parent == parent_snapshot
+                assert sync_views._saved_design_validation.get() == (root, entry)
+                memories.append(text)
+        assert design.read_bytes() == saved
+    parent_progress = progress.Progress()
+    capsys.readouterr()
+    # Keep the parent's progress out of the streams under test as well.
+    parent_progress.output = io.StringIO()
+    calls()
+    captured = capsys.readouterr()
+    assert not captured.out and not captured.err, captured
+    assert progress._current.get() is None and memo_table() is None
+    assert sync_views._saved_design_validation.get() is None
+    assert len(memories) == 3
+
+
+def check_internal_sync_real_diagnostics(internal_sync_project, capsys):
+    from script_loader import module
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    root = internal_sync_project
+    scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
+    args = [arg for entry in sorted(scope) for arg in ('--scope', '/'.join(entry))]
+    code, text = runner.run(['--scope', 'dev/team/config'], repository_root=root)
+    assert code == 1 and 'include all affected Model services' in text and 'stg/team/config' in text
+    design = root/'docs/designs/dev/team/config.md'
+    saved = design.read_bytes()
+    design.write_bytes(saved + b'old generated output\n')
+    capsys.readouterr()
+    code, text = runner.run(args, repository_root=root)
+    assert code == 1 and 'generated Markdown is stale or missing' in text
+    assert 'docs/designs/dev/team/config.md' in text
+    validator = load('validate-blueprint').Validator(root, scope)
+    validator.check_generated_service_models()
+    assert any('generated Markdown is stale or missing' in error and 'dev/team/config.md' in error
+               for error in validator.errors), validator.errors
+    design.write_bytes(saved)
+    assert runner.run(args, repository_root=root)[0] == 0
+    assert capsys.readouterr() == ('', '')
+
+
+def check_internal_sync_concurrent_output(tmp_path, capsys):
+    from concurrent.futures import ThreadPoolExecutor
+    from script_loader import module
+    from validation_cache import input_scope, memo_table
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    barrier = threading.Barrier(2, timeout=10)
+    reports = []
+    @input_scope
+    def execute(root, write, **kwargs):
+        memo = memo_table()
+        memo['root'] = root
+        reports.append(progress._current.get()[0])
+        barrier.wait()
+        assert memo == {'root': root}
+        print(str(root), file=progress.output_file())
+        with progress.phase('isolated-heartbeat'):
+            reporter = progress._current.get()[0]
+            with patch.object(reporter.stop, 'wait', side_effect=[False, True]):
+                reporter.heartbeat()
+        raise ValueError('invalid generation at ' + str(root))
+    roots = [tmp_path/'first', tmp_path/'second']
+    with patch.object(runner, 'sync', side_effect=execute), ThreadPoolExecutor(2) as executor:
+        futures = [executor.submit(runner.run, ['--all'], repository_root=root) for root in roots]
+        results = [future.result() for future in futures]
+    for root, other, (code, text) in zip(roots, reversed(roots), results):
+        assert code == 1 and str(root) in text and str(other) not in text
+        assert 'heartbeat' in text and 'invalid generation at' in text
+    assert len({id(report) for report in reports}) == 2
+    assert all(report.stop.is_set() and not report.states for report in reports)
+    assert capsys.readouterr() == ('', '')
+
+
+@pytest.mark.parametrize('arguments,code,diagnostic', [
+    (['--help'], 0, 'usage:'), (['--jobs', '3'], 2, 'invalid choice'),
+    (['--environment', 'dev'], 2, 'exactly one'),
+    (['--scope', '../team/config'], 1, 'invalid generation scope')])
+def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys):
+    from script_loader import module
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    (tmp_path/'tasks').mkdir()
+    (tmp_path/'tasks/active.md').write_text('## Validation scope\n- `all`\n')
+    result, text = runner.run(arguments, repository_root=tmp_path)
+    assert result == code and diagnostic in text, text
+    assert progress._current.get() is None and progress._output.get() is None
+    assert capsys.readouterr() == ('', '')
+
+
 def check_progress_heartbeat_and_waits():
     output = io.StringIO()
     reporter = progress.Progress(interval=0.01)

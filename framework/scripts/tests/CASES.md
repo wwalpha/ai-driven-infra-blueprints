@@ -96,6 +96,11 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 
 | 元ファイル : 行 | Test Case名 | 分類 | 現在の配置 | 入口 / パターン数 | 分類理由 | 変更 |
 |---|---|---|---|---|---|---|
+| `sync-model runner` | `check_internal_sync_isolation` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_isolation) | pytest / 4 | 複数・全体、直列・並列のContext分離と入力再読込、失敗後復元 | 新規 |
+| `sync-model runner` | `check_internal_sync_real_diagnostics` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足と生成差分の実診断をValidatorへ伝達 | 新規 |
+| `sync-model runner` | `check_internal_sync_concurrent_output` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_concurrent_output) | pytest / 1 | 並行呼び出しのmemo・診断・heartbeat分離と後片付け | 新規 |
+| `sync-model runner` | `check_internal_sync_arguments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_arguments) | pytest / 4 | help・usage・引数エラーと終了状態、出力漏れ防止 | 新規 |
+| `Validator runner` | `check_internal_generation_dispatch` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#check_internal_generation_dispatch) | pytest / 4 | scope順序・workers・重複防止・空scope・hook優先 | 新規 |
 | `unknown/aws_mapping.checks.py:274` | `check_payload_selection` | UT | [units/aws_mapping-unit.checks.py:11](units/aws_mapping-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/aws_mapping.checks.py:54` | `check_v3_registry` | UT | [units/aws_mapping-unit.checks.py:49](units/aws_mapping-unit.checks.py#L49) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
 | `unknown/aws_mapping.checks.py:97` | `check_registry_cache` | UT | [units/aws_mapping-unit.checks.py:91](units/aws_mapping-unit.checks.py#L91) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |

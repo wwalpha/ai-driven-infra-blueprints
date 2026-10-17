@@ -1,4 +1,4 @@
-"""CLI-only, stderr progress; elapsed time is not an estimate of remaining work."""
+"""Invocation-local diagnostics and progress; elapsed time is not a work estimate."""
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
@@ -7,10 +7,24 @@ import threading
 import time
 
 _current = ContextVar('sync_progress', default=None)
+_output = ContextVar('sync_output', default=None)
+
+
+def output_file(*, error=False):
+    return _output.get() or (sys.stderr if error else sys.stdout)
+
+
+@contextmanager
+def diagnostics(output):
+    token = _output.set(output)
+    try:
+        yield
+    finally:
+        _output.reset(token)
 
 
 class Progress:
-    def __init__(self, interval=30):
+    def __init__(self, interval=30, output=None):
         self.started = time.monotonic()
         self.interval = interval
         self.lock = threading.RLock()
@@ -18,6 +32,8 @@ class Progress:
         self.states = []
         self.consumers = set()
         self.completed = set()
+        # The heartbeat thread has its own Context; retain this invocation's sink.
+        self.output = output
 
     def emit(self, state, event):
         with self.lock:
@@ -28,7 +44,7 @@ class Progress:
                   f'completed={len(self.completed)}/{len(self.consumers) or "unknown"}; '
                   f'stage={phase}; items={count}; state={status}; '
                   f'elapsed={now-self.started:.1f}s; stage_elapsed={now-started:.1f}s; '
-                  'remaining=unknown; heartbeat is not proof of progress', file=sys.stderr, flush=True)
+                  'remaining=unknown; heartbeat is not proof of progress', file=self.output or output_file(error=True), flush=True)
 
     def heartbeat(self):
         while not self.stop.wait(self.interval):
@@ -144,7 +160,7 @@ def tracked_sync(function):
 def reported_main(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
-        progress = Progress()
+        progress = Progress(output=output_file(error=True))
         thread = threading.Thread(target=progress.heartbeat, daemon=True)
         thread.start()
         try:

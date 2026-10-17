@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 import json
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 from design_document import DesignIndex
@@ -26,7 +25,7 @@ from validation_cache import input_scope, memo_table
 from utils.aws_mappings import mapping_alias
 from sync_files import changed_files, save_files, restore_files
 import sync_views
-from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total
+from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total, output_file
 from import_scope import selected as import_selection, scoped as import_scoped
 
 
@@ -588,17 +587,17 @@ def publish_generation(plan):
     for reference, target in plan.warnings.items():
         if reference not in plan.baseline_links and target in plan.saved:
             print(f'Design Markdown sync: WARNING ({target.relative_to(root)}: '
-                  f'saved reference needs repair in a separate task: {reference})', file=sys.stderr)
+                  f'saved reference needs repair in a separate task: {reference})', file=output_file(error=True))
 
 
 def report_generation(plan):
     for path in plan.saved:
         completed((*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem))
-        print(f'Design Markdown sync: PASS ({path.relative_to(plan.root)})')
+        print(f'Design Markdown sync: PASS ({path.relative_to(plan.root)})', file=output_file())
     if plan.failures:
         selected = set(plan.markdown_paths) | {(plan.root / 'docs/designs' / p.relative_to(plan.root / 'model')).with_suffix('.md') for p in plan.model_paths}
         raise ValueError(f'{len(plan.saved)} services succeeded; {len(selected - plan.saved.keys())} services failed; {len(plan.failures)} diagnostics\n- ' + '\n- '.join(plan.failures))
-    print(f'Design Markdown sync: PASS ({len(plan.saved)} services)')
+    print(f'Design Markdown sync: PASS ({len(plan.saved)} services)', file=output_file())
 
 
 @input_scope

@@ -357,21 +357,21 @@ class Validator:
             errors = self.model_check(self.scope)
             self.check(not errors, "\n".join(errors) or "generated service models match")
             return
-        command = [sys.executable, str(self.definitions_root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
-                   "--jobs", str(self.workers)]
+        from script_loader import module
+        runner = module("sync-model.py", "blueprint_sync_model")
+        arguments = ["--jobs", str(self.workers)]
         if self.scope is None:
-            command.append("--all")
+            arguments.append("--all")
         else:
-            command.extend(arg for entry in sorted(self.scope) for arg in ("--scope", "/".join(entry)))
+            arguments.extend(arg for entry in sorted(self.scope) for arg in ("--scope", "/".join(entry)))
         if self.scope is not None and len(self.scope) == 1 and not os.environ.get("BLUEPRINT_PROFILE_DIR"):
-            from script_loader import module
             from sync_views import saved_design_validation
             with saved_design_validation(self.root, next(iter(self.scope))):
-                result = module("sync-model.py", "blueprint_sync_model").main(command[2:])
+                result = runner.main([*arguments, "--repository-root", str(self.root)])
             self.check(result == 0, "generated service models match" if result == 0 else "generated service model check failed")
             return
-        result = subprocess.run(command, cwd=self.root, check=False, capture_output=True, text=True)
-        self.check(result.returncode == 0, result.stdout.strip() + "\n" + result.stderr.strip() or "generated service model check failed")
+        code, diagnostics = runner.run(arguments, repository_root=self.root)
+        self.check(code == 0, diagnostics.strip() or "generated service model check failed")
 
 
     def check_catalog(self) -> None:

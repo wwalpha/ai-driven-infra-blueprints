@@ -143,14 +143,14 @@ def check_template_consumers(root):
         cold = validate()
         dev_key = cold.service_keys[('dev', 'team', 'config')]
         (Path(directory)/f'{dev_key}.json').unlink()
-        commands = []
-        def capture(args, *a, **kw):
-            if any(str(arg).endswith('sync-model.py') for arg in args):
-                commands.append(args)
-            return run(args, *a, **kw)
-        with patch.object(subprocess, 'run', capture):
+        from script_loader import module
+        runner = module('sync-model.py', 'blueprint_sync_model')
+        with patch.object(runner, 'run', wraps=runner.run) as generate:
             partial = validate()
-        assert len(commands) == 1 and 'dev/team/config' in commands[0] and 'stg/team/config' in commands[0], commands
+        assert generate.call_count == 1, generate.call_args_list
+        arguments = generate.call_args.args[0]
+        assert arguments == ['--jobs', '1', '--scope', 'dev/team/config', '--scope', 'stg/team/config'], arguments
+        assert generate.call_args.kwargs == {'repository_root': root}
         assert partial.checks == cold.checks
         with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
             warm = validate()

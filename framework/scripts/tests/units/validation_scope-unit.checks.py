@@ -7,6 +7,34 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.validation_scope_fixtures import *
+import pytest
+
+
+@pytest.mark.parametrize('scope', [None, {('stg', 'team', 'config'), ('dev', 'team', 'config')}])
+@pytest.mark.parametrize('workers', [1, 4])
+def check_internal_generation_dispatch(tmp_path, scope, workers):
+    from script_loader import module
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    expected = ['--jobs', str(workers)] + (['--all'] if scope is None else
+        [arg for entry in sorted(scope) for arg in ('--scope', '/'.join(entry))])
+    with patch.object(runner, 'run', return_value=(1, 'consumer missing: stg/team/config')) as run, \
+         patch.object(subprocess, 'run', side_effect=AssertionError('Python subprocess')):
+        validator = VALIDATOR.Validator(tmp_path, scope, workers=workers)
+        validator.check_generated_service_models()
+        validator.check_generated_service_models()
+    run.assert_called_once_with(expected, repository_root=tmp_path)
+    assert any('consumer missing: stg/team/config' in error for error in validator.errors)
+    with patch.object(runner, 'run', side_effect=AssertionError('hook bypassed')):
+        empty = VALIDATOR.Validator(tmp_path, set())
+        empty.check_generated_service_models()
+        assert not empty.errors
+        selections = []
+        def hook(selected):
+            selections.append(selected)
+            return []
+        hooked = VALIDATOR.Validator(tmp_path, scope, model_check=hook)
+        hooked.check_generated_service_models()
+        assert selections == [scope] and not hooked.errors
 
 def check_active_scope(tmp_path):
     root = tmp_path
