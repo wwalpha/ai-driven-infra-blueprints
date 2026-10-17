@@ -92,7 +92,9 @@ def check_producer_inputs():
                 for entry, path in paths.items():
                     changed = entry[2] != 'sqs' and (shared or entry[0] == 'preview')
                     assert (cache.service_key(entry) != before[entry]) == changed, (source, entry)
-                    assert (templates.design_source_digest(path) != digests[entry]) == changed, (source, entry)
+                    # Own observed values affect validation, but are excluded from the design digest.
+                    own_observed = root/'model/parameters'/entry[0]/entry[1]/entry[2]/'observed.json'
+                    assert (templates.design_source_digest(path) != digests[entry]) == (changed and source != own_observed), (source, entry)
                     assert load_model(path).values == values[entry], (source, entry)
             finally:
                 source.write_bytes(original)

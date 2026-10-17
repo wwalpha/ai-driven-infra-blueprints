@@ -201,7 +201,7 @@ class Validator:
             command.append("--all")
         else:
             command.extend(arg for entry in sorted(self.scope) for arg in ("--scope", "/".join(entry)))
-        if self.scope is not None and len(self.scope) == 1:
+        if self.scope is not None and len(self.scope) == 1 and not os.environ.get("BLUEPRINT_PROFILE_DIR"):
             from script_loader import module
             from sync_views import saved_design_validation
             with saved_design_validation(self.root, next(iter(self.scope))):

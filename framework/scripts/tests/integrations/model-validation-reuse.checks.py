@@ -9,7 +9,6 @@ if not __debug__:
 from support.sync_model_fixtures import *
 from support.validator import MODULE as validator_module
 from contextvars import ContextVar
-from support.it_case_receipt import it_case
 from collections import defaultdict
 import subprocess
 import threading
@@ -73,7 +72,6 @@ def trace_validation(root, legacy=False):
     return validator, records
 
 
-@it_case
 @pytest.mark.parametrize('fault', ['none', 'names', 'tables', 'overview', 'links', 'json', 'observed'])
 def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
     root, model, values, design, artifact, register = generated_policy
@@ -113,7 +111,6 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         assert any(not condition for condition, _ in new['saved', name]), (fault, new['saved', name])
 
 
-@it_case
 def check_read_scope_lifetime(generated_policy):
     root, model, values, _, _, _ = generated_policy
     original = model_templates.load_expansion
@@ -143,7 +140,6 @@ def check_read_scope_lifetime(generated_policy):
     assert validation_cache.memo_table() is None
 
 
-@it_case
 def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
     root, _, _, design, artifact, register = generated_policy
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([design, artifact])['BLUEPRINT_TASK_FILE'])
@@ -173,7 +169,6 @@ def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
             assert set(COMMON) <= set(seen)
 
 
-@it_case
 @pytest.mark.parametrize('fault', ['projection', 'input', 'stale', 'exception'])
 def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
     root, model, _, design, _, register = generated_policy
@@ -204,7 +199,6 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
     assert validation_cache.memo_table() is None
 
 
-@it_case
 def check_single_and_parallel_threads(tmp_path):
     root, stage = tmp_path / 'root', tmp_path / 'stage'
     paths = [root / 'docs/designs/dev/team' / (s + '.md') for s in ('iam', 's3')]
@@ -232,7 +226,6 @@ def check_single_and_parallel_threads(tmp_path):
         run_candidates()
 
 
-@it_case
 def check_authorization_before_memo_and_publication(generated_policy, monkeypatch):
     import import_scope
     root, model, _, design, artifact, register = generated_policy
@@ -257,7 +250,6 @@ def check_authorization_before_memo_and_publication(generated_policy, monkeypatc
     publish()
 
 
-@it_case
 def check_scoped_validation_threads_and_failures(tmp_path):
     main = threading.get_ident()
     for count in (1, 2):
