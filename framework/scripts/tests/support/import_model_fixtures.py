@@ -210,7 +210,8 @@ def setup_service(root, service, kind, fields, create_fields=None, alias=None):
     return path
 
 def small_framework(root, services, kinds):
-    (root / ".gitignore").write_text("/.blueprint/import/\n", encoding="utf-8")
+    with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
+        ignored.write("\n/.blueprint/import/\n")
     from cloudformation_schema import REGION
     kinds = set(kinds) | {kind for service in services for kind in m.yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
     schema = Path('framework/materials/cloudformation-schema') / REGION

@@ -68,6 +68,7 @@ def check_setup():
             assert not wt.setup(root, "one")["python_setup"]["installed"]
             verify.side_effect = ValueError("missing import")
             blocked(lambda: wt.setup(root, "one"), "unexpected install or process")
+            assert not (target / ".venv").exists(), "failed process startup must not leave an empty venv"
             assert wt.load(root, "one")[3]["python_setup"]["status"] == "failed"
             blocked(lambda: py.runtime(target), "failed")
             blocked(lambda: wt.create(root, "one"), "collision")

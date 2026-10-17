@@ -50,7 +50,7 @@ def check_running_and_interruption(tmp_path):
 
 
 def check_deploy_scope_isolation(tmp_path):
-    """Exercise the real task loop, validator and ownership with two environments."""
+    """Exercise the real task loop and validation scopes with two environments."""
     from model_design import markdown_for
     root = tmp_path / "repository"
     make_framework_fixture(SCRIPT.parents[2], root)
@@ -133,23 +133,24 @@ def check_deploy_scope_isolation(tmp_path):
 
     parameters["stg"].write_text("invalid JSON\n")
     result = run()
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode != 0 and "outside Deployment scope" in result.stdout, result.stdout + result.stderr
+    assert "invalid CloudFormation parameter JSON" not in result.stdout
     result = run("stg")
     assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
-    # G: valid JSON containing a whitespace error is checked only by its owner.
+    # G: staged and unstaged whitespace errors remain visible across task scopes.
     parameters["stg"].write_text("[]  \n")
     for staged in (False, True):
         if staged:
             subprocess.run(["git", "add", str(parameters["stg"])], cwd=root, check=True)
         result = run()
-        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
         result = run("stg")
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
         result = run(mode="full")
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
     result = run(options=("--all",))
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
-    # H: another task owns a shared framework change; it still forces repository-wide checks.
+    # H: a shared framework change still forces repository-wide checks.
     rule = "framework/rules/deployment-scope-fixture.md"
     name = "tasks/framework.md"
     listed = f"- `{name}`\n- `{rule}`"
@@ -174,7 +175,7 @@ def check_deploy_scope_isolation(tmp_path):
     parameters["stg"].write_text("invalid JSON\n")
     result = run()
     assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
-    print("Task deployment isolation: PASS (A/B/F dev PASS, stg invalid FAIL; G staged/unstaged owner/full/all whitespace FAIL; H other-task framework forces regression)")
+    print("Task deployment scope: PASS (dev rejects out-of-scope changes, stg invalid FAIL; staged/unstaged task/full/all whitespace FAIL; shared framework forces regression)")
 
 
 def check_task_service_validation(tmp_path):
@@ -543,14 +544,6 @@ def check_failure_suspension(tmp_path):
         text = (root / first).read_text()
         assert result.returncode == 1 and tasks.status(text) == "suspend"
         assert "own.checks.py" in text and "missing required field" in text
-        assert (root / other).read_bytes() == untouched
-        # No checks start when an unrelated unregistered change fails preflight.
-        tasks.resume(root, first)
-        (root / "unregistered.md").write_text("other work")
-        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
-        text = (root / first).read_text()
-        assert result.returncode == 2 and "START validate-blueprint.py" not in result.stdout
-        assert tasks.status(text) == "suspend" and "unregistered.md" in text
         assert (root / other).read_bytes() == untouched
 
 

@@ -106,7 +106,6 @@ def setup(root, previous):
             pass
     if current != sys.version:
         remove(root)
-        directory.mkdir()
         run([python_path(), "-I", "-m", "venv", str(directory)], root)
     reusable = (current == sys.version and previous.get("status") == "ready"
                 and all(previous.get(k) == v for k, v in desired.items()))

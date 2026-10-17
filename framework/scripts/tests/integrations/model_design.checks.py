@@ -1594,6 +1594,8 @@ def check_service_failure_protection(root, project):
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
+    (root / "tasks").mkdir()
+    (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
     import model_templates
     json_path = docs / "iam/flow-role-trust-policy.json"
     before = json_path.read_bytes()
@@ -1610,12 +1612,11 @@ def check_service_failure_protection(root, project):
     errors = io.StringIO()
     with patch.object(sync_runtime, "publish", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write", "--environment", "dev", "--aws-account-id", "123456789012"]), redirect_stderr(errors):
         assert SYNC.main() == 1
-    assert "changed" in errors.getvalue() and json_path.read_bytes() == before
+    assert "changed" in errors.getvalue(), errors.getvalue()
+    assert json_path.read_bytes() == before
     source.write_bytes(source_before)
 
     # The CLI returns failure while persisting an unrelated successful service.
-    (root / "tasks").mkdir()
-    (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
     write_model(base / "iam.properties", text(without_document))
     result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"),
                              "--repository-root", str(root), "--write", "--environment", "dev",
