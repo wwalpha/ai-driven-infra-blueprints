@@ -173,7 +173,7 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
         rejected = []
         # All candidate views are fixed during this read-only phase.
         with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
-            mapper = map if write or jobs == 1 else executor.map
+            mapper = map if write or jobs == 1 or len(generated) == 1 else executor.map
             for path, error in mapper(validate, sorted(generated)):
                 advance()
                 if error:
@@ -247,6 +247,10 @@ def sync(
     jobs: int = 4,
 ) -> int:
     root = root.resolve()
+    deferred = sync_views._saved_design_validation.get()
+    if deferred is not None and (write or deferred != (root, (environment, target_directory, (services or [None])[0]))
+                                 or services != [deferred[1][2]]):
+        raise ValueError('saved design validation requires read-only generation of the selected single service')
     expected_task = task_revision(root) if write else None
     from import_guard import require_import_changes
     with phase("import-guard"):

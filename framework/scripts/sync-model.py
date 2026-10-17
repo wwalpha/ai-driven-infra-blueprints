@@ -15,7 +15,7 @@ from validation_scope import active_scope
 
 
 @reported_main
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--write", action="store_true")
@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--scope", action="append", help="Exact environment/target/service selection (repeatable)")
     parser.add_argument("--all", action="store_true", help="Explicit full generation/validation")
     parser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4, help="Read-only service/target validation workers")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     selectors = bool(args.aws_account_id) + bool(args.alias)
     if (args.environment and selectors != 1) or (not args.environment and selectors):
         parser.error(
@@ -93,9 +93,13 @@ def main() -> int:
             except (OSError, ValueError, KeyError, TypeError) as error:
                 return str(error)
             return None
-        with phase("consumer-generation"), ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as executor:
-            futures = [executor.submit(copy_context().run, generate, item) for item in groups.items()]
-            failures = [error for future in futures if (error := future.result())]
+        with phase("consumer-generation"):
+            if len(scope) == 1:
+                failures = [error for item in groups.items() if (error := generate(item))]
+            else:
+                with ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as executor:
+                    futures = [executor.submit(copy_context().run, generate, item) for item in groups.items()]
+                    failures = [error for future in futures if (error := future.result())]
         if failures:
             raise ValueError("\n- ".join(failures))
         return 0

@@ -1601,3 +1601,11 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `unknown/issues_scan.checks.py:1613` | `check_mismatch_display` | IT | [integrations/issues_scan.checks.py:1528](integrations/issues_scan.checks.py#L1528) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:1724` | `check_state_report` | IT | [integrations/issues_scan.checks.py:1531](integrations/issues_scan.checks.py#L1531) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_scan.checks.py:2184` | `check_glue_secret_reference` | IT | [integrations/issues_scan.checks.py:1654](integrations/issues_scan.checks.py#L1654) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+
+| `model-validation-reuse` | `check_common_conditions_preserved` | IT | [integrations/model-validation-reuse.checks.py:78](integrations/model-validation-reuse.checks.py#L78) | pytest / 7 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_read_scope_lifetime` | IT | [integrations/model-validation-reuse.checks.py:117](integrations/model-validation-reuse.checks.py#L117) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_deferred_guard_and_cleanup` | IT | [integrations/model-validation-reuse.checks.py:147](integrations/model-validation-reuse.checks.py#L147) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_generation_failures_never_pass` | IT | [integrations/model-validation-reuse.checks.py:178](integrations/model-validation-reuse.checks.py#L178) | pytest / 4 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_single_and_parallel_threads` | IT | [integrations/model-validation-reuse.checks.py:208](integrations/model-validation-reuse.checks.py#L208) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_authorization_before_memo_and_publication` | IT | [integrations/model-validation-reuse.checks.py:236](integrations/model-validation-reuse.checks.py#L236) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+| `model-validation-reuse` | `check_scoped_validation_threads_and_failures` | IT | [integrations/model-validation-reuse.checks.py:261](integrations/model-validation-reuse.checks.py#L261) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |

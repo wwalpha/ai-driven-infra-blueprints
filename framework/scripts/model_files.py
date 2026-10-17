@@ -70,6 +70,7 @@ def load_model(path: Path, _context=None) -> LoadedModel:
         return LoadedModel(text, expanded.values, locations, expanded.files)
 
 
+@input_scope
 def read_model(path: Path) -> str:
     return load_model(path).text
 

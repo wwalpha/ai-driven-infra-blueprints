@@ -157,7 +157,7 @@ class Validator:
             return validator
 
         with ThreadPoolExecutor(max_workers=min(self.workers, len(missing) or 1)) as executor:
-            mapper = map if self.workers == 1 else executor.map
+            mapper = map if self.workers == 1 or len(missing) == 1 else executor.map
             results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)])))
         successful = []
         for entry in sorted(self.scope):
@@ -201,6 +201,13 @@ class Validator:
             command.append("--all")
         else:
             command.extend(arg for entry in sorted(self.scope) for arg in ("--scope", "/".join(entry)))
+        if self.scope is not None and len(self.scope) == 1:
+            from script_loader import module
+            from sync_views import saved_design_validation
+            with saved_design_validation(self.root, next(iter(self.scope))):
+                result = module("sync-model.py", "blueprint_sync_model").main(command[2:])
+            self.check(result == 0, "generated service models match" if result == 0 else "generated service model check failed")
+            return
         result = subprocess.run(command, cwd=self.root, check=False, capture_output=True, text=True)
         self.check(result.returncode == 0, result.stdout.strip() + "\n" + result.stderr.strip() or "generated service model check failed")
 

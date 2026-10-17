@@ -1,6 +1,8 @@
 """Validate a fixed Markdown snapshot with the existing scoped validator."""
 
 import importlib.util
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from design_document import DesignIndex
 from model_core import properties
@@ -8,6 +10,19 @@ from model_projection import model_for, identifier_outputs
 from design_layout import STACK_DESIGN
 from aws_mapping_display import projection
 from validation_cache import input_scope
+
+
+_saved_design_validation = ContextVar("saved_design_validation", default=None)
+
+
+@contextmanager
+def saved_design_validation(root, entry):
+    """Defer common candidate checks to the caller's saved single-service validation."""
+    token = _saved_design_validation.set((root.resolve(), entry))
+    try:
+        yield
+    finally:
+        _saved_design_validation.reset(token)
 
 
 def view_validator(stage: Path, root: Path):
@@ -43,6 +58,11 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
                    design_index: DesignIndex | None = None) -> None:
     """Use the existing parsers/schema validator before touching any saved view."""
+    deferred = _saved_design_validation.get()
+    if deferred is not None:
+        expected = stage / 'docs/designs' / deferred[1][0] / deferred[1][1] / (deferred[1][2] + '.md')
+        if root.resolve() != deferred[0] or paths != [expected]:
+            raise ValueError('saved design validation requires the selected single service')
     design_index = design_index or DesignIndex(root)
     for path in paths:
         source = sources[root / path.relative_to(stage)]
@@ -75,12 +95,13 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     validator.check_stack_designs([path for path in paths if path.name == STACK_DESIGN])
     services = [path for path in paths if path.name != STACK_DESIGN]
     metadata, types, owners, outputs = validator.check_design_service_ownership(services)
-    validator.check_resource_names(metadata, services)
-    validator.check_design_tables(metadata, types, owners, outputs, services)
-    validator.check_design_overviews(services)
-    validator.check_design_links(outputs, services, design_index=design_index)
-    validator.check_design_artifacts(services)
-    validator.check_observed_values([(stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties") for path in paths])
+    if _saved_design_validation.get() is None:
+        validator.check_resource_names(metadata, services)
+        validator.check_design_tables(metadata, types, owners, outputs, services)
+        validator.check_design_overviews(services)
+        validator.check_design_links(outputs, services, design_index=design_index)
+        validator.check_design_artifacts(services)
+        validator.check_observed_values([(stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties") for path in paths])
     if validator.errors:
         raise ValueError("\n- ".join(validator.errors))
 
