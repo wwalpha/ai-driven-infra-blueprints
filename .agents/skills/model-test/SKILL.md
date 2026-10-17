@@ -18,7 +18,7 @@ Apply [AGENTS](../../../AGENTS.md), [Task contract](../../../framework/rules/tas
 [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy).
 Use the [worktree workflow](../worktree/SKILL.md) for repository changes.
 
-Register a `migration` contract reserving only this contract and
+Register a `migration` contract listing only this contract and
 `tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected service
 in Validation scope and apply its issue gate. For framework implementation tasks,
 framework-only governance scope remains available under the existing rules.

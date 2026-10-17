@@ -6,9 +6,9 @@ IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT 
 contract for this prompt. Read runtime Models through model_files and use
 `model_files.py <service.properties> --trace <key>` for the exact source. Design edits
 use the common template, parameters.yaml and fixed bindings.json; authorized observed
-updates use observed.json. Reserve template entry/parts, parameters.yaml, bindings.json,
-observed.json and generated Markdown/JSON paths. Common template edits require all
-registered consumers in Validation scope. Read with the shared Model loader before
+updates use observed.json. Record template entry/parts, parameters.yaml, bindings.json,
+observed.json and generated Markdown/JSON paths in the task contract. Common template
+edits require all registered consumers in Validation scope. Read with the shared Model loader before
 matching IaC/issues/diff. Generation across environments grants no Deployment scope
 or AWS permission.
 

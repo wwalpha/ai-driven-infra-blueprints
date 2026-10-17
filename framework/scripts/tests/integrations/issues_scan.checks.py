@@ -238,6 +238,20 @@ def checks(root, values, template):
     with task(root, ['s3'], name='saveonly'):
         with patch('issues_scan.scan', side_effect=AssertionError('rescan forbidden')), patch.object(Comparison, 'run', side_effect=AssertionError('compare forbidden')):
             save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '取得済みの具体的診断'}])
+        prompt = root / 'tasks/saveonly.md'
+        running = prompt.read_text()
+        report = root / 'issues/dev/123456789012/issues.md'
+        before = report.read_bytes()
+        iac = report.with_name('iac-issues.md')
+        for state in ('completed', 'suspend'):
+            prompt.write_text(running.replace('`running`', f'`{state}`') +
+                              ('\n## Suspension reason\nExplicit test stop\n' if state == 'suspend' else ''))
+            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[]),
+                         'running report-only' if state == 'completed' else 'suspend task')
+            assert report.read_bytes() == before and not iac.exists()
+        prompt.write_text(running)
+    expect_error(lambda: save(root, 'dev', '123456789012', ['s3']))
+    assert report.read_bytes() == before and not iac.exists()
 
 
 @it_case

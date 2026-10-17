@@ -133,8 +133,11 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
     """One transaction; readers cannot see a partial authority switch."""
     obsolete = set(obsolete) | {path for path, text in output.items() if text is None}
     output = {path: text for path, text in output.items() if text is not None}
-    from task_contract import task_revision
+    from task_contract import task_revision, status
     expected_task = expected_task if expected_task is not None else task_revision(root)
+    name, text = expected_task
+    if text is not None and status(text, name == 'tasks/active.md') != 'running':
+        raise ValueError('completed task cannot write')
     with publication_lock(root) as journal:
         if inputs is not None and any((p.read_bytes() if p.is_file() else None) != data for p, data in inputs.items()):
             raise ValueError('Model sources changed after validation; rerun generation/migration')

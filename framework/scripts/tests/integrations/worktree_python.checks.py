@@ -74,6 +74,37 @@ def check_setup():
             blocked(lambda: wt.create(root, "one"), "collision")
             assert target.is_dir()
             verify.side_effect = None
+            (target / ".venv").mkdir()
+            assert wt.setup(root, "one")["python_setup"]["kind"] == "global"
+            assert not (target / ".venv").exists()
+            for error in (OSError("creation failed"), AssertionError("creation failed")):
+                def create(command, where, env=None):
+                    if "venv" in command:
+                        partial = where / ".venv/bin"
+                        partial.mkdir()
+                        if failed[0]:
+                            failed[0] = False
+                            raise error
+                        (where / ".venv/pyvenv.cfg").write_text("fixture\n")
+                        py.python_path(where / ".venv").parent.mkdir(exist_ok=True)
+                        py.python_path(where / ".venv").touch()
+                    return ""
+                def missing_global(where, directory):
+                    if directory is None:
+                        raise ValueError("global dependency missing")
+                failed = [True]
+                verify.side_effect = missing_global
+                with patch.object(py, "run", side_effect=create), patch.object(py, "probe", return_value=sys.version):
+                    blocked(lambda: wt.setup(root, "one"), "creation failed")
+                    assert not (target / ".venv").exists()
+                    assert wt.load(root, "one")[3]["python_setup"]["status"] == "failed"
+                    assert target.is_dir() and wt.branch_exists(root, first["branch"])
+                    (target / ".venv").mkdir()
+                    state = wt.setup(root, "one")["python_setup"]
+                    assert state["status"] == "ready" and state["kind"] == "venv"
+                    assert not wt.setup(root, "one")["python_setup"]["installed"]
+                py.remove(target)
+            verify.side_effect = None
             wt.setup(root, "one")
             verify.side_effect = ValueError("packages changed")
             blocked(lambda: py.runtime(target), "packages changed")
@@ -263,8 +294,10 @@ def check_symlink_safety():
         assert (external / "keep").exists()
         directory.unlink()
         directory.mkdir()
+        (directory / "keep").write_text("not an environment")
         blocked(lambda: py.remove(root), "no Python environment configuration")
         blocked(lambda: py.setup(root, {}), "no Python environment configuration")
+        assert (directory / "keep").read_text() == "not an environment"
         (directory / "pyvenv.cfg").write_text("home = fixture\n")
         (directory / "external").symlink_to(external, target_is_directory=True)
         py.remove(root)

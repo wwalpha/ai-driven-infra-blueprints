@@ -194,7 +194,7 @@ Create new service designs from `model/templates/<target-directory>/<service>.pr
 `model/parameters/<environment>/<target-directory>/<service>/parameters.yaml`, explicit
 `bindings.json` (including fixed IDs, rows, placement and references), and optional `observed.json` only for actual observed values.
 Human inputs use parameters.yaml; fixed identities and instance composition use bindings.json.
-After reserving inputs and generated paths, register a new service with
+Register a new service with
 `python framework/scripts/model_templates.py --alias <target-directory> --service <service> --environment <environment> --create`,
 then generate and validate with the normal sync/local loop. A new environment with no
 service sources may remain intentionally undesigned; do not create placeholder Models.

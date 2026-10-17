@@ -99,7 +99,7 @@ def check():
          patch.object(socket, 'create_connection', side_effect=AssertionError('network forbidden')), \
          patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')), \
          patch.object(subprocess, 'run', side_effect=offline_run):
-        root = Path(directory)
+        root = Path(directory).resolve()
         (root/'project.json').write_text(json.dumps({'projectName':'fixture','targets':[
             {'environment':'dev','alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}
             for alias,account in [('cde','123456789012'),('other','210987654321')]]}),encoding='utf-8')
@@ -118,6 +118,39 @@ def check():
         for service, source in sources.items():
             assert generator.generate(root, 'dev', 'cde', service)[0] == source
             compile(source, service + '.py', 'exec')
+        from task_contract import SELECTOR, task_revision
+        from support.worktree_task_fixtures import contract
+        from support.it_workspace import copy_framework
+        copy_framework(root / 'framework')
+        name = 'tasks/audit.md'
+        prompt = root / name
+        prompt.parent.mkdir()
+        text = contract('audit', ['tests/dev/cde/vpc.py']).replace('`governance`', '`migration`').replace('`framework`', '`dev/cde/vpc`')
+        prompt.write_text(text)
+        output = root / 'tests/dev/cde/vpc.py'
+        arguments = ['model-test.py', '--environment', 'dev', '--target', 'cde', '--service', 'vpc', '--task-file', name]
+        with patch.object(generator, 'ROOT', root), patch.dict(os.environ, {SELECTOR: name}), \
+             patch.object(sys, 'argv', arguments), redirect_stdout(io.StringIO()) as messages:
+            assert generator.main() == 0, messages.getvalue()
+            before = output.read_bytes()
+            assert before.decode() == sources['vpc']
+            for state in ('completed', 'suspend'):
+                prompt.write_text(text.replace('`running`', f'`{state}`') +
+                                  ('\n## Suspension reason\nExplicit test stop\n' if state == 'suspend' else ''))
+                if state == 'completed':
+                    assert task_revision(root, name)[1] == prompt.read_text()
+                assert generator.main() == 2 and output.read_bytes() == before
+                output.unlink()
+                assert generator.main() == 2 and not output.exists()
+                output.write_bytes(before)
+            prompt.write_text(text)
+            def change(*args):
+                prompt.write_text(text.replace('`running`', '`completed`'))
+                return 'changed source', {}, []
+            with patch.object(generator, 'generate', side_effect=change):
+                assert generator.main() == 2 and output.read_bytes() == before
+            prompt.unlink()
+            assert generator.main() == 2 and output.read_bytes() == before
     snapshots = {service: snapshot(source) for service, source in sources.items()}
     assert 'iam' in snapshots['vpc']['models'], 'VPC flow-log IAM reference dependency'
     assert set(snapshots['vpc']['models']) != set(generator.module('check-model-aws.py', 'model_aws_compare').SERVICES)

@@ -85,6 +85,9 @@ def probe_global(root):
 
 
 def setup(root, previous):
+    directory = root / ".venv"
+    if directory.is_dir() and not directory.is_symlink() and not any(directory.iterdir()):
+        directory.rmdir()  # Recover the empty directory left by an earlier failed creation.
     directory = venv_directory(root)
     desired = signature(root)
     probe_global(root)
@@ -106,7 +109,13 @@ def setup(root, previous):
             pass
     if current != sys.version:
         remove(root)
-        run([python_path(), "-I", "-m", "venv", str(directory)], root)
+        directory.mkdir()
+        try:
+            run([python_path(), "-I", "-m", "venv", str(directory)], root)
+        except (Exception, KeyboardInterrupt):
+            if directory.is_dir() and not directory.is_symlink():
+                shutil.rmtree(directory)  # Only this call's newly created environment.
+            raise
     reusable = (current == sys.version and previous.get("status") == "ready"
                 and all(previous.get(k) == v for k, v in desired.items()))
     if reusable:

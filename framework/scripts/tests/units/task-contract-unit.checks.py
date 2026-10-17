@@ -93,7 +93,8 @@ def check_live_selection(tmp_path):
 
 
 
-def check_task_change_rolls_back_publication(tmp_path, monkeypatch):
+@pytest.mark.parametrize('change', ['scope', 'completed', 'suspend'])
+def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
     from model_templates import publish
     name = 'tasks/owner.md'
     file = tmp_path / 'file.txt'
@@ -102,29 +103,55 @@ def check_task_change_rolls_back_publication(tmp_path, monkeypatch):
     monkeypatch.setenv(tasks.SELECTOR, name)
     def changed():
         own = tmp_path / name
-        own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
-    with pytest.raises(ValueError, match='scope changed'):
+        text = own.read_text()
+        own.write_text(text.replace('- `framework`', '- `dev/team/iam`') if change == 'scope' else
+                       text.replace('`running`', f'`{change}`') +
+                       ('## Suspension reason\nExplicit test stop\n' if change == 'suspend' else ''))
+    with pytest.raises(ValueError, match='suspend task' if change == 'suspend' else 'scope changed'):
         publish(tmp_path, {file: 'candidate'}, verify=changed)
     assert file.read_text() == 'original'
-    assert 'dev/team/iam' in (tmp_path / name).read_text(), 'rollback must not undo an external contract edit'
+    assert ('dev/team/iam' if change == 'scope' else f'`{change}`') in (tmp_path / name).read_text(), 'rollback must not undo an external contract edit'
 
 
 
-@pytest.mark.parametrize('explicit_status', [False, True])
-def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, explicit_status):
+@pytest.mark.parametrize('state', [None, 'running', 'completed', 'suspend'])
+def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, state):
     from model_templates import publish
     name = 'tasks/active.md'
     text = contract('active', ['file.txt'])
-    if not explicit_status:
+    if state is None:
         text = text.replace('- Task status: `running`\n', '')
+    else:
+        text = text.replace('`running`', f'`{state}`')
+        if state == 'suspend':
+            text += '## Suspension reason\nExplicit test stop\n'
     own = tmp_path / name
     own.parent.mkdir()
     own.write_text(text)
     monkeypatch.setenv(tasks.SELECTOR, name)
-    assert tasks.task_path(tmp_path) == own
-    publish(tmp_path, {tmp_path / 'file.txt': 'saved'})
+    file = tmp_path / 'file.txt'
+    file.write_text('original')
+    new = tmp_path / 'new.txt'
+    obsolete = tmp_path / 'obsolete.txt'
+    obsolete.write_text('keep')
+    if state in ('completed', 'suspend'):
+        if state == 'completed':
+            assert tasks.task_path(tmp_path) == own
+            assert tasks.task_revision(tmp_path) == (name, text)
+        with pytest.raises(ValueError, match=f'{state} task'):
+            publish(tmp_path, {file: 'saved', new: 'new'}, obsolete=[obsolete])
+        assert file.read_text() == 'original' and not new.exists()
+        assert obsolete.read_text() == 'keep'
+    else:
+        assert tasks.task_path(tmp_path) == own
+        publish(tmp_path, {file: 'saved'})
+        assert file.read_text() == 'saved'
     assert own.read_text() == text
-    assert (tmp_path / 'file.txt').read_text() == 'saved'
+    monkeypatch.delenv(tasks.SELECTOR)
+    standalone = tmp_path / 'standalone'
+    standalone.mkdir()
+    publish(standalone, {standalone / 'file.txt': 'without contract'})
+    assert (standalone / 'file.txt').read_text() == 'without contract'
 
 
 
@@ -154,6 +181,13 @@ def check_scope_change_during_planning(tmp_path, monkeypatch):
     own = tmp_path / name
     own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
     with pytest.raises(ValueError, match='scope changed'):
+        publish(tmp_path, {tmp_path / 'file.txt': 'candidate'}, expected_task=expected)
+    assert not (tmp_path / 'file.txt').exists()
+    own.write_text(own.read_text().replace('`running`', '`completed`'))
+    assert tasks.task_path(tmp_path) == own
+    expected = tasks.task_revision(tmp_path)
+    assert expected[1] == own.read_text()
+    with pytest.raises(ValueError, match='completed task cannot write'):
         publish(tmp_path, {tmp_path / 'file.txt': 'candidate'}, expected_task=expected)
     assert not (tmp_path / 'file.txt').exists()
 

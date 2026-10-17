@@ -17,7 +17,7 @@ from model_files import load_model
 from model_references import catalog_outputs
 from model_templates import model_paths, publication_lock
 from script_loader import module
-from task_contract import task_revision, SELECTOR
+from task_contract import task_revision, status, SELECTOR
 from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -227,6 +227,9 @@ def main():
         output = root / 'tests' / args.environment / args.target / (args.service + '.py')
         # Resolve selectors through topology before constructing any write directories.
         expected_task = task_revision(root, args.task_file)
+        name, text = expected_task
+        if text is not None and status(text, name == 'tasks/active.md') != 'running':
+            raise ValueError('completed task cannot write')
         source, inputs, unsupported = generate(root, args.environment, args.target, args.service)
         if not output.resolve().is_relative_to(root / 'tests') or any(p.is_symlink() for p in [output, *output.parents] if p != root.parent):
             raise ValueError('unsafe output path')

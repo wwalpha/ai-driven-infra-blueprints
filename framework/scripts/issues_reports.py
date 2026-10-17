@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 from sync_files import atomic_files
 from issue_gate import unresolved_services
-from task_contract import task_path, paths_in, safe_path, section
+from task_contract import task_path, paths_in, safe_path, section, status
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
 from iac_values import safe_value, same, selected_same
@@ -557,7 +557,8 @@ def save_authority(root, environment, directory, services, filenames):
     text = prompt.read_text(encoding='utf-8')
     scope = active_scope(root)
     selected = {(environment, directory, service) for service in services}
-    if not scope or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract'):
+    if (status(text, prompt == root / 'tasks/active.md') != 'running' or not scope
+            or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract')):
         raise ValueError('report save requires a running report-only migration with explicit service scope')
     reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md', 'diff.md')}
     allowed = paths_in(text, '## Allowed paths')
