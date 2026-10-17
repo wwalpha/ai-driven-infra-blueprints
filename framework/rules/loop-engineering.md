@@ -229,7 +229,20 @@ Read-only task/local runs save only successful catalog/service results in the OS
 
 For new inputs, changed contents, added/deleted files, missing/corrupt caches, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
-`--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Within-run-only catalog lists/model rows/path reuse is used even in fresh runs and does not carry over to the next execution. Display reused/executed service counts and include reused validation counts in successful counts. Do not terminate validation exceeding 60 seconds and call it PASS.
+`--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Invocation-local Model rows and input/path reuse is used even in fresh runs and does not carry over to the next execution.
+
+Process-local AWS Mapping, SDK, Schema and Catalog utilities separately retain static
+definitions and full Mapping validation by exact provider/service and SDK, Schema,
+Catalog and validation lifetime. They are lazy and single-flight, independent of
+`input_scope`, Model inputs, diagnostics and PassCache. Explicit stage aliases use the
+surviving source root. Definition edits require a new process or fresh relevant providers;
+SDK factories and data-path configuration are fixed when constructing an SDK provider.
+Validation/adapter code changes require a new Mapping validation lifetime. Arbitrary
+documents passed to `catalog_properties` are always validated. Schema public catalogs
+isolate mutable per-resource views from the shared definitions.
+
+Display reused/executed service counts and include reused validation counts in successful counts.
+Do not terminate validation exceeding 60 seconds and call it PASS.
 
 Integrated write reuses current-run candidate results rather than service PassCache:
 never regenerate or read saved outputs to create a service cache. Catalog uses its

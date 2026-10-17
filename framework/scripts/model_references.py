@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 from model_core import properties, entries, validate_bucket_reference, LINK, literal
-from design_catalog import design_material_files
 from design_layout import HIDDEN_PROPERTIES
 from validation_cache import memoized
 
@@ -41,10 +40,8 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
 
 @memoized
 def catalog_outputs(root: Path, kind: str) -> set[str]:
-    return {line.partition("=")[0] for path in design_material_files(root)
-            if path.stem.replace("_", ".", 1) == kind
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.endswith("=IDENTIFIER_OUTPUT") and line.partition("=")[0] not in HIDDEN_PROPERTIES}
+    from utils.aws_catalogs import catalogs_for
+    return set(catalogs_for(root).outputs(kind)) - HIDDEN_PROPERTIES
 
 
 def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:

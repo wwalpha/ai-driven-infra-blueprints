@@ -441,8 +441,9 @@ def layout_errors(root: Path) -> list[str]:
 
 @memoized
 def catalog_property_order(root: Path, resource_type: str):
-    material = next((path for path in design_material_files(root) if path.stem.replace("_", ".", 1) == resource_type), None)
-    return None if material is None else {line.partition("=")[0]: number for number, line in enumerate(material.read_text(encoding="utf-8").splitlines())}
+    from utils.aws_catalogs import catalogs_for
+    order = catalogs_for(root).order(resource_type)
+    return None if order is None else dict(order)
 
 
 def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path | None = None) -> list[str]:

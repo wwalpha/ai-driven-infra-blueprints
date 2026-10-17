@@ -121,7 +121,8 @@ def check_registry_cache():
             first = cached()
             assert read.call_count == compile.call_count == 1
             assert cached() is not first
-            assert read.call_count == 1 and compile.call_count == 2
+            assert read.call_count == compile.call_count == 1
+            assert cached().properties is first.properties
 
 
 def check_baseline():
@@ -316,25 +317,30 @@ def check_runtime_failures():
 
 
 def check_full_failure_isolation():
+    from utils.aws_mappings import Mappings
+    from utils.aws_sdk import Sdk
+    from utils.aws_schemas import Schemas
+    from utils.aws_catalogs import Catalogs
     with TemporaryDirectory() as directory:
         root = mapping_fixture(Path(directory), 'sns')
-        provider = mappings_for(root)
+        runtime_provider = mappings_for(root)
         with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
             for target in ('sdk_shape', 'DesignSchemaCatalog'):
+                # Patching validation code changes its lifetime: use fresh instances.
+                provider = Mappings(root)
+                sdk, schemas, catalogs = Sdk(), Schemas(root), Catalogs(root)
                 with patch.object(aws_mapping_catalog, target, side_effect=ValueError('injected full failure')):
-                    @input_scope
                     def failed():
                         with pytest.raises(ValueError, match='injected full failure'):
-                            aws_mapping.registry(root, 'sns')
-                    failed()
-                    runtime = provider.get('sns')
-                    failed()
-                    assert provider.get('sns') is runtime
-                @input_scope
-                def success():
-                    return aws_mapping.registry(root, 'sns')
-                assert success().resource_types == runtime.resource_types
-            assert parse.call_count == 1
+                            provider.validated('sns', sdk, schemas, catalogs, aws_mapping_catalog.catalog_properties)
+                    input_scope(failed)()
+                    runtime = runtime_provider.get('sns')
+                    input_scope(failed)()
+                    assert runtime_provider.get('sns') is runtime
+                fresh = Mappings(root)
+                assert fresh.validated('sns', Sdk(), Schemas(root), Catalogs(root),
+                                       aws_mapping_catalog.catalog_properties).resource_types == runtime.resource_types
+            assert parse.call_count == 5
 
 
 def check_stage_alias():

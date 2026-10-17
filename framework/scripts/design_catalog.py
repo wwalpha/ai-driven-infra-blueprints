@@ -31,12 +31,10 @@ def property_paths_with_parents(paths: set[str]) -> set[str]:
 
 
 class DesignSchemaCatalog(CloudFormationSchemaCatalog):
-    def __init__(self, root: Path) -> None:
-        super().__init__(root)
-        self.api_schemas = {
-            path.stem.replace("_", ".", 1): json.loads(path.read_text(encoding="utf-8"))
-            for path in (root / "framework/materials/api").glob("*.json")
-        }
+    def __init__(self, root: Path, *, definitions=None) -> None:
+        from utils.aws_schemas import ApiSchemas
+        super().__init__(root, definitions=definitions)
+        self.api_schemas = ApiSchemas(self.definitions)
 
     def schema(self, resource_type: str) -> dict:
         if resource_type in self.api_schemas:
@@ -139,10 +137,8 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
 @memoized
 def selected_properties(root: Path, resource_type: str) -> set[str]:
-    return {line.partition("=")[0].removeprefix(resource_type + ".")
-            for path in design_material_files(root) if path.stem.replace("_", ".", 1) == resource_type
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if "=" in line and not line.startswith("#")}
+    from utils.aws_catalogs import catalogs_for
+    return set(catalogs_for(root).selected(resource_type))
 
 
 def api_snapshot_errors(root: Path) -> list[str]:

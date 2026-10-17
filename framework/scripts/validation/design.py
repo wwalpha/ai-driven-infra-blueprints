@@ -78,22 +78,12 @@ def check_model_files(findings, root, scope) -> None:
 @memoized
 def catalog_design_properties(
     root) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
-    resource_types: set[str] = set()
-    property_owners: dict[str, set[str]] = {}
-    identifier_outputs: dict[str, set[str]] = {}
-    for path in design_material_files(root):
-        resource_type = path.stem.replace("_", ".", 1)
-        prefix = f"{resource_type}."
-        resource_types.add(resource_type)
-        for line in path.read_text(encoding="utf-8").splitlines():
-            property_name, separator, marker = line.partition("=")
-            if not separator or not property_name.startswith(prefix):
-                continue
-            property_path = property_name[len(prefix) :]
-            property_owners.setdefault(property_path, set()).add(resource_type)
-            property_owners.setdefault(property_name, set()).add(resource_type)
-            if marker == "IDENTIFIER_OUTPUT" and property_name not in HIDDEN_PROPERTIES:
-                identifier_outputs.setdefault(resource_type, set()).add(property_name)
+    from utils.aws_catalogs import catalogs_for
+    types, owners, outputs = catalogs_for(root).design_properties()
+    resource_types = set(types)
+    property_owners = {key: set(value) for key, value in owners.items()}
+    identifier_outputs = {key: set(value) - HIDDEN_PROPERTIES for key, value in outputs.items()
+                          if value - HIDDEN_PROPERTIES}
     for resource_type, property_name in REQUIRED_NAME_PROPERTIES.items():
         if resource_type in resource_types:
             property_owners.setdefault(property_name, set()).add(resource_type)

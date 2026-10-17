@@ -8,6 +8,9 @@ import json
 
 
 import shutil
+from unittest.mock import patch
+from utils.aws_schemas import Schemas
+from utils.aws_catalogs import Catalogs
 
 
 from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
@@ -40,8 +43,11 @@ def check_catalog_inputs() -> None:
                 "catalog.propertyCount": str(markers.count("")),
                 "catalog.identifierOutputCount": str(markers.count("IDENTIFIER_OUTPUT")),
             }), encoding="utf-8")
-            validator = MODULE.Validator(root)
-            validator.check_catalog_inputs()
+            # Each corruption is a new definition lifetime, including snapshot checks.
+            with patch('utils.aws_schemas.schemas_for', return_value=Schemas(root)), \
+                 patch('utils.aws_catalogs.catalogs_for', return_value=Catalogs(root)):
+                validator = MODULE.Validator(root)
+                validator.check_catalog_inputs()
             if expected is None:
                 assert not validator.errors, validator.errors
             else:
@@ -261,8 +267,9 @@ def check_catalog_display_order() -> None:
         assert catalog_order_errors("Example.Resource", rows("Tags[].Value", "Tags[].Key"), root)
         assert catalog_order_errors("Example.Resource", rows("Tags[].Key", "Name", "Tags[].Key"), root)
         write(material, "\n".join([lines[2], *lines[:2], *lines[3:]]) + "\n")
-        assert not catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
-        assert catalog_order_errors("Example.Resource", rows("Name", "Id"), root)
+        with patch('utils.aws_catalogs.catalogs_for', return_value=Catalogs(root)):
+            assert not catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
+            assert catalog_order_errors("Example.Resource", rows("Name", "Id"), root)
         assert len(selected) == 6 and all("Hidden" not in row[1] for row in selected)
 
 

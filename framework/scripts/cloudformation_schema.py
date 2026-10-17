@@ -52,12 +52,15 @@ def manifest_text(root: Path, files: list[Path]) -> str:
 
 
 class CloudFormationSchemaCatalog:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, definitions=None) -> None:
+        from threading import Lock
+        from utils.aws_schemas import schemas_for
         self.root = root
-        self.directory = root / "framework" / "materials" / "cloudformation-schema" / REGION
-        index = json.loads((self.directory / "index.json").read_text(encoding="utf-8"))
-        self.resource_types: dict[str, str] = index["resourceTypes"]
+        self.definitions = definitions if definitions is not None else schemas_for(root)
+        self.directory = self.definitions.directory
+        self.resource_types = dict(self.definitions.resource_types)
         self.schemas: dict[str, dict[str, Any]] = {}
+        self._schema_lock = Lock()
 
     @staticmethod
     def canonical_type(resource_type: str) -> str:
@@ -65,12 +68,12 @@ class CloudFormationSchemaCatalog:
 
     def schema(self, resource_type: str) -> dict[str, Any]:
         resource_type = self.canonical_type(resource_type)
-        if resource_type not in self.schemas:
-            filename = self.resource_types[resource_type]
-            self.schemas[resource_type] = json.loads(
-                (self.directory / filename).read_text(encoding="utf-8")
-            )
-        return self.schemas[resource_type]
+        from copy import deepcopy
+        with self._schema_lock:
+            if resource_type not in self.schemas:
+                # The public catalog permits local overrides; isolate each resource once.
+                self.schemas[resource_type] = deepcopy(self.definitions.cloudformation(resource_type))
+            return self.schemas[resource_type]
 
     @staticmethod
     def _pointer(document: dict[str, Any], reference: str) -> Any:

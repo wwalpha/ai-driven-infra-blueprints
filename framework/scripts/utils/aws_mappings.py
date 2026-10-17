@@ -48,6 +48,7 @@ class Mappings:
         self._services = frozenset(index.values())
         self._documents = {}
         self._runtime = {}
+        self._validated = {}
 
     def _require_service(self, service):
         if not isinstance(service, str) or service not in self._services:
@@ -74,6 +75,28 @@ class Mappings:
             document = self._document(service)
             return Registry(self._root, service, document, runtime_properties(self._root, service, document))
         return _once(self._runtime, service, build)
+
+    def validated(self, service, sdk, schemas, catalogs, validator):
+        """A provider lifetime fixes Mapping/adapter code; dependencies fix definitions.
+
+        Definition, validation or adapter edits require a new provider/dependency set
+        (or a new process), never extending input/diagnostic cache lifetimes.
+        """
+        self._require_service(service)
+        def build():
+            from aws_mapping import Registry
+            document = self._document(service)
+            properties = validator(self._root, service, document, sdk=sdk, schemas=schemas, catalogs=catalogs)
+            return Registry(self._root, service, document, properties)
+        return _once(self._validated, (service, sdk, schemas, catalogs, validator), build)
+
+
+def definition_root(root):
+    """Resolve an explicitly aliased stage to its surviving source, without loading it."""
+    root = Path(root).absolute()
+    with _lock:
+        provider = _aliases.get(root)
+        return provider._root if provider is not None else root
 
 
 def mappings_for(root):

@@ -79,47 +79,45 @@ def coverage():
 def initialization_checks():
     import os
     import aws_mapping_catalog as catalog
-    from validation_cache import memo_table
+    from botocore.session import get_session
+    from utils.aws_sdk import Sdk
     adapter = yaml.safe_load((ROOT / 'framework/mappings/aws/config.yaml').read_text(encoding='utf-8'))
-    sdk = yaml.safe_load((ROOT / 'framework/mappings/aws/sns.yaml').read_text(encoding='utf-8'))
-    factory = catalog.get_session
-    with patch.object(catalog, 'get_session', wraps=factory) as sessions:
-        catalog.catalog_properties(ROOT, 'config', adapter)
+    document = yaml.safe_load((ROOT / 'framework/mappings/aws/sns.yaml').read_text(encoding='utf-8'))
+    with patch('botocore.session.get_session', wraps=get_session) as sessions:
+        sdk = Sdk(sessions)
+        catalog.catalog_properties(ROOT, 'config', adapter, sdk=sdk)
         assert sessions.call_count == 0, 'adapter-only Mapping needs no SDK session'
 
         @input_scope
         def reuse():
-            catalog.catalog_properties(ROOT, 'sns', sdk)
-            catalog.catalog_properties(ROOT / '.', 'sns', sdk)
+            catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
+            catalog.catalog_properties(ROOT / '.', 'sns', document, sdk=sdk)
             assert sessions.call_count == 1
-            session = catalog._sdk_session(ROOT.resolve(), sessions, os.environ.get('AWS_DATA_PATH'))
+            session = sdk.session()
             with patch.object(session, 'get_service_model', wraps=session.get_service_model) as models:
-                memo_table().clear()
-                catalog._service_model(session, 'sns')
-                catalog._service_model(session, 'sns')
+                sdk.service_model('sqs')
+                sdk.service_model('sqs')
                 assert models.call_count == 1
-            # A patch and SDK data path are separate initialization inputs even inside a scope.
-            with patch.object(catalog, 'get_session', wraps=factory) as replacement:
-                catalog.catalog_properties(ROOT, 'sns', sdk)
+            # A new instance explicitly captures replacement factory/settings.
+            with patch('botocore.session.get_session', wraps=get_session) as replacement:
+                catalog.catalog_properties(ROOT, 'sns', document, sdk=Sdk(replacement))
                 assert replacement.call_count == 1
             with patch.dict(os.environ, {'AWS_DATA_PATH': '/nonexistent-offline-sdk-data'}):
-                catalog.catalog_properties(ROOT, 'sns', sdk)
+                separate = Sdk(sessions)
+                catalog.catalog_properties(ROOT, 'sns', document, sdk=separate)
+                assert separate.data_path == '/nonexistent-offline-sdk-data'
+                assert sdk.session().get_config_variable('data_path') == sdk.data_path
                 assert sessions.call_count == 2
         reuse()
         @input_scope
         def next_scope():
-            catalog.catalog_properties(ROOT, 'sns', sdk)
+            catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
         next_scope()
-        assert sessions.call_count == 3, 'a new scope cannot inherit sessions'
-    # No clients or credentials are involved in SDK model initialization.
-    @input_scope
-    def roots():
-        with patch.object(catalog, 'get_session', side_effect=lambda: object()) as sessions:
-            catalog._sdk_session(ROOT, sessions, None)
-            catalog._sdk_session(ROOT / 'other', sessions, None)
-            assert sessions.call_count == 2
-    roots()
-    print('Mapping initialization: PASS (adapter 0; same scope 1; separate roots/data/patch/scopes isolated)')
+        assert sessions.call_count == 2, 'new input scopes reuse the same SDK definitions'
+    with patch('botocore.session.get_session', wraps=get_session) as sessions:
+        assert Sdk(sessions).session() is not Sdk(sessions).session()
+        assert sessions.call_count == 2
+    print('Mapping initialization: PASS (adapter 0; cross-scope reuse; explicit factory/data/instance isolation)')
 
 
 @input_scope

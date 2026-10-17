@@ -3,13 +3,10 @@
 Acquisition remains in service adapters. Provider paths are checked against the
 pinned CFn schema without AWS calls.
 """
-import os
 from pathlib import Path
 import re
 from botocore import xform_name
-from botocore.session import get_session
-from validation_cache import memoized
-from design_catalog import selected_properties, DesignSchemaCatalog
+from design_catalog import DesignSchemaCatalog
 from model_templates import exact
 from script_loader import module
 
@@ -56,22 +53,12 @@ def access(schema, path):
             if under(path, schema.get(key, []))] or ['read-write']
 
 
-@memoized
-def _sdk_session(root, factory, data_path):
-    return factory()
-
-
-@memoized
-def _service_model(session, service):
-    return session.get_service_model(service)
-
-
-def sdk_shape(session, definition):
+def sdk_shape(sdk, definition):
     from aws_mapping import response_shape, text
     api = tuple(text(definition[key], key) for key in ('service', 'operation'))
     if not api[1].startswith(('get_', 'describe_', 'list_', 'batch_get_')):
         raise ValueError('Mapping API must be read-only')
-    sdk = _service_model(session, api[0])
+    sdk = sdk.service_model(api[0])
     operation = next((name for name in sdk.operation_names if xform_name(name) == api[1]), None)
     if operation is None:
         raise ValueError(f'unknown SDK operation: {api}')
@@ -79,7 +66,7 @@ def sdk_shape(session, definition):
     return shape if definition['result'] == '$' else response_shape(shape, definition['result'])
 
 
-def catalog_properties(root: Path, service, document):
+def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None, catalogs=None):
     from aws_mapping import Property, NORMALIZATIONS, text, response_shape
     comparator = module('check-model-aws.py', 'model_aws_compare')
     exact(document, {'version', 'service', 'getters', 'resourceTypes'}, 'Mapping v3')
@@ -91,7 +78,13 @@ def catalog_properties(root: Path, service, document):
         raise ValueError('Mapping getters must be an object')
     if any(not isinstance(d, dict) or d.get('kind') not in {'adapter', 'sdk', 'cloudcontrol'} for d in document['getters'].values()):
         raise ValueError('unknown getter kind')
-    catalog, getters, result, used = DesignSchemaCatalog(root), {}, {}, set()
+    from utils.aws_sdk import sdk_for
+    from utils.aws_schemas import schemas_for
+    from utils.aws_catalogs import catalogs_for
+    sdk = sdk if sdk is not None else sdk_for(root)
+    schemas = schemas if schemas is not None else schemas_for(root)
+    catalogs = catalogs if catalogs is not None else catalogs_for(root)
+    catalog, getters, result, used = DesignSchemaCatalog(root, definitions=schemas), {}, {}, set()
     for name, definition in document['getters'].items():
         text(name, 'getter')
         kind = definition.get('kind')
@@ -111,8 +104,7 @@ def catalog_properties(root: Path, service, document):
             if kind == 'cloudcontrol':
                 keys |= {'identifier'}
             exact(definition, keys, 'AWS getter')
-            session = _sdk_session(root.resolve(), get_session, os.environ.get('AWS_DATA_PATH'))
-            shape = sdk_shape(session, definition)
+            shape = sdk_shape(sdk, definition)
             resource = definition['resourceType']
             if resource not in document['resourceTypes']:
                 raise ValueError('getter resource is outside mapping')
@@ -130,11 +122,11 @@ def catalog_properties(root: Path, service, document):
             raise ValueError('unknown getter kind')
     for resource, values in document['resourceTypes'].items():
         exact(values, {'properties'} | ({'identity'} if isinstance(values, dict) and 'identity' in values else set()), resource)
-        selected = selected_properties(root, resource)
+        selected = catalogs.selected(resource)
         if not selected:
             raise ValueError('unknown catalog resource: ' + resource)
         exact(values['properties'], selected, resource + ' catalog properties')
-        schema = catalog.schema(resource) if not (root / 'framework/materials/api' / (resource.replace('.', '_') + '.json')).exists() else None
+        schema = catalog.schema(resource) if resource not in catalog.api_schemas else None
         if 'identity' in values:
             identity = values['identity']
             exact(identity, {'getter', 'idPath', 'arnPath', 'nameProperty'}, resource + ' identity')

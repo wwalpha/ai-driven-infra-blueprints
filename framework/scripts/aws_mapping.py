@@ -90,6 +90,13 @@ class Registry:
         for key, value in values.items():
             object.__setattr__(self, key, value)
 
+    def at_root(self, root):
+        """Bind caller context without copying or revalidating static definitions."""
+        result = object.__new__(Registry)
+        for key, value in vars(self).items():
+            object.__setattr__(result, key, Path(root) if key == 'root' else value)
+        return result
+
 
 def mapping_path(root, service):
     if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', text(service, 'service')):
@@ -99,11 +106,15 @@ def mapping_path(root, service):
 
 @memoized
 def registry(root: Path, service: str) -> Registry:
-    """Validate SDK/Schema/catalog within the current input scope, reusing static YAML."""
+    """Reuse full static validation, retaining this caller's root/input-scope view."""
     from utils.aws_mappings import mappings_for
+    from utils.aws_sdk import sdk_for
+    from utils.aws_schemas import schemas_for
+    from utils.aws_catalogs import catalogs_for
     from aws_mapping_catalog import catalog_properties
-    document = mappings_for(root)._document(service)
-    return Registry(root, service, document, catalog_properties(root, service, document))
+    validated = mappings_for(root).validated(service, sdk_for(root), schemas_for(root),
+                                             catalogs_for(root), catalog_properties)
+    return validated.at_root(root)
 
 
 def runtime_registry(root: Path, service: str) -> Registry:
