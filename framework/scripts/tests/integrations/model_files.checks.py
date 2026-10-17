@@ -11,6 +11,11 @@ from support.it_case_receipt import it_case
 from support.model_files_fixtures import *
 
 from support.it_workspace import copy_framework
+from contextlib import redirect_stderr
+import json
+import model_files
+import model_templates
+from import_scope import restrict
 
 @it_case
 def check_resource_reading(root):
@@ -53,6 +58,16 @@ def check_resource_reading(root):
         return subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/model_files.py"), str(source), *args],
                               capture_output=True, text=True, encoding="utf-8")
 
+    def invoke(path, flag, selector):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, 'argv', ['model_files.py', str(path), flag, selector]), \
+             patch.object(model_files, 'load_model', wraps=model_files.load_model) as loaded, \
+             patch.object(model_templates, 'load_expansion', wraps=model_templates.load_expansion) as expansion, \
+             patch.object(model_templates, 'expand', wraps=model_templates.expand) as body, \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            code = model_files.main()
+        return (code, stdout.getvalue(), stderr.getvalue()), (loaded.call_count, expansion.call_count, body.call_count)
+
     group_prefixes = ("desired.service.", "display.service.", "desired.note.") + tuple(
         prefix for identity in ("001", "002", "003") for prefix in (
             f"desired.resource.{identity}.", f"display.resource.{identity}.",
@@ -67,6 +82,23 @@ def check_resource_reading(root):
         loaded = load_model(source)
         expected = [f"{key}={value}" for key, value in loaded.values.items() if key.startswith(group_prefixes)]
         snapshot = {path: path.read_bytes() for path in loaded.files}
+        for flag, selector in (('--find', 'Resource60'), ('--find', '見つからない'),
+                               ('--resource', '001'), ('--trace', 'desired.row.001-001.value'),
+                               ('--trace', 'observed.row.001-002.value')):
+            result, counts = invoke(source, flag, selector)
+            assert counts == (0 if flag == '--trace' else 1, 1, 1), (flag, counts)
+            actual = cli(flag, selector)
+            assert result == (actual.returncode, actual.stdout, actual.stderr)
+            assert result[0] == 0 and not result[2], result
+            if flag == '--trace':
+                assert json.loads(result[1]) == model_templates.load_expansion(source).provenance[selector]
+            else:
+                keys = resource_keys(loaded.text, selector) if flag == '--resource' else {
+                    key for key, value in loaded.values.items() if selector in key + '=' + value}
+                assert result[1] == ''.join(
+                    f'{loaded.locations[key][0]}:{loaded.locations[key][1]}: {key}'
+                    + ('=' + value if flag == '--resource' else '') + '\n'
+                    for key, value in loaded.values.items() if key in keys)
         for selector in ("001", "Resource1", "kms-resource-001", "Resource2", "003"):
             result = cli("--resource", selector)
             assert result.returncode == 0, result.stderr
@@ -100,6 +132,53 @@ def check_resource_reading(root):
             assert result.returncode == 1 and not result.stdout, result
         assert cli("--resource", "001", "--split").returncode == 2
         assert all(path.read_bytes() == data for path, data in snapshot.items())
+
+    for flag, selector in (('--find', 'Resource1'), ('--resource', '001'),
+                           ('--trace', 'desired.row.001-001.value')):
+        for invalid_path, message in ((root / 'invalid.properties', 'Model requires a YAML service source'),
+                                      (source.with_name('missing.properties'), 'YAML Model inputs missing')):
+            result, counts = invoke(invalid_path, flag, selector)
+            assert result[0] == 1 and not result[1] and message in result[2], result
+            assert counts[2] == 0, counts
+        with restrict(('stg', '123456789012', 'kms')):
+            result, counts = invoke(source, flag, selector)
+            assert result == (1, '', 'Service model files: FAIL: IMPORT reference is outside selected environment/target/service\n')
+            assert counts[1:] == (0, 0), counts
+        _, template, directory = model_templates.source_paths(source)
+        for file, bad in ((directory / 'parameters.yaml', 'instances: [\n'),
+                          (directory / 'bindings.json', '{'), (template, '# invalid template\n')):
+            saved = file.read_bytes()
+            try:
+                file.write_text(bad, encoding='utf-8')
+                result, counts = invoke(source, flag, selector)
+                assert result[0] == 1 and not result[1] and result[2].startswith('Service model files: FAIL:'), result
+                assert counts[2] == 0, counts
+            finally:
+                file.write_bytes(saved)
+        result, counts = invoke(source, flag, 'missing-key-or-resource')
+        assert result[0] == (0 if flag == '--find' else 1) and not result[1], result
+        assert counts[2] == 1, counts
+
+    tasks = root / 'tasks'
+    tasks.mkdir()
+    try:
+        for name in ('one', 'two'):
+            (tasks / f'{name}.md').write_text(
+                f'## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
+                f'## Modified files\n- `tasks/{name}.md`\n## Allowed paths\n- `tasks/{name}.md`\n', encoding='utf-8')
+        for flag, selector in (('--find', 'Resource1'), ('--resource', '001'),
+                               ('--trace', 'desired.row.001-001.value')):
+            with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': ''}):
+                result, counts = invoke(source, flag, selector)
+                assert result[0] == 1 and not result[1] and 'multiple running tasks' in result[2], result
+                assert counts[1:] == (0, 0), counts
+            with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/one.md'}):
+                result, counts = invoke(source, flag, selector)
+                assert result[0] == 0 and counts[2] == 1, (result, counts)
+    finally:
+        for file in tasks.iterdir():
+            file.unlink()
+        tasks.rmdir()
 
     for invalid in (
         text.replace("desired.resource.002.logicalId=Resource2", "desired.resource.002.logicalId=Resource1"),

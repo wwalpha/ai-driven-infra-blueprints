@@ -176,15 +176,26 @@ def main() -> int:
     args = parser.parse_args()
     try:
         path = args.model.absolute()
-        text = read_model(path)
-        from model_templates import load_expansion
         if args.trace is not None:
             import json
-            expanded = load_expansion(path)
+            from model_templates import source_paths, publication_lock, load_expansion
+
+            @scoped_read
+            def trace_model(path, _context=None):
+                paths = source_paths(path)
+                if paths is None:
+                    raise ValueError(f'Model requires a YAML service source: {path}')
+                with publication_lock(paths[0]):
+                    expanded = load_expansion(path)
+                    if expanded is None:
+                        raise ValueError(f'YAML Model inputs missing: {path}')
+                    return expanded
+
+            expanded = trace_model(path)
             print(json.dumps(expanded.provenance[args.trace], ensure_ascii=False))
             return 0
         loaded = load_model(path)
-        keys = resource_keys(text, args.resource) if args.resource is not None else {k for k,v in loaded.values.items() if args.find in k + '=' + v}
+        keys = resource_keys(loaded.text, args.resource) if args.resource is not None else {k for k,v in loaded.values.items() if args.find in k + '=' + v}
         for key in loaded.values:
             if key in keys:
                 file, number = loaded.locations[key]
