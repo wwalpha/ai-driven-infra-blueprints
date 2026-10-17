@@ -27,7 +27,7 @@ IT全66スイートは [Framework IT](../../../.github/workflows/framework-it.ym
 
 runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy` の4 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` の既存289関数・389パターンに加え、12のmain入口と7のmodule末尾を19実行グループとして別に登録する。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行113関数と12のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+`CASES.md` の279関数・357パターンに加え、12のmain入口と7のmodule末尾を19実行グループとして別に登録する。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行112関数と12のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
 
 全関数・全行の監視は使用しない。ファイルコピー・子プロセス・fixture生成のauditイベントと、スイート別の時間・終了コード・receiptを維持する。FAIL後も残りのスイートを実行し、結果をActionsログとSummaryに記録する。追加のFull IT実行入口は設けず、`blueprint-loop.py` の回帰はUTのみとする。
 
@@ -35,4 +35,4 @@ runnerは共通fixture bundleを1回初期化し、`framework`・`input_template
 
 ローカル修正では関連UTを実行し、ITの検証はGitHub Actionsへ委ねる。PRの現revisionでIT PASSを確認してからマージする。CI未完了・未実行・キャンセル・FAILをIT検証完了と扱わない。ブランチ保護のRequired status checkに `Framework IT` を指定する設定は別途必要。
 
-管理対象Worktreeの認可は `units/task-contract-unit.checks.py` で合成管理情報と既存契約fixtureを使い、予約計算・Git起動・全契約再読込のない反復認可、外部変更による失効、パス拒否、明示refresh、通常checkout互換性を検証する。実Git、別プロセス、Atomic rollbackは既存 `integrations/task_contract.checks.py`、finalizeの所有範囲と安全停止は既存 `integrations/worktree_task.checks.py` に統合し、CIのみで実行する。
+契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。

@@ -13,7 +13,7 @@ def check_workflow_contract():
     reading = M.markdown_sections(prompt)["read-before-changing-files"]
     assert "docs/designs/<environment>/<target-directory>/<service-id>.md" not in reading
     for text in (prompt, *((ROOT / "framework/rules" / (engine + ".md")).read_text(encoding="utf-8") for engine in ("cloudformation", "terraform"))):
-        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "existence verification", "hash", "reservations", "local loop", "fallback", "stop"))
+        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "existence verification", "hash", "local loop", "fallback", "stop"))
         assert "Read approved detailed designs and service models as input" not in text
     assert all(value in prompt for value in ("generatedViews", "inputs", "unread sections", "load_units()", "Do not newly reregister already registered tasks"))
 

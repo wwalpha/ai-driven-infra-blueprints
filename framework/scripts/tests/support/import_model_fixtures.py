@@ -128,7 +128,7 @@ def contract(root, files, service="cloudwatch-logs", target=ACCOUNT):
     start(root, 'tasks/import-fixture.md', source.read_text(encoding='utf-8'))
 
 def snapshot(root):
-    return {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts}
+    return {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts and not p.is_relative_to(root / '.blueprint/import')}
 
 class AwsCli:
     def __init__(self, account=ACCOUNT, fail=None, profile='confirmed'):
@@ -171,7 +171,7 @@ class AwsCli:
             raise AssertionError('unmocked AWS CLI call: ' + service + '.' + operation)
         return subprocess.CompletedProcess(command, 0, json.dumps(responses[(service, operation)]), '')
 
-def reserve(root, plan, service='cloudwatch-logs', target=ACCOUNT):
+def register_plan(root, plan, service='cloudwatch-logs', target=ACCOUNT):
     files = set(plan['files'])
     files |= {f'docs/designs/{identity}.md' for identity in plan['scope']}
     contract(root, files, service, target)
@@ -210,6 +210,7 @@ def setup_service(root, service, kind, fields, create_fields=None, alias=None):
     return path
 
 def small_framework(root, services, kinds):
+    (root / ".gitignore").write_text("/.blueprint/import/\n", encoding="utf-8")
     from cloudformation_schema import REGION
     kinds = set(kinds) | {kind for service in services for kind in m.yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
     schema = Path('framework/materials/cloudformation-schema') / REGION
@@ -238,4 +239,4 @@ def reset_count():
     COUNT = 0
 
 
-__all__ = ['ACCOUNT', 'AwsCli', 'COUNT', 'Path', 'builtins', 'check', 'contract', 'fixture', 'generate', 'hashlib', 'import_guard', 'input_scope', 'io', 'json', 'json_text', 'load', 'load_expansion', 'load_model', 'm', 'module', 'os', 'parameter_text', 'patch', 'pytest', 'redirect_stdout', 'rejected', 'reserve', 'reset_count', 'resolve', 'run', 'setup_service', 'shutil', 'small_framework', 'snapshot', 'socket', 'start', 'subprocess', 'sync_runtime', 'sys', 'tempfile', 'values', 'values_for_service', 'write_model']
+__all__ = ['ACCOUNT', 'AwsCli', 'COUNT', 'Path', 'builtins', 'check', 'contract', 'fixture', 'generate', 'hashlib', 'import_guard', 'input_scope', 'io', 'json', 'json_text', 'load', 'load_expansion', 'load_model', 'm', 'module', 'os', 'parameter_text', 'patch', 'pytest', 'redirect_stdout', 'rejected', 'register_plan', 'reset_count', 'resolve', 'run', 'setup_service', 'shutil', 'small_framework', 'snapshot', 'socket', 'start', 'subprocess', 'sync_runtime', 'sys', 'tempfile', 'values', 'values_for_service', 'write_model']

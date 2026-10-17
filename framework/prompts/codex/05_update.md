@@ -13,7 +13,7 @@ matching IaC/issues/diff. Generation across environments grants no Deployment sc
 or AWS permission.
 
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
 

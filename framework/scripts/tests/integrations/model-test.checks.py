@@ -277,11 +277,11 @@ def check():
         script = folder / 'tests/dev/cde/vpc.py'
         script.parent.mkdir(parents=True)
         script.touch()
-        findings = Findings(folder, True)
+        findings = Findings(folder)
         check_results(folder, {('dev', 'cde'): {}}, False, {}, findings)
         assert not findings.errors, findings.errors
         log.rename(log.with_name('vpc-invalid.log'))
-        findings = Findings(folder, True)
+        findings = Findings(folder)
         check_results(folder, {('dev', 'cde'): {}}, False, {}, findings)
         assert any('invalid audit log' in error for error in findings.errors)
     print('Model audit tests: PASS (offline generation, VPC/IAM, references, policies, auth, standalone, logs, determinism)')

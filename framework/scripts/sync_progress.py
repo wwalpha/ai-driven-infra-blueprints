@@ -46,9 +46,7 @@ class Progress:
         try:
             yield
         except BaseException as error:
-            from task_contract import DeferredExhausted
-            state[5] = ('unfinished' if isinstance(error, DeferredExhausted) else
-                        'completed' if isinstance(error, SystemExit) and error.code == 0 else 'failed')
+            state[5] = ('completed' if isinstance(error, SystemExit) and error.code == 0 else 'failed')
             self.emit(state, state[5])
             raise
         finally:

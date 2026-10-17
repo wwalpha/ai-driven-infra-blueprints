@@ -1216,7 +1216,6 @@ def mismatch_display_cases():
 
 
 def state_report_cases():
-    from task_contract import refresh, complete, DeferredExhausted
     with tempfile.TemporaryDirectory(prefix='iac-current-run-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/123456789012/iac-issues.md'
@@ -1275,23 +1274,13 @@ def state_report_cases():
             assert snapshot() == before
             save(root, 'dev', '123456789012', ['s3'], iac=[])
             assert '元レコード数: 0' in path.read_text() and 'no compared records' in path.read_text()
-        # State is not an authorized save output, nor a dependency/reservation of the new batch.
+        # State is not an authorized save output, nor a dependency of the new batch.
         with task(root, ['s3'], allowed=[*map(lambda file: file.relative_to(root).as_posix(), outputs), state.relative_to(root).as_posix()]):
             before = snapshot()
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[]), 'save-only exception')
             assert before == snapshot()
-        with task(root, ['s3'], name='report-owner', allowed=[path.relative_to(root).as_posix()]):
-            refresh(root, 'tasks/report-owner.md')
-            with task(root, ['s3'], name='report-writer'):
-                before = snapshot()
-                with patch('task_contract.time.sleep') as sleep:
-                    with pytest.raises(DeferredExhausted):
-                        save(root, 'dev', '123456789012', ['s3'], iac=[record])
-                assert sleep.call_count == 20 and snapshot() == before
-                complete(root, 'tasks/report-owner.md')
-                save(root, 'dev', '123456789012', ['s3'], iac=[record])
         assert 'human確認: unresolved queue issue' in ordinary.read_text() and old_ordinary
-    print('IaC current-run publication: PASS (ignored state/old Markdown/partial scope/ordinary retention/rollback/reservations)')
+    print('IaC current-run publication: PASS (ignored state/old Markdown/partial scope/ordinary retention/rollback)')
 
 
 def check_nested_membership(scan_project):
@@ -1530,7 +1519,7 @@ def check_scan_workflow(scan_project):
     naming_target_scope_cases()
     resource_cases(root)
     extended_cases(root, template)
-    concurrency(root)
+    sequential_reports(root)
 
 
 check_action_report = action_report_cases

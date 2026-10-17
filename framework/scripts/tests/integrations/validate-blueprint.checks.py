@@ -28,7 +28,6 @@ def main():
     runner.check_module_inputs()
     scenario.check_records()
     scope.check_deployment_iac_scope()
-    scope.check_task_file_gating()
     terraform.check_cli()
     print("Validator integrations: PASS")
 

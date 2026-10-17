@@ -318,7 +318,7 @@ def sync_successful(backend, units, states):
             states[unit["name"]]["observedSynced"] = True
         return
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()}, views=views)
+    publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
     if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
         raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
     for unit in units:
@@ -382,11 +382,6 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
         return destinations, views, sync
     prompt = task_path(root)
     contract = prompt.read_text(encoding="utf-8")
-    declared = paths_in(contract, "## Modified files") if section(contract, "## Modified files") else set()
-    if prompt.name != 'active.md' or declared:
-        missing = {path.relative_to(root).as_posix() for path in set(destinations) | views} - declared
-        if missing:
-            raise ValueError("output has no selected task reservation: " + ", ".join(sorted(missing)))
     allowed = paths_in(contract, "## Allowed paths")
     if any(not any(matches(path.relative_to(root).as_posix(), p) for p in allowed) for path in set(destinations) | views):
         raise ValueError("task scope violation: observed model/view output outside Allowed paths")
@@ -511,8 +506,8 @@ def sync_destroyed(backend, states, plan):
     if changes:
         destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
         if {path.relative_to(root).as_posix() for path in set(destinations) | views} - set(plan["paths"]):
-            raise ValueError("destroy observed output differs from pre-mutation reservations")
-        publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()}, views=views)
+            raise ValueError("destroy observed output differs from pre-mutation output plan")
+        publish_observed(root, destinations, {p: data for source in changes for p, data in __import__("model_templates").input_snapshot(source).items()})
         if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
             raise ValueError("destroy observed sync failed; resume same session")
     for name in completed:
@@ -569,6 +564,6 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def publish_observed(root, destinations, inputs=None, *, views=()):
+def publish_observed(root, destinations, inputs=None):
     from model_templates import publish
-    publish(root, destinations, inputs=inputs, authorization_paths=views)
+    publish(root, destinations, inputs=inputs)

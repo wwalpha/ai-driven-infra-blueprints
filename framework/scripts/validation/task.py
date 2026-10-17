@@ -1,4 +1,4 @@
-"""Task ownership, boundary, issue gate and Acceptance state."""
+"""Task boundary, issue gate and Acceptance state."""
 
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from model_files import service_model_path
 from model_templates import affected, service_source
 from validation_scope import active_scope
 from issue_gate import require_no_issues
-from task_contract import task_path, task_changes, contracts, authorizations, TASK_NAME, matches
+from task_contract import task_path, TASK_NAME, matches
 
 TASK_TYPES = {
     "initialization",
@@ -35,8 +35,6 @@ class TaskValidation:
         self.requirement_ids = []
         self.acceptance_checks = []
         self.acceptance_results = []
-        self.deferred_files = set()
-        self.deferred_acceptance = []
 
     def git_paths(self, args: list[str]) -> set[str]:
         result = subprocess.run(
@@ -57,29 +55,17 @@ class TaskValidation:
                 "- Task type:" not in prompt.read_text(encoding="utf-8")):
             return  # Preserve the unchanged legacy idle state.
         if prompt.is_file():
-            entry = authorizations(self.root)[self.relative(prompt)]
             from worktree_task import committed_task_paths
             committed = committed_task_paths(self.root, self.relative(prompt))
             if committed is not None:
-                # Attribution uses the existing local grants, excluding other tasks/Deferred files.
-                self.changed_paths |= committed & (entry.active or set())
-            else:
-                # Exact acquired Modified files are the stable legacy task contract authority.
-                self.findings.file_gate_paths = entry.active
+                self.changed_paths |= committed
         if not prompt.is_file():
-            if contracts(self.root, include_foreign=True):
-                self.changed_paths = task_changes(self.root, self.changed_paths)
-                return
             self.check(
                 not (self.changed_paths - {"tasks/active.md"}),
                 f"active task prompt missing: {self.relative(prompt)} while repository has non-contract changes",
             )
             return
 
-        self.changed_paths = task_changes(self.root, self.changed_paths, self.relative(prompt))
-        if committed is not None:
-            self.findings.file_gate_paths = self.changed_paths
-        self.deferred_files = set(entry.deferred)
         lines = prompt.read_text(encoding="utf-8").splitlines()
         contract = self.section(lines, "## Task contract")
         task_types = []
@@ -287,9 +273,6 @@ class TaskValidation:
 
     def check_acceptance_checks(self, registered) -> None:
         for requirement_id, kind, value in self.acceptance_checks:
-            if kind != "check" and any(self.matches(path, value) for path in self.deferred_files):
-                self.deferred_acceptance.append(f"{requirement_id}:{kind}:{value}")
-                continue  # Pending work is not a passed Acceptance check.
             before = len(self.findings.errors)
             if kind == "changed":
                 self.check(any(self.matches(path, value) for path in self.changed_paths), f"required changed path missing: {requirement_id}: {value}")
@@ -304,11 +287,3 @@ class TaskValidation:
                     handler()
             if len(self.findings.errors) == before:
                 self.acceptance_results.append(f"{requirement_id}:{kind}:{value}")
-
-
-    def check_tasks(self) -> None:
-        try:
-            authorizations(self.root)
-        except (OSError, ValueError) as error:
-            self.check(False, str(error))
-

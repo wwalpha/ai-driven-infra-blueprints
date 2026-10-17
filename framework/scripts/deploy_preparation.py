@@ -238,7 +238,7 @@ def candidate(root, task, env, directory, target, stacks, services):
 
 
 def prepare(root, args, run, timing):
-    from task_contract import TASK_NAME, contracts, validate_registration, safe_path
+    from task_contract import TASK_NAME, contracts, safe_path
     from issue_gate import issue_errors
     if not TASK_NAME.fullmatch(args.task_file) or args.task_file == "tasks/active.md":
         raise ValueError("use a new tasks/<task-name>.md")
@@ -278,7 +278,6 @@ def prepare(root, args, run, timing):
         records = contracts(root)
         if args.task_file in records:
             raise ValueError("task already exists; resume the existing task/session")
-        validate_registration(root, args.task_file, text, records)
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
@@ -409,10 +408,9 @@ def repair_changes(root, contract, changed):
             if relative in authorized and authorized[relative]['newFileDigest'] != record['oldFileDigest']:
                 raise ValueError('deploy repair digest chain broken')
             authorized[relative] = record
-    reserved = paths_in(contract, '## Modified files')
     allowed = paths_in(contract, '## Allowed paths')
     for relative in changed:
-        if relative not in reserved or relative not in allowed or relative not in authorized:
+        if relative not in allowed or relative not in authorized:
             raise ValueError('unauthorized deploy IaC change: ' + relative)
         if sha(root / relative) != authorized[relative]['newFileDigest']:
             raise ValueError('deploy repair file digest changed: ' + relative)

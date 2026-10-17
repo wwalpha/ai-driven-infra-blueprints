@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 from sync_files import atomic_files
 from issue_gate import unresolved_services
-from task_contract import task_path, paths_in, require_writable, writable_batch, safe_path, section, reserved_batches
+from task_contract import task_path, paths_in, safe_path, section
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
 from iac_values import safe_value, same, selected_same
@@ -575,17 +575,11 @@ def save_authority(root, environment, directory, services, filenames):
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
-    outputs = save_authority(root, environment, directory, services, names)
-    for _ in reserved_batches(root, {'reports': outputs}):
-        # Merge the latest saved service blocks only after acquisition. Keep the
-        # existing publication mutex and indivisible report batch; never sleep here.
-        with writable_batch(root, outputs):
-            paths = save_authority(root, environment, directory, services, names)
-            contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
-            if iac is not None:
-                contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp)
-            if guard:
-                guard()  # Check after formatting, immediately before publication; never repeat comparison.
-            require_writable(root, paths)
-            atomic_files(contents)
+    paths = save_authority(root, environment, directory, services, names)
+    contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
+    if iac is not None:
+        contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp)
+    if guard:
+        guard()  # Check after formatting, immediately before publication; never repeat comparison.
+    atomic_files(contents)
     return paths

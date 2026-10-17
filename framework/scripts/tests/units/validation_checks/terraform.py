@@ -48,14 +48,12 @@ def check_configuration():
         shared = root / 'infra/cde/terraform/modules/iam/main.tf'
         unrelated = root / 'infra/cde/terraform/stg/main.tf'
         scope = {('dev', 'cde', 'ec2')}
-        gate = {path.relative_to(root).as_posix()}
 
-        def validate(scope=None, gate=None, wide=False, changed=(), task='infrastructure', initialized=False):
-            validator = MODULE.Validator(root, scope, repository_wide_gate=wide)
+        def validate(scope=None, changed=(), task='infrastructure', initialized=False):
+            validator = MODULE.Validator(root, scope)
             validator.accounts = accounts
             validator.template_mode = False
             validator.task_type = task
-            validator.file_gate_paths = gate
             validator.changed_paths = set(changed)
             if initialized:
                 validator.check_initialized_paths()
@@ -86,8 +84,7 @@ def check_configuration():
         unknown.parent.mkdir(parents=True)
         write(unknown, original)
         expect('T05', validate(), True)
-        assert not validate(scope, gate).errors
-        assert validate(scope, {unknown.relative_to(root).as_posix()}).errors
+        assert not validate(scope).errors
         shutil.rmtree(root / 'infra/unknown')
         accounts[('dev', 'cde')]['engine'] = 'cloudformation'
         (root / 'infra/cloudformation/parameters/dev/cde').mkdir(parents=True)
@@ -106,10 +103,10 @@ def check_configuration():
         alternate.mkdir()
         write(unrelated, original.replace('../modules/iam', '../modules/alternate'))
         assert any('same source across environments' in error for error in validate().errors)
-        assert validate(scope, gate).errors  # The same logical Module has a conflicting peer Root.
-        assert validate(set(), {shared.relative_to(root).as_posix()},
+        assert validate(scope).errors  # The same logical Module has a conflicting peer Root.
+        assert validate(set(),
                         changed={shared.relative_to(root).as_posix()}, task='governance').errors
-        assert not validate({('dev', 'non-cde', 'ec2')}, set()).errors
+        assert not validate({('dev', 'non-cde', 'ec2')}).errors
         write(unrelated, original)
         alternate.rmdir()
         assert (path.parent / 'terraform.tfvars').read_text() != (unrelated.parent / 'terraform.tfvars').read_text()
@@ -120,26 +117,25 @@ def check_configuration():
         write(root / 'infra/cloudformation/parameters/preview/ops/example.json', '[]\n')
         expect('T12', validate(initialized=True))
 
-        module_gate = {shared.relative_to(root).as_posix()}
+        module_changes = {shared.relative_to(root).as_posix()}
         # Deleting a shared Module must check every Root referencing it, even in framework scope.
         saved_module = {p.name: p.read_text() for p in shared.parent.iterdir()}
         shutil.rmtree(shared.parent)
-        expect('T13', validate(set(), module_gate, changed=module_gate, task='governance'), True)
-        assert any('stg/main.tf' in error for error in validate(set(), module_gate, changed=module_gate, task='governance').errors)
-        assert not validate(set(), module_gate, task='governance').errors
+        expect('T13', validate(set(), changed=module_changes, task='governance'), True)
+        assert any('stg/main.tf' in error for error in validate(set(), changed=module_changes, task='governance').errors)
+        assert not validate(set(), task='governance').errors
         shared.parent.mkdir()
         for name, text in saved_module.items():
             write(shared.parent / name, text)
         write(unrelated, original.replace('../modules/iam', '../modules/missing'))
-        # An unrelated broken call must not become blocking because a different Module changed.
-        assert not validate(set(), module_gate, changed=module_gate, task='governance').errors
-        expect('T14', validate(scope, gate))
-        assert validate(scope | {('stg', 'cde', 'ec2')}, gate).non_blocking_findings
-        assert validate(scope | {('stg', 'cde', 'ec2')}, gate, True).errors
-        assert validate(scope, {unrelated.relative_to(root).as_posix()}).errors
+        # Changed shared Modules retain validation of the target Root configurations.
+        assert any("source does not exist" in error for error in
+                   validate(set(), changed=module_changes, task='governance').errors)
+        expect('T14', validate(scope))
+        assert validate(scope | {('stg', 'cde', 'ec2')}).errors
         write(unrelated, original)
         write(shared, 'module "child" { source = "../missing" }\n')
-        assert validate(set(), module_gate, changed=module_gate, task='governance').errors
+        assert validate(set(), changed=module_changes, task='governance').errors
         write(shared, 'resource "aws_iam_role" "example" {}\n')
 
         # Initialization/add-target are agent prompts, not executable scaffold commands.

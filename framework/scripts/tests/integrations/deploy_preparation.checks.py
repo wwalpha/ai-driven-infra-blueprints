@@ -31,11 +31,11 @@ def check_preparation():
         assert plan["controllerArgv"][0] == sys.executable
         assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
         text = (run / "contract.md").read_text(encoding="utf-8")
-        reserved = paths_in(text, "## Modified files")
-        assert "model/parameters/dev/123456789012/ec2/observed.json" in reserved
+        declared = paths_in(text, "## Modified files")
+        assert "model/parameters/dev/123456789012/ec2/observed.json" in declared
         from model_templates import source_paths
-        assert not any(source_paths(root/p) is not None or p.endswith("source.json") for p in reserved)
-        assert {p for p in reserved if p.startswith("infra/")} == {
+        assert not any(source_paths(root/p) is not None or p.endswith("source.json") for p in declared)
+        assert {p for p in declared if p.startswith("infra/")} == {
             "infra/cloudformation/templates/shared.yaml",
             "infra/cloudformation/parameters/dev/123456789012/1.json",
             "infra/cloudformation/parameters/dev/123456789012/2.json"}
@@ -47,7 +47,7 @@ def check_preparation():
         generated = {"docs/designs/dev/123456789012/" + name for name in
                      ("ec2.md", "iam.md", "cloudformation-stacks.md", "iam/worker-role-trust-policy.json")}
         assert plan["generatedViews"] == sorted(generated)
-        assert generated <= plan["inputs"].keys() and generated <= reserved
+        assert generated <= plan["inputs"].keys() and generated <= declared
         assert not generated & documents.keys()
         for relative, digest in plan["inputs"].items():
             assert digest == hashlib.sha256((root / relative).read_bytes()).hexdigest()
@@ -72,11 +72,7 @@ def check_preparation():
         assert "framework/rules/terraform.md" not in documents and "README.md" not in documents
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         registered = contracts(root)["tasks/deploy-offline.md"]
-        from task_contract import reservations, worktree_owner, worktree_identity
         assert paths_in(registered, "## Modified files") == paths_in(text, "## Modified files")
-        assert worktree_owner(registered) == worktree_identity(root)
-        entry = reservations(root, contracts(root))["tasks/deploy-offline.md"]
-        assert entry.active == entry.files and not entry.deferred
         assert invoke(arguments(root, base)) == 1  # Registered tasks keep the existing resume path.
         with patch.object(M.subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
@@ -94,7 +90,7 @@ def check_preparation():
 
 @it_case
 def check_stale_and_conflicts():
-    for reason in ("input", "issue", "reservation", "runtime", "candidate", "model", "markdown-change",
+    for reason in ("input", "issue", "runtime", "candidate", "model", "markdown-change",
                    "markdown-delete", "json-change", "json-delete", "legacy-change", "legacy-delete"):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()
@@ -124,20 +120,11 @@ def check_stale_and_conflicts():
                 issue = root / "issues/dev/123456789012/issues.md"
                 issue.parent.mkdir(parents=True)
                 issue.write_text("### ec2\n1. 未解決\n", encoding="utf-8")
-            elif reason == "reservation":
-                text = (run / "contract.md").read_text(encoding="utf-8").replace("tasks/deploy-offline.md", "tasks/other.md")
-                start(root, "tasks/other.md", text)
             elif reason == "candidate":
                 (run / "contract.md").write_text("changed", encoding="utf-8")
             with patch.dict(M.os.environ, {"PATH": "changed"}) if reason == "runtime" else patch.dict(M.os.environ, {}):
                 result = invoke(["--repository-root", str(root), "--register", str(path)])
-                assert result == (0 if reason == "reservation" else 1), reason
-            if reason == "reservation":
-                from task_contract import reservations
-                entry = reservations(root, contracts(root))["tasks/deploy-offline.md"]
-                assert entry.state == "running" and entry.deferred
-                assert entry.active == {"tasks/deploy-offline.md"}
-                continue
+                assert result == 1, reason
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
 
 

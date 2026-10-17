@@ -36,17 +36,12 @@ class Validator:
     requirement_ids = owned_field("task", "requirement_ids")
     acceptance_checks = owned_field("task", "acceptance_checks")
     acceptance_results = owned_field("task", "acceptance_results")
-    deferred_files = owned_field("task", "deferred_files")
-    deferred_acceptance = owned_field("task", "deferred_acceptance")
 
     checks = owned_field("findings", "checks")
-    file_gate_paths = owned_field("findings", "file_gate_paths")
-    repository_wide_gate = owned_field("findings", "repository_wide_gate")
     errors = owned_field("findings", "errors")
-    non_blocking_findings = owned_field("findings", "non_blocking_findings")
 
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, repository_wide_gate=False) -> None:
-        self.findings = Findings(root, repository_wide_gate or scope is None)
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None) -> None:
+        self.findings = Findings(root)
         self.check = self.findings.check
         self.check_file = self.findings.check_file
         self.relative = self.findings.relative
@@ -78,7 +73,6 @@ class Validator:
             self.cache.common = None
         self.check_structure()
         self.check_task_scope()
-        self.check_tasks()
         self.check_project_topology()
         self.check_validation_scope()
         self.check_model_files()
@@ -113,7 +107,7 @@ class Validator:
             self.report_findings()
             return 1
 
-        result = "DEFERRED (Active checks passed; task remains running)" if self.deferred_files else "PASS"
+        result = "PASS"
         print(f"Blueprint repository validation: {result} ({self.checks} checks)")
         if self.task_type:
             print(f"- task type: {self.task_type}")
@@ -121,9 +115,6 @@ class Validator:
             print("- task state: idle (no active task)")
         print(f"- task requirements: {', '.join(self.requirement_ids)}")
         print(f"- acceptance checks: {len(self.acceptance_results)}/{len(self.acceptance_checks)} passed")
-        if self.deferred_files:
-            print(f"- Deferred files: {', '.join(sorted(self.deferred_files))}")
-            print(f"- deferred acceptance: {', '.join(self.deferred_acceptance)}")
         print(f"- mode: {'template' if self.template_mode else 'project'}")
         print(f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}")
         self.report_findings()
@@ -322,8 +313,6 @@ class Validator:
     def check_task_type_requirements(self) -> None:
         return self.task.check_task_type_requirements()
 
-    def check_tasks(self) -> None:
-        return self.task.check_tasks()
 
     def check_acceptance_checks(self) -> None:
         registered = {
@@ -502,8 +491,7 @@ def main() -> int:
                               active_scope(root) if args.contract_scope else None,
                               cache=True, fresh=args.fresh or args.all, workers=args.jobs,
                               iac_paths=None if args.all or args.repository_wide_iac else deployment_paths,
-                              task_iac_paths=deployment_paths,
-                              repository_wide_gate=args.all or args.repository_wide_iac)
+                              task_iac_paths=deployment_paths)
         if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
             import cProfile
             import pstats

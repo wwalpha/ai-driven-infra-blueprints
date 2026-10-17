@@ -97,7 +97,7 @@ def save(path, state):
 
 @contextmanager
 def lifecycle_lock(primary):
-    # One short Git integration at a time; this is not a file reservation/AWS lock.
+    # One short Git integration at a time; AWS locking remains separate.
     directory = metadata_directory(primary)
     directory.mkdir(parents=True, exist_ok=True)
     lock = directory / "lifecycle.lock"
@@ -130,7 +130,7 @@ def create(where, task_id):
         git(root, "worktree", "add", "-b", branch, str(target), start)
         state = dict(task_id=task_id, branch=branch, worktree=str(target), primary=str(primary),
                      base=base, start=start, task_file=f"tasks/{task_id}.md",
-                     identity=tasks.worktree_identity(target), tip=start, commit=None, verified=False, merged=None)
+                     tip=start, commit=None, verified=False, merged=None)
         state_file.parent.mkdir(exist_ok=True)
         save(state_file, state)
     return setup(where, task_id)
@@ -153,7 +153,7 @@ def setup(where, task_id):
             state["python_setup"] = {"status": "setting-up"}
             save(path, state)
         try:
-            state["python_setup"] = python_env.setup(target, state["identity"], previous)
+            state["python_setup"] = python_env.setup(target, previous)
         except (Exception, KeyboardInterrupt) as error:
             message = f"{type(error).__name__}: {str(error) or 'Python setup interrupted'}"
             state["python_setup"] = {"status": "failed", "error": message}
@@ -177,46 +177,15 @@ def load(where, task_id):
     return primary, common, path, state
 
 
-def managed_state(where):
-    """Recognize only a registered linked checkout with matching lifecycle state."""
-    if not (where / ".git").is_file():
-        return None
-    root, common, primary = repository(where)
-    if root == primary:
-        return None
-    task_id = root.name
-    if root.parent != primary / ".worktrees":
-        branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.strip()
-        if not branch.startswith("codex/worktree/"):
-            return None
-        task_id = branch.removeprefix("codex/worktree/")
-    path = state_path(primary, task_id)
-    if not path.exists() and not path.is_symlink():
-        return None
-    if path.is_symlink() or root.is_symlink() or (root / ".git").is_symlink():
-        raise Blocked("managed worktree metadata/path must not use symlinks")
-    try:
-        _, _, path, state = load(root, task_id)
-        target = task_worktree(primary, state)
-        if target != where:
-            raise Blocked("managed worktree path mismatch")
-        gitdir = Path(output(root, "rev-parse", "--absolute-git-dir")).resolve()
-    except (KeyError, TypeError, json.JSONDecodeError) as error:
-        raise Blocked("invalid managed worktree metadata") from error
-    return state, path, gitdir, common
-
-
 def committed_task_paths(root, task_file):
     """Reuse the managed worktree's pinned start; never read another checkout's diff."""
     _, _, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
     if not path.exists():
-        return None  # Legacy/non-managed contracts retain their acquired file scope.
+        return None  # No pinned lifecycle baseline is available.
     _, _, _, state = load(root, Path(task_file).stem)
     if Path(state["worktree"]).resolve() != root.resolve():
-        return None  # A same-named task in another worktree supplies no authority here.
-    if state["identity"] != tasks.worktree_identity(root):
-        raise Blocked("task lifecycle worktree identity mismatch")
+        return None  # This lifecycle baseline is for another checkout.
     if git(root, "merge-base", "--is-ancestor", state["start"], "HEAD", check=False).returncode:
         raise Blocked("task lifecycle start is not an ancestor of HEAD")
     return paths(root, "diff", "--no-renames", "--name-only", "-z", state["start"], "HEAD")
@@ -242,7 +211,7 @@ def task_worktree(root, state):
     entries = [entry for entry in worktrees(root) if Path(entry["worktree"]).resolve() == target]
     if (len(entries) != 1 or "locked" in entries[0] or "prunable" in entries[0]
             or entries[0].get("branch") != f"refs/heads/{state['branch']}"
-            or not target.is_dir() or tasks.worktree_identity(target) != state["identity"]):
+            or not target.is_dir()):
         raise Blocked("task worktree missing, locked, stale or switched; retain it for review")
     idle_git(target)
     return target
@@ -250,19 +219,12 @@ def task_worktree(root, state):
 
 def integration_task(target, state, approval=None):
     # A human-approved Git integration does not turn failed validation into completion.
-    entries = tasks.authorizations(target)
-    if state["task_file"] not in entries:
-        raise Blocked("selected task contract missing or belongs to another worktree")
-    entry = entries[state["task_file"]]
+    text = tasks.safe_path(target, state["task_file"]).read_text(encoding="utf-8")
+    current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
     expected = "suspend" if approval else "completed"
-    if entry.state != expected:
-        raise Blocked(f"task must be {expected} for integration; current status: {entry.state}")
-    if entry.files is None:
-        raise Blocked("exact Modified files are required")
-    if entry.files - entry.active:
-        raise Blocked("unfinished Deferred files; integration refused")
-    return entry
+    if current != expected:
+        raise Blocked(f"task must be {expected} for integration; current status: {current}")
 
 
 def base_worktree(root, state):
@@ -295,15 +257,16 @@ def cleanup_state(root, path, state):
             raise Blocked("task worktree is dirty; cleanup refused")
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; cleanup refused")
-        managed_venv = python_env.owned(target, state["identity"])
+        managed_venv = python_env.venv_directory(target)
         # Preserve user artifacts before removing the owned environment or checkout.
         ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-        extras = {p for p in ignored if p != state["task_file"]
+        proof = ".blueprint/import/" + state["task_id"] + ".json"
+        extras = {p for p in ignored if p not in {state["task_file"], proof}
                   and not (managed_venv.exists() and Path(p).parts[0] == ".venv")
                   and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
         if extras:
             raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
-        python_env.remove(target, state["identity"])
+        python_env.remove(target)
         git(root, "worktree", "remove", str(target))
     if branch_exists(root, state["branch"]):
         tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
@@ -334,14 +297,12 @@ def finalize(where, task_id, human_approved_validation_failure=None):
             return cleanup_state(root, path, state)
         target = task_worktree(root, state)
         approval = human_approved_validation_failure or state.get("validation_failure_approval")
-        entry = integration_task(target, state, approval)
+        integration_task(target, state, approval)
         changed = changed_paths(target)
         model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
         if any(p.startswith('model/') or p == 'project.json' for p in model_changes):
             from import_guard import require_import_changes
             require_import_changes(target)
-        if tasks.task_changes(target, changed, state["task_file"]) != changed or changed - entry.active:
-            raise Blocked("changes outside this task; nothing committed")
         if any(p.startswith("tasks/") for p in changed):
             raise Blocked("contracts must remain ignored; nothing committed")
         head = output(target, "rev-parse", "HEAD")

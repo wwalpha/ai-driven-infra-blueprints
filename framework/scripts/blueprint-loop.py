@@ -19,8 +19,7 @@ import traceback
 
 from validation_scope import active_scope
 from regression_guard import authorize_full_regression
-from task_contract import (SELECTOR, task_path, task_changes, suspend, contracts, authorizations,
-                           bind_worktree, worktree_owner, local_contract)
+from task_contract import SELECTOR, task_path, suspend, contracts
 
 
 class StartupDiagnostics:
@@ -338,11 +337,6 @@ def staged_snapshot(root, args, directory, environment):
     (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
-    # A validation snapshot executes source-local tasks in an independent Git directory.
-    # Rebind only those contracts inside the disposable snapshot; foreign tasks stay foreign.
-    for name, text in contracts(snapshot, include_foreign=True).items():
-        if worktree_owner(text) is not None and local_contract(root, text):
-            (snapshot / name).write_text(bind_worktree(snapshot, text), encoding="utf-8")
     if any('- Workflow: `import`' in text for text in contracts(root).values()):
         from import_guard import copy_import_proof
         copy_import_proof(root, snapshot)
@@ -396,7 +390,7 @@ def suspend_selected(root, selected, reason):
         return  # Never guess which task to release when selection failed.
     try:
         if suspend(root, selected, reason):
-            print(f"Task suspended: {selected}; reservations released; reason recorded in the contract.", flush=True)
+            print(f"Task suspended: {selected}; reason recorded in the contract.", flush=True)
     except (OSError, ValueError) as error:
         try:
             print(f"Task suspension/notification failed: {selected}: {error}", file=sys.stderr, flush=True)
@@ -455,11 +449,7 @@ def main() -> int:
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
         repository_changed = changed_paths(root) if not args.staged else set()
-        changed = repository_changed
-        if not args.staged:
-            selected = task_path(root)
-            if selected.is_file():
-                changed = task_changes(root, changed - {".lock"}, selected.relative_to(root).as_posix())
+        changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
         suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
         parser.error(str(error))
@@ -498,7 +488,6 @@ def main() -> int:
                 contract = (root / selected_name).read_text(encoding="utf-8").splitlines()
                 if "- Task type: `infrastructure`" in contract and any(
                         f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
-                    # Ownership was checked by task_changes above, including every unreserved change.
                     diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]
         command = ["git", "config", "--get", "core.whitespace"]
         with diagnostics.step("git.config", "subprocess.run", command=command):
@@ -546,10 +535,6 @@ def main() -> int:
         result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics)
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
-        elif selected_name:
-            pending = authorizations(root)[selected_name].deferred
-            if pending:
-                print("Blueprint task: DEFERRED (Active checks passed; remains running): " + ", ".join(pending), flush=True)
         return result
     except KeyboardInterrupt as error:
         diagnostics.failure(error)

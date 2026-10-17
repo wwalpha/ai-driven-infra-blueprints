@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 from sync_runtime import sync
 from validation_scope import active_scope
-from task_contract import DeferredExhausted
 
 
 @reported_main
@@ -77,9 +76,6 @@ def main() -> int:
                 if result.returncode:
                     raise ValueError('cannot determine template impact for generation')
                 changed.update(filter(None, result.stdout.split('\0')))
-        from task_contract import contracts, task_changes, task_path
-        if contracts(root):
-            changed = task_changes(root, changed, task_path(root).relative_to(root).as_posix())
         with phase("impact-scope"):
             impact = affected(root, changed)
         from import_scope import selected as import_selection
@@ -94,8 +90,6 @@ def main() -> int:
             try:
                 sync(root, args.write, environment, target, services,
                      jobs=args.jobs if len(groups) == 1 else 1)
-            except DeferredExhausted as error:
-                return error
             except (OSError, ValueError, KeyError, TypeError) as error:
                 return str(error)
             return None
@@ -103,13 +97,7 @@ def main() -> int:
             futures = [executor.submit(copy_context().run, generate, item) for item in groups.items()]
             failures = [error for future in futures if (error := future.result())]
         if failures:
-            real_errors = [error for error in failures if not isinstance(error, DeferredExhausted)]
-            if real_errors:
-                raise ValueError("\n- ".join(real_errors))
-            raise failures[0]
-        return 0
-    except DeferredExhausted as error:
-        print(str(error))
+            raise ValueError("\n- ".join(failures))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Design Markdown sync: FAIL\n- {error}", file=sys.stderr)

@@ -204,7 +204,7 @@ def check_venv_fallback():
         wt.tasks.complete(target, first["task_file"])
         assert wt.finalize(root, "fallback")["cleaned"]
         assert second_directory.is_dir()
-    print("Real offline per-worktree venvs, strict registration, repair, retry and owned cleanup: PASS")
+    print("Real offline per-worktree venvs, strict registration, repair, retry and venv cleanup: PASS")
 
 
 @it_case
@@ -257,16 +257,16 @@ def check_symlink_safety():
         (external / "keep").write_text("keep")
         directory = root / ".venv"
         directory.symlink_to(external, target_is_directory=True)
-        blocked(lambda: py.remove(root, "identity"), "unexpected")
-        blocked(lambda: py.setup(root, "identity", {}), "unexpected")
+        blocked(lambda: py.remove(root), "unexpected")
+        blocked(lambda: py.setup(root, {}), "unexpected")
         assert (external / "keep").exists()
         directory.unlink()
         directory.mkdir()
-        blocked(lambda: py.remove(root, "identity"), "not owned")
-        blocked(lambda: py.setup(root, "identity", {}), "not owned")
-        (directory / py.MARKER).write_text(json.dumps({"identity": "identity"}))
+        blocked(lambda: py.remove(root), "no Python environment configuration")
+        blocked(lambda: py.setup(root, {}), "no Python environment configuration")
+        (directory / "pyvenv.cfg").write_text("home = fixture\n")
         (directory / "external").symlink_to(external, target_is_directory=True)
-        py.remove(root, "identity")
+        py.remove(root)
         assert (external / "keep").exists()
     print("Unmanaged/symlink .venv and external deletion boundary: PASS")
 

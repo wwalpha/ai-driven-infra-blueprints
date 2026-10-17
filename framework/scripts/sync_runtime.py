@@ -16,7 +16,7 @@ from model_projection import JSON_LINK
 from model_files import read_model, load_model
 from model_templates import publish, publication_lock, safe, source_inputs, service_source, model_paths as registered_models
 from policy_tables import rendered_design, unique_object, invalid_constant
-from task_contract import task_path, task_revision, require_writable, reserved_batches, writable_batch, DeferredExhausted
+from task_contract import task_path, task_revision
 from issue_gate import require_no_issues
 from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
@@ -272,10 +272,9 @@ def sync(
                 inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
                 inputs.setdefault(service_source(model)[2] / 'observed.json', None)
                 output, view_inputs = view_plan(document, expanded.values, root, managed)
-            for _ in reserved_batches(root, {'import-views': set(output)}, expected_task=expected_task):
-                with publication_lock(root):
-                    publish(root, output, inputs={**inputs, **view_inputs})
-                    finish_import(root, markdown='generated' if output else 'unchanged')
+            with publication_lock(root):
+                publish(root, output, inputs={**inputs, **view_inputs}, expected_task=expected_task)
+                finish_import(root, markdown='generated' if output else 'unchanged')
             consumers({identity})
             completed(identity)
             return 0
@@ -342,52 +341,47 @@ def sync(
             expected_outputs = {path: {root / file.relative_to(stage): file.read_bytes().decode("utf-8") for file in files}
                                 for path, files in generated.items()}
             source_snapshots = {path: {**configuration, **staged_inputs, **reference_inputs, **model_snapshots[path]} for path in generated}
-        pending_error = None
-        batches = reserved_batches(root, {path: set(changed_files(output)) for path, output in expected_outputs.items()}, expected_task=expected_task) if write else iter(generated)
-        try:
-            for path in batches:
-                try:
-                    expected = expected_outputs[path]
-                    if any((source.read_bytes() if source.is_file() else None) != original
+        for path in generated:
+            try:
+                expected = expected_outputs[path]
+                if any((source.read_bytes() if source.is_file() else None) != original
+                           for source, original in source_snapshots[path].items()):
+                    raise ValueError("authoritative model inputs changed before publication; rerun generation")
+                if write:
+                    with phase("publication"), publication_lock(root):
+                        if task_revision(root) != expected_task:
+                            raise ValueError("task scope changed after planning; rerun generation")
+                        for file in expected:
+                            safe(root, file)
+                        if any((source.read_bytes() if source.is_file() else None) != original
                                for source, original in source_snapshots[path].items()):
-                        raise ValueError("authoritative model inputs changed before publication; rerun generation")
-                    if write:
-                        with phase("publication"), publication_lock(root):
-                            for file in expected:
-                                safe(root, file)
-                            if any((source.read_bytes() if source.is_file() else None) != original
-                                   for source, original in source_snapshots[path].items()):
-                                raise ValueError("authoritative model inputs changed before publication; rerun generation")
+                            raise ValueError("authoritative model inputs changed before publication; rerun generation")
+                        if (generation_inputs(root) != configuration or
+                                set((root / 'model').rglob('*')) != input_paths):
+                            raise ValueError('generation configuration inputs changed before publication')
+                        planned = {file: markdown_newlines(file, content) if file.suffix == '.md' else content
+                                   for file, content in expected.items()}
+                        changed = changed_files(planned)
+                        originals = {file: file.read_bytes() if file.is_file() else None for file in changed}
+                        def verify():
+                            verify_saved(planned)
                             if (generation_inputs(root) != configuration or
                                     set((root / 'model').rglob('*')) != input_paths):
-                                raise ValueError('generation configuration inputs changed before publication')
-                            planned = {file: markdown_newlines(file, content) if file.suffix == '.md' else content
-                                       for file, content in expected.items()}
-                            changed = changed_files(planned)
-                            require_writable(root, set(changed))
-                            originals = {file: file.read_bytes() if file.is_file() else None for file in changed}
-                            def verify():
-                                verify_saved(planned)
-                                if (generation_inputs(root) != configuration or
-                                        set((root / 'model').rglob('*')) != input_paths):
-                                    raise ValueError('generation inputs changed during publication')
-                            if changed:
-                                publish(root, changed, inputs=source_snapshots[path], verify=verify)
-                            else:
-                                verify()
-                        saved[path] = originals
-                    else:
-                        stale = [str(file.relative_to(root)) for file, content in expected.items()
-                                 if not file.is_file() or file.read_bytes() != content.encode("utf-8")]
-                        if stale:
-                            raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
-                    saved.setdefault(path, {})
-                except (OSError, ValueError, KeyError, TypeError) as error:
-                    failures.append(f"{path.relative_to(root)}: {error}")
-                    save_failed = True
-        except DeferredExhausted as error:
-            pending_error = error
-            save_failed = True  # Validate saved references against retained Deferred outputs, too.
+                                raise ValueError('generation inputs changed during publication')
+                        if changed:
+                            publish(root, changed, inputs=source_snapshots[path], verify=verify, expected_task=expected_task)
+                        else:
+                            verify()
+                    saved[path] = originals
+                else:
+                    stale = [str(file.relative_to(root)) for file, content in expected.items()
+                             if not file.is_file() or file.read_bytes() != content.encode("utf-8")]
+                    if stale:
+                        raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
+                saved.setdefault(path, {})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                failures.append(f"{path.relative_to(root)}: {error}")
+                save_failed = True
         # Publication ends the immutable input snapshot used to validate candidates.
         if write:
             memo_table().clear()
@@ -405,8 +399,7 @@ def sync(
                 break
             for path in sorted(set(rejected)):
                 originals = saved[path]
-                with writable_batch(root, set(originals)):
-                    restore_files(originals)
+                restore_files(originals)
                 saved.pop(path)
         if write and saved:
             retained = [path for path in saved_paths if path not in saved]
@@ -422,8 +415,6 @@ def sync(
             (docs / path.relative_to(models)).with_suffix(".md") for path in model_paths
         }) - saved.keys()
         raise ValueError(f"{len(saved)} services succeeded; {len(failed_services)} services failed; {len(failures)} diagnostics\n- " + "\n- ".join(failures))
-    if pending_error:
-        raise pending_error
     print(f"Design Markdown sync: PASS ({len(saved)} services)")
     return 0
 

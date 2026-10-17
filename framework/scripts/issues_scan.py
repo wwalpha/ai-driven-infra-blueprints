@@ -24,7 +24,7 @@ from model_references import catalog_outputs
 from model_core import entries
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
-from task_contract import SELECTOR, DeferredExhausted
+from task_contract import SELECTOR
 from issues_iac import Comparison
 from script_loader import module
 from iac_values import safe_value
@@ -424,9 +424,6 @@ def main():
             paths = save(root, args.environment, args.target_directory, args.service, additions=results.get('issues', []), resolutions=results.get('resolved', []))
         print(json.dumps({'saved': [path.relative_to(root).as_posix() for path in paths], 'summary': summary(artifact) if args.command == 'save' else 'acquired results saved; no rescan', 'post_save_validation': 'required: blueprint-loop.py --mode local'}, ensure_ascii=False))
         return 2 if args.command == 'save' and any(item['category'] == 'error' for item in artifact['iac']) else 0
-    except DeferredExhausted as error:
-        print(str(error))
-        return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
         print('Local issues: ERROR: ' + safe_text(str(error)), file=sys.stderr)
         return 2

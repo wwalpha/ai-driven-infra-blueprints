@@ -59,12 +59,12 @@ not decide design correctness or run issue gates, naming/schema constraints, cro
 reference validation, candidate copies, generated equality or local loops.
 Explicit issues retains those design and consistency checks without requiring AWS.
 
-Bind importer evidence to Task, Worktree, target, acquisition, planned source changes,
+Bind importer evidence to Task, target, acquisition, planned source changes,
 pre-save snapshots and saved source hashes. The source publication guard and Worktree
 completion verify this evidence without expanding old Git Models or other services.
 Self-declared flags cannot authorize changes. Missing, stale or incomplete evidence
 blocks reflection completion. Ordinary workflows retain their IMPORT protection.
-Evidence is temporary local metadata outside the repository; never save raw responses.
+Evidence is ignored local metadata at `<execution-root>/.blueprint/import/<task-name>.json`, using the selected `tasks/<task-name>.md`. Never save raw responses.
 
 Preserve CREATE, identities, bindings, unselected inputs and logical reference declarations.
 Save acquired reference values as observations without replacing a conflicting logical
@@ -170,7 +170,7 @@ The following display expansions are reverse-conversion rules for validating dis
 - The service entry remains `model/templates/<target-directory>/<service-id>.properties.tpl`; when split, make it an index containing only `# model-index: 1` and ordered entries starting with `# part: <service-id>/part-001.properties`. Place bodies under `<service-id>/` in the same target; both the index itself and each part must have 600 lines or fewer.
 - Parts are not new services. Generate the same existing service Markdown/JSON from one authoritative model concatenated in index order. Do not change service IDs, resource/row numbers, logical IDs, anchors, key/value content or order, or desired/observed separation. Index comments are storage-format metadata, not AWS properties.
 - Reject missing parts, duplicate/invalid order, references to other services, path traversal, symlinks, nested indexes, parts unregistered in the index, duplicate keys after concatenation, and more than 600 lines. Do not infer independent services from part filenames. `sync-model.py --write` preserves authoritative service inputs and publishes Markdown/JSON.
-- Edit the service template, parameters.yaml and fixed bindings, then publish external Markdown/JSON with `sync-model.py --write`. Validate new explicit YAML services through `model_templates.py --create`. Include generated outputs in reservations; template parts retain their bounded format; publication preserves authoritative inputs atomically.
+- Edit the service template, parameters.yaml and fixed bindings, then publish external Markdown/JSON with `sync-model.py --write`. Validate new explicit YAML services through `model_templates.py --create`. Declare generated output paths; template parts retain their bounded format; publication preserves authoritative inputs atomically.
 
 ```console
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --find '<logical-id-or-property-key>'

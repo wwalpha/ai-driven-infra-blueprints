@@ -1,4 +1,4 @@
-"""Responsibility boundaries: dispatch, mutable gates, callbacks and import safety."""
+"""Responsibility boundaries: dispatch, mutable findings, callbacks and import safety."""
 
 
 from contextlib import ExitStack, redirect_stdout
@@ -29,7 +29,7 @@ from validation_cache import PassCache
 
 
 def check_dispatch():
-    common = ['check_structure', 'check_task_scope', 'check_tasks', 'check_project_topology',
+    common = ['check_structure', 'check_task_scope', 'check_project_topology',
               'check_validation_scope', 'check_model_files', 'check_issue_gate',
               'check_initialized_paths', 'check_catalog', 'check_resource_layout']
     cases = [
@@ -84,30 +84,23 @@ def check_boundaries():
         path = root / 'own.yaml'
         first, second = MODULE.Validator(root, set()), MODULE.Validator(root, set())
         first.check_file(False, path, 'unresolved')
-        first.file_gate_paths = set()
-        first.check_file(False, path, 'outside')
+        first.check_file(False, path, 'file failure')
         first.check(False, 'global')
-        first.file_gate_paths.add('own.yaml')
-        first.check_file(False, path, 'inside')
-        first.repository_wide_gate = True
-        first.file_gate_paths.clear()
-        first.check_file(False, path, 'wide')
-        assert first.errors == ['unresolved', 'global', 'inside', 'wide']
-        assert first.non_blocking_findings == ['outside'] and first.checks == 5
+        assert first.errors == ['unresolved', 'file failure', 'global']
+        assert first.checks == 3
         assert first.errors is first.findings.errors
         first.errors = list(first.errors)
         assert first.errors is first.findings.errors
-        assert not second.errors and second.checks == 0 and second.file_gate_paths is None
+        assert not second.errors and second.checks == 0
         first.task.changed_paths.add('own.yaml')
         assert first.changed_paths == {'own.yaml'} and not second.changed_paths
         first.acceptance_checks = [('R1', 'check', 'framework.resource-layout'),
                                    ('R2', 'check', 'unknown'), ('R3', 'changed', 'pending.md')]
-        first.deferred_files = {'pending.md'}
         with patch.object(first, 'check_resource_layout', side_effect=lambda: first.check(False, 'handler failed')) as handler:
             first.check_acceptance_checks()
             handler.assert_called_once_with()
-        assert first.errors[-2:] == ['handler failed', 'unknown registered Acceptance check: R2: unknown']
-        assert not first.acceptance_results and first.deferred_acceptance == ['R3:changed:pending.md']
+        assert first.errors[-3:] == ['handler failed', 'unknown registered Acceptance check: R2: unknown', 'required changed path missing: R3: pending.md']
+        assert not first.acceptance_results
         # A failed read keeps Project's already-determined mode and propagates failure.
         write(root / 'project.json', '{}\n')
         second.scope = None

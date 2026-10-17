@@ -2187,7 +2187,7 @@ def check_controlled_repair(tmp_path):
             assert template.read_bytes() == untouched
         else:
             assert 'outside the exact authorized candidate' in state['reason']
-    # Isolated stale parameter keeps its template Ref and changes only the reserved parameter file.
+    # Isolated stale parameter keeps its template Ref and changes only the target parameter file.
     parameter_template = 'Parameters:\n  Cidr:\n    Type: String\nResources:\n  Item:\n    Type: AWS::EC2::VPC\n    Properties:\n      CidrBlock: !Ref Cidr\n'
     backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
         [('CidrBlock', '`10.0.0.0/16`', 'network')], parameter_template, 'CidrBlock invalid')

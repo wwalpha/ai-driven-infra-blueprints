@@ -1,4 +1,4 @@
-"""Prefer verified global Python, otherwise use this worktree's owned venv."""
+"""Prefer verified global Python, otherwise use the worktree-local venv."""
 
 import hashlib
 import json
@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 
-MARKER = ".blueprint-owner.json"
 REQUIREMENTS = "framework/scripts/requirements.txt"
 # WeasyPrint loads native PDF libraries; check them only during PDF export.
 IMPORTS = "yaml pystache boto3 botocore pytest cfnlint pypdf".split()
@@ -37,14 +36,12 @@ def run(command, root, env=None):
     return result.stdout.strip()
 
 
-def owned(root, identity):
+def venv_directory(root):
     directory = root / ".venv"
     if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
         raise ValueError("unexpected .venv structure; retain it for review")
-    if directory.exists():
-        marker = directory / MARKER
-        if marker.is_symlink() or not marker.is_file() or json.loads(marker.read_text(encoding="utf-8")) != {"identity": identity}:
-            raise ValueError(".venv is not owned by this worktree helper; retain it for review")
+    if directory.exists() and not (directory / "pyvenv.cfg").is_file():
+        raise ValueError(".venv has no Python environment configuration; retain it for review")
     return directory
 
 
@@ -87,8 +84,8 @@ def probe_global(root):
         raise ValueError("global Python interpreter changed; rerun worktree setup")
 
 
-def setup(root, identity, previous):
-    directory = owned(root, identity)
+def setup(root, previous):
+    directory = venv_directory(root)
     desired = signature(root)
     probe_global(root)
     try:
@@ -108,9 +105,8 @@ def setup(root, identity, previous):
         except (OSError, ValueError):
             pass
     if current != sys.version:
-        remove(root, identity)
+        remove(root)
         directory.mkdir()
-        (directory / MARKER).write_text(json.dumps({"identity": identity}) + "\n", encoding="utf-8")
         run([python_path(), "-I", "-m", "venv", str(directory)], root)
     reusable = (current == sys.version and previous.get("status") == "ready"
                 and all(previous.get(k) == v for k, v in desired.items()))
@@ -132,10 +128,10 @@ def setup(root, identity, previous):
             "bin": str(python_path(directory).parent), "installed": installed}
 
 
-def remove(root, identity):
-    directory = owned(root, identity)
+def remove(root):
+    directory = venv_directory(root)
     if directory.exists():
-        shutil.rmtree(directory)  # rmtree never follows directory symlinks within the owned tree.
+        shutil.rmtree(directory)  # rmtree never follows directory symlinks within the environment.
 
 
 def runtime(root):
@@ -149,8 +145,6 @@ def runtime(root):
     if Path(state["worktree"]) != root:
         return None
     _, _, _, state = wt.load(root, root.name)
-    if state["identity"] != wt.tasks.worktree_identity(root):
-        raise ValueError("worktree Python identity mismatch")
     setup_state = state.get("python_setup", {})
     desired = signature(root)
     if setup_state.get("status") != "ready" or any(setup_state.get(k) != v for k, v in desired.items()):
@@ -158,7 +152,7 @@ def runtime(root):
     kind = setup_state.get("kind")
     if kind not in ("global", "venv"):
         raise ValueError(f"Python setup kind is missing or unsupported; run worktree_task.py setup --task-id {state['task_id']}")
-    directory = None if kind == "global" else owned(root, state["identity"])
+    directory = None if kind == "global" else venv_directory(root)
     interpreter = python_path(directory)
     if setup_state.get("interpreter") != str(interpreter) or setup_state.get("bin") != str(interpreter.parent):
         raise ValueError(f"{kind} Python registration mismatch; rerun worktree setup")

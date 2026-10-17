@@ -15,7 +15,7 @@ from model_files import load_model, resource_row_index
 from model_templates import affected, json_text, model_paths
 from policy_tables import literal
 from sync_files import atomic_files, save_files
-from task_contract import contracts, section, task_path, task_changes, worktree_identity
+from task_contract import contracts, section, task_path
 from validation_cache import digest_files
 
 
@@ -37,9 +37,6 @@ def baseline_scope():
 
 def workflow(root):
     path = task_path(root)
-    name = path.relative_to(root).as_posix()
-    if name not in contracts(root):
-        raise ValueError('import workflow contract must belong to this Worktree')
     text = path.read_text(encoding='utf-8')
     contract = section(text, '## Task contract')
     if '- Task type: `design`' not in contract or contract.count('- Workflow: `import`') != 1:
@@ -48,9 +45,8 @@ def workflow(root):
 
 
 def proof_path(root):
-    name = task_path(root).relative_to(root).as_posix()
-    key = hashlib.sha256((worktree_identity(root) + '\0' + name).encode()).hexdigest()
-    return Path(tempfile.gettempdir()) / 'blueprint-import-authority' / (key + '.json')
+    from task_contract import safe_path
+    return safe_path(root, '.blueprint/import/' + task_path(root).stem + '.json')
 
 
 def base_revision(root):
@@ -75,8 +71,6 @@ def changed_sources(root, supplied=None):
         if contracts(root):
             name = task_path(root).relative_to(root).as_posix()
             supplied |= committed_task_paths(root, name) or set()
-            # This selects changed sources for the mechanical IMPORT guard, not write permission.
-            supplied = task_changes(root, supplied, name, check_conflicts=False)
     return {str(p) for p in supplied if str(p).startswith(('model/templates/', 'model/parameters/')) or str(p) == 'project.json'}
 
 
@@ -261,7 +255,7 @@ def read_proof(root):
         if file.is_symlink():
             raise ValueError('symlink import evidence')
         proof = json.loads(file.read_text(encoding='utf-8'))
-        if (proof['version'] != 2 or proof['worktree'] != worktree_identity(root)
+        if (proof['version'] != 2
                 or proof['task'] != workflow(root) or proof['base'] != base_revision(root)
                 or proof['scope'] != list(selected(root)) or not proof['acquisition']
                 or not isinstance(proof['sources'], dict) or not proof['plan']
@@ -297,7 +291,7 @@ def record_import(root, output, scope, ctx, plan, complete=True):
         prior = read_proof(root)['sources']
     sources = {**prior, **{p.relative_to(root).as_posix(): None if text is None else hashlib.sha256(text.encode('utf-8')).hexdigest()
                          for p, text in output.items()}}
-    proof = {'version': 2, 'task': workflow(root), 'worktree': worktree_identity(root), 'base': base_revision(root),
+    proof = {'version': 2, 'task': workflow(root), 'base': base_revision(root),
              'scope': list(identity), 'sources': sources, 'before': {p.relative_to(root).as_posix():
                  hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None for p in output},
              'plan': digest(plan), 'acquisition': digest(ctx.trace), 'ownedArtifacts': plan['ownedArtifacts'],
@@ -326,8 +320,7 @@ def copy_import_proof(root, snapshot):
     if not source.is_file():
         return
     require_import_changes(root)
-    proof = json.loads(source.read_text(encoding='utf-8'))
-    proof['worktree'] = worktree_identity(snapshot)
+    proof = read_proof(root)
     destination = proof_path(snapshot)
     destination.parent.mkdir(parents=True, exist_ok=True)
     atomic_files({destination: json_text(proof) + '\n'}, staging_directory=destination.parent)

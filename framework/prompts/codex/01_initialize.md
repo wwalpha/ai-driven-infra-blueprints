@@ -1,6 +1,6 @@
 # Repository Initialization Prompt
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for Codex to confirm necessary initialization values with the human and create `project.json` and target paths. Do not assume `docs/system-overview.md` has been created or filled in.
 

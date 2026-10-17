@@ -11,7 +11,7 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Task boundary
 
-[task-contract](task-contract.md) is the authority for contracts, change reservations, stopping, and resuming.
+[task-contract](task-contract.md) is the authority for contracts, stopping, and resuming.
 
 ## Unresolved issue gate
 
@@ -37,7 +37,7 @@ AGENTS, Skills, Prompts and task completion sections. Their local-loop instructi
 when the classification requires a loop. Choose from actual dependencies and behavior,
 not directory names alone; inspect callers, imports, shared fixtures, registered template
 consumers and affected outputs before narrowing. Use the broadest applicable row for a
-mixed change. Task contracts, reservations, Acceptance requirements, issue gates and
+mixed change. Task contracts, Acceptance requirements, issue gates and
 phase-specific schema, generation, IaC, AWS and approval checks remain mandatory where
 applicable; a lightweight documentation check is not evidence that these runtime checks ran.
 Generated design Markdown/JSON is validated with its authoritative Model inputs, not
@@ -95,17 +95,15 @@ and classification reasons in the completion response; add no permanent reports/
 
 ### Local loop execution
 
-Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, active task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type; do not run task-specific checks when this task's reserved files have no changes. Blocking failure at any layer is FAIL. Common CloudFormation template/parameter file findings retain their existing scan scope; in ordinary task/local validation, only current-task files block completion. Report findings in unrelated files as non-blocking. Global checks (contracts, reservations, Validation scope, required inputs, project/catalog/framework integrity, cross-stack ownership, Acceptance, and failed commands) always block. `--all`, scope `all`, and `--repository-wide-iac` (including full/framework regression dispatch) gate every file finding.
+Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
-File gating reuses current-worktree Active grants from the selected contract. Managed worktrees additionally reuse their existing pinned lifecycle start-to-HEAD diff plus unstaged/staged/untracked paths, intersected with those grants; commits do not erase task scope, and planned but unchanged files do not enter the gate. For legacy/non-managed contracts without pinned lifecycle metadata, acquired exact Modified files are the stable contract authority, including committed files; Deferred and foreign-worktree grants do not count. Missing/invalid authority remains blocking. Classification occurs when a finding is emitted, without another repository/content scan.
-
-Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). A partial run reports Active validation and pending Deferred Acceptance checks, not full completion. Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under the mandatory [Task transition](task-contract.md#task-transition), including its Active-first acquisition, retry budgets, clean exhaustion and suspension rules. Reservation polls refresh dynamic ownership without repeating validation.
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
 
 When running a local loop, retain the following checks in its applicable scope. During development and at completion, choose the checks under [Validation policy](#validation-policy).
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
-- `tasks/` contains only contracts in `<task-name>.md` format. Current-worktree running tasks have exclusive Active file reservations, including `issues/**`; overlapping requests remain Deferred and non-conflicting work continues. Foreign-worktree tasks do not affect selection/ownership. In idle state, `tasks/` itself may be omitted
+- `tasks/` contains only contracts in `<task-name>.md` format. In idle state, `tasks/` itself may be omitted.
 - `framework/materials/aws/` matches `framework/materials/catalog.sha256`
 - The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`
 - API design catalog/schema fixed snapshots and checksums, selection lists, and CFn-unsupported definitions are consistent. Validate Macie Job types, nested values, conditional requirements, and authoritative models, and reject them in CFn type resolution
@@ -141,7 +139,7 @@ For tasks affecting runtime inputs or behavior, task-type-specific checks cannot
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
 - `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
-- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only reserved files matching controlled repair evidence in the same session change. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only files matching controlled repair evidence in the same session change. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change
 - `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change
@@ -311,7 +309,7 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 
 Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 
-1. Resolve local ownership/write paths, reserve them and confirm exact target/account/region/profile/pinned StackIds, protection and nested identity.
+1. Resolve local ownership/write paths and confirm exact target/account/region/profile/pinned StackIds, protection and nested identity.
 2. Validate actual export/import dependencies for the whole scope before any delete.
 3. Delete standard stacks in reverse DeployOrder with bounded same-order concurrency; stop starts on failure and drain running stacks.
 4. Confirm DELETE_COMPLETE using pinned session evidence; fresh ALREADY_ABSENT is reported separately.
@@ -320,7 +318,7 @@ Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
 8. Finish without scenario tests or another task.
 
-Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary/reservations, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
 
 ## Scenario-test task completion
 

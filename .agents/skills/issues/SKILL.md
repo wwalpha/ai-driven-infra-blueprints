@@ -8,7 +8,7 @@ for runtime Models: read through model_files and trace expanded keys with `--tra
 Design edits use the common template, parameters.yaml and fixed bindings.json;
 authorized observed updates use observed.json. Include mechanically identified
 common-template consumers in generation/Validation scope. Retain this skill's
-single deployment target, issue gate, reservations and AWS permission boundary.
+single deployment target, issue gate and AWS permission boundary.
 
 
 Follow [task-contract](../../../framework/rules/task-contract.md) for save/repair contract registration.
@@ -29,7 +29,7 @@ If saving separately retrieved/investigated AWS check results is requested, trea
 - Treat saving as a `migration` task. Before changes, read `AGENTS.md` and [loop Local loop](../../../framework/rules/loop-engineering.md#local-loop); newly register `tasks/<task-name>.md` with this scope/Goal as the first repository change. Explicitly state the target environment/target/service in Validation scope. Limit Allowed paths to `tasks/<task-name>.md` and this task's target issue-list files (`issues.md` and `iac-issues.md` for ordinary investigation, only `issues.md` for saving already retrieved ordinary results); record Requirement IDs and corresponding `exists:` Acceptance checks for each Required change.
 - This save-only task is exempt from stop decisions due to existing issues. Continue investigation/list updates even with unresolved issues; do not add repair exceptions through Issue remediation. Ordinary issue gates apply to design/model/IaC changes and AWS mutation.
 - Save with the same environment/target directory structure as `docs/designs/<environment>/<target-directory>/`. Separate multiple targets into different files and create only necessary directories.
-- For ordinary `issues.md`, Python extracts existing list scope/ownership/human confirmation. The LLM checks only existing issues with unconfirmed correspondence; immediately before saving, Python rereads, uses shared mutual exclusion, and atomically writes scope-limited updates. Remove only resolutions supported by explicit revalidation; retain problems absent from the new scan. Retain problems with detected specific inconsistencies/deficiencies whose resolution is unconfirmed, stating that they are unconfirmed. Do not register unverified scope alone as a new issue. Preserve services/problems outside this scope.
+- For ordinary `issues.md`, Python extracts existing list scope/ownership/human confirmation. The LLM checks only existing issues with unconfirmed correspondence; immediately before saving, Python rereads and atomically writes scope-limited updates. Remove only resolutions supported by explicit revalidation; retain problems absent from the new scan. Retain problems with detected specific inconsistencies/deficiencies whose resolution is unconfirmed, stating that they are unconfirmed. Do not register unverified scope alone as a new issue. Preserve services/problems outside this scope.
 - Record update time (Asia/Tokyo) and this confirmed scope at the file start. Explicitly state any unverified scope at the start. Even when the target has no remaining problems, retain the file and record `未解決issueなし` and confirmed scope. Do not add history/timestamp-specific files.
 - After saving, complete final validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy); report links to saved files and validation results in chat. Even on validation failure, retain saved investigation results and report failure; do not proceed to out-of-scope repair or another task.
 
@@ -73,7 +73,7 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 - Use Python's bounded cause/action summary; do not reread/reaggregate all records or paste the whole `iac-issues.md` into chat. Retrieve required naming/judgment pages through `detail` and review every ID before saving.
 - IaC Markdown contains only this execution's selected scope; previous records and human notes are not carried forward. Ordinary `issues.md` still preserves unresolved issues, human confirmations and out-of-scope services.
-- See [IaC report grouping and publication](../../../framework/rules/issues-investigation.md#iac-report-grouping-and-publication) for limits, omission counts, temporary artifact detail, masking and publication safety. No legacy state reservation, migration or deletion is part of saving.
+- See [IaC report grouping and publication](../../../framework/rules/issues-investigation.md#iac-report-grouping-and-publication) for limits, omission counts, temporary artifact detail, masking and publication safety. No legacy state migration or deletion is part of saving.
 
 Output example (`issues/dev/cde/issues.md`):
 

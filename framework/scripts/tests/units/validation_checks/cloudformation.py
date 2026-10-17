@@ -285,7 +285,7 @@ Resources:
         for yaml in permitted:
             assert not errors(yaml, valid_values), (yaml, errors(yaml, valid_values))
 
-        # JSON templates and long-form intrinsics use the same AST and file gate.
+        # JSON templates and long-form intrinsics use the same AST.
         template.unlink()
         template = template.with_suffix(".json")
         document = {"Parameters": {"Environment": {"Type": "String"}},
@@ -296,12 +296,8 @@ Resources:
         failures = errors(json.dumps(document), valid_values)
         assert any("role.json: Conditions.Renamed" in failure for failure in failures), failures
         validator = MODULE.Validator(root, set())
-        validator.file_gate_paths = set()
-        validator.check_cloudformation_environment_parameters()
-        assert not validator.errors and any("must not branch" in failure for failure in validator.non_blocking_findings)
-        validator.file_gate_paths.add(template.relative_to(root).as_posix())
         validator.check_cloudformation_environment_parameters()
         assert any("must not branch" in failure for failure in validator.errors)
         assert any("invalid CloudFormation template" in failure for failure in errors("Resources: [", valid_values))
-    print("CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON, file gating)")
+    print("CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON)")
 

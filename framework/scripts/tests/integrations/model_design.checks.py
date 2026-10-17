@@ -1590,88 +1590,28 @@ def check_service_failure_protection(root, project):
     assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
-    # A Deferred JSON keeps its Markdown/JSON publication together. Other
-    # services save first, then the same worker resumes without regenerating.
-    import task_contract as tasks
+    # A source edit between planning and publication must preserve existing views.
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
-    owner, worker = "tasks/owner.md", "tasks/worker.md"
+    import model_templates
     json_path = docs / "iam/flow-role-trust-policy.json"
-    outputs = [docs / "iam.md", json_path, docs / "logs.md", docs / "vpc.md"]
-    def register(name, files):
-        listed = "\n".join(f"- `{p.relative_to(root)}`" for p in [root / name, *files])
-        tasks.start(root, name, "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
-                    "## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n"
-                    f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n")
-    register(owner, [json_path])
-    import model_templates
-    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
-    register(worker, [*outputs, *generated])
-    snapshot = {path: path.read_bytes() for path in outputs}
-    logs.update(renamed_logs)
-    logs["desired.row.001-002.value"] = "`3`"
-    write_model(base / "logs.properties", text(logs))
-    document["Statement"][0]["Sid"] = "AutomaticallyAcquired"
-    iam["desired.row.001-002.document"] = json.dumps(document)
-    write_model(base / "iam.properties", text(iam))
-    sleeps = []
-    def release(seconds):
-        sleeps.append(seconds)
-        assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
-        assert all(path.read_bytes() == snapshot[path] for path in [docs / "iam.md", json_path])
-        if len(sleeps) == 3:
-            tasks.complete(root, owner)
-    with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=release), patch.object(sync_runtime, "markdown_for", wraps=sync_runtime.markdown_for) as generate:
-        assert SYNC.sync(root, True, "dev", "123456789012") == 0
-        assert generate.call_count == 3, "retry must not regenerate services"
-    assert sleeps == [30] * 3 and json.loads(json_path.read_text()) == document
-    for name in (owner, worker):
-        (root / name).unlink()
-    (root / "tasks").rmdir()
-    register(owner, [json_path])
-    import model_templates
-    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
-    register(worker, [*outputs, *generated])
-    document["Statement"][0]["Sid"] = "StillDeferred"
-    iam["desired.row.001-002.document"] = json.dumps(document)
-    write_model(base / "iam.properties", text(iam))
-    before = json_path.read_bytes()
-    with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep") as sleep, patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write"]):
-        assert SYNC.main() == 0 and sleep.call_count == 20
-    assert json_path.read_bytes() == before
-    assert tasks.reservations(root, tasks.contracts(root))[worker].state == "running"
-    assert json_path.relative_to(root).as_posix() in tasks.reservations(root, tasks.contracts(root))[worker].deferred
-    tasks.complete(root, owner)
-    with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=AssertionError("normal reexecution must acquire immediately")):
-        assert SYNC.sync(root, True, "dev", "123456789012") == 0
-    for name in (owner, worker):
-        (root / name).unlink()
-    (root / "tasks").rmdir()
-    register(owner, [json_path])
-    import model_templates
-    generated = sorted({p for source in sources for p in model_templates.source_inputs(source)})
-    register(worker, [*outputs, *generated])
     before = json_path.read_bytes()
     source = base / "iam.properties"
-    # A changed sidecar must wait; unchanged outputs no longer require its reservation.
     document["Statement"][0]["Sid"] = "InputDrift"
     iam["desired.row.001-002.document"] = json.dumps(document)
     write_model(source, text(iam))
-    source = __import__("model_templates").source_paths(source)[2]/"parameters.yaml"
+    source = model_templates.source_paths(source)[2] / "parameters.yaml"
     source_before = source.read_bytes()
-    def change_input(seconds):
-        assert seconds == 30
-        source.write_bytes(source_before + b"# changed by the owner during waiting\n")
-        tasks.complete(root, owner)
+    publish = sync_runtime.publish
+    def change_input(*args, **kwargs):
+        source.write_bytes(source_before + b"# concurrent input\n")
+        return publish(*args, **kwargs)
     errors = io.StringIO()
-    with patch.dict(os.environ, {tasks.SELECTOR: worker}), patch.object(tasks.time, "sleep", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write"]), redirect_stderr(errors):
-        assert SYNC.main() == 1  # A changed authoritative input is a real error.
-    assert "model inputs changed" in errors.getvalue() and json_path.read_bytes() == before
+    with patch.object(sync_runtime, "publish", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write", "--environment", "dev", "--aws-account-id", "123456789012"]), redirect_stderr(errors):
+        assert SYNC.main() == 1
+    assert "changed" in errors.getvalue() and json_path.read_bytes() == before
     source.write_bytes(source_before)
-    for name in (owner, worker):
-        (root / name).unlink()
-    (root / "tasks").rmdir()
 
     # The CLI returns failure while persisting an unrelated successful service.
     (root / "tasks").mkdir()
@@ -1804,7 +1744,7 @@ def check_observed_arn_authority(tmp_path):
     for mode in ('IMPORT', 'CREATE'):
         values['desired.resource.001.resourceMode'] = mode
         write_model(path, values)
-        findings = Findings(tmp_path, True)
+        findings = Findings(tmp_path)
         check_observed_values([path], findings=findings, root=tmp_path, scope=None)
         assert any('generated ARN persisted' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
         with patch('validation.design_tables.catalog_order_errors', return_value=[]):

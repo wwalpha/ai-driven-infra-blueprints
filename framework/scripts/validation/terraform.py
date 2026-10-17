@@ -44,8 +44,7 @@ def files(root):
 
 def selected(path, root, scope, findings, changed_modules=()):
     directory, environment, _ = placement(path, root)
-    return (scope is None or findings.relative(path) in (findings.file_gate_paths or set())
-            or directory in changed_modules
+    return (scope is None or directory in changed_modules
             or any(target == directory and (environment is None or env == environment)
                    for env, target, _ in scope))
 
@@ -173,8 +172,7 @@ def check_configuration(root, scope, accounts, findings, changed_paths=()):
     for relative in sorted(changed_paths):
         path = root / relative
         directory, environment, valid = placement(path, root)
-        if valid and environment is None and (findings.file_gate_paths is None
-                                               or relative in findings.file_gate_paths):
+        if valid and environment is None:
             changed_modules.setdefault(directory, []).append(path)
     configurations = [path for path in files(root) if is_configuration(path)]
     active = {path for path in configurations if selected(path, root, scope, findings, changed_modules)}

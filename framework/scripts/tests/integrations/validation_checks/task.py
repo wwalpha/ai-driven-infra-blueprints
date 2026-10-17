@@ -87,7 +87,6 @@ def check_idle_without_active_task() -> None:
 
         validator = MODULE.Validator(root)
         validator.check_task_scope()
-        validator.check_tasks()
         assert not validator.errors, validator.errors
 
         (root / "tasks").mkdir()
@@ -102,7 +101,6 @@ def check_idle_without_active_task() -> None:
         (root / "tasks" / "active.md").unlink()
         validator = MODULE.Validator(root)
         validator.check_task_scope()
-        validator.check_tasks()
         assert not validator.errors, validator.errors
 
         write(root / "README.md", "changed\n")
@@ -145,7 +143,7 @@ def check_destroy_phase() -> None:
         invoked = []
         from contextlib import ExitStack
         with ExitStack() as stack:
-            for name in ("check_structure", "check_task_scope", "check_tasks", "check_project_topology", "check_validation_scope",
+            for name in ("check_structure", "check_task_scope", "check_project_topology", "check_validation_scope",
                          "check_model_files", "check_issue_gate", "check_task_type_requirements", "check_initialized_paths",
                          "check_catalog", "check_resource_layout", "check_scoped_designs", "check_designs", "check_observed_values",
                          "check_acceptance_checks", *banned):

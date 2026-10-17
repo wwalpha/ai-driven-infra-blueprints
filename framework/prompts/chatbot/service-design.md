@@ -11,7 +11,7 @@ matching IaC/issues/diff. Generation across environments grants no Deployment sc
 or AWS permission.
 
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, and stop/resume.
+Follow [task-contract](../../rules/task-contract.md) for contract registration and stop/resume.
 
 Use this prompt in Microsoft Copilot to create initial detailed designs per AWS service ownership boundary or as question batches for multiple closely related services.
 

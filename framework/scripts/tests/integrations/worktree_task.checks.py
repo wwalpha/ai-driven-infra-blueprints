@@ -23,9 +23,8 @@ def check_success_and_empty():
                 (target / "file.txt").write_text("staged, then canceled\n")
                 git(target, "add", "file.txt")
                 (target / "file.txt").write_text("original\n")
-            with patch.object(tasks, "reservations", side_effect=AssertionError("managed integration conflict calculation")):
-                finish_contract(target, state)
-                assert wt.integration_task(target, state).files == {state["task_file"], "file.txt", "追加 file.txt"}
+            finish_contract(target, state)
+            wt.integration_task(target, state)
             result = cli(target, "finalize")  # CLI uses the task cwd, not the helper's location.
             assert result["cleaned"]
             assert not wt.branch_exists(root, state["branch"])
@@ -69,8 +68,8 @@ def check_finalize_line_endings():
 
 
 @it_case
-def check_incomplete_and_ownership():
-    for mode in ("running", "suspend", "deferred", "outside", "foreign", "unexpected-commit", "git-conflict",
+def check_incomplete_and_git_safety():
+    for mode in ("running", "suspend", "unexpected-commit", "git-conflict",
                  "missing-python-setup", "missing-python-status"):
         with fixture() as root:
             target, state = start(root)
@@ -79,11 +78,6 @@ def check_incomplete_and_ownership():
             task_head = git(target, "rev-parse", "HEAD")
             if mode == "suspend":
                 tasks.suspend(target, state["task_file"], "validation/local loop failure: file.txt")
-            elif mode == "deferred":
-                path = target / state["task_file"]
-                text = path.read_text().replace("- Task status: `running`", "- Task status: `completed`")
-                text = text.replace("## Active files\n\n- `file.txt`\n", "## Active files\n\n")
-                path.write_text(text.replace("## Deferred files\n", "## Deferred files\n\n- `file.txt`\n"))
             elif mode in ("missing-python-setup", "missing-python-status"):
                 finish_contract(target, state)
                 _, _, path, record = wt.load(root, "example")
@@ -92,15 +86,9 @@ def check_incomplete_and_ownership():
                 else:
                     record["python_setup"].pop("status")
                 wt.save(path, record)
-            elif mode in ("outside", "foreign", "unexpected-commit", "git-conflict"):
+            elif mode in ("unexpected-commit", "git-conflict"):
                 finish_contract(target, state)
-                if mode == "outside":
-                    (target / "outside.txt").write_text("other task\n")
-                    git(target, "add", "outside.txt")
-                elif mode == "foreign":
-                    path = target / state["task_file"]
-                    path.write_text(tasks.bind_worktree(root, path.read_text()))
-                elif mode == "unexpected-commit":
+                if mode == "unexpected-commit":
                     git(target, "add", "file.txt")
                     git(target, "commit", "-qm", "manual commit")
                     task_head = git(target, "rev-parse", "HEAD")
@@ -113,7 +101,7 @@ def check_incomplete_and_ownership():
             assert git(target, "rev-parse", "HEAD") == task_head, mode
             assert (target / "file.txt").read_text() == "task\n"
             cli(root, "cleanup", success=False)
-    print("Incomplete/suspended/Deferred/foreign/outside-task/conflict guards: PASS")
+    print("Incomplete/suspended/conflict guards: PASS")
 
 
 @it_case
@@ -301,6 +289,16 @@ def check_cleanup_failure_and_retry():
         assert "ignored files" in cli(root, "cleanup", success=False)["error"]
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
+        evidence = target / '.blueprint/import'
+        evidence.mkdir(parents=True)
+        own = evidence / 'example.json'
+        other = evidence / 'other.json'
+        own.write_text('{}')
+        other.write_text('preserve')
+        assert 'ignored files' in cli(root, 'cleanup', success=False)['error']
+        assert own.exists() and other.read_text() == 'preserve'
+        other.rename(root.parent / 'saved-evidence.json')
+
         git(root, "branch", "feature", "HEAD^")
         git(root, "checkout", "-q", "feature")
         # Removal may succeed while branch deletion is blocked; retry from base safely.
@@ -370,20 +368,14 @@ def check_merge_retry_and_commit_failure():
 @it_case
 def check_human_approved_validation_failure():
     approval = "Human approves commit and merge despite file.txt trailing whitespace validation failure"
-    for mode in ("accepted", "running", "deferred", "outside", "git-conflict", "blank"):
+    for mode in ("accepted", "running", "git-conflict", "blank"):
         with fixture() as root:
             target, state = start(root)
             (target / "file.txt").write_text("task  \n")
             before = git(root, "rev-parse", "HEAD")
             if mode != "running":
                 tasks.suspend(target, state["task_file"], "Local loop failed: file.txt trailing whitespace")
-            if mode == "deferred":
-                path = target / state["task_file"]
-                text = path.read_text().replace("## Active files\n\n- `file.txt`\n", "## Active files\n\n")
-                path.write_text(text.replace("## Deferred files\n", "## Deferred files\n\n- `file.txt`\n"))
-            elif mode == "outside":
-                (target / "outside.txt").write_text("unrelated\n")
-            elif mode == "git-conflict":
+            if mode == "git-conflict":
                 (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
             if mode != "accepted":
                 cli(root, "finalize", success=False, approval=" " if mode == "blank" else approval)
@@ -404,7 +396,7 @@ def check_human_approved_validation_failure():
             (target / "secret.bin").unlink()
             assert cli(root, "cleanup")["cleaned"]  # Stored approval survives cleanup retry.
             assert not wt.branch_exists(root, state["branch"])
-    print("Explicit human approval, retained FAIL/suspend, scope/Deferred/Git guards and cleanup retry: PASS")
+    print("Explicit human approval, retained FAIL/suspend, Git guards and cleanup retry: PASS")
 
 
 @it_case
@@ -451,7 +443,7 @@ def check_real_loop_integration():
 
 
 def main():
-    for check in (check_success_and_empty, check_finalize_line_endings, check_incomplete_and_ownership,
+    for check in (check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,

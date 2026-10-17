@@ -212,8 +212,7 @@ def check_framework_task_completion_contract(findings, root):
     findings.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
     from deploy_preparation import markdown_sections
     transition = markdown_sections(contract).get("task-transition", "")
-    for boundary in ("30 seconds", "20 waiting attempts", "Never forcibly steal", "Suspension reason",
-                     "--resume", "--complete", "Deferred path-based Acceptance", "running"):
+    for boundary in ("Suspension reason", "--resume", "--complete", "running"):
         findings.check(boundary in transition, f"Task transition safety boundary missing: {boundary}")
 
 

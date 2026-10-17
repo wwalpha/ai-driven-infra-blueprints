@@ -1,6 +1,6 @@
 # Scenario Test
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt to validate application behavior and update current results as a `scenario-test` task independent of deploy. Do not create, repair, deploy, or redeploy infrastructure.
 

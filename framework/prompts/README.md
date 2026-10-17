@@ -225,7 +225,7 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 ### `codex/07_destroy.md`
 
-Independent infrastructure phase `destroy`, invoked by `/destroy <StackName> [<StackName> ...]`. Resolve one explicit target and local JSON ownership/reservation plan, register the contract, then run cloudformation-destroy.py with external resumable state. Destroy checks context/StackId/protection/nested/export-import dependencies, deletes reverse DeployOrder with bounded concurrency, and batches proven-success observed updates. No deploy preparation, IaC validation, change sets, force delete, retained-resource cleanup, or scenarios. Complete with one scoped task loop.
+Independent infrastructure phase `destroy`, invoked by `/destroy <StackName> [<StackName> ...]`. Resolve one explicit target and local JSON ownership/output plan, register the contract, then run cloudformation-destroy.py with external resumable state. Destroy checks context/StackId/protection/nested/export-import dependencies, deletes reverse DeployOrder with bounded concurrency, and batches proven-success observed updates. No deploy preparation, IaC validation, change sets, force delete, retained-resource cleanup, or scenarios. Complete with one scoped task loop.
 
 Model source persistence uses optional `observed.json` with actual row values only;
 runtime property/comment come from desired metadata. File absence means unobserved,

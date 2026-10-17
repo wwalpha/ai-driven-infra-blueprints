@@ -1,6 +1,6 @@
 # Add Project Target Prompt
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for migration adding 1 environment/logical target with confirmed required values to `project.json` in an initialized repository.
 

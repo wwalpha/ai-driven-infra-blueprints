@@ -111,13 +111,13 @@ def check_progress_heartbeat_and_waits():
                 lock.release()
         with progress.thread_lock(ReleasedLock()):
             pass
-        with progress.phase('reservation', status='reservation-wait'):
+        with progress.phase('generation', status='running'):
             pass
         progress.completed(('dev', 'team', 'iam'))
         with pytest.raises(ValueError), progress.phase('candidate-validation'):
             raise ValueError('injected')
     text = output.getvalue()
-    for expected in ['heartbeat', 'items=1/2', 'completed=1/1', 'lock-wait', 'reservation-wait', 'stage-failed', 'remaining=unknown', 'not proof of progress']:
+    for expected in ['heartbeat', 'items=1/2', 'completed=1/1', 'lock-wait', 'stage-failed', 'remaining=unknown', 'not proof of progress']:
         assert expected in text
     assert reporter.states == []
 

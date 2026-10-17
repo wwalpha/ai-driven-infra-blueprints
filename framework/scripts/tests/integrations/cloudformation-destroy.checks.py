@@ -304,7 +304,7 @@ def fixture(root, names, models=False):
         design = root / "docs/designs/dev/123456789012/ec2.md"
         design.parent.mkdir(parents=True)
         design.write_text(markdown_for(design, values, root))
-    # Start with a broad same-target contract to derive exact output reservations mechanically.
+    # Start with a broad same-target contract to derive exact output paths mechanically.
     contract = root / "tasks/destroy.md"
     contract.parent.mkdir()
     paths = ["tasks/destroy.md"]
@@ -490,10 +490,6 @@ def check_observed(tmp_path):
         write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.anchor=ec2-outside-subnet\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc](../../dev/123456789012/ec2.md#ec2-vpc-test-dev-a)\ndesired.row.001-001.comment=参照\n")
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
         __import__("shutil").rmtree(__import__("model_templates").source_paths(outside)[2])
-        # Missing reservation blocks locally, before controller authentication.
-        task = root / "tasks/destroy.md"; text = task.read_text(); task.write_text(text.replace("- `docs/designs/dev/123456789012/ec2.md`\n", ""))
-        rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "reservation")
-        task.write_text(text)
         original = read_model(source); write_model(source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
         # Pending/absent identifiers can stay unmapped, even with a legacy ID.
         pending = M.local_plan(root, "dev", "123456789012", ["A"])

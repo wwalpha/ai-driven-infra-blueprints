@@ -60,7 +60,7 @@ def fixture(branch="main"):
         git(root, "config", "user.name", "Fixture")
         git(root, "config", "user.email", "fixture@example.invalid")
         git(root, "config", "commit.gpgsign", "false")
-        (root / ".gitignore").write_text("tasks/**\n/.worktrees/\n__pycache__\nsecret.bin\n", encoding="utf-8")
+        (root / ".gitignore").write_text("tasks/**\n/.blueprint/import/\n/.worktrees/\n__pycache__\nsecret.bin\n", encoding="utf-8")
         (root / "file.txt").write_text("original\n", encoding="utf-8")
         git(root, "add", ".")
         git(root, "commit", "-qm", "fixture")

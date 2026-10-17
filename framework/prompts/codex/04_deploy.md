@@ -1,6 +1,6 @@
 # Infrastructure Deployment Prompt
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for an `infrastructure` task deploying/applying CloudFormation or Terraform created/validated from approved detailed designs, confirming deploy completion, and updating necessary observed values. Only controlled repair of CloudFormation failures is permitted within the same task. Do not change intended design or execute application behavior validation.
 
@@ -57,7 +57,7 @@ Ordinary deploy AI design inputs are authoritative model properties. Obtain desi
 
 `.md#anchor` references are not instructions to open Markdown bodies. Map path/file stem to referenced properties and confirm needed resources with existing `model_files.py --resource <resource-selector>` and metadata such as anchors. Stop for unknown/unmatched/ambiguous mappings; do not use generated Markdown body fallback.
 
-Retain generated artifact existence verification, hash monitoring, reservations, machine generated artifact validation, and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). Repair only AUTO_REPAIRABLE, or let the same controller handle RUNTIME_BOOTSTRAP without repository changes, and continue after validation. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
+Retain generated artifact existence verification, hash monitoring, machine generated artifact validation, and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). Repair only AUTO_REPAIRABLE, or let the same controller handle RUNTIME_BOOTSTRAP without repository changes, and continue after validation. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
@@ -69,16 +69,16 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 
 ## CloudFormation offline preparation
 
-Confirm and explicitly state all target StackNames and owned/referenced service IDs with existing properties readers. Do not infer service/resource/parameter/reference selections. For CloudFormation, do not generate contracts/reservations with ad hoc scripts; execute the following preparation once. Terraform uses existing contract creation procedures.
+Confirm and explicitly state all target StackNames and owned/referenced service IDs with existing properties readers. Do not infer service/resource/parameter/reference selections. For CloudFormation, do not generate contracts with ad hoc scripts; execute the following preparation once. Terraform uses existing contract creation procedures.
 
 ```console
 <fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--log-dir <external-directory>]
 # aliasなしでは --aws-account-id <aws-account-id>
 ```
 
-This procedure starts no AWS APIs, account authentication, mapping validation, lint, or controllers and does not change the repository. Check dependencies together; use existing `load_target` / `load_units` / `read_model` / `model_parts` to resolve target/authoritative StackNames and generated stack design equality, and existing reservation checks for conflicts. Reserve exact paths for explicit services including `cloudformation-stacks`: model entries, parts, splitting candidates for observed additions, and generated Markdown/JSON. If out-of-scope references are needed, controller safety checks stop; do not implicitly expand scope.
+This procedure starts no AWS APIs, account authentication, mapping validation, lint, or controllers and does not change the repository. Check dependencies together; use existing `load_target` / `load_units` / `read_model` / `model_parts` to resolve target/authoritative StackNames and generated stack design equality. Declare exact paths for explicit services including `cloudformation-stacks`: model entries, parts, splitting candidates for observed additions, and generated Markdown/JSON. If out-of-scope references are needed, controller safety checks stop; do not implicitly expand scope.
 
-In external output `preparation.json`, save all input paths/content hashes in `inputs`, mandatory AI-read rule sections and per-file chunks of at most 6,000 characters in `documents`, sorted/deduplicated generated artifact paths without bodies in `generatedViews`, contract candidates, fixed Python/tool paths, and one controller argv/session containing all StackNames. Review `documents` chunks per file without omissions; do not reread files whose specified ranges have already been reviewed with the same hashes. This supports document review and does not replace model-generated design consistency validation. Retain generated Markdown/JSON and binary ZIP hashes/reservations in `inputs`, without creating `documents` entries or body chunk files. `generatedViews` is explanatory metadata, not proof of validation/PASS or grounds for omitting input guards. Validate ordinary service generated artifact equality at existing sync-model/local loop execution points; do not treat preparation/controllers as validating everything before deploy.
+In external output `preparation.json`, save all input paths/content hashes in `inputs`, mandatory AI-read rule sections and per-file chunks of at most 6,000 characters in `documents`, sorted/deduplicated generated artifact paths without bodies in `generatedViews`, contract candidates, fixed Python/tool paths, and one controller argv/session containing all StackNames. Review `documents` chunks per file without omissions; do not reread files whose specified ranges have already been reviewed with the same hashes. This supports document review and does not replace model-generated design consistency validation. Retain generated Markdown/JSON and binary ZIP hashes in `inputs`, without creating `documents` entries or body chunk files. `generatedViews` is explanatory metadata, not proof of validation/PASS or grounds for omitting input guards. Validate ordinary service generated artifact equality at existing sync-model/local loop execution points; do not treat preparation/controllers as validating everything before deploy.
 
 Once all mandatory documents/candidates match this human request, run the following. Do not add human review gates.
 
@@ -101,7 +101,7 @@ As the first repository change, newly register `tasks/<task-name>.md` authorizin
 - Record confirmed User input Authorized delete/replacement, or `none` if no input. If the human approves after change set/plan creation, update to target resources, actions, and confirmed reasons within the same task.
 - In `Required changes`, state deployment and observed value updates after success only when necessary, with unique Requirement IDs.
 - Map `Acceptance checks` using `exists:` for deployment units and `changed:` for target detailed designs/models only if observed value updates are needed. Do not treat unexecuted/failed deploy as complete based on repository files.
-- Limit Allowed paths to observed synchronization target models/generated artifacts, this task's contract, and controlled repair files below. For CloudFormation, reserve exact deployment scope templates/parameters/declared artifacts and record `Controlled repair: allowed` and external `Deploy repair session`. Reservations are exclusively for controlled repair, not arbitrary IaC changes. Changes to Terraform IaC and `tests/**` are prohibited.
+- Limit Allowed paths to observed synchronization target models/generated artifacts, this task's contract, and controlled repair files below. For CloudFormation, declare exact deployment scope templates/parameters/declared artifacts and record `Controlled repair: allowed` and external `Deploy repair session`. These declarations cover controlled repair, not arbitrary IaC changes. Changes to Terraform IaC and `tests/**` are prohibited.
 
 ## Preflight
 

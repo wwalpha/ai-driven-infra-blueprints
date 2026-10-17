@@ -61,20 +61,13 @@ def check_publication_readback(generated_policy, fault):
 @pytest.mark.parametrize('note', [False, True])
 def check_unchanged_sidecar(generated_policy, note):
     root, model, values, design, artifact, register = generated_policy
-    import task_contract as tasks
-    owner = 'tasks/sidecar-owner.md'
-    listed = '\n'.join(f'- `{file}`' for file in (owner, artifact.relative_to(root).as_posix()))
-    tasks.start(root, owner, '# Owner\n## Task contract\n- Task type: `design`\n- Task status: `running`\n'
-                '## Validation scope\n- `dev/123456789012/iam`\n'
-                f'## Modified files\n{listed}\n## Allowed paths\n{listed}\n')
     if note:
         values['desired.note.001.text'] = '利用開始前に実行主体の権限を確認する。'
         write_model(model, values)
     env = register([design] if note else [])
     before = artifact.read_bytes(), artifact.stat().st_mtime_ns
     with patch.dict(os.environ, env), patch.object(sync_runtime, 'publish', wraps=sync_runtime.publish) as publish, \
-         patch.object(sync_runtime, 'validate_candidates', wraps=sync_runtime.validate_candidates) as validate, \
-         patch.object(tasks.time, 'sleep', side_effect=AssertionError('unchanged sidecar must not wait for its owner')):
+         patch.object(sync_runtime, 'validate_candidates', wraps=sync_runtime.validate_candidates) as validate:
         assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
     assert validate.call_count == 1, 'no-op outputs still require candidate validation'
     assert publish.call_count == int(note)
@@ -87,7 +80,7 @@ def check_unchanged_sidecar(generated_policy, note):
 
 
 @pytest.mark.parametrize('change', ['model', 'stale', 'missing'])
-def check_changed_sidecar_requires_reservation(generated_policy, change):
+def check_changed_sidecar_publication(generated_policy, change):
     root, model, values, design, artifact, register = generated_policy
     if change == 'model':
         document = json.loads(values['desired.row.001-002.document'])
@@ -99,14 +92,14 @@ def check_changed_sidecar_requires_reservation(generated_policy, change):
     else:
         artifact.unlink()
     env = register([design])
-    before = {file: file.read_bytes() for file in (design, artifact) if file.exists()}
-    with patch.dict(os.environ, env), pytest.raises(ValueError, match='no selected task reservation'):
-        MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
-    assert {file: file.read_bytes() if file.exists() else None for file in before} == before
+    with patch.dict(os.environ, env):
+        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+    assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
+
 
 
 @pytest.mark.parametrize('note', [False, True])
-@pytest.mark.parametrize('drift', ['sidecar', 'source'])
+@pytest.mark.parametrize('drift', ['sidecar', 'source', 'task'])
 def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
     root, model, values, design, artifact, register = generated_policy
     if note:
@@ -114,8 +107,9 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
         write_model(model, values)
     env = register([design] if note else [])
     original = design.read_bytes()
-    changed = artifact if drift == 'sidecar' else next(file for file in load_model(model).files if file.suffix == '.tpl')
-    content = '{}\n' if drift == 'sidecar' else changed.read_text(encoding='utf-8') + '# concurrent change\n'
+    changed = (artifact if drift == 'sidecar' else root / env['BLUEPRINT_TASK_FILE'] if drift == 'task'
+               else next(file for file in load_model(model).files if file.suffix == '.tpl'))
+    content = ('{}\n' if drift == 'sidecar' else '# concurrent change\n' + changed.read_text(encoding='utf-8'))
     lock = sync_runtime.publication_lock
 
     @contextmanager
@@ -124,12 +118,16 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
             changed.write_text(content, encoding='utf-8')
             yield journal
 
-    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publication_lock', change_under_lock), \
-         patch.object(sync_runtime, 'publish', side_effect=AssertionError('drift must fail before publication')):
-        with pytest.raises(ValueError, match='no selected task reservation' if drift == 'sidecar' else 'inputs changed'):
-            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
-    assert design.read_bytes() == original
-    assert changed.read_text(encoding='utf-8') == content, 'concurrent changes must be retained'
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publication_lock', change_under_lock):
+        if drift in {'source', 'task'}:
+            with pytest.raises(ValueError, match='scope changed' if drift == 'task' else 'inputs changed'):
+                MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+            assert design.read_bytes() == original
+            assert changed.read_text(encoding='utf-8') == content
+        else:
+            assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+            assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
+
 
 
 @pytest.mark.parametrize('note', [False, True])
@@ -627,7 +625,7 @@ def check_workflow(tmp_path) -> None:
 
 
 def main():
-    return run(__file__, message='sync-model: PASS (generation, changed output reservations, publication drift and rollback)')
+    return run(__file__, message='sync-model: PASS (generation, changed outputs, publication drift and rollback)')
 
 
 import threading

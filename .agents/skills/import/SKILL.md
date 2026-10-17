@@ -17,5 +17,4 @@ Examples:
 /import --environment dev --service config --target cde --no-profile
 ```
 
-The Human may explicitly request execution without creating a worktree; follow the
-Prompt's current-checkout procedure.
+Run in the worktree selected by the Human, following the Prompt's contract and evidence procedure.

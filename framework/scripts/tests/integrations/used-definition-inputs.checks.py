@@ -82,16 +82,12 @@ def check(root):
         directory / 'parameters.yaml': serialized,
         directory / 'bindings.json': t.json_text(plain),
         directory / 'observed.json': t.json_text(observed)})
-    def writable(repository, paths, selected=None):
-        assert repository == root and paths == {directory / 'parameters.yaml'}
-        assert selected is None
-    with patch('task_contract.require_writable', writable):
-        t.save_parameters(path, human)
-        first = (directory / 'parameters.yaml').read_bytes()
-        t.save_parameters(path, human)
-        assert (directory / 'parameters.yaml').read_bytes() == first
-        rejected(lambda: t.save_parameters(path, {'parameters': {}, 'instances': {}}), 'human parameters requires exactly')
-        assert (directory / 'parameters.yaml').read_bytes() == first
+    t.save_parameters(path, human)
+    first = (directory / 'parameters.yaml').read_bytes()
+    t.save_parameters(path, human)
+    assert (directory / 'parameters.yaml').read_bytes() == first
+    rejected(lambda: t.save_parameters(path, {'parameters': {}, 'instances': {}}), 'human parameters requires exactly')
+    assert (directory / 'parameters.yaml').read_bytes() == first
     assert t.expand(template, human, observed, plain, 'preview')[0] == before
 
 

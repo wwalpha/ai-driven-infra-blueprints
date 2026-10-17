@@ -47,7 +47,7 @@ def check_logs_roundtrip():
         check(cli.calls[0] == ('sts', 'get-caller-identity', {}), 'STS runs before resource calls')
         check([inputs for service, _, inputs in cli.calls if service == 'logs'] == [{}], 'AWS listing does not filter by Model names')
         check(plan['resources'] == {'import': 2, 'create': 1}, 'all AWS resources imported; CREATE skipped')
-        reserve(root, plan)
+        register_plan(root, plan)
         original = load_model(path).values
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}), patch.object(m.comparator(), 'compare_resource', side_effect=AssertionError('no comparison')):
             with patch.object(subprocess, 'run', wraps=subprocess.run) as commands, patch.object(sync_runtime, 'generate_files', wraps=sync_runtime.generate_files) as generations:
@@ -126,7 +126,7 @@ def check_config_snapshot():
         root = Path(tmp) / 'config'; root.mkdir()
         path = setup_service(root, 'config', 'Config.ConfigurationRecorder', {'Name': 'wrong-model-name', 'RecordingGroup.AllSupported': True}, alias='cde')
         plan = m.refresh(root, 'dev', 'config', 'cde', True, AwsCli())
-        reserve(root, plan, 'config', 'cde')
+        register_plan(root, plan, 'config', 'cde')
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'config', 'cde', cli_runner=AwsCli())
             check(result['status'] == 'complete', 'Config snapshot succeeds independent of wrong old name')
@@ -146,7 +146,7 @@ def check_vpc_snapshot():
         plan = m.refresh(root, 'dev', 'vpc', dry_run=True, cli_runner=cli)
         check(plan['resources']['import'] == 2, 'both AWS VPCs imported regardless of Model')
         check(all(inputs == {} for service, operation, inputs in cli.calls if operation in {'describe-vpcs', 'describe-subnets', 'describe-route-tables', 'describe-flow-logs'}), 'VPC service enumeration uses no Model filter')
-        reserve(root, plan, 'vpc')
+        register_plan(root, plan, 'vpc')
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'vpc', cli_runner=AwsCli())
             check(result['status'] == 'complete', 'VPC snapshot generates valid Markdown')
@@ -163,7 +163,7 @@ def check_quicksight_snapshot():
         path = setup_service(root, 'quicksight', 'QuickSight.DataSource', {'DataSourceId': 'old-source', 'Name': 'old-source', 'Type': 'ATHENA', 'AwsAccountId': ACCOUNT}, {'DataSourceId': 'create-source', 'Name': 'create-source', 'Type': 'ATHENA', 'AwsAccountId': ACCOUNT})
         old = load_model(path).values
         plan = m.refresh(root, 'dev', 'quicksight', dry_run=True, cli_runner=AwsCli())
-        reserve(root, plan, 'quicksight')
+        register_plan(root, plan, 'quicksight')
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'quicksight', cli_runner=AwsCli())
             check(result['status'] == 'incomplete' and len(result['unreflected']) == 3 and
@@ -314,7 +314,7 @@ def check_main_vpc_slot():
                 return result
             plan = m.refresh(root, 'dev', 'vpc', dry_run=True, cli_runner=cli(list(reversed(vpcs))))
             check(snapshot(root) == before, 'main-vpc preview saves no files or logs')
-            reserve(root, plan, 'vpc')
+            register_plan(root, plan, 'vpc')
             with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
                 result = m.refresh(root, 'dev', 'vpc', cli_runner=cli(list(reversed(vpcs))))
                 check(result['status'] == 'complete' and result['markdown'] == 'generated', 'main-vpc candidate publishes and matches generated views')
@@ -411,7 +411,7 @@ def check_optional_profile():
             check(not cli.calls and snapshot(root) == before, 'invalid region stops before CLI and preview/failures change no files')
         subprocess.run(['git', 'add', 'project.json'], cwd=root, check=True)
         subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'optional profile'], cwd=root, check=True)
-        reserve(root, plan)
+        register_plan(root, plan)
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=AwsCli(account=target['awsExecutionAccountId'], profile=None))
         check(result['status'] == 'complete' and result['markdown'] == 'generated' and result['connection']['profile'] is None,
@@ -483,19 +483,9 @@ def check_explicit_no_profile_in_primary_checkout():
                   'current-checkout normal import registers candidates, saves, generates and verifies without a new worktree')
             m.require_import_changes(root)
             proof = json.loads(import_guard.proof_path(root).read_text(encoding='utf-8'))
-            check(proof['model'] == 'reflected' and proof['worktree'] == m.task_contract.worktree_identity(root),
-                  'verified import evidence remains bound to the primary checkout')
-            linked = Path(tmp) / 'evidence-linked'
-            subprocess.run(['git', 'worktree', 'add', '--detach', str(linked), 'HEAD'], cwd=root, check=True, capture_output=True)
-            proof_file = import_guard.proof_path(root)
-            original_proof = proof_file.read_bytes()
-            try:
-                proof['worktree'] = m.task_contract.worktree_identity(linked)
-                proof_file.write_text(json_text(proof), encoding='utf-8')
-                rejected(lambda: m.require_import_changes(root), 'verified /import evidence')
-            finally:
-                proof_file.write_bytes(original_proof)
-                subprocess.run(['git', 'worktree', 'remove', str(linked)], cwd=root, check=True, capture_output=True)
+            check(proof['model'] == 'reflected', 'verified import evidence records reflection')
+            check(import_guard.proof_path(root) == root / '.blueprint/import/import-fixture.json',
+                  'evidence uses the selected contract name under the execution root')
             m.require_import_changes(root)
         check(import_guard.resource_config(original, '002') == import_guard.resource_config(load_model(path).values, '002'),
               'current-checkout profile omission preserves CREATE exactly')
@@ -504,7 +494,7 @@ def check_explicit_no_profile_in_primary_checkout():
 
 
 def check_single_acquisition():
-    from task_contract import reservations, contracts
+    from task_contract import paths_in
     from import_scope import restrict
     with tempfile.TemporaryDirectory() as temporary, patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
         root = Path(temporary).resolve() / 'single'; root.mkdir()
@@ -518,16 +508,16 @@ def check_single_acquisition():
                                    ({root / 'model/parameters/dev' / ACCOUNT / 'cloudwatch-logs/secret.json'}, set()),
                                    (set(), {root / 'docs/designs/dev' / ACCOUNT / 'iam.md'}),
                                    ({root / 'model/templates' / ACCOUNT / 'iam.properties.tpl'}, set())]:
-                rejected(lambda: m.reserve_outputs(root, ('dev', ACCOUNT, 'cloudwatch-logs'), sources, views), 'outside selected')
+                rejected(lambda: m.record_outputs(root, ('dev', ACCOUNT, 'cloudwatch-logs'), sources, views), 'outside selected')
                 check(own.read_bytes() == before, 'out-of-scope candidates do not broaden contract')
         cli = AwsCli()
         with patch.object(m.comparator(), 'compare_resource', side_effect=AssertionError('no comparison')):
             result = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)
         check(result['status'] == 'complete' and result['markdown'] == 'generated', 'contract-only normal import completes without dry-run')
         check(cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})], 'ordinary invocation performs one identity check and one inventory listing')
-        registered = reservations(root, contracts(root))['tasks/import-fixture.md']
-        check(registered.files == set(result['files']) | {'tasks/import-fixture.md'} and registered.active == registered.files,
-              'exact candidate paths including new observed file are registered and acquired')
+        registered = paths_in(own.read_text(), '## Modified files')
+        check(registered == set(result['files']) | {'tasks/import-fixture.md'},
+              'exact candidate paths including new observed file are recorded')
         check(m.section(own.read_text(encoding='utf-8'), '## Validation scope') == ['- `dev/' + ACCOUNT + '/cloudwatch-logs`'], 'output registration preserves selected scope')
         check(import_guard.resource_config(original, '002') == import_guard.resource_config(load_model(path).values, '002'), 'single acquisition preserves CREATE')
         cli = AwsCli()
@@ -548,43 +538,25 @@ def check_single_acquisition():
         check(snapshot(root) == before and sum(call[0] == 'logs' for call in cli.calls) == 1, 'identical inventory avoids source/contract rewrites')
 
 
-def check_reservation_races():
-    from task_contract import suspend, reservations, contracts
-    for race in ('release', 'source'):
-        with tempfile.TemporaryDirectory() as temporary, patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
-            root = Path(temporary).resolve() / race; root.mkdir()
-            path = fixture(root)
-            parameters = m.service_source(path)[2] / 'parameters.yaml'
-            relative = parameters.relative_to(root).as_posix()
-            contract(root, [])
-            blocker = (root / 'tasks/import-fixture.md').read_text(encoding='utf-8').replace('import-fixture', 'import-blocker')
-            blocker = blocker.replace('- `tasks/import-blocker.md`', '- `tasks/import-blocker.md`\n- `' + relative + '`')
-            start(root, 'tasks/import-blocker.md', blocker)
-            before = snapshot(root)
-            cli = AwsCli()
-            waits = []
-            def release(_):
-                check(sum(call[0] == 'logs' for call in cli.calls) == 1, 'waiting retains one acquired inventory')
-                entry = reservations(root, contracts(root))['tasks/import-fixture.md']
-                check(relative not in entry.active and (root / relative).read_bytes() == before[Path(relative)], 'Deferred source remains unwritten')
-                waits.append(True)
-                if race == 'source':
-                    parameters.write_bytes(before[Path(relative)] + b'\n')
-                elif race == 'issue':
-                    issue = root / 'issues/dev' / ACCOUNT / 'issues.md'
-                    issue.parent.mkdir(parents=True, exist_ok=True)
-                    issue.write_text('### cloudwatch-logs\n1. Blocking issue\n', encoding='utf-8')
-                suspend(root, 'tasks/import-blocker.md', 'Fixture reservation released')
-            batches = m.reserved_batches
-            with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}), patch.object(m, 'reserved_batches', side_effect=lambda root, jobs: batches(root, jobs, sleeper=release)):
-                if race == 'release':
-                    check(m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)['status'] == 'complete', 'released reservations publish same candidate')
-                else:
-                    rejected(lambda: m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli), 'sources changed' if race == 'source' else 'unresolved')
-                    for file, data in before.items():
-                        if file.parts[0] != 'tasks' and not (race == 'source' and file == Path(relative)):
-                            check((root / file).read_bytes() == data, 'waiting race publishes no candidate sources/views')
-            check(len(waits) == 1 and cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})], 'reservation resume never repeats AWS acquisition')
+def check_source_race():
+    with tempfile.TemporaryDirectory() as temporary, patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        root = Path(temporary).resolve() / 'source'; root.mkdir()
+        path = fixture(root)
+        parameters = m.service_source(path)[2] / 'parameters.yaml'
+        relative = parameters.relative_to(root)
+        contract(root, [])
+        before = snapshot(root)
+        cli = AwsCli()
+        record_outputs = m.record_outputs
+        def concurrent_edit(*args, **kwargs):
+            record_outputs(*args, **kwargs)
+            parameters.write_bytes(before[relative] + b'\n')
+        with patch.object(m, 'record_outputs', side_effect=concurrent_edit):
+            rejected(lambda: m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli), 'sources changed')
+        for file, data in before.items():
+            if file.parts[0] != 'tasks' and file != relative:
+                check((root / file).read_bytes() == data, 'source race publishes no candidate sources/views')
+        check(cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})], 'source race never repeats AWS acquisition')
 
 
 def check_create_definition_reuse():
@@ -676,7 +648,7 @@ def check_cli_faults_and_shared_consumers():
             check('location' in failure and 'PRIVATE-CREDENTIAL' not in stream.getvalue(),
                   'unknown exception and subprocess payloads stay masked')
         plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=AwsCli())
-        reserve(root, plan)
+        register_plan(root, plan)
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             with patch.object(sync_runtime, 'generate_files', side_effect=ValueError('Markdown generation failed')):
                 failed = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=AwsCli())
@@ -699,7 +671,7 @@ def check_cli_faults_and_shared_consumers():
         subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'shared'], cwd=root, check=True)
         plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=AwsCli())
         check(plan['scope'] == ['dev/' + ACCOUNT + '/cloudwatch-logs'] and plan['affectedConsumers']==['stg/' + ACCOUNT + '/cloudwatch-logs'], 'local preservation reports registered consumers while acquisition stays selected')
-        reserve(root, plan)
+        register_plan(root, plan)
         cli = AwsCli()
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)
@@ -727,7 +699,7 @@ def check_vpc_inventory_references():
         }
         plan = m.refresh(root, 'dev', 'vpc', dry_run=True, cli_runner=cli)
         check(plan['resources']['import'] == 4 and plan['unreflected'] == [], 'all VPC types and tag values captured')
-        reserve(root, plan, 'vpc')
+        register_plan(root, plan, 'vpc')
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             result = m.refresh(root, 'dev', 'vpc', cli_runner=cli)
             check(result['status'] == 'complete', 'VPC children and grouped association roundtrip')
@@ -787,7 +759,7 @@ def check_exact_scope():
         with patch.object(Path, 'open', bounded_open), patch.object(Path, 'glob', bounded_glob):
             plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=scoped_cli())
         check(plan['scope'] == ['dev/' + ACCOUNT + '/cloudwatch-logs'], 'dry-run selects only exact identity despite broken foreign inputs')
-        reserve(root, plan)
+        register_plan(root, plan)
         cli = scoped_cli()
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}), patch.object(Path, 'open', bounded_open), patch.object(Path, 'glob', bounded_glob):
             result = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)
@@ -925,7 +897,7 @@ def check_create_external_references():
                   'concurrent Markdown changes are not authoritative-source changes')
             document.unlink()
             check({call[0] for call in cli.calls} == {'sts', 'ec2'}, 'CREATE links require no IAM/Logs acquisition')
-        reserve(root, plan, 'vpc')
+        register_plan(root, plan, 'vpc')
         forbid_views = False
         with patch.object(Path, 'open', bounded_open), patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
             cli = AwsCli()
@@ -1031,7 +1003,7 @@ def check_mapping_preservation():
         captured_values, _, _, _ = m.snapshot_values(ctx, model, m.inventory(ctx, 'config'), binding)
         check(captured_values['desired.row.001-002.value'] == '`bucket-channel`',
               'a bucket string matching another channel identity does not become a logical reference')
-        reserve(root, plan, 'config')
+        register_plan(root, plan, 'config')
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}), patch.object(m, 'promoted_sources', side_effect=capture):
             result = m.refresh(root, 'dev', 'config', cli_runner=cli())
         check(captured[-1] == captured[-2], 'dry-run and normal publication use identical source plans')
@@ -1145,29 +1117,27 @@ def check_shared_promotion():
         check(snapshot(root) == before, 'AWS-time preservation input race saves no sources/views/evidence')
         plan = m.refresh(root,'dev','cloudwatch-logs',dry_run=True,cli_runner=cli)
         check(snapshot(root)==before and len(plan['promotions'])==2, 'shared Days side effects and fixed boolean are isolated in dry-run')
-        reserve(root,plan)
+        register_plan(root,plan)
         with patch.dict(os.environ,{'BLUEPRINT_TASK_FILE':'tasks/import-fixture.md'}):
             # A concurrent preservation-consumer edit blocks the whole publication.
             foreign = root/'model/parameters/stg'/ACCOUNT/'cloudwatch-logs/parameters.yaml'
             foreign_bytes = foreign.read_bytes()
             template_bytes = template.read_bytes()
             selected_bytes = (root/'model/parameters/dev'/ACCOUNT/'cloudwatch-logs/parameters.yaml').read_bytes()
-            batches = m.reserved_batches
-            def race(repository, jobs):
-                for item in batches(repository, jobs):
-                    foreign.write_bytes(foreign_bytes + b'# concurrent input\n')
-                    yield item
-            with patch.object(m,'reserved_batches',side_effect=race):
+            record_outputs = m.record_outputs
+            def race(*args, **kwargs):
+                record_outputs(*args, **kwargs)
+                foreign.write_bytes(foreign_bytes + b'# concurrent input\n')
+            with patch.object(m, 'record_outputs', side_effect=race):
                 rejected(lambda:m.refresh(root,'dev','cloudwatch-logs',cli_runner=cli),'sources changed')
             check(template.read_bytes()==template_bytes and (root/'model/parameters/dev'/ACCOUNT/'cloudwatch-logs/parameters.yaml').read_bytes()==selected_bytes,'non-selected input race saves no candidate sources')
             foreign.write_bytes(foreign_bytes)
             # New consumers discovered after candidate validation invalidate the whole plan.
             extra=root/'model/parameters/qa'/ACCOUNT/'cloudwatch-logs'
-            def register_consumer(repository,jobs):
-                for item in batches(repository,jobs):
-                    shutil.copytree(root/'model/parameters/prod'/ACCOUNT/'cloudwatch-logs',extra)
-                    yield item
-            with patch.object(m,'reserved_batches',side_effect=register_consumer):
+            def register_consumer(*args, **kwargs):
+                record_outputs(*args, **kwargs)
+                shutil.copytree(root/'model/parameters/prod'/ACCOUNT/'cloudwatch-logs',extra)
+            with patch.object(m, 'record_outputs', side_effect=register_consumer):
                 rejected(lambda:m.refresh(root,'dev','cloudwatch-logs',cli_runner=cli),'registered consumers changed')
             check(template.read_bytes()==template_bytes,'new consumer registration saves no stale candidate')
             shutil.rmtree(extra)
@@ -1269,7 +1239,7 @@ def check_existing_snapshot_promotion():
         subprocess.run(['git','add','.'],cwd=root,check=True)
         subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','existing shared snapshot'],cwd=root,check=True)
         plan=m.refresh(root,'dev','cloudwatch-logs',dry_run=True,cli_runner=AwsCli())
-        reserve(root,plan)
+        register_plan(root,plan)
         with patch.dict(os.environ,{'BLUEPRINT_TASK_FILE':'tasks/import-fixture.md'}):
             result=m.refresh(root,'dev','cloudwatch-logs',cli_runner=AwsCli())
             check(result['status']=='complete' and load_expansion(other).values==before,'existing Import-prefixed Definition can be safely promoted across consumers')
@@ -1575,7 +1545,7 @@ def check_reflection_validation_boundary():
         subprocess.run(['git', 'add', '.'], cwd=root, check=True)
         subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'constraints'], cwd=root, check=True)
         plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=cli)
-        reserve(root, plan)
+        register_plan(root, plan)
         with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}), ExitStack() as stack:
             forbidden = [(model_templates, 'load_expansion'), (model_templates, 'validate_local'),
                          (model_design, 'validate_required_properties'), (sync_runtime, 'validate_candidates'),
@@ -1672,7 +1642,7 @@ def check_final_shared_inputs():
                     rejected(lambda: m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=cli), 'UnrelatedExcess')
                 check(snapshot(root) == originals, 'unreadable final candidate is rejected before any save')
             plan = m.refresh(root, 'dev', 'cloudwatch-logs', dry_run=True, cli_runner=cli)
-            reserve(root, plan)
+            register_plan(root, plan)
             with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/import-fixture.md'}):
                 with patch.object(sync_runtime, 'generate_files', side_effect=ValueError('injected display failure')):
                     failed = m.refresh(root, 'dev', 'cloudwatch-logs', cli_runner=cli)

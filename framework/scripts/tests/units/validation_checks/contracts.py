@@ -371,9 +371,9 @@ def check_rule_reading_contract() -> None:
         validator = MODULE.Validator(root)
         validator.check_framework_task_completion_contract()
         assert not validator.errors, validator.errors
-        for boundary in ("Never forcibly steal", "20 waiting attempts", "Deferred path-based Acceptance"):
+        for boundary in ("Suspension reason", "--resume", "--complete", "running"):
             assert boundary in contract
-            write(rules / "task-contract.md", contract.replace(boundary, "REMOVED", 1))
+            write(rules / "task-contract.md", contract.replace(boundary, "REMOVED"))
             validator = MODULE.Validator(root)
             validator.check_framework_task_completion_contract()
             assert any("safety boundary missing" in error for error in validator.errors), validator.errors

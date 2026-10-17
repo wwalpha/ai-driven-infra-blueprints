@@ -1,4 +1,4 @@
-"""Offline preparation, reservation, dependency and timing regressions; no consumer/AWS."""
+"""Offline preparation, dependency and timing regressions; no consumer/AWS."""
 
 import sys
 
@@ -72,7 +72,7 @@ def fixture(root):
     write_model(model / "cloudformation-stacks.properties", "\n".join(f"{k}={v}" for k, v in values.items()))
     view = design / "cloudformation-stacks.md"
     view.write_text(markdown_for(view, values, root), encoding="utf-8")
-    # Exercise the existing split reader and reservations for observed-driven part growth.
+    # Exercise the existing split reader and output paths for observed-driven part growth.
     text = "\n".join(f"desired.row.001-{i:03d}.{field}={value}" for i in range(1, 205)
                      for field, value in (("property", "EC2.VPC.VpcId"), ("value", "[vpc](#ec2-vpc)"), ("comment", "識別子"))) + "\n"
     source = model / "ec2.properties"
@@ -107,13 +107,13 @@ def arguments(root, base):
 REAL_RUN = subprocess.run
 
 def invoke(args):
-    def local_contract(command, **kwargs):
+    def run_contract_cli(command, **kwargs):
         if command == [sys.executable, "-m", "pip", "check"]:
             return REAL_RUN(command, **kwargs)
         assert command[:2] == [sys.executable, str(Path(command[1]).parents[2] / "framework/scripts/task_contract.py")], "preparation invoked AWS/controller"
         return REAL_RUN(command, **kwargs)
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
-            patch.object(subprocess, "run", side_effect=local_contract):
+            patch.object(subprocess, "run", side_effect=run_contract_cli):
         return M.main(args)
 
 

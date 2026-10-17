@@ -11,7 +11,7 @@ matching IaC/issues/diff. Generation across environments grants no Deployment sc
 or AWS permission.
 
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, reservations, stopping/resuming.
+Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for an `infrastructure` task converting authoritative model properties, the authority for approved detailed designs, into CloudFormation or Terraform selected in `project.json`, through local static validation. Do not execute AWS APIs, change sets, plans, or deploy/apply. For deploy/apply, use `framework/prompts/codex/04_deploy.md` in a separate task.
 

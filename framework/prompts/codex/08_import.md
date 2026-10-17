@@ -24,12 +24,10 @@ This exception does not relax ordinary design, deploy or framework implementatio
 
 1. Require one explicit Environment and Service. Resolve exactly one project.json Target
    by Alias, or Account ID without an Alias; omission is allowed only when unambiguous.
-2. For normal import create the worktree using the existing helper and Python setup.
-   If the Human explicitly requests the current checkout, register a separate contract
-   there and omit worktree lifecycle commands. This does not itself authorize commit.
+2. Run IMPORT in the worktree selected by the Human. Register a separate contract
+   there; this does not itself authorize commit.
    Register a `design` contract with `Workflow: import`, exact `IMPORT target` and
-   initial target scope. Preserve other tasks and acquire exact source/view reservations
-   through task_contract. Do not run issues or validation to determine permission.
+   initial target scope. Preserve other tasks and declare exact source/view paths. Do not run issues or validation to determine permission.
 3. Invoke import-model.py once. Its first AWS call is STS get-caller-identity. Every call
    uses project.json awsRegion and configured awsProfile. Explicit `--no-profile` omits
    only the configured profile for this invocation; retain AWS_PROFILE/default credential
@@ -49,9 +47,9 @@ This exception does not relax ordinary design, deploy or framework implementatio
    changed Property. Read only that Property's old inputs for direct Definition users,
    preserve their values and apply AWS values to selected IMPORT instances. No recursive
    consumer traversal, whole-Model preservation comparison or unrelated parameter cleanup.
-7. Build an in-memory source plan. Bind acquisition, Task, Worktree, selected target,
-   permitted source changes and source hashes in external temporary authority evidence.
-   Under publication_lock, recheck reservations and concurrent source changes, then save
+7. Build an in-memory source plan. Bind acquisition, Task, selected target,
+   permitted source changes and source hashes in ignored `.blueprint/import/<task-name>.json` evidence under the execution root.
+   Under publication_lock, recheck concurrent source changes, then save
    Model sources through the existing journal/rollback transaction. Source-save failure
    restores that transaction. Contract flags alone never authorize IMPORT edits.
 8. Generate only selected-service Markdown/JSON from saved sources. Keep the existing

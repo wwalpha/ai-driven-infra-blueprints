@@ -20,7 +20,7 @@ def selected(root):
     if not records:
         return None
     name = task_path(root).relative_to(root).as_posix()
-    # Select current task identity/scope; reservation conflicts belong to publication.
+    # Select the current task and its IMPORT scope.
     return _selection(root, name, records.get(name, ''))
 
 

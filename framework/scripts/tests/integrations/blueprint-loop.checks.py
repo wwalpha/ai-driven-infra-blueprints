@@ -350,7 +350,7 @@ def check_staged_snapshot(tmp_path):
                 "- `framework/scripts/validate-blueprint.py`\n## Allowed paths\n- `tasks/snapshot.md`\n"
                 "- `framework/scripts/validate-blueprint.py`\n")
     MODULE.git(root, "init", "-q")
-    active.write_text(tasks.bind_worktree(root, contract), encoding="utf-8")
+    active.write_text(contract, encoding="utf-8")
     validator = scripts / "validate-blueprint.py"
     validator.write_text("print('base')\n", encoding="utf-8")
     MODULE.git(root, "add", ".")
@@ -361,10 +361,8 @@ def check_staged_snapshot(tmp_path):
     base = MODULE.git(root, "rev-parse", "HEAD")
     validator.write_text(
         "from pathlib import Path\nimport subprocess\n"
-        "from task_contract import worktree_owner, worktree_identity\n"
         "text=Path('tasks/snapshot.md').read_text(encoding='utf-8')\n"
-        "assert worktree_owner(text) == worktree_identity(Path.cwd())\n"
-        f"assert '\\n'.join(line for line in text.splitlines() if not line.startswith('- Worktree identity:')) + '\\n' == {contract!r}\n"
+        f"assert text == {contract!r}\n"
         "assert subprocess.check_output(['git','rev-list','--count','HEAD'], text=True).strip() == '1'\n"
         "paths=subprocess.check_output(['git','diff','--cached','--name-only'], text=True)\n"
         "assert 'validate-blueprint.py' in paths\nprint('日本語 snapshot')\n", encoding="utf-8")
@@ -526,16 +524,15 @@ def check_failure_suspension(tmp_path):
         text = (root / first).read_text()
         assert tasks.status(text) == "suspend" and "schema mismatch" in text
         assert (root / other).read_bytes() == untouched
-        assert "PASS own.checks.py" in result.stdout, "remaining checks must finish before releasing reservations"
+        assert "PASS own.checks.py" in result.stdout, "remaining checks must finish before suspension"
         replacement = "tasks/replacement.md"
         tasks.start(root, replacement, contract(replacement, "first.md"))
         tasks.resume(root, first)
-        entry = tasks.reservations(root, tasks.contracts(root))[first]
-        assert entry.state == "running" and entry.deferred == {"first.md": (replacement,)}
+        assert tasks.status((root / first).read_text()) == "running"
         validator.write_text("print('validator passed')\n", encoding="utf-8")
         save_inputs()
         result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
-        assert result.returncode == 0 and "Blueprint task: DEFERRED" in result.stdout, result.stdout + result.stderr
+        assert result.returncode == 0, result.stdout + result.stderr
         assert tasks.status((root / first).read_text()) == "running"
         tasks.suspend(root, replacement, "replacement paused after check failure")
         tasks.resume(root, first)
@@ -633,7 +630,6 @@ def check_startup_diagnostics(tmp_path, phase):
     with patch.object(MODULE, "__file__", str(runner)), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()), \
-         patch.object(MODULE, "task_changes", return_value=set()), \
          patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
          patch.object(MODULE.subprocess, "run", side_effect=run), \
          patch.object(sys, "stdout", Console()), patch.object(sys, "stderr", Console()), \

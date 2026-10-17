@@ -19,7 +19,7 @@ from model_files import model_file_contents, model_parts, resource_row_index
 from model_parameter_inputs import yaml_read, service_inputs
 from model_templates import publication_lock, json_read, json_text, publish, service_source, parse_template, bound_definition, variables
 from model_references import catalog_outputs
-from task_contract import reserved_batches, task_path, section, DeferredExhausted
+from task_contract import task_path, section
 from validation_scope import active_scope
 from validation_cache import input_scope, memo_table
 from script_loader import module as load_script
@@ -634,8 +634,8 @@ def contract_scope(root, scope):
         raise ValueError('IMPORT requires a running Task Contract')
 
 
-def reserve_outputs(root, identity, sources, views, consumers=None):
-    """Register only exact selected candidate paths under the existing task lock."""
+def record_outputs(root, identity, sources, views, consumers=None):
+    """Record selected IMPORT outputs and direct consumers in the task plan."""
     from import_scope import source_paths
     template, parts, parameters = source_paths(identity)
     consumers = set(consumers or {identity})
@@ -654,26 +654,24 @@ def reserve_outputs(root, identity, sources, views, consumers=None):
     paths = {file.relative_to(root).as_posix() for file in sources | views}
     for relative in paths:
         task_contract.safe_path(root, relative)
-    with task_contract.registration_lock(root):
-        contract_scope(root, {identity})
-        records = task_contract.contracts(root, include_foreign=True)
-        selected = task_path(root)
-        name = selected.relative_to(root).as_posix()
-        text = task_contract.selected_text(root, records, name)
-        fixed = '- IMPORT target: `' + '/'.join(identity) + '`'
-        if not re.search(r'^- IMPORT target:', text, re.M):
-            text = text.replace('- Workflow: `import`', '- Workflow: `import`\n' + fixed)
-        declared = active_scope(root)
-        body = '## Validation scope\n\n' + ''.join('- `' + '/'.join(item) + '`\n' for item in sorted(declared | consumers)) + '\n'
-        text = re.sub(r'^## Validation scope\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
-        for heading in ('## Allowed paths', '## Modified files'):
-            existing = task_contract.paths_in(text, heading)
-            if paths - existing:
-                body = heading + '\n\n' + ''.join('- `' + path + '`\n' for path in sorted(existing | paths)) + '\n'
-                text = re.sub(r'^' + heading + r'\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
-        text = task_contract.acquire(root, name, text, records)
-        if text != records[name]:
-            atomic_files({selected: text}, staging_directory=root)
+    contract_scope(root, {identity})
+    records = task_contract.contracts(root)
+    selected = task_path(root)
+    name = selected.relative_to(root).as_posix()
+    text = task_contract.selected_text(root, records, name)
+    fixed = '- IMPORT target: `' + '/'.join(identity) + '`'
+    if not re.search(r'^- IMPORT target:', text, re.M):
+        text = text.replace('- Workflow: `import`', '- Workflow: `import`\n' + fixed)
+    declared = active_scope(root)
+    body = '## Validation scope\n\n' + ''.join('- `' + '/'.join(item) + '`\n' for item in sorted(declared | consumers)) + '\n'
+    text = re.sub(r'^## Validation scope\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
+    for heading in ('## Allowed paths', '## Modified files'):
+        existing = task_contract.paths_in(text, heading)
+        if paths - existing:
+            body = heading + '\n\n' + ''.join('- `' + path + '`\n' for path in sorted(existing | paths)) + '\n'
+            text = re.sub(r'^' + heading + r'\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
+    if text != records[name]:
+        atomic_files({selected: text}, staging_directory=root)
 
 
 @input_scope
@@ -741,22 +739,21 @@ def refresh_selected(root, target, service, dry_run, cli_runner):
         return result
     document = root / 'docs/designs' / identity[0] / identity[1] / (service + '.md')
     managed = owned_artifacts(document, expansion.values)
-    reserve_outputs(root, identity, set(output), set(), preserved)
-    for _ in reserved_batches(root, {'import-model': set(output)}):
-        with publication_lock(root):
-            contract_scope(root, scope)
-            unchanged(snapshot)
-            from import_guard import proof_path
-            evidence = proof_path(root)
-            previous_proof = evidence.read_text(encoding='utf-8') if evidence.is_file() else None
-            record_import(root, output, scope, ctx, {'values': values, 'sources': {str(p.relative_to(root)): text for p, text in output.items()},
-                          'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=not unreflected)
-            try:
-                publish(root, output, inputs=snapshot, verify=lambda: finish_import(root, 'reflected' if output else 'unchanged'))
-            except (OSError, ValueError):
-                from sync_files import atomic_files
-                atomic_files({evidence: previous_proof}, staging_directory=evidence.parent)
-                raise
+    record_outputs(root, identity, set(output), set(), preserved)
+    with publication_lock(root):
+        contract_scope(root, scope)
+        unchanged(snapshot)
+        from import_guard import proof_path
+        evidence = proof_path(root)
+        previous_proof = evidence.read_text(encoding='utf-8') if evidence.is_file() else None
+        record_import(root, output, scope, ctx, {'values': values, 'sources': {str(p.relative_to(root)): text for p, text in output.items()},
+                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=not unreflected)
+        try:
+            publish(root, output, inputs=snapshot, verify=lambda: finish_import(root, 'reflected' if output else 'unchanged'))
+        except (OSError, ValueError):
+            from sync_files import atomic_files
+            atomic_files({evidence: previous_proof}, staging_directory=evidence.parent)
+            raise
     result['model'] = 'reflected' if output else 'unchanged'
     snapshot.update({p: None if text is None else text.encode('utf-8') for p, text in output.items()})
     memo_table().clear()
@@ -765,14 +762,13 @@ def refresh_selected(root, target, service, dry_run, cli_runner):
             unchanged(snapshot)
             saved = load_for_edit(path)
             publication, view_inputs = view_plan(document, saved.values, root, managed)
-        reserve_outputs(root, identity, set(), set(publication), preserved)
-        for _ in reserved_batches(root, {'import-views': set(publication)}):
-            with publication_lock(root):
-                contract_scope(root, scope)
-                unchanged(snapshot)
-                unchanged(view_inputs)
-                publish(root, publication, inputs={**snapshot, **view_inputs})
-                finish_import(root, markdown='generated' if publication else 'unchanged')
+        record_outputs(root, identity, set(), set(publication), preserved)
+        with publication_lock(root):
+            contract_scope(root, scope)
+            unchanged(snapshot)
+            unchanged(view_inputs)
+            publish(root, publication, inputs={**snapshot, **view_inputs})
+            finish_import(root, markdown='generated' if publication else 'unchanged')
         result['files'] = sorted(set(result['files']) | {p.relative_to(root).as_posix() for p in publication})
         result['markdown'] = 'generated' if publication else 'unchanged'
     except Exception as error:
@@ -826,9 +822,6 @@ def main():
                          no_profile=args.no_profile)
         print_report(result)
         return 2 if result['status'] == 'incomplete' else 3 if result['markdown'] == 'failed' else 0
-    except DeferredExhausted:
-        print('{"status":"pending","reason":"reservations remain Deferred; import is unfinished"}')
-        return 2
     except Exception as error:
         # CLI errors can contain credential data; only controlled diagnostic messages leave this boundary.
         controlled = ('environment ', 'target ', 'explicit profile ', 'AWS ', 'IMPORT ', 'import ',

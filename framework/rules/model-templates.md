@@ -121,11 +121,9 @@ batch after existing Model/catalog/schema/reference validation. Read-only valida
 rejects stale views. Observed updates publish only observed.json and authorized generated
 views.
 Generation validates every candidate, including unchanged sidecars. Only outputs whose
-publication bytes differ from existing files require reservations and enter publication;
-preserve existing Markdown newline conventions when comparing. Under the publication
-lock, recheck source snapshots, output differences and write reservations immediately
-before saving. A previously unchanged output that now differs requires its own writable
-reservation; never overwrite it without authorization. Keep each service's changed
+publication bytes differ from existing files enter publication; preserve existing
+Markdown newline conventions when comparing. Under the publication lock, recheck
+source snapshots and output differences immediately before saving. Keep each service's changed
 outputs in one rollback-protected batch, without restoring excluded unchanged outputs.
 All saves retain exclusion locks, input snapshots, atomic publication and rollback.
 `model_files.py <service.properties> --trace <exact-key>` reports definition/key and
@@ -303,13 +301,13 @@ python3 framework/scripts/tests/integrations/model_parameter_inputs.checks.py
 Trace uses existing placeholders to show descriptions/current values/destinations,
 explicit input sources and fixed references; no duplicate hand-maintained mapping.
 `save_parameters(model_path, inputs)` validates and writes readable YAML under existing
-reservation and atomic publication guards. Saving follows the YAML input contract and declared parameter order. Common template changes require all registered
+atomic publication guards. Saving follows the YAML input contract and declared parameter order. Common template changes require all registered
 consumers in Validation scope; local inputs/bindings require their own consumer.
 
 ## New service creation
 
 Declare a service template, human `parameters.yaml`, explicit `bindings.json`, and
-optional `observed.json` only when values exist under the target source directory. Reserve those inputs and the generated Markdown/JSON paths. `model_templates.py --create --environment <environment> --alias <target-directory> --service <service>`
+optional `observed.json` only when values exist under the target source directory. Declare those inputs and the generated Markdown/JSON paths. `model_templates.py --create --environment <environment> --alias <target-directory> --service <service>`
 validates the YAML and fixed bindings. It rejects invalid/missing inputs.
 Run normal sync and the scoped local loop before completion. This repository's input
 contract is YAML-only; no other repository is asserted to have adopted this contract.
@@ -361,6 +359,6 @@ Acquired non-secret ARN strings are values; generated ARNs and secrets remain fo
 The acquisition scope stays one environment/target/service. Save planned Model sources
 in one guarded journal transaction; then generate and publish only that service's views
 in a second transaction. Display failure retains saved Model. Recheck source snapshots,
-reservations, output collisions and hashes; do not perform candidate validation or
+output collisions and hashes; do not perform candidate validation or
 source/view equality validation. Unchanged Model can regenerate stale displays. Explicit
 issues remains responsible for design/input/reference and generated consistency checks.

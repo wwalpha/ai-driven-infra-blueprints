@@ -15,11 +15,11 @@ from support.framework_input_isolation_fixtures import (
 def check_framework_input_guards():
     with TemporaryDirectory() as directory:
         root = Path(directory)
-        findings = Findings(root, True)
+        findings = Findings(root)
         _check_validation_scope({}, {'model/templates/team/vpc.properties.tpl'}, None,
                                findings, root, set(), None)
         assert 'Model source changes require service Validation scope' in findings.errors
-        findings = Findings(root, True)
+        findings = Findings(root)
         _check_structure(findings, root)
         assert 'required directory missing: model/parameters' in findings.errors
         assert 'required directory missing: model/templates' in findings.errors

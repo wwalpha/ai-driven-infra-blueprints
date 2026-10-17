@@ -8,7 +8,7 @@ for runtime Models: read through model_files and trace expanded keys with `--tra
 Design edits use the common template, parameters.yaml and fixed bindings.json;
 authorized observed updates use observed.json. Include mechanically identified
 common-template consumers in generation/Validation scope. Retain this skill's
-single deployment target, issue gate, reservations and AWS permission boundary.
+single deployment target, issue gate and AWS permission boundary.
 
 
 # AWS API checks

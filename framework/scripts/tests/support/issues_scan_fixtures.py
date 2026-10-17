@@ -189,9 +189,9 @@ def expect_error(function, phrase=None):
         function()
     assert phrase is None or phrase in str(error.value), str(error.value)
 
-def concurrency(root):
-    # Same-worktree report writes wait for file acquisition, then merge latest contents.
-    from task_contract import refresh, complete, reservations, contracts, status
+def sequential_reports(root):
+    # Successive report writes merge the latest contents.
+    from task_contract import refresh, status
     commands = []
     contexts = []
     names = []
@@ -209,36 +209,10 @@ def concurrency(root):
                          '--target-directory', '123456789012', '--service', service, '--results', str(result)])
     try:
         report = 'issues/dev/123456789012/issues.md'
-        entries = reservations(root, contracts(root))
-        assert report in entries[names[0]].active and report in entries[names[1]].deferred
-        first = subprocess.run(commands[0], capture_output=True, text=True, timeout=30)
-        assert first.returncode == 0, first.stderr
-        # Exercise the actual CLI worker with a test clock. It releases the owner
-        # on retry 3; the same save invocation must acquire and publish automatically.
-        driver = """
-import runpy, sys
-from pathlib import Path
-sys.path.insert(0, sys.argv[1]); sys.argv = sys.argv[2:]
-import task_contract as tasks
-root = Path(sys.argv[sys.argv.index('--repository-root') + 1])
-count = 0
-def sleep(seconds):
-    global count
-    assert seconds == 30
-    count += 1
-    if count == 3:
-        tasks.complete(root, 'tasks/parallel-s3.md')
-    assert count <= 3
-tasks.time.sleep = sleep
-runpy.run_path(sys.argv[0], run_name='__main__')
-"""
-        result = subprocess.run([sys.executable, '-B', '-c', driver,
-                                 str(ROOT / 'framework/scripts'), *commands[1][2:]],
-                                capture_output=True, text=True, timeout=30)
-        assert result.returncode == 0, result.stderr
-        assert 'Acquired deferred reservation' in result.stdout, result.stdout
+        for command in commands:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, result.stderr
         assert status((root / names[1]).read_text()) == 'running'
-        assert not reservations(root, contracts(root))[names[1]].deferred
         text = (root / report).read_text()
         assert 'concurrent-s3' in text and 'concurrent-sqs' in text
     finally:
@@ -488,4 +462,4 @@ def scan_project(tmp_path):
     return root, values, template
 
 
-__all__ = ['Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'concurrency', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']
+__all__ = ['Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']

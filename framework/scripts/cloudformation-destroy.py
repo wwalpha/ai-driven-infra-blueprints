@@ -20,7 +20,7 @@ from cloudformation_observed import destroy_plan, sync_destroyed
 from issue_gate import require_target_no_issues
 from model_core import stack_model
 from model_files import load_model
-from task_contract import task_path, status, require_writable, paths_in, matches
+from task_contract import task_path, status, paths_in, matches
 from validation_scope import active_scope
 
 
@@ -65,7 +65,6 @@ def task_snapshot(root, environment, target, requested, plan):
     if scope is None or not services <= scope:
         raise Blocked("destroy requires explicit service Validation scope covering ownership and incoming references")
     paths = {root / value for value in plan["observed"]["paths"]} | {path}
-    require_writable(root, paths)
     allowed = paths_in(text, "## Allowed paths")
     if any(not any(matches(file.relative_to(root).as_posix(), pattern) for pattern in allowed) for file in paths):
         raise Blocked("destroy observed outputs outside Allowed paths")
@@ -358,7 +357,7 @@ def controller_main(argv=None, root=None):
     parser.add_argument("--profile")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--sequential", action="store_true")
-    parser.add_argument("--local-plan", action="store_true", help="local JSON ownership/reservation plan; no AWS calls")
+    parser.add_argument("--local-plan", action="store_true", help="local JSON resource/output plan; no AWS calls")
     parser.add_argument("--timing-log", type=Path)
     args = parser.parse_args(argv)
     root = (root or Path(__file__).resolve().parents[2]).resolve()
@@ -388,7 +387,7 @@ def controller_main(argv=None, root=None):
         if args.resume:
             session = json.loads(state_path.read_text(encoding="utf-8"))
             if session.get("version") != 1 or session.get("identity") != identity:
-                raise Blocked("destroy session target/profile/scope/ownership/reservations changed")
+                raise Blocked("destroy session target/profile/scope/outputs changed")
         else:
             if state_path.exists():
                 raise Blocked("new destroy session requires unused state path")

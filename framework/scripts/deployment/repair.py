@@ -12,7 +12,6 @@ from comparison_rows import Unresolved, put_row
 from issues_iac import Comparison
 from iac_values import same, fingerprint
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
-from task_contract import writable_batch
 from validation_scope import active_scope as validation_scope
 from deployment.scheduler import SUCCESS
 
@@ -382,14 +381,13 @@ def finish_repair(refresh_validation, save, cleanup_failed_create, reset_after_c
 def resume_candidate(root, workdir, file_digest, input_digest, expected_digests, infra_manifest, save,
         finish_repair, unit, state, entry):
     path = root / entry['path']
-    with writable_batch(root, [path]):
-        candidate_path = Path(entry['candidatePath']).resolve()
-        if not candidate_path.is_relative_to(workdir.resolve()) or file_digest(candidate_path, fresh=True) != entry['newFileDigest']:
-            raise Blocked('pending repair recovery copy missing/changed')
-        if file_digest(path, fresh=True) == entry['oldFileDigest']:
-            path.write_bytes(candidate_path.read_bytes())
-        if file_digest(path, fresh=True) != entry['newFileDigest'] or input_digest(unit, fresh=True) != entry['newDigest']:
-            raise Blocked('pending repair bytes changed')
+    candidate_path = Path(entry['candidatePath']).resolve()
+    if not candidate_path.is_relative_to(workdir.resolve()) or file_digest(candidate_path, fresh=True) != entry['newFileDigest']:
+        raise Blocked('pending repair recovery copy missing/changed')
+    if file_digest(path, fresh=True) == entry['oldFileDigest']:
+        path.write_bytes(candidate_path.read_bytes())
+    if file_digest(path, fresh=True) != entry['newFileDigest'] or input_digest(unit, fresh=True) != entry['newDigest']:
+        raise Blocked('pending repair bytes changed')
     expected_digests[unit['name']] = entry['newDigest']
     infra_manifest[entry['path']] = entry['newFileDigest']
     entry['stage'] = 'VALIDATING'
@@ -407,23 +405,22 @@ def apply_candidate(root, workdir, file_digest, input_digest, deployment_input_p
     if any(sum(logical in entry['failureClass'].split('|') for entry in attempts) >= 3
            for logical in logical_classes) or any(entry['newFileDigest'] == candidate for entry in attempts):
         raise Blocked('repair iteration limit/no material progress for logical failure class')
-    with writable_batch(root, [path]):
-        entry = {'classification': 'AUTO_REPAIRABLE', 'failureClass': failure_class,
-                 'path': path.relative_to(root).as_posix(), 'oldFileDigest': file_digest(path, fresh=True),
-                 'newFileDigest': candidate, 'oldDigest': input_digest(unit, fresh=True),
-                 'stage': 'REPAIR_INTENT', 'changeSetId': state.get('changeSetId')}
-        workdir.mkdir(parents=True, exist_ok=True)
-        candidate_path = workdir / ('repair-' + uuid.uuid4().hex + path.suffix)
-        candidate_path.write_text(text, encoding='utf-8')
-        entry['candidatePath'] = str(candidate_path)
-        entry['newDigest'] = fingerprint([candidate if p == path else file_digest(p, fresh=True)
-            for p in deployment_input_paths([unit])])
-        history.append(entry)
-        state['failureClassification'] = 'AUTO_REPAIRABLE'
-        save()  # Persist authorized exact bytes before modifying IaC.
-        path.write_text(text, encoding='utf-8')
-        if input_digest(unit, fresh=True) != entry['newDigest']:
-            raise Blocked('repair inputs changed outside the exact authorized candidate')
+    entry = {'classification': 'AUTO_REPAIRABLE', 'failureClass': failure_class,
+             'path': path.relative_to(root).as_posix(), 'oldFileDigest': file_digest(path, fresh=True),
+             'newFileDigest': candidate, 'oldDigest': input_digest(unit, fresh=True),
+             'stage': 'REPAIR_INTENT', 'changeSetId': state.get('changeSetId')}
+    workdir.mkdir(parents=True, exist_ok=True)
+    candidate_path = workdir / ('repair-' + uuid.uuid4().hex + path.suffix)
+    candidate_path.write_text(text, encoding='utf-8')
+    entry['candidatePath'] = str(candidate_path)
+    entry['newDigest'] = fingerprint([candidate if p == path else file_digest(p, fresh=True)
+        for p in deployment_input_paths([unit])])
+    history.append(entry)
+    state['failureClassification'] = 'AUTO_REPAIRABLE'
+    save()  # Persist authorized exact bytes before modifying IaC.
+    path.write_text(text, encoding='utf-8')
+    if input_digest(unit, fresh=True) != entry['newDigest']:
+        raise Blocked('repair inputs changed outside the exact authorized candidate')
     expected_digests[unit['name']] = entry['newDigest']
     infra_manifest[entry['path']] = candidate
     entry['stage'] = 'VALIDATING'
