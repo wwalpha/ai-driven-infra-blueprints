@@ -1394,11 +1394,93 @@ def check_shared_stack_mapping(framework_root):
     params.mkdir(parents=True)
     for unit in scoped:
         (params / unit["parameters"]).write_text("[]")
+
+    import cloudformation_observed as observed
+    import model_files
+    import model_templates
+    from import_scope import scoped_read
+    from validation_cache import input_scope, memoized, memo_table
+    from collections import Counter
+
+    def measured(entry, *args):
+        bodies = Counter()
+        original = model_files.load_model.__wrapped__.__wrapped__
+        def body(*inputs):
+            bodies[inputs] += 1
+            return original(*inputs)
+        with patch.object(model_files, 'load_model', wraps=scoped_read(memoized(body))) as lookups, \
+             patch.object(model_templates, 'expand', wraps=model_templates.expand) as expanded:
+            result = entry(*args)
+        return result, lookups.call_count, bodies, expanded.call_count
+
     with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda path: (json.loads(Path(path).read_text()), []))}), \
             patch.object(M, "subprocess") as no_aws:
         assert preflight(root, "dev", "123456789012", [u["name"] for u in scoped])[1] == backend.mapping_plan[1]
+        for entry, args, expected_before, expected_after in (
+            (mappings, (root, 'dev', '123456789012', backend.templates, scoped), 3, 2),
+            (preflight, (root, 'dev', '123456789012', [u['name'] for u in scoped]), 4, 2),
+        ):
+            with patch.object(observed, 'mappings', mappings.__wrapped__):
+                before, hits_before, bodies_before, expansions_before = measured(entry.__wrapped__, *args)
+            after, hits_after, bodies_after, expansions_after = measured(entry, *args)
+            assert after == before
+            assert hits_before == expected_before and hits_after == expected_before
+            assert sum(bodies_before.values()) == expansions_before == expected_before
+            assert sum(bodies_after.values()) == expansions_after == expected_after
+            assert max(bodies_after.values()) == 1 and memo_table() is None
+            print(f'{entry.__name__} synthetic reuse: lookups={hits_before}->{hits_after}, '
+                  f'expansion bodies={expansions_before}->{expansions_after}; mapping unchanged')
+
+            @input_scope
+            def inherited():
+                memo = memo_table()
+                first = entry(*args)
+                assert memo_table() is memo
+                assert entry(*args) == first and memo_table() is memo
+            _, _, bodies, expanded = measured(inherited)
+            assert max(bodies.values()) == 1 and expanded == expected_after
+            assert memo_table() is None
+            assert measured(entry, *args)[3] == expected_after  # Separate invocation re-expands.
+
+        # Optional observed input creation/removal is visible on the very next mapping.
+        observed_path = model_templates.source_paths(source)[2] / 'observed.json'
+        observed_path.write_text('{', encoding='utf-8')
+        try:
+            rejects(lambda: mappings(root, 'dev', '123456789012', backend.templates, scoped), 'Expecting')
+            assert memo_table() is None
+        finally:
+            observed_path.unlink()
+        assert mappings(root, 'dev', '123456789012', backend.templates, scoped) == backend.mapping_plan
+        # Current contract scope is re-read, even when an outer snapshot already has the Model.
+        @input_scope
+        def changed_permission():
+            original = task.read_text(encoding='utf-8')
+            mappings(root, 'dev', '123456789012', backend.templates, scoped)
+            try:
+                task.write_text(original.replace('dev/123456789012/ec2', 'dev/123456789012/kms'), encoding='utf-8')
+                rejects(lambda: mappings(root, 'dev', '123456789012', backend.templates, scoped), 'outside Validation scope')
+            finally:
+                task.write_text(original, encoding='utf-8')
+        changed_permission()
+        assert memo_table() is None
+        rejects(lambda: preflight(root, 'dev', '123456789012', ['missing']), 'unique designed StackName')
+        assert memo_table() is None
+        for name in (scoped[0]['name'], 'missing'):
+            results = []
+            for entry, mapping in ((preflight.__wrapped__, mappings.__wrapped__), (preflight, mappings)):
+                stdout = io.StringIO()
+                with patch.object(observed, 'preflight', lambda unused, *args: entry(root, *args)), \
+                     patch.object(observed, 'mappings', mapping), \
+                     patch.object(sys, 'argv', ['cloudformation_observed.py', '--environment', 'dev',
+                                               '--target-directory', '123456789012', '--stack', name]), \
+                     redirect_stdout(stdout):
+                    code = observed.main()
+                results.append((code, stdout.getvalue()))
+            assert results[0] == results[1] and results[1][0] == int(name == 'missing')
+            assert memo_table() is None
         no_aws.run.assert_not_called()
     def aws(operation, *args):
+        assert memo_table() is None  # Mapping snapshots end before AWS waits and observed publication.
         name = args[args.index("--stack-name") + 1]
         if operation == "describe-stacks":
             return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcId", "OutputValue": expected[name]}]}]}

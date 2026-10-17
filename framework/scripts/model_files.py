@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 from typing import NamedTuple
-from validation_cache import memoized
+from validation_cache import input_scope, memoized
 from import_scope import scoped_read
 
 
@@ -166,6 +166,7 @@ def resource_keys(text: str, selector: str) -> set[str]:
     return {key for key in values if key.startswith(prefixes)}
 
 
+@input_scope
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path, help="Logical model/<environment>/<target>/<service>.properties identifier; no file is stored")

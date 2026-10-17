@@ -192,6 +192,172 @@ def check_resource_reading(root):
         else:
             raise AssertionError("ambiguous selector or invalid grouped parent accepted")
 
+    from collections import Counter
+    from contextlib import ExitStack
+    from import_scope import scoped_read, read_consumers
+    from validation_cache import input_scope, memoized, memo_table
+
+    consumer = root / 'reuse/model/dev/team/kms.properties'
+    producer = consumer.with_name('iam.properties')
+    write_model(producer, {
+        'desired.resource.001.resourceType': 'IAM.Role',
+        'desired.resource.001.anchor': 'role',
+        'desired.row.001-001.property': 'IAM.Role.RoleName',
+        'desired.row.001-001.value': '`shared-role`',
+    })
+    write_model(consumer, {
+        'desired.resource.001.resourceType': 'KMS.Key',
+        'desired.resource.001.anchor': 'key',
+        'desired.note.first.text': '<<First>>',
+        'desired.note.second.text': '<<Second>>',
+        'desired.note.anchor.text': '<<Anchor>>',
+        'desired.note.account.text': '<<Account>>',
+    })
+    _, template, parameters = model_templates.source_paths(consumer)
+    text = template.read_text(encoding='utf-8')
+    references = ''.join('# reference: ' + name + ' ' + json.dumps({
+        'service': 'iam', 'resource': '001', 'resourceType': 'IAM.Role', **mode}) + '\n'
+        for name, mode in (('First', {'format': 'name'}), ('Second', {'format': 'name'}), ('Anchor', {})))
+    text = text.replace('# model-template: 1\n', '# model-template: 1\n# input: Account ' + json.dumps({
+        'type': 'string', 'description': 'account', 'required': True, 'source': 'consumer.executionAccountId'}) + '\n')
+    template.write_text(text.replace('# resource:', references + '# resource:', 1), encoding='utf-8')
+    (consumer.parents[3] / 'project.json').write_text(json.dumps({'targets': [{
+        'environment': 'dev', 'alias': 'team', 'awsAccountId': '123456789012',
+        'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
+
+    def invoke_references(entry, flag='--find', selector='desired.note.'):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        lookups, bodies = {}, {}
+        with ExitStack() as patches:
+            for module, name in ((model_files, 'load_model'), (model_templates, '_reference_inputs'),
+                                 (model_templates, 'reference_values'), (model_templates, '_parse_template')):
+                original = getattr(module, name)
+                body = original.__wrapped__ if name == '_parse_template' else original.__wrapped__.__wrapped__
+                calls = Counter()
+                def counted(*args, _body=body, _calls=calls):
+                    _calls[args] += 1
+                    return _body(*args)
+                cached = memoized(counted)
+                if name != '_parse_template':
+                    cached = scoped_read(cached)
+                lookups[name] = patches.enter_context(patch.object(module, name, wraps=cached))
+                bodies[name] = calls
+            patches.enter_context(patch.object(sys, 'argv', ['model_files.py', str(consumer), flag, selector]))
+            patches.enter_context(redirect_stdout(stdout))
+            patches.enter_context(redirect_stderr(stderr))
+            code = entry()
+        return (code, stdout.getvalue(), stderr.getvalue()), {name: spy.call_count for name, spy in lookups.items()}, bodies
+
+    for flag, selector in (('--find', 'desired.note.'), ('--resource', '001'),
+                           ('--trace', 'desired.note.first.text'), ('--resource', 'missing'),
+                           ('--trace', 'missing')):
+        before, hits_before, bodies_before = invoke_references(model_files.main.__wrapped__, flag, selector)
+        after, hits_after, bodies_after = invoke_references(model_files.main, flag, selector)
+        assert after == before, (flag, before, after)
+        assert memo_table() is None
+        assert all(max(counts.values(), default=0) <= 1 for counts in bodies_after.values()), bodies_after
+        assert sum(bodies_after['reference_values'].values()) == 2
+        assert sum(bodies_after['_reference_inputs'].values()) == 1
+        assert sum(bodies_before['reference_values'].values()) == 3
+        assert sum(bodies_before['_reference_inputs'].values()) == 3
+        assert hits_before['reference_values'] == hits_after['reference_values'] == 3
+        assert hits_before['_parse_template'] == 4 and hits_after['_parse_template'] == 2
+        assert sum(bodies_before['_parse_template'].values()) == 4
+        assert sum(bodies_after['_parse_template'].values()) == 2
+    print('CLI synthetic reuse: reference lookups=3->3, reference bodies=3->2, '
+          'producer preparation bodies=3->1, parser bodies=4->2; output/exit unchanged')
+
+    @input_scope
+    def inherited():
+        memo = memo_table()
+        loaded = model_files.load_model(consumer)
+        result, _, bodies = invoke_references(model_files.main)
+        assert result[0] == 0 and memo_table() is memo
+        # The counter uses its own function identity; the production reader still shares its entry.
+        assert model_files.load_model(consumer) is loaded
+        assert all(max(counts.values(), default=0) <= 1 for counts in bodies.values())
+        with restrict(('dev', 'team', 'kms')):
+            with read_consumers({('dev', 'team', 'kms'), ('dev', 'team', 'iam')}):
+                model_files.load_model(producer)
+                model_templates._reference_inputs(producer)
+                model_templates.reference_values(producer, '001', 'IAM.Role', 'name')
+            for read in (lambda: model_files.load_model(producer),
+                         lambda: model_templates._reference_inputs(producer),
+                         lambda: model_templates.reference_values(producer, '001', 'IAM.Role', 'name')):
+                try:
+                    read()
+                except ValueError as error:
+                    assert 'outside selected' in str(error)
+                else:
+                    raise AssertionError('cached producer bypassed current IMPORT permission')
+    inherited()
+    assert memo_table() is None
+
+    # Each CLI call owns a fresh snapshot, including dependency, optional and topology inputs.
+    original, _, _ = invoke_references(model_files.main, '--resource', '001')
+    _, producer_template, producer_parameters = model_templates.source_paths(producer)
+    for file, changed in (
+        (template, template.read_text(encoding='utf-8') + 'invalid\n'),
+        (parameters / 'parameters.yaml', 'instances: [\n'),
+        (parameters / 'bindings.json', '{'),
+        (parameters / 'observed.json', '{'),
+        (producer_template, producer_template.read_text(encoding='utf-8').replace('shared-role', 'changed-role')),
+        (producer_parameters / 'parameters.yaml', 'instances: [\n'),
+        (consumer.parents[3] / 'project.json', '{'),
+    ):
+        saved = file.read_bytes() if file.exists() else None
+        try:
+            file.write_text(changed, encoding='utf-8')
+            result, _, bodies = invoke_references(model_files.main, '--resource', '001')
+            assert result != original and (result[0] == 1 or 'changed-role' in result[1]), (file, result)
+            assert sum(bodies['load_model'].values()) == 1, file
+        finally:
+            file.unlink() if saved is None else file.write_bytes(saved)
+        assert invoke_references(model_files.main, '--resource', '001')[0] == original
+
+    @input_scope
+    def publication():
+        original = model_files.load_model(consumer)
+        saved = producer_template.read_text(encoding='utf-8')
+        snapshot = model_templates.input_snapshot(consumer)
+        try:
+            model_templates.publish(consumer.parents[3], {
+                producer_template: saved.replace('shared-role', 'published-role')}, inputs=snapshot)
+            changed = model_files.load_model(consumer)
+            assert changed is not original and changed.values['desired.note.first.text'] == 'published-role'
+            # An external edit cannot be accepted by a publication using the pinned input snapshot.
+            inputs = model_templates.input_snapshot(consumer)
+            producer_template.write_text(saved, encoding='utf-8')
+            try:
+                model_templates.publish(consumer.parents[3], {}, inputs=inputs)
+            except ValueError as error:
+                assert 'changed after validation' in str(error)
+            else:
+                raise AssertionError('changed snapshot accepted')
+        finally:
+            model_templates.publish(consumer.parents[3], {producer_template: saved})
+    publication()
+    assert memo_table() is None
+
+    with patch.object(sys, 'argv', ['model_files.py', str(consumer), '--find', 'desired.note.']), \
+         patch.object(model_templates, 'load_expansion', side_effect=RuntimeError('injected')):
+        try:
+            model_files.main()
+        except RuntimeError as error:
+            assert str(error) == 'injected'
+        else:
+            raise AssertionError('unexpected exception swallowed')
+    assert memo_table() is None
+    try:
+        with patch.object(sys, 'argv', ['model_files.py']):
+            with redirect_stderr(io.StringIO()):
+                model_files.main()
+    except SystemExit as error:
+        assert error.code == 2
+    else:
+        raise AssertionError('argparse error accepted')
+    assert memo_table() is None
+
 
 def main():
     subprocess.run([sys.executable, "-B", "-c",

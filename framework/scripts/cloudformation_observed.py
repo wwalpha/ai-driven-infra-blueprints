@@ -17,6 +17,7 @@ from validation_scope import active_scope
 from issue_gate import require_target_no_issues
 from design_layout import GROUPED, HIDDEN_PROPERTIES
 from service_rows import CODEBUILD_FORMAL_VARIABLE
+from validation_cache import input_scope
 
 
 def ambiguous(detail):
@@ -125,6 +126,7 @@ def require_fixed_stack_names(source, selected):
     return bound
 
 
+@input_scope
 def mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory)
@@ -517,6 +519,7 @@ def sync_destroyed(backend, states, plan):
         states[name]["observedSynced"] = True
 
 
+@input_scope
 def preflight(root, environment, directory, stack_names):
     """Local inputs only: same mapping validator as the deploy controller."""
     target = load_target(root, environment, directory)
