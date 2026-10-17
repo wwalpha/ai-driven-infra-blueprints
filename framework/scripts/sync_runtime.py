@@ -384,15 +384,16 @@ class GenerationInputs:
         if self.stage is None:
             self.stage = Path(self.lifetime.enter_context(tempfile.TemporaryDirectory())).resolve()
             self.lifetime.enter_context(mapping_alias(self.root, self.stage))
+            framework_root = self.root / "framework"
             for directory, paths in self.trees.items():
-                if directory.is_relative_to(self.root):
+                if directory.is_relative_to(self.root) and not directory.is_relative_to(framework_root):
                     if directory.is_dir():
                         (self.stage / directory.relative_to(self.root)).mkdir(parents=True, exist_ok=True)
                     for path in paths:
-                        if path.is_dir():
+                        if path.is_dir() and not path.is_relative_to(framework_root):
                             (self.stage / path.relative_to(self.root)).mkdir(parents=True, exist_ok=True)
             for path, content in self.contents.items():
-                if content is not None and path.is_relative_to(self.root):
+                if content is not None and path.is_relative_to(self.root) and not path.is_relative_to(framework_root):
                     staged = self.stage / path.relative_to(self.root)
                     staged.parent.mkdir(parents=True, exist_ok=True)
                     staged.write_bytes(content)

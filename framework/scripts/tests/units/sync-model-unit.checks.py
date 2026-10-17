@@ -33,6 +33,47 @@ def check_stage_inputs_without_framework(tmp_path):
             assert (stage / relative).read_bytes() == content
 
 
+    root = tmp_path / "snapshot"
+    files = {
+        'framework/mappings/aws/fixture.yaml': b'Framework snapshot\n',
+        'framework/mappings/aws/owners.json': b'{"IAM.Role": "iam"}\n',
+        'model/templates/team/iam.properties.tpl': b'# synthetic template\n',
+        'docs/designs/dev/team/iam.md': b'# candidate\n',
+        'docs/designs/dev/team/iam/policy.json': b'{}\n',
+        'project.json': b'{}\n',
+    }
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    framework_file = root / 'framework/mappings/aws/fixture.yaml'
+    snapshot = sync_runtime.GenerationInputs(root)
+    try:
+        assert snapshot.contents[framework_file] == files[framework_file.relative_to(root).as_posix()]
+        assert framework_file in snapshot.trees[root / 'framework']
+        # A parent tree must not reintroduce Framework child directories.
+        snapshot.trees[root] = snapshot.file_set(root)
+        writes = []
+        write_bytes = Path.write_bytes
+        def record_write(path, content):
+            writes.append(path)
+            return write_bytes(path, content)
+        with patch.object(Path, 'write_bytes', record_write):
+            stage = snapshot.materialize()
+        assert not (stage / 'framework').exists()
+        assert not (stage / 'framework').is_symlink()
+        assert not any(path.is_relative_to(stage / 'framework') for path in writes)
+        for relative, content in files.items():
+            if not relative.startswith('framework/'):
+                assert (stage / relative).read_bytes() == content
+        snapshot.verify()
+        framework_file.write_bytes(b'changed\n')
+        with pytest.raises(ValueError, match='inputs changed.*fixture.yaml'):
+            snapshot.verify()
+    finally:
+        snapshot.close()
+
+
 def check_property_path_parents():
     paths = {"ConnectionInput.PhysicalConnectionRequirements.SubnetId", "Rules[].Target.Name", "ConnectionInputName"}
     assert property_paths_with_parents(paths) == {
@@ -290,7 +331,17 @@ def check_generation_counts(generated_policy):
     import model_templates
     from contextlib import ExitStack
     from validation import design as design_checks, design_tables, design_links, cloudformation
+    materialize = sync_runtime.GenerationInputs.materialize
+    stages = []
+    def check_stage(inputs):
+        stage = materialize(inputs)
+        assert not (stage / 'framework').exists()
+        assert not (stage / 'framework').is_symlink()
+        assert (stage / 'model').is_dir() and (stage / 'docs').is_dir()
+        stages.append(stage)
+        return stage
     with ExitStack() as stack:
+        stack.enter_context(patch.object(sync_runtime.GenerationInputs, 'materialize', check_stage))
         checks = [(design_checks, name) for name in ('check_design_service_ownership', 'check_resource_names',
                   'check_observed_values', 'check_policy_tables')]
         checks += [(sync_runtime, 'validate_required_properties'), (design_tables, 'check_design_tables'), (design_links, 'check_design_overviews'),
@@ -304,7 +355,7 @@ def check_generation_counts(generated_policy):
              patch.object(model_templates, 'load_sources', wraps=load_sources) as expand, \
              patch.object(sync_runtime, 'verify_saved', side_effect=AssertionError('post-save readback')):
             assert sync_runtime.sync(root, True, 'dev', '123456789012', ['iam']) == 0
-        assert generate.call_count == validate.call_count == verify.call_count == 1
+        assert len(stages) == generate.call_count == validate.call_count == verify.call_count == 1
         assert len([call for call in expand.call_args_list if call.args[0].stem == 'iam']) == 1
         assert all(counter.call_count == 1 for counter in counters), [counter.call_count for counter in counters]
     assert values['desired.note.001.text'] in design.read_text()
