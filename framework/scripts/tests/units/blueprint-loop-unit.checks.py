@@ -352,6 +352,9 @@ def check_it_fixture_isolation(tmp_path):
         generations.append(name)
         (root / name).mkdir()
         (root / name / 'value.txt').write_text(name)
+        if name == 'framework':
+            (root / name / 'framework/rules').mkdir(parents=True)
+            (root / name / 'framework/rules/example.md').write_text('shared rule')
     with patch.object(fixtures, 'build', side_effect=build):
         with fixtures.bundle() as root, patch.dict(os.environ, {fixtures.ENV: str(root)}):
             before = fixtures.fingerprint(root)
@@ -365,7 +368,39 @@ def check_it_fixture_isolation(tmp_path):
                     (first / 'value.txt').write_text('changed')
                     (first / 'new.txt').write_text('local')
                     assert (second / 'value.txt').read_text() == name
-                    assert set(p.name for p in second.iterdir()) == {'value.txt'}
+                    assert set(p.name for p in second.iterdir()) == (
+                        {'value.txt', 'framework'} if name == 'framework' else {'value.txt'})
+            from support.model_design_fixtures import root as model_design_root
+            shared = fixtures.source('framework') / 'framework'
+            with patch('support.it_workspace.populate', side_effect=AssertionError('case copy')), \
+                 patch('shutil.copytree', side_effect=AssertionError('framework copy')):
+                for order in (('a', 'b'), ('b', 'a')):
+                    cases = {}
+                    for name in order:
+                        directory = tmp_path / ''.join(order) / name
+                        directory.mkdir(parents=True)
+                        case = model_design_root.__wrapped__(directory)
+                        assert case == directory.resolve()
+                        assert (case / 'framework').is_symlink()
+                        assert (case / 'framework').resolve() == shared.resolve()
+                        assert not (case / 'framework/rules/example.md').stat().st_mode & 0o222
+                        assert [p.relative_to(case).as_posix() for p in
+                                (case / 'framework').rglob('*.md')] == ['framework/rules/example.md']
+                        assert not (case / 'model').exists()
+                        (case / 'model').mkdir()
+                        (case / 'model/value.txt').write_text(name)
+                        cases[name] = case
+                        assert fixtures.fingerprint(root) == before
+                    (cases['a'] / 'model/value.txt').write_text('changed')
+                    assert (cases['b'] / 'model/value.txt').read_text() == 'b'
+                    subprocess.run(['git', 'init', '-q', str(cases['a'])], check=True)
+                    subprocess.run(['git', 'add', '.'], cwd=cases['a'], check=True)
+                    tracked = subprocess.run(['git', 'ls-files', '--stage'], cwd=cases['a'],
+                                             check=True, capture_output=True, text=True).stdout
+                    assert any(line.startswith('120000 ') and line.endswith('\tframework')
+                               for line in tracked.splitlines())
+                    assert 'framework/rules/example.md' not in tracked
+                    assert '\tmodel/value.txt' in tracked
             assert fixtures.fingerprint(root) == before
         assert generations == list(fixtures.NAMES)
     assert not root.exists()
