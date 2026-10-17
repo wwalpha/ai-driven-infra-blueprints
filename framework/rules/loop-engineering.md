@@ -95,6 +95,32 @@ and classification reasons in the completion response; add no permanent reports/
 
 ### Local loop execution
 
+For ordinary Model edits use one command:
+
+```console
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
+```
+
+Explicit `--write` is passed to the leading validator. It evaluates common preconditions
+once, prepares all selected targets in one stage, validates each candidate responsibility
+once using retained expanded Models/results, compares consumed input bytes/file sets/the
+selected contract once under the publication lock, and saves only changed validated bytes.
+It then refreshes Git changed paths once for output-dependent Task conditions and
+`changed`/`exists`/`absent` Acceptance. Registered content checks reuse their exact
+scope/candidate PASS or FAIL; NOT_RUN checks run before publication. Unknown check IDs
+or undefined execution stages fail before saving. No post-save content readback,
+regeneration or full input rescan occurs. Changed fallback/rollback states require their
+own necessary reference checks and are not normal-path duplication.
+
+`--staged --write` and framework-only `--write` are rejected before Model discovery.
+`--mode full` does not expand generation scope. On a nonzero integrated validator exit,
+start no subsequent UT or Git checks; retain diagnostics and suspend the selected Task.
+Read-only loops retain diagnostic aggregation. Without `--write`, the loop and standalone
+validator remain read-only; `sync-model.py --write` remains the generation-only compatibility
+entrypoint. IMPORT's dedicated flow, AWS post-operation verification and independently
+invoked validation remain separate purposes. Follow
+[Selection and publication](task-contract.md#selection-and-publication) for concurrent editing.
+
 Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
 Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
@@ -165,7 +191,7 @@ or recursive dependencies. Import completion checks acquisition/source evidence 
 it runs no design validation or local loop. This exception does not apply to framework
 implementation changes or ordinary design workflows.
 
-Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing authoritative Model source/Markdown. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
+Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing authoritative Model sources. Read-only validation also rejects missing saved Markdown; integrated write validates candidate presence after generation. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
 
 ```md
 ## Validation scope
@@ -199,11 +225,17 @@ Shared internal modules conservatively select full regression under `--affected`
 
 ## Validation cache
 
-Ordinary task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
+Read-only task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
 
 For new inputs, changed contents, added/deleted files, missing/corrupt caches, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
 `--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Within-run-only catalog lists/model rows/path reuse is used even in fresh runs and does not carry over to the next execution. Display reused/executed service counts and include reused validation counts in successful counts. Do not terminate validation exceeding 60 seconds and call it PASS.
+
+Integrated write reuses current-run candidate results rather than service PassCache:
+never regenerate or read saved outputs to create a service cache. Catalog uses its
+existing compatible key from retained common input bytes; save a new Catalog PASS only
+after the single input comparison succeeds. `--fresh` disables cross-run reuse, while
+current-run deduplication remains active.
 
 ## Framework regression
 
@@ -274,8 +306,8 @@ Before design questions, on resume, target changes, before design contract regis
 
 1. Update authoritative template/parameters.yaml/bindings.json inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
 2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.json. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding template/parameters.yaml/bindings inputs first. Before generation, `framework/scripts/sync-model.py --write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
-4. Run the local loop.
+3. Save confirmed design values in the corresponding template/parameters.yaml/bindings inputs first. The integrated task loop with `--write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
+4. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 
 ## Infrastructure task completion

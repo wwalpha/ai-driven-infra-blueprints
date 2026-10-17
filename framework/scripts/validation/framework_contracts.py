@@ -157,7 +157,7 @@ def check_framework_design_handoff(findings, root):
         return
     prompt = path.read_text(encoding="utf-8")
     findings.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
-    findings.check("sync-model.py" in prompt, "service design prompt lacks properties-based Markdown generation")
+    findings.check("blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md" in prompt, "service design prompt lacks integrated Model generation/validation")
     from deploy_preparation import markdown_prose, markdown_sections, rule_readings
     try:
         completion = markdown_sections(prompt).get("completion", "")

@@ -78,6 +78,27 @@ def check_cache_location(tmp_path):
 
 
 
+def check_retained_common_key(tmp_path):
+    from sync_runtime import GenerationInputs
+    root = tmp_path
+    path = root/'framework/catalog.json'
+    path.parent.mkdir()
+    path.write_bytes(b'{}\n')
+    snapshot = GenerationInputs(root)
+    cache = PassCache(root)
+    retained = cache.common_key(snapshot.contents)
+    assert retained == cache.common_key()
+    path.write_bytes(b'[]\n')
+    assert cache.common_key(snapshot.contents) == retained
+    assert cache.common_key() != retained
+    try:
+        snapshot.verify()
+    except ValueError as error:
+        assert 'framework/catalog.json' in str(error)
+    else:
+        raise AssertionError('changed common inputs accepted')
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

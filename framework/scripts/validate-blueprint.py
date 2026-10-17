@@ -40,7 +40,7 @@ class Validator:
     checks = owned_field("findings", "checks")
     errors = owned_field("findings", "errors")
 
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False) -> None:
         self.findings = Findings(root)
         self.check = self.findings.check
         self.check_file = self.findings.check_file
@@ -49,6 +49,9 @@ class Validator:
         self.iac_paths = iac_paths
         self.task_iac_paths = task_iac_paths
         self.workers = workers
+        self.write = write
+        self.catalog_pending = None
+        self.catalog_key = None
         self.model_check = model_check
         self.cache = PassCache(root, fresh, include_project=scope != set()) if cache else None
         self.relative_paths = self.findings.relative_paths
@@ -68,20 +71,74 @@ class Validator:
 
     @input_scope
     def run(self) -> int:
+        if not self.write:
+            return self._run()
+        if self.scope == set() or self.contract_scope == set():
+            self.check(False, '--write requires service scope; framework scope cannot generate Models')
+            return self.report()
+        from sync_runtime import GenerationInputs
+        from model_templates import publication_lock
+        with publication_lock(self.root):
+            snapshot = GenerationInputs(self.root)
+        try:
+            snapshot.materialize()
+            if self.cache:
+                try:
+                    self.cache.common = self.cache.common_key(snapshot.contents)
+                    self.catalog_key = self.cache.key('catalog')
+                except (OSError, ValueError, KeyError, TypeError):
+                    self.catalog_key = None
+            return self._run(snapshot)
+        finally:
+            snapshot.close()
+
+    def input_check(self, snapshot, handler):
+        if snapshot is None:
+            return handler()
+        root, canonical = self.root, self.findings.canonical_root
+        paths, task_root = self.iac_paths, self.task.root
+        try:
+            self.root = self.task.root = snapshot.stage
+            self.findings.canonical_root = snapshot.stage
+            self.relative_paths.clear()
+            if paths is not None:
+                self.iac_paths = {snapshot.stage / p.relative_to(root) for p in paths}
+            return handler()
+        finally:
+            self.root, self.task.root, self.findings.canonical_root, self.iac_paths = root, task_root, canonical, paths
+            self.relative_paths.clear()
+
+    def _run(self, snapshot=None) -> int:
         self.relative_paths.clear()
-        if self.cache:
+        if self.cache and snapshot is None:
             self.cache.common = None
-        self.check_structure()
-        self.check_task_scope()
-        self.check_project_topology()
+        self.input_check(snapshot, self.check_structure)
+        if snapshot is None:
+            self.check_task_scope()
+        else:
+            self.task.check_task_scope(snapshot.expected_task[1])
+        registered = self.registered_checks()
+        for requirement, kind, value in self.acceptance_checks:
+            if kind == 'check':
+                self.check(value in registered, f'unknown registered Acceptance check: {requirement}: {value}')
+                self.check(value in self.acceptance_stages, f'undefined Acceptance execution stage: {requirement}: {value}')
+        self.input_check(snapshot, self.check_project_topology)
         self.check_validation_scope()
-        self.check_model_files()
-        self.check_issue_gate()
-        if self.changed_paths:
+        if not self.write:
+            self.check_model_files()
+        self.input_check(snapshot, self.check_issue_gate)
+        if self.changed_paths and not self.write:
             self.check_task_type_requirements()
-        self.check_initialized_paths()
-        self.check_catalog()
-        self.check_resource_layout()
+        self.input_check(snapshot, self.check_initialized_paths)
+        self.input_check(snapshot, self.check_catalog)
+        self.findings.evaluate('framework.resource-layout', self.scope, lambda: self.input_check(snapshot, self.check_resource_layout))
+        if self.write:
+            for _, kind, value in self.acceptance_checks:
+                if kind == 'check' and self.acceptance_stages.get(value) == 'common':
+                    self.findings.evaluate(value, self.scope, lambda value=value: self.input_check(snapshot, registered[value]))
+            if not self.errors:
+                self.generate_and_validate(snapshot, registered)
+            return self.report()
         if self.scope is None:
             self.check_designs()
             self.check_observed_values()
@@ -100,6 +157,9 @@ class Validator:
         if self.cache and self.cache.common is not None:
             self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during validation")
 
+        return self.report()
+
+    def report(self):
         if self.errors:
             print(f"Blueprint repository validation: FAIL ({len(self.errors)} errors)")
             for error in self.errors:
@@ -120,6 +180,96 @@ class Validator:
         self.report_findings()
         return 0
 
+
+    def generate_and_validate(self, snapshot, registered):
+        from sync_runtime import prepare_generation, validate_generation, publish_generation, report_generation
+        from task_contract import paths_in, status
+        name, text = snapshot.expected_task
+        self.check(text is not None and status(text, name == 'tasks/active.md') == 'running',
+                   '--write requires a running task contract')
+        if self.errors:
+            return
+        plan = prepare_generation(self.root, self.scope, snapshot=snapshot)
+        try:
+            plan.accounts = self.accounts
+            validate_generation(plan, jobs=self.workers)
+            common_ids = {name for name, phase in self.acceptance_stages.items() if phase == 'common'}
+            self.findings.bind_candidate(plan.candidate, common_ids)
+            # Candidate validation is the content authority for this exact input/final stage.
+            def generated():
+                for error in plan.failures:
+                    self.check(False, error)
+                for findings in plan.validation.values():
+                    if findings is not None:
+                        self.checks += findings.checks
+                return {"inputs": snapshot, "candidates": plan.expected_outputs, "validation": plan.validation}
+            self.findings.evaluate('framework.generated-service-model', self.scope, generated)
+            # Reuse the actual scope-wide policy result, never infer it from generation.
+            def policy_result():
+                common = plan.validation.get(None)
+                actual = None if common is None else common.result('framework.policy-tables', plan.generated_scope)
+                self.check(actual is not None and actual.status == 'PASS' and
+                           (self.scope is None or actual.scope == frozenset(self.scope)),
+                           'candidate policy validation is FAIL or NOT_RUN for the required scope')
+            self.findings.evaluate('framework.policy-tables', self.scope, policy_result)
+            candidate_error_count = len(self.errors)
+            planned = {p for outputs in plan.expected_outputs.values() for p, content in outputs.items()
+                       if snapshot.read(p) != content.encode('utf-8')}
+            allowed = paths_in(text, '## Allowed paths')
+            modified = paths_in(text, '## Modified files')
+            for path in planned:
+                relative = path.relative_to(self.root).as_posix()
+                self.check(relative in modified and any(self.task.matches(relative, pattern) for pattern in allowed),
+                           f'generated path is outside task scope: {relative}')
+                parts = path.relative_to(self.root / 'docs/designs').parts
+                identity = (*parts[:2], Path(parts[2]).stem)
+                self.check(self.scope is None or identity in self.scope, f'generated path is outside Validation scope: {relative}')
+            # Resolve every registered content handler before the first repository write.
+            for _, kind, value in self.acceptance_checks:
+                if kind == 'check':
+                    self.findings.evaluate(value, self.scope, lambda value=value: self.input_check(snapshot, registered[value]))
+            # Independent invalid candidates retain legacy partial success. Common/contract
+            # failures prevent every save; candidate failures are reported after publication.
+            if len(self.errors) != candidate_error_count:
+                return
+            if self.infrastructure_phase != 'destroy':
+                self.input_check(snapshot, self.check_iac_selection)
+            if self.infrastructure_phase != 'destroy' and (self.scope is None or self.task_type == 'infrastructure'):
+                self.input_check(snapshot, self.check_cloudformation_yaml_rules)
+                self.input_check(snapshot, self.check_cloudformation_environment_parameters)
+            if self.scope is None or self.task_type == 'scenario-test':
+                self.input_check(snapshot, self.check_scenarios)
+                self.input_check(snapshot, self.check_results)
+                self.input_check(snapshot, self.check_scenario_changes)
+            if len(self.errors) != candidate_error_count:
+                return
+            before_publication = len(plan.failures)
+            publish_generation(plan)
+            publication_errors = plan.failures[before_publication:]
+            if publication_errors:
+                self.findings.bind_candidate(plan.candidate, common_ids)
+                generation = self.findings.result('framework.generated-service-model', self.scope)
+                generation.status = 'FAIL'
+                generation.errors = tuple(plan.failures)
+                for error in publication_errors:
+                    self.check(False, error)
+                # The original scope's policy/content result belongs to the old candidate.
+                # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
+            if self.cache and self.catalog_pending is not None:
+                self.cache.save(*self.catalog_pending)
+            self.task.changed_paths = (
+                self.task.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
+                self.task.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']) |
+                self.task.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])) - {'.lock'}
+            self.check_task_type_requirements()
+            self.check_acceptance_checks()
+            try:
+                report_generation(plan)
+            except ValueError as error:
+                if not self.errors:
+                    self.check(False, str(error))
+        finally:
+            plan.close()
 
     def check_scoped_designs(self) -> None:
         # These whole-scope checks must also run when individual services are reused.
@@ -183,9 +333,20 @@ class Validator:
                     self.cache.save(key, checks)
         if self.cache:
             print(f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}")
+        generation = self.findings.result('framework.generated-service-model', self.scope)
+        generation.status = 'FAIL' if generator.errors else 'PASS'
+        generation.errors = tuple(generator.errors)
+        policy = self.findings.result('framework.policy-tables', self.scope)
+        policies = [validator.findings.result('framework.policy-tables', {entry})
+                    for entry, validator in results.items()]
+        policy.status = 'FAIL' if any(p.status != 'PASS' for p in policies) else 'PASS'
+        policy.errors = tuple(error for p in policies for error in p.errors)
         self.generated_models_checked = True
 
     def check_generated_service_models(self) -> None:
+        return self.findings.evaluate('framework.generated-service-model', self.scope, self._check_generated_service_models)
+
+    def _check_generated_service_models(self) -> None:
         if self.generated_models_checked:
             return
         self.generated_models_checked = True
@@ -214,23 +375,29 @@ class Validator:
 
     def check_catalog(self) -> None:
         try:
-            key = self.cache.key("catalog") if self.cache else None
+            key = self.catalog_key if self.write else self.cache.key("catalog") if self.cache else None
         except (OSError, ValueError, KeyError, TypeError):
             key = None
         cached = self.cache.load(key) if self.cache else None
         if cached is not None:
             self.checks += cached
+            for check_id in ('framework.cloudformation-schema-catalog', 'framework.api-design-catalog'):
+                self.findings.evaluate(check_id, self.scope, lambda: None)
             self.schema_catalog = DesignSchemaCatalog(self.root)
             print("Catalog validation: reused (content hashes match)")
-            self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during catalog validation")
+            if not self.write:
+                self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during catalog validation")
             return
         before, errors = self.checks, len(self.errors)
         self.check_catalog_inputs()
         if self.cache and key is not None and errors == len(self.errors):
-            unchanged = self.cache.common == self.cache.common_key()
-            self.check(unchanged, "framework/project inputs changed during catalog validation")
-            if unchanged:
-                self.cache.save(key, self.checks - before - 1)
+            if self.write:
+                self.catalog_pending = (key, self.checks - before)
+            else:
+                unchanged = self.cache.common == self.cache.common_key()
+                self.check(unchanged, "framework/project inputs changed during catalog validation")
+                if unchanged:
+                    self.cache.save(key, self.checks - before - 1)
 
 
     def check_designs(self) -> None:
@@ -282,7 +449,19 @@ class Validator:
         return framework_contracts.check_framework_focused_check_runner(self.findings, self.root)
 
     def check_validation_scope(self) -> None:
-        return project.check_validation_scope(self.accounts, self.changed_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths)
+        self.task.impact = project.check_validation_scope(self.accounts, self.changed_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
+        if self.write and self.task_type == 'design':
+            desired = {p for p in self.changed_paths if p.startswith('model/templates/') or
+                       p.startswith('model/parameters/') and Path(p).name in {'parameters.yaml', 'bindings.json'}}
+            if not desired:
+                self.task.design_impact = set()
+            elif any(p.startswith('model/') and Path(p).name == 'observed.json' for p in self.changed_paths):
+                # Desired-source task requirements differ from all-source validation impact.
+                from model_templates import affected
+                self.task.design_impact = affected(self.root, desired)
+            else:
+                self.task.design_impact = self.task.impact
+
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
         return framework_contracts.check_framework_cloudformation_schema_catalog(self.findings, self.root)
@@ -300,13 +479,13 @@ class Validator:
         project.check_project_topology(self.accounts, self.findings, self.root, self.template_mode)
 
     def check_initialized_paths(self) -> None:
-        return project.check_initialized_paths(self.accounts, self.findings, self.root, self.scope, self.template_mode)
+        return project.check_initialized_paths(self.accounts, self.findings, self.root, self.scope, self.template_mode, candidates=self.write)
 
     def check_api_design_catalog(self) -> None:
         return design.check_api_design_catalog(self.findings, self.root)
 
     def check_catalog_inputs(self) -> None:
-        design.check_catalog_inputs(self.findings, self.root, lambda catalog: setattr(self, "schema_catalog", catalog))
+        design.check_catalog_inputs(self.findings, self.root, lambda catalog: setattr(self, "schema_catalog", catalog), self.scope)
 
     def check_task_scope(self) -> None:
         return self.task.check_task_scope()
@@ -315,14 +494,30 @@ class Validator:
         return self.task.check_task_boundary(prompt)
 
     def check_issue_gate(self) -> None:
-        return self.task.check_issue_gate()
+        return self.task.check_issue_gate(self.scope) if self.write else self.task.check_issue_gate()
 
     def check_task_type_requirements(self) -> None:
         return self.task.check_task_type_requirements()
 
 
-    def check_acceptance_checks(self) -> None:
-        registered = {
+    acceptance_stages = {
+        'framework.active-task-transition': 'common',
+        'framework.rule-readings': 'common',
+        'framework.design-handoff': 'common',
+        'framework.task-completion-contract': 'common',
+        'framework.task-type-dispatch': 'common',
+        'framework.focused-check-runner': 'common',
+        'framework.resource-layout': 'common',
+        'framework.api-design-catalog': 'common',
+        'framework.cloudformation-schema-catalog': 'common',
+        'framework.schema-backed-design-validation': 'common',
+        'framework.cfn-lint-validation': 'common',
+        'framework.generated-service-model': 'candidate',
+        'framework.policy-tables': 'candidate',
+    }
+
+    def registered_checks(self):
+        return {
             "framework.active-task-transition": self.check_framework_active_task_transition,
             "framework.rule-readings": self.check_framework_rule_readings,
             "framework.design-handoff": self.check_framework_design_handoff,
@@ -337,7 +532,8 @@ class Validator:
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
             "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
         }
-        self.task.check_acceptance_checks(registered)
+    def check_acceptance_checks(self) -> None:
+        self.task.check_acceptance_checks(self.registered_checks(), self.scope, results_only=self.write)
 
     def check_model_files(self) -> None:
         return design.check_model_files(findings=self.findings, root=self.root, scope=self.scope)
@@ -368,7 +564,7 @@ class Validator:
         dict[str, set[str]],
         dict[str, set[str]],
     ]:
-        return design.check_design_service_ownership(markdown_paths, findings=self.findings, root=self.root)
+        return design.check_design_service_ownership(markdown_paths, findings=self.findings, root=self.root, design_sources=getattr(self, "design_sources", {}))
 
     @staticmethod
     def is_policy_document_property(property_name: str) -> bool:
@@ -381,10 +577,10 @@ class Validator:
         return design.check_resource_names(service_metadata, self.design_files() if paths is None else paths, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope)
 
     def check_policy_tables(self) -> None:
-        return design.check_policy_tables(self.design_files(), self.findings)
+        return self.findings.evaluate('framework.policy-tables', self.scope, lambda: design.check_policy_tables(self.design_files(), self.findings))
 
     def check_observed_values(self, paths: list[Path] | None = None) -> None:
-        return design.check_observed_values(paths, findings=self.findings, root=self.root, scope=self.scope)
+        return design.check_observed_values(paths, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}))
 
     def design_files(self) -> list[Path]:
         return design.design_files(root=self.root, scope=self.scope)
@@ -444,7 +640,7 @@ class Validator:
         return project.check_target_file(path, base, accounts=self.accounts, findings=self.findings)
 
     def check_stack_designs(self, paths: list[Path] | None = None) -> None:
-        return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope)
+        return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}))
 
     def check_iac_selection(self) -> None:
         if self.scope == set() and not self.accounts:
@@ -475,6 +671,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
+    parser.add_argument("--write", action="store_true", help="Generate, validate and publish selected service views")
     parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
     parser.add_argument("--repository-wide-iac", action="store_true", help="Retain whole-IaC checks for full/framework regression")
     parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
@@ -493,12 +690,15 @@ def main() -> int:
         return 2
     try:
         from deploy_preparation import task_deployment_input_paths
+        scope = active_scope(root, args.all)
+        contract_scope = active_scope(root) if args.contract_scope or args.write and args.all else None
+        if args.write and (scope == set() or contract_scope == set()):
+            raise ValueError('--write requires service scope; framework scope cannot generate Models')
         deployment_paths = task_deployment_input_paths(root)
-        validator = Validator(root, active_scope(root, args.all),
-                              active_scope(root) if args.contract_scope else None,
+        validator = Validator(root, scope, contract_scope,
                               cache=True, fresh=args.fresh or args.all, workers=args.jobs,
                               iac_paths=None if args.all or args.repository_wide_iac else deployment_paths,
-                              task_iac_paths=deployment_paths)
+                              task_iac_paths=deployment_paths, write=args.write)
         if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
             import cProfile
             import pstats

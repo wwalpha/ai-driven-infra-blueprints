@@ -17,6 +17,8 @@ Operate this repository in Codex with the repository root as the working directo
 
 ## Task transition
 
+Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication) for same-worktree editing and generation/validation.
+
 For changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation and chat-only consultation require no contract. Separately confirm the [issue gate](framework/rules/issue-gate.md) applicability conditions.
 
 ## How to read required rules

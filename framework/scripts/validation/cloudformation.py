@@ -317,7 +317,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
                 )
 
 
-def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, root, scope) -> None:
+def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, root, scope, design_sources=None) -> None:
     names: set[tuple[str, str, str]] = set()
     for path in stack_design_files(root=root, scope=scope) if paths is None else paths:
         target = check_target_file(path, root / "docs" / "designs", accounts=accounts, findings=findings)
@@ -336,7 +336,9 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             from cloudformation_observed import validate_mapping_targets
             source = (root / "model" / path.relative_to(root / "docs" / "designs")).with_suffix(".properties")
             if service_source(source) is not None:
-                mapping_values = properties(read_model(source))
+                mapping_values = (design_sources or {}).get(path)
+                if mapping_values is None:
+                    mapping_values = properties(read_model(source))
                 from model_core import stack_model
                 stack_model(mapping_values)
                 validate_mapping_targets(root, target[0], target[1], mapping_values)
@@ -358,7 +360,7 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             )
             findings.check(re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", name) is not None, f"invalid stack name: {name}")
             identity = (accounts[target]["account"], accounts[target]["region"], name)
-            findings.check(identity not in names, f"duplicate stack in AWS account/region: {name}")
+            findings.check(identity not in names, f"duplicate stack in AWS account/region: {name}: {findings.relative(path)}")
             names.add(identity)
             template = Path(stack["template"])
             findings.check(

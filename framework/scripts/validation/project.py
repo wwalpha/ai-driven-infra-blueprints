@@ -18,7 +18,7 @@ def check_target_file(path: Path, base: Path, *, accounts, findings) -> tuple[st
     return target
 
 
-def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths):
+def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths, *, candidates=False):
     if task_iac_paths is not None:
         for changed in sorted(changed_paths):
             if changed.startswith("infra/"):
@@ -26,6 +26,12 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                            f"changed IaC path is outside Deployment scope: {changed}")
     scope = contract_scope if contract_scope is not None else scope
     if scope is None:
+        if candidates:
+            from model_templates import affected
+            try:
+                return affected(root, changed_paths)
+            except (OSError, ValueError) as error:
+                findings.check(False, f'invalid Model source scope: {error}')
         return
     if not scope:
         findings.check(not any(path.startswith('model/') for path in changed_paths),
@@ -37,12 +43,14 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             findings.check(service_source(root/"model"/environment/target/(service+".properties")) is not None, f"validation YAML input missing: {environment}/{target}/{service}")
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid validation YAML input: {error}")
-        for base, suffix in (("docs/designs", ".md"),):
+        for base, suffix in (() if candidates else (("docs/designs", ".md"),)):
             relative = f"{base}/{environment}/{target}/{service}{suffix}"
             findings.check((root / relative).is_file(), f"validation input missing: {relative}")
     from model_templates import affected
+    impact = set()
     try:
-        for entry in affected(root, changed_paths) if scope else ():
+        impact = affected(root, changed_paths) if scope else set()
+        for entry in impact:
             findings.check(entry in scope, f"template source change requires affected validation scope: {'/'.join(entry)}")
     except (OSError, ValueError) as error:
         findings.check(False, f'invalid Model source scope: {error}')
@@ -54,6 +62,8 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                     continue  # Physical inputs are checked through affected() above.
                 identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
                 findings.check(identity in scope, f"changed design path is outside validation scope: {changed}")
+
+    return impact
 
 
 def check_project_topology(accounts, findings, root, template_mode):
@@ -191,16 +201,13 @@ def check_project_topology(accounts, findings, root, template_mode):
     return
 
 
-def check_initialized_paths(accounts, findings, root, scope, template_mode):
+def check_initialized_paths(accounts, findings, root, scope, template_mode, *, candidates=False):
     if template_mode:
         return
     for (environment, target_directory), values in accounts.items():
         if scope is not None and not any(item[:2] == (environment, target_directory) for item in scope):
             continue
-        paths = [
-            root / "docs" / "designs" / environment / target_directory,
-
-        ]
+        paths = [] if candidates else [root / "docs" / "designs" / environment / target_directory]
         if values["engine"] == "cloudformation":
             paths.append(root / "infra" / "cloudformation" / "parameters" / environment / target_directory)
         elif values["engine"] == "terraform":

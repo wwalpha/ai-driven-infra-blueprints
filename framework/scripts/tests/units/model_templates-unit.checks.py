@@ -23,6 +23,47 @@ def check_template_syntax(root):
 
 
 
+def check_publish_callback_rollback(tmp_path):
+    path = tmp_path/'view.md'
+    path.write_bytes(b'original\r\n')
+    called = []
+    def finish_import():
+        called.append(path.read_bytes())
+        raise ValueError('injected completion callback failure')
+    with pytest.raises(ValueError, match='completion callback'):
+        templates.publish(tmp_path, {path: 'changed\n'}, inputs={}, verify=finish_import)
+    assert called == [b'changed\r\n']
+    assert path.read_bytes() == b'original\r\n'
+    with templates.publication_lock(tmp_path) as journal:
+        assert not journal.exists()
+
+
+def check_generation_transaction_recovery(tmp_path):
+    first, created = tmp_path/'view.md', tmp_path/'artifact.json'
+    first.write_bytes(b'original\r\n')
+    originals = {first: first.read_bytes(), created: None}
+    write = Path.write_text
+    def interrupted(path, *args, **kwargs):
+        result = write(path, *args, **kwargs)
+        if path == created:
+            raise KeyboardInterrupt()
+        return result
+    with templates.publication_lock(tmp_path) as journal:
+        with patch.object(Path, 'write_text', interrupted), pytest.raises(KeyboardInterrupt):
+            templates._publish_transaction(tmp_path, {first: 'changed\n', created: '{}\n'}, (), journal,
+                                           originals=originals)
+        assert journal.is_file()
+    # Recovery precedes the next generation snapshot and its originals/output differences.
+    with templates.publication_lock(tmp_path) as journal:
+        assert first.read_bytes() == originals[first] and not created.exists()
+        assert not journal.exists()
+    with templates.publication_lock(tmp_path) as journal:
+        with patch.object(Path, 'write_text', side_effect=OSError('injected I/O')), pytest.raises(OSError):
+            templates._publish_transaction(tmp_path, {first: 'changed\n'}, (), journal,
+                                           originals={first: originals[first]})
+        assert first.read_bytes() == originals[first] and not journal.exists()
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

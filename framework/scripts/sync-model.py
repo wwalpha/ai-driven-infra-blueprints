@@ -10,7 +10,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from sync_runtime import sync
+from sync_runtime import sync, run_generation
 from validation_scope import active_scope
 
 
@@ -82,6 +82,12 @@ def main(argv=None) -> int:
         impact_scope = contract_scope if import_selection(root) is not None else scope
         if impact_scope is None or not impact <= impact_scope:
             raise ValueError('include all affected Model services in generation/Validation scope: ' + ', '.join('/'.join(entry) for entry in sorted(impact - scope)))
+        if args.write and import_selection(root) is None:
+            from import_guard import require_import_changes
+            from issue_gate import require_no_issues
+            require_import_changes(root, changed, generation=True)
+            require_no_issues(root, scope)
+            return run_generation(root, scope, write=True, jobs=args.jobs)
         groups = {}
         for environment, target, service in sorted(scope):
             groups.setdefault((environment, target), []).append(service)

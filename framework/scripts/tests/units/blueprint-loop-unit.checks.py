@@ -424,9 +424,9 @@ def check_it_inventory(tmp_path):
     with pytest.raises(ValueError, match='duplicate'):
         run_it.registered_cases(tmp_path)
     assert run_it.reachability({}, [])
-    assert len(cases) == 306
+    assert len(cases) == 307
     original = [value for value in cases.values() if value[0] in ('direct', 'pytest')]
-    assert len(original) == 287 and sum(count for _, count in original) == 377
+    assert len(original) == 288 and sum(count for _, count in original) == 375
     assert sum(mode == 'direct' for mode, _ in original) == 112
     assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 13
     assert sum(mode == 'module' for mode, _ in cases.values()) == 6
@@ -481,6 +481,29 @@ def check_it_run_lifecycle(tmp_path):
     assert result['reachability'] == 'not verified (baseline)'
     assert result['bundle_initializations'] is None and result['seed_generations'] is None
     assert result['suites'][0]['code'] == 7
+
+
+@pytest.mark.parametrize('write', [False, True])
+def check_write_validator_stops_followups(tmp_path, write):
+    logs = tmp_path/'logs'
+    logs.mkdir()
+    commands = [[sys.executable, 'validate-blueprint.py'], [sys.executable, 'a.checks.py'], ['git', 'diff', '--check']]
+    with patch.object(MODULE.subprocess, 'Popen') as popen, redirect_stdout(io.StringIO()):
+        popen.return_value.wait.return_value = 1
+        popen.return_value.pid = 123
+        assert MODULE.run_commands(tmp_path, commands, MODULE.utf8_environment(), logs,
+                                   stop_after_validator_failure=write) == 1
+        assert popen.call_count == (1 if write else 3)
+    history = events(logs)
+    assert history[-1]['status'] == 'fail'
+    assert any(row['event'] == 'steps_skipped' for row in history) == write
+
+
+def check_staged_write_rejected():
+    with patch.object(sys, 'argv', [str(SCRIPT), '--mode', 'task', '--write', '--staged', '--base', 'HEAD']), \
+         pytest.raises(SystemExit) as error:
+        MODULE.main()
+    assert error.value.code == 2
 
 
 if __name__ == '__main__':

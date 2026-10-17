@@ -384,6 +384,22 @@ Ordinary local loops validate snapshot/properties correspondence without network
 
 ## Validation
 
+After ordinary Model edits, generate and validate with one command:
+
+```console
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
+```
+
+Generation and content validation run once per selected candidate/responsibility in one
+validator process. All targets pass the single pre-save input comparison before any
+output saves; input changes stop the whole publication without retry. Normal saving has
+no verification regeneration, output-wide readback or final input rescan. Without
+`--write`, validation remains read-only. `sync-model.py --write` retains generation-only
+compatibility; IMPORT and AWS post-operation workflows retain their dedicated checks.
+`--staged --write` and framework-only write are invalid; Full retains explicit scope.
+Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication)
+for same-worktree editing and concurrent read-only investigation.
+
 Record `Task type` and `## Allowed paths` in the active prompt. Allowed paths cannot expand task type boundaries.
 
 ```md
@@ -533,7 +549,7 @@ python -m pstats /tmp/design-catalog-unit.prof
 
 The local loop validates common checks for task type, infrastructure phase, task scope, project topology, catalog/schema integrity, and IaC engine selection, and design values/service models/observed ARNs within Validation scope. Overall validation also includes repository consistency of IaC contents and scenarios/results; perform actual mandatory IaC/deployment validation separately per phase. System Overview `UNSET` does not cause validation failure. Ordinarily separate IaC creation and deploy/apply into different tasks; only reflection of design manually edited by the human in authoritative service Model inputs executes as one task in the dedicated `update` phase.
 
-Design update order is “confirm catalog selection items/naming rules → update YAML Model inputs → temporarily generate/validate all target Markdown/JSON → save after all succeed.” On generation failure, do not change saved displays; repair authoritative YAML sources and rerun. Ordinary sync does not overwrite models from Markdown. Model inputs follow the service template, parameters.yaml and fixed bindings.json contract.
+Design update order is “confirm catalog selection items/naming rules → update YAML Model inputs → temporarily generate/validate all target Markdown/JSON → perform one all-target input comparison, then save validated candidates in service transactions; retain partial success and a command-wide failure for rejected candidates.” On generation failure, do not change saved displays; repair authoritative YAML sources and rerun. Ordinary sync does not overwrite models from Markdown. Model inputs follow the service template, parameters.yaml and fixed bindings.json contract.
 
 ### S3 placement of CloudFormation templates and local artifacts
 
@@ -574,8 +590,7 @@ Managed worktrees use verified global dependencies or automatically install them
 ```console
 python3 -m pip install -r framework/scripts/requirements.txt
 python3 framework/scripts/model_templates.py --alias cde --service iam --affected
-python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service iam
-python3 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
 python3 framework/scripts/model_files.py model/dev/cde/iam.properties --trace desired.row.001-001.value
 python3 -B framework/scripts/tests/units/model_templates-unit.checks.py
 ```

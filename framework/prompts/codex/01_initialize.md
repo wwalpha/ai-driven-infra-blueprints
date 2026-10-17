@@ -196,7 +196,7 @@ Create new service designs from `model/templates/<target-directory>/<service>.pr
 Human inputs use parameters.yaml; fixed identities and instance composition use bindings.json.
 Register a new service with
 `python framework/scripts/model_templates.py --alias <target-directory> --service <service> --environment <environment> --create`,
-then generate and validate with the normal sync/local loop. A new environment with no
+then generate and validate with `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md`. A new environment with no
 service sources may remain intentionally undesigned; do not create placeholder Models.
 
 Model source persistence uses optional `observed.json` with actual row values only;

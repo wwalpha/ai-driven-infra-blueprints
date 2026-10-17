@@ -116,16 +116,28 @@ Templates retain the bounded entry/part convention; logical Model selectors reta
 ## Generation, tracing and scope
 
 All shared Model readers expand authoritative YAML sources and merge observed values.
-`sync-model.py --write` publishes Markdown and JSON in one rollback-protected service
-batch after existing Model/catalog/schema/reference validation. Read-only validation
-rejects stale views. Observed updates publish only observed.json and authorized generated
-views.
-Generation validates every candidate, including unchanged sidecars. Only outputs whose
-publication bytes differ from existing files enter publication; preserve existing
-Markdown newline conventions when comparing. Under the publication lock, recheck
-source snapshots and output differences immediately before saving. Keep each service's changed
-outputs in one rollback-protected batch, without restoring excluded unchanged outputs.
-All saves retain exclusion locks, input snapshots, atomic publication and rollback.
+After ordinary Model editing, run:
+
+```console
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
+```
+
+The validator owns common contract/Git/IMPORT/impact/issue/catalog checks. Generation
+prepares every selected environment/target/service in one stage, validates the final
+candidates with existing domain checks and retained expanded Models, compares all
+consumed inputs once, then publishes validated Markdown/JSON bytes. A rejected candidate
+retains its saved view; only changed reference states require dependent revalidation.
+Successful services retain independent rollback-protected transactions and a failed
+candidate still makes the command fail. Retained-source link warnings are calculated
+on the final candidate stage and displayed only for successfully saved targets.
+
+Only changed publication bytes enter the writer, preserving Markdown newline conventions.
+There is no normal post-save full readback, content revalidation, input rescan or
+verification regeneration. Follow [Selection and publication](task-contract.md#selection-and-publication).
+`sync-model.py --write` remains a generation-only compatibility entrypoint with its
+existing target/`--scope`/`--all` selectors and exit meanings. Read-only validation still
+rejects missing/stale Markdown/JSON, extra JSON and reference changes. IMPORT display
+recovery and observed writers retain their separate authority/publication workflows.
 `model_files.py <service.properties> --trace <exact-key>` reports definition/key and
 instance/parameter keys on demand; no permanent source map is saved.
 
@@ -294,8 +306,7 @@ derived expressions or logical relationships. Normally do not edit bindings.
 ```console
 python3 framework/scripts/model_templates.py --alias cde --service vpc --environment dev --inputs
 python3 framework/scripts/model_files.py model/dev/cde/vpc.properties --trace desired.row.001-003.value
-python3 framework/scripts/sync-model.py --write --environment dev --alias cde --service vpc
-python3 framework/scripts/tests/integrations/model_parameter_inputs.checks.py
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
 ```
 
 Trace uses existing placeholders to show descriptions/current values/destinations,
@@ -309,7 +320,7 @@ consumers in Validation scope; local inputs/bindings require their own consumer.
 Declare a service template, human `parameters.yaml`, explicit `bindings.json`, and
 optional `observed.json` only when values exist under the target source directory. Declare those inputs and the generated Markdown/JSON paths. `model_templates.py --create --environment <environment> --alias <target-directory> --service <service>`
 validates the YAML and fixed bindings. It rejects invalid/missing inputs.
-Run normal sync and the scoped local loop before completion. This repository's input
+Run the integrated scoped `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` before completion. This repository's input
 contract is YAML-only; no other repository is asserted to have adopted this contract.
 
 ## Compact observed and fixed bindings

@@ -1,6 +1,8 @@
 """Select, stage, validate and publish model views; independent of the CLI."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+from dataclasses import dataclass, field
 import json
 import re
 import shutil
@@ -9,39 +11,51 @@ import tempfile
 from pathlib import Path
 from design_document import DesignIndex
 from design_layout import STACK_DESIGN
-from model_core import properties, entries
-from model_design import markdown_for, validate_required_properties, validate_kms_policy_accounts
+from model_core import entries
+from model_design import render_validated_model as markdown_for, validate_required_properties, validate_kms_policy_accounts
+from aws_mapping_display import validate_mappings
 from model_references import design_target
 from model_projection import JSON_LINK
-from model_files import read_model, load_model
-from model_templates import publish, publication_lock, safe, source_inputs, service_source, model_paths as registered_models
+from model_files import load_model
+from model_templates import publish, _publish_transaction, publication_lock, safe, source_inputs, service_source, model_paths as registered_models
 from policy_tables import rendered_design, unique_object, invalid_constant
 from task_contract import task_path, task_revision
 from issue_gate import require_no_issues
 from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
 from utils.aws_mappings import mapping_alias
-from sync_files import changed_files, save_files, restore_files, markdown_newlines
+from sync_files import changed_files, save_files, restore_files
 import sync_views
 from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total
 from import_scope import selected as import_selection, scoped as import_scoped
 
 
 @progress_stage("stage-placement/dependency-models")
-def stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write):
+def stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write, snapshot=None):
+    def copy_file(source, destination):
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        data = snapshot.read(Path(source)) if snapshot is not None else Path(source).read_bytes()
+        destination.write_bytes(data)
+        return str(destination)
+
+    def copy_tree(source, destination):
+        if Path(destination).exists():
+            return str(destination)
+        return shutil.copytree(source, destination, copy_function=copy_file, ignore=shutil.ignore_patterns("__pycache__"))
     docs, models = root / "docs/designs", root / "model"
-    shutil.copytree(root / 'framework', stage / 'framework')
+    copy_tree(root / 'framework', stage / 'framework')
     for base in ('model/templates', 'model/parameters'):
         if base == 'model/parameters' and services is not None:
             continue
         if (root / base).is_dir():
-            shutil.copytree(root / base, stage / base)
+            copy_tree(root / base, stage / base)
     targets = {path.parent.relative_to(docs) for path in destinations}
     if services is None:
         for target in targets:
             for base in (docs,):
                 if (base / target).is_dir():
-                    shutil.copytree(base / target, stage / base.relative_to(root) / target)
+                    copy_tree(base / target, stage / base.relative_to(root) / target)
     else:
         views = set(markdown_paths)
         # Generation needs outgoing reference metadata; writes also report stale incoming links.
@@ -90,17 +104,33 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
             for path in [*model_inputs, *views]:
                 destination = stage / path.relative_to(root)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(path, destination)
+                copy_file(path, destination)
                 advance()
         for path in markdown_paths:
             if path.with_suffix("").is_dir():
-                shutil.copytree(path.with_suffix(""), stage / path.with_suffix("").relative_to(root))
+                copy_tree(path.with_suffix(""), stage / path.with_suffix("").relative_to(root))
     if (root / "project.json").is_file():
-        shutil.copyfile(root / "project.json", stage / "project.json")
+        copy_file(root / "project.json", stage / "project.json")
+    # Reuse the existing invocation memo for staged logical handles and dependencies.
+    memo = memo_table()
+    if memo is not None:
+        for key, value in list(memo.items()):
+            if len(key) != 2 or not callable(key[0]):
+                continue
+            function, args = key
+            if (function.__module__, function.__name__) in {('model_files', 'load_model'), ('model_templates', 'load_expansion')} and args[0].is_relative_to(root):
+                staged = stage / args[0].relative_to(root)
+                memo[(function, (staged, *args[1:]))] = value._replace(files={stage / p.relative_to(root): text for p, text in value.files.items()})
+                if snapshot is not None:
+                    for file, text in value.files.items():
+                        snapshot.record(file, text.encode('utf-8'))
     failed_views = {(docs / path.relative_to(models)).with_suffix(".md") for path in model_paths} - destinations.keys()
     saved_paths = [root / path.relative_to(stage) for path in (stage / "docs/designs").rglob("*.md")
-                   if root / path.relative_to(stage) not in failed_views]
-    baseline_links = sync_views.broken_design_links(stage, root, [stage / path.relative_to(root) for path in saved_paths]) if write else {}
+                   if root / path.relative_to(stage) not in failed_views
+                   and path.parent.relative_to(stage / "docs/designs") in targets]
+    # A sole selected candidate cannot become a retained source while another target saves.
+    baseline_paths = [p for p in saved_paths if p not in destinations] if len(destinations) == 1 else saved_paths
+    baseline_links = sync_views.broken_design_links(stage, root, [stage / path.relative_to(root) for path in baseline_paths]) if write else {}
     return saved_paths, baseline_links
 
 
@@ -113,6 +143,7 @@ def generate_views(stage, root, destinations, failures):
         staged = stage / path.relative_to(root)
         artifacts = {}
         try:
+            validate_mappings(values, root)
             validate_required_properties(values, root)
             validate_kms_policy_accounts(values, design_target(staged, stage))
             for identity, row in entries(values, "desired.row."):
@@ -154,7 +185,7 @@ def generate_views(stage, root, destinations, failures):
 
 
 @progress_stage("candidate-validation")
-def validate_candidates(stage, root, generated, destinations, failures, jobs, write):
+def validate_candidates(stage, root, generated, destinations, failures, jobs, write, validation=None, accounts=None):
     # A rejected view falls back to its saved state; recheck dependent services.
     def validate(path):
         try:
@@ -163,7 +194,9 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
             if import_selection(root) is not None:
                 identities.add(import_selection(root))
             with view_scope(identities):
-                sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=design_index)
+                return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=design_index, **({"context": context} if validation is not None else {}))
+                if validation is not None:
+                    validation[path] = return_value
         except (OSError, ValueError, KeyError, TypeError) as error:
             return path, f"{path.relative_to(root)}: {error}"
         return path, None
@@ -172,6 +205,21 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
         total(len(generated))
         design_index = DesignIndex()  # A new snapshot after each restore_view phase.
         rejected = []
+        context = None
+        if validation is not None:
+            context = sync_views.validation_context(stage, root, generated, destinations, accounts)
+            validation[None] = context.findings
+            if context.errors:
+                # Ownership/stack checks concern the fixed whole scope, not repeated services.
+                for error in context.errors:
+                    failures.append(error)
+                rejected = [p for p in generated if any(p.relative_to(root).as_posix() in e for e in context.errors)]
+                if not rejected:
+                    rejected = list(generated)
+                for path in rejected:
+                    del generated[path]
+                    restore_view(stage, root, path)
+                continue
         # All candidate views are fixed during this read-only phase.
         with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
             mapper = map if write or jobs == 1 or len(generated) == 1 else executor.map
@@ -210,20 +258,6 @@ def selected(
         and (environment is None or relative.parts[0] == environment)
         and (target_directory is None or relative.parts[1] == target_directory)
     )
-
-
-@progress_stage("snapshot")
-def generation_inputs(root):
-    # Snapshot bytes, not validation results; include file sets and absent optional inputs.
-    paths = {p for p in (root / 'framework').rglob('*')
-             if p.is_file() and '__pycache__' not in p.parts}
-    paths.update(root / name for name in ('project.json', 'AGENTS.md'))
-    total(len(paths))
-    snapshot = {}
-    for p in paths:
-        snapshot[p] = p.read_bytes() if p.is_file() else None
-        advance()
-    return snapshot
 
 
 def verify_saved(expected):
@@ -284,144 +318,313 @@ def sync(
             completed(identity)
             return 0
         jobs = 1
-    docs = root / "docs" / "designs"
-    models = root / "model"
     scope = {(environment, target_directory, service) for service in services} if services is not None else None
     if services is not None and (not environment or not target_directory):
         raise ValueError("service selection requires environment and target directory")
     if write:
         require_no_issues(root, scope, target=(environment, target_directory) if environment else None)
-    input_paths = set((root / 'model').rglob('*')) if write else set()
-    markdown_paths = [
-        path
-        for path in scoped_files(root, "docs/designs", ".md", scope)
-        if selected(path, docs, environment, target_directory) and (services is None or path.stem in services)
-    ]
-    model_paths = sorted(
-        path
-        for path in scoped_files(root, "model", ".properties", scope)
-        if selected(path, models, environment, target_directory) and (services is None or path.stem in services)
-    )
-    if services is not None:
-        for service in services:
-            if not any(path.stem == service for path in model_paths):
-                raise ValueError(f"authoritative service model missing: {environment}/{target_directory}/{service}")
-    consumers((*path.relative_to(models).parts[:2], path.stem) for path in model_paths)
-    configuration = generation_inputs(root) if write else {}
-    destinations = {}
-    model_snapshots = {}
-    failures = []
-    for path in model_paths:
-        destination = (docs / path.relative_to(models)).with_suffix(".md")
-        try:
-            with phase("dependency-model", total=1):
-                loaded = load_model(path)
-                advance()
-            destinations[destination] = loaded.values
-            model_snapshots[destination] = {file: content.encode("utf-8") for file, content in loaded.files.items()}
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            failures.append(f"{path.relative_to(root)}: {error}")
-    for path in sorted(set(markdown_paths) - {(docs / path.relative_to(models)).with_suffix(".md") for path in model_paths}):
-        failures.append(f"authoritative YAML Model inputs missing: {path.relative_to(root)}")
-    with tempfile.TemporaryDirectory() as directory, mapping_alias(root, Path(directory).resolve()):
-        stage = Path(directory).resolve()
-        saved_paths, baseline_links = stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write)
-        with phase("snapshot"):
-            staged_inputs = {root / file.relative_to(stage): file.read_bytes()
-                             for file in (stage / 'model').rglob('*') if file.is_file()}
-            for file in list(staged_inputs):
-                if file.name in {'parameters.yaml', 'bindings.json'}:
-                    staged_inputs.setdefault(file.parent / 'observed.json', None)
-            # Staged reference views/JSON are inputs until this operation publishes them.
-            reference_inputs = {root / file.relative_to(stage): file.read_bytes()
-                                for file in (stage / 'docs/designs').rglob('*') if file.is_file()
-                                and not any(file == stage / path.relative_to(root) or
-                                            file.is_relative_to((stage / path.relative_to(root)).with_suffix(''))
-                                            for path in destinations)}
-        generated = generate_views(stage, root, destinations, failures)
-        validate_candidates(stage, root, generated, destinations, failures, jobs, write)
-        saved = {}
-        save_failed = False
-        with phase("file-comparison"):
-            expected_outputs = {path: {root / file.relative_to(stage): file.read_bytes().decode("utf-8") for file in files}
-                                for path, files in generated.items()}
-            source_snapshots = {path: {**configuration, **staged_inputs, **reference_inputs, **model_snapshots[path]} for path in generated}
-        for path in generated:
+    return run_generation(root, scope, write=write, environment=environment,
+                          target_directory=target_directory, jobs=jobs)
+
+
+class GenerationInputs:
+    """The bytes/file sets consumed by this operation, never a persistent receipt."""
+    @progress_stage("snapshot")
+    def __init__(self, root):
+        self.root = root
+        self.contents = {}
+        self.conflicts = set()
+        self.trees = {}
+        self.lifetime = ExitStack()
+        self.stage = None
+        selected_task = task_path(root)
+        raw_task = self.read(selected_task)
+        self.expected_task = (selected_task.relative_to(root).as_posix(),
+                              None if raw_task is None else raw_task.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'))
+        from task_contract import status
+        name, text = self.expected_task
+        if text is not None and status(text, name == 'tasks/active.md') != 'running':
+            raise ValueError('completed task cannot write')
+        for name in ('framework', '.agents', 'model', 'docs', 'issues', 'infra', 'tests'):
+            directory = root / name
+            paths = self.file_set(directory)
+            self.trees[directory] = paths
+            for path in paths:
+                if not path.is_dir():
+                    self.read(path)
+                    if path.is_relative_to(root / 'model/parameters') and path.name in {'parameters.yaml', 'bindings.json'}:
+                        self.read(path.parent / 'observed.json')
+        runtime = Path(__file__).resolve().parents[2]
+        if runtime != root:
+            directory = runtime / 'framework'
+            self.trees[directory] = self.file_set(directory)
+            for path in self.trees[directory]:
+                if not path.is_dir():
+                    self.read(path)
+        for name in ('project.json', 'AGENTS.md', 'README.md', self.expected_task[0]):
+            self.read(root / name)
+
+    @staticmethod
+    def file_set(directory):
+        return {p for p in directory.rglob('*')
+                if (p.is_dir() and '__pycache__' not in p.parts) or
+                (not p.is_dir() and not (p.suffix == '.pyc' and '__pycache__' in p.parts))}
+
+    def record(self, path, content):
+        if path in self.contents and self.contents[path] != content:
+            self.conflicts.add(path)
+            raise ValueError(f'generation inputs changed while reading: {path}')
+        self.contents[path] = content
+        return content
+
+    def read(self, path):
+        if path not in self.contents:
+            self.record(path, path.read_bytes() if path.is_file() else None)
+        return self.contents[path]
+
+    def materialize(self):
+        if self.stage is None:
+            self.stage = Path(self.lifetime.enter_context(tempfile.TemporaryDirectory())).resolve()
+            self.lifetime.enter_context(mapping_alias(self.root, self.stage))
+            for directory, paths in self.trees.items():
+                if directory.is_relative_to(self.root):
+                    if directory.is_dir():
+                        (self.stage / directory.relative_to(self.root)).mkdir(parents=True, exist_ok=True)
+                    for path in paths:
+                        if path.is_dir():
+                            (self.stage / path.relative_to(self.root)).mkdir(parents=True, exist_ok=True)
+            for path, content in self.contents.items():
+                if content is not None and path.is_relative_to(self.root):
+                    staged = self.stage / path.relative_to(self.root)
+                    staged.parent.mkdir(parents=True, exist_ok=True)
+                    staged.write_bytes(content)
+        return self.stage
+
+    def close(self):
+        self.lifetime.close()
+
+    def verify(self):
+        """One comparison phase inside publication_lock, before any service can save."""
+        changed = self.conflicts | {p for p, data in self.contents.items()
+                   if (p.read_bytes() if p.is_file() else None) != data}
+        for directory, paths in self.trees.items():
+            changed.update(self.file_set(directory) ^ paths)
+        # The contract bytes are already part of contents; do not reread them here.
+        if changed:
+            raise ValueError('generation inputs changed before publication: ' +
+                             ', '.join(str(p.relative_to(self.root)) if p.is_relative_to(self.root) else str(p) for p in sorted(changed)))
+
+
+@dataclass
+class Generation:
+    root: Path
+    stage: Path
+    scope: object
+    model_paths: list
+    markdown_paths: list
+    snapshot: object
+    lifetime: ExitStack
+    destinations: dict = field(default_factory=dict)
+    generated: dict = field(default_factory=dict)
+    failures: list = field(default_factory=list)
+    validation: dict = field(default_factory=dict)
+    read_inputs: dict = field(default_factory=dict)
+    saved: dict = field(default_factory=dict)
+    expected_outputs: dict = field(default_factory=dict)
+    warnings: dict = field(default_factory=dict)
+    candidate: object = field(default_factory=object)
+    accounts: object = None
+
+    @property
+    def generated_scope(self):
+        return {(*p.relative_to(self.root / 'docs/designs').parts[:2], p.stem) for p in self.generated}
+
+    def close(self):
+        self.lifetime.close()
+
+
+def prepare_generation(root, scope, *, write=True, environment=None, target_directory=None, snapshot=None):
+    """Prepare every selected target in a single disposable stage."""
+    if scope == set():
+        raise ValueError('--write requires service scope; framework scope cannot generate Models')
+    lifetime = ExitStack()
+    try:
+        # Recover the journal before snapshotting inputs, differences or originals.
+        with publication_lock(root):
+            snapshot = snapshot or (GenerationInputs(root) if write else None)
+        docs, models = root / 'docs/designs', root / 'model'
+        model_paths = [p for p in scoped_files(root, 'model', '.properties', scope)
+                       if selected(p, models, environment, target_directory)]
+        markdown_paths = [p for p in scoped_files(root, 'docs/designs', '.md', scope)
+                          if selected(p, docs, environment, target_directory)]
+        if snapshot is not None:
+            lifetime.callback(snapshot.close)
+            stage = snapshot.materialize()
+        else:
+            stage = Path(lifetime.enter_context(tempfile.TemporaryDirectory())).resolve()
+            lifetime.enter_context(mapping_alias(root, stage))
+        plan = Generation(root, stage, scope, model_paths, markdown_paths, snapshot, lifetime)
+        consumers((*p.relative_to(models).parts[:2], p.stem) for p in model_paths)
+        for path in model_paths:
+            destination = (docs / path.relative_to(models)).with_suffix('.md')
             try:
-                expected = expected_outputs[path]
-                if any((source.read_bytes() if source.is_file() else None) != original
-                           for source, original in source_snapshots[path].items()):
-                    raise ValueError("authoritative model inputs changed before publication; rerun generation")
-                if write:
-                    with phase("publication"), publication_lock(root):
-                        if task_revision(root) != expected_task:
-                            raise ValueError("task scope changed after planning; rerun generation")
-                        for file in expected:
-                            safe(root, file)
-                        if any((source.read_bytes() if source.is_file() else None) != original
-                               for source, original in source_snapshots[path].items()):
-                            raise ValueError("authoritative model inputs changed before publication; rerun generation")
-                        if (generation_inputs(root) != configuration or
-                                set((root / 'model').rglob('*')) != input_paths):
-                            raise ValueError('generation configuration inputs changed before publication')
-                        planned = {file: markdown_newlines(file, content) if file.suffix == '.md' else content
-                                   for file, content in expected.items()}
-                        changed = changed_files(planned)
-                        originals = {file: file.read_bytes() if file.is_file() else None for file in changed}
-                        def verify():
-                            verify_saved(planned)
-                            if (generation_inputs(root) != configuration or
-                                    set((root / 'model').rglob('*')) != input_paths):
-                                raise ValueError('generation inputs changed during publication')
-                        if changed:
-                            publish(root, changed, inputs=source_snapshots[path], verify=verify, expected_task=expected_task)
-                        else:
-                            verify()
-                    saved[path] = originals
-                else:
-                    stale = [str(file.relative_to(root)) for file, content in expected.items()
-                             if not file.is_file() or file.read_bytes() != content.encode("utf-8")]
-                    if stale:
-                        raise ValueError("generated Markdown is stale or missing: " + ", ".join(stale))
-                saved.setdefault(path, {})
+                with phase('dependency-model', total=1):
+                    loaded = load_model(path)
+                    advance()
+                if snapshot is not None:
+                    for file, text in loaded.files.items():
+                        snapshot.record(file, text.encode('utf-8'))
+                    registered = service_source(path)
+                    snapshot.read(registered[2] / 'observed.json')
+                plan.destinations[destination] = loaded.values
+                if not write:
+                    plan.read_inputs.update({p: text.encode("utf-8") for p, text in loaded.files.items()})
             except (OSError, ValueError, KeyError, TypeError) as error:
-                failures.append(f"{path.relative_to(root)}: {error}")
+                plan.failures.append(f'{path.relative_to(root)}: {error}')
+        for path in sorted(set(markdown_paths) - {(docs / p.relative_to(models)).with_suffix('.md') for p in model_paths}):
+            plan.failures.append(f'authoritative YAML Model inputs missing: {path.relative_to(root)}')
+        services = None if scope is None else [entry[2] for entry in scope]
+        plan.saved_paths, plan.baseline_links = stage_inputs(stage, root, plan.destinations, model_paths,
+                                                           markdown_paths, services, write, snapshot)
+        if not write:
+            for base in ('model', 'docs/designs'):
+                for file in (stage / base).rglob('*'):
+                    if file.is_file():
+                        path, data = root / file.relative_to(stage), file.read_bytes()
+                        if path in plan.read_inputs and plan.read_inputs[path] != data:
+                            raise ValueError(f'generation inputs changed while reading: {path}')
+                        plan.read_inputs[path] = data
+                        if file.name == 'parameters.yaml':
+                            plan.read_inputs.setdefault(path.parent / 'observed.json', None)
+        plan.generated = generate_views(stage, root, plan.destinations, plan.failures)
+        return plan
+    except BaseException:
+        lifetime.close()
+        raise
+
+
+def validate_generation(plan, *, jobs=4, write=True):
+    validate_candidates(plan.stage, plan.root, plan.generated, plan.destinations, plan.failures, jobs, write,
+                        *([plan.validation, plan.accounts] if write else []))
+    if write and plan.generated:
+        common = plan.validation.get(None)
+        required_common = {'design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'}
+        required_service = {'design.projection', 'design.names', 'design.tables', 'design.overviews',
+                            'design.links', 'design.artifacts', 'design.observed'}
+        if common is None or any(common.result(name, plan.generated_scope).status != 'PASS' for name in required_common):
+            raise ValueError('required candidate scope validation is FAIL or NOT_RUN')
+        for path in plan.generated:
+            checked = plan.validation.get(path)
+            identity = {(*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem)}
+            if checked is None or checked.candidate is not common.candidate or any(
+                    checked.result(name, identity).status != 'PASS' for name in required_service):
+                raise ValueError(f'required candidate validation is FAIL or NOT_RUN: {path}')
+    if write and plan.validation.get(None) is not None:
+        plan.candidate = plan.validation[None].candidate
+    for path, files in plan.generated.items():
+        expected = {plan.root / file.relative_to(plan.stage): file.read_bytes().decode('utf-8') for file in files}
+        # Normalize in the candidate stage using the original bytes, before validation/publication.
+        plan.expected_outputs[path] = expected
+        if plan.snapshot is not None:
+            for file in expected:
+                plan.snapshot.read(file)
+    if write:
+        retained = [p for p in plan.saved_paths if p not in plan.generated]
+        plan.warnings = sync_views.broken_design_links(plan.stage, plan.root,
+                            [plan.stage / p.relative_to(plan.root) for p in retained])
+
+
+def publish_generation(plan):
+    """Publish validated bytes after exactly one all-target input comparison."""
+    root, stage = plan.root, plan.stage
+    save_failed = False
+    with phase('publication'), publication_lock(root) as journal:
+        # Compare even a no-op or wholly rejected batch, outside per-service error handling.
+        plan.snapshot.verify()
+        all_paths = {file for outputs in plan.expected_outputs.values() for file in outputs}
+        for file in all_paths:
+            safe(root, file)
+        for path, expected in plan.expected_outputs.items():
+            changed = {p: text for p, text in expected.items() if plan.snapshot.read(p) != text.encode('utf-8')}
+            originals = {p: plan.snapshot.read(p) for p in changed}
+            try:
+                if changed:
+                    _publish_transaction(root, changed, (), journal, originals=originals)
+                plan.saved[path] = originals
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                plan.failures.append(f'{path.relative_to(root)}: {error}')
+                if journal.is_file():
+                    raise ValueError(f'publication rollback incomplete; recovery journal retained: {journal}: {error}') from error
+                restore_view(stage, root, path)
+                plan.generated.pop(path, None)
                 save_failed = True
-        # Publication ends the immutable input snapshot used to validate candidates.
-        if write:
-            memo_table().clear()
-        # Filesystem failures can invalidate newly saved references, too.
-        while write and save_failed and saved:
-            design_index = DesignIndex()  # Publication/rollback changed the saved views.
+        # Only I/O rollback changes the reference state after candidate validation.
+        if save_failed:
+            plan.candidate = object()
+            plan.validation.clear()
+        while save_failed and plan.saved:
+            context = sync_views.validation_context(stage, root, plan.saved, plan.destinations, plan.accounts)
+            plan.candidate = context.findings.candidate
+            plan.validation[None] = context.findings
             rejected = []
-            for path in saved:
+            for path in plan.saved:
                 try:
-                    sync_views.validate_views(root, root, [path], destinations, design_index=design_index)
+                    if context.errors:
+                        raise ValueError('\n- '.join(context.errors))
+                    findings = sync_views.validate_views(stage, root, [stage / path.relative_to(root)],
+                                                        plan.destinations, context=context)
+                    plan.validation[path] = findings
                 except (OSError, ValueError, KeyError, TypeError) as error:
-                    failures.append(f"{path.relative_to(root)}: {error}")
+                    plan.failures.append(f'{path.relative_to(root)}: {error}')
                     rejected.append(path)
             if not rejected:
                 break
-            for path in sorted(set(rejected)):
-                originals = saved[path]
-                restore_files(originals)
-                saved.pop(path)
-        if write and saved:
-            retained = [path for path in saved_paths if path not in saved]
-            for reference, target in sync_views.broken_design_links(root, root, retained).items():
-                if reference not in baseline_links and target in saved:
-                    print(f"Design Markdown sync: WARNING ({target.relative_to(root)}: "
-                          f"saved reference needs repair in a separate task: {reference})", file=sys.stderr)
-        for path in saved:
-            completed((*path.relative_to(docs).parts[:2], path.stem))
-            print(f"Design Markdown sync: PASS ({path.relative_to(root)})")
-    if failures:
-        failed_services = (set(markdown_paths) | {
-            (docs / path.relative_to(models)).with_suffix(".md") for path in model_paths
-        }) - saved.keys()
-        raise ValueError(f"{len(saved)} services succeeded; {len(failed_services)} services failed; {len(failures)} diagnostics\n- " + "\n- ".join(failures))
-    print(f"Design Markdown sync: PASS ({len(saved)} services)")
-    return 0
+            for path in rejected:
+                restore_files(plan.saved.pop(path))
+                restore_view(stage, root, path)
+                plan.generated.pop(path, None)
+        if save_failed:
+            retained = [p for p in plan.saved_paths if p not in plan.saved]
+            plan.warnings = sync_views.broken_design_links(stage, root, [stage / p.relative_to(root) for p in retained])
+    for reference, target in plan.warnings.items():
+        if reference not in plan.baseline_links and target in plan.saved:
+            print(f'Design Markdown sync: WARNING ({target.relative_to(root)}: '
+                  f'saved reference needs repair in a separate task: {reference})', file=sys.stderr)
+
+
+def report_generation(plan):
+    for path in plan.saved:
+        completed((*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem))
+        print(f'Design Markdown sync: PASS ({path.relative_to(plan.root)})')
+    if plan.failures:
+        selected = set(plan.markdown_paths) | {(plan.root / 'docs/designs' / p.relative_to(plan.root / 'model')).with_suffix('.md') for p in plan.model_paths}
+        raise ValueError(f'{len(plan.saved)} services succeeded; {len(selected - plan.saved.keys())} services failed; {len(plan.failures)} diagnostics\n- ' + '\n- '.join(plan.failures))
+    print(f'Design Markdown sync: PASS ({len(plan.saved)} services)')
+
+
+@input_scope
+@import_scoped
+def run_generation(root, scope, *, write=True, environment=None, target_directory=None, jobs=4):
+    plan = prepare_generation(root, scope, write=write, environment=environment, target_directory=target_directory)
+    try:
+        validate_generation(plan, jobs=jobs, write=write)
+        if write:
+            publish_generation(plan)
+        else:
+            changed = [p for p, data in plan.read_inputs.items() if (p.read_bytes() if p.is_file() else None) != data]
+            if changed:
+                raise ValueError('generation inputs changed before comparison: ' + ', '.join(str(p) for p in changed))
+            for path, expected in plan.expected_outputs.items():
+                stale = [str(p.relative_to(root)) for p, text in expected.items()
+                         if not p.is_file() or p.read_bytes() != text.encode('utf-8')]
+                if stale:
+                    plan.failures.append('generated Markdown is stale or missing: ' + ', '.join(stale))
+                else:
+                    plan.saved[path] = {}
+        report_generation(plan)
+        return 0
+    finally:
+        plan.close()
 
 
 

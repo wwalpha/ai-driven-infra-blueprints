@@ -15,9 +15,22 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 Humans select the worktree for concurrent tasks and IMPORT. Select a contract with
 `BLUEPRINT_TASK_FILE` or `--task-file`; ordinary task status and declared scope apply.
-Modified files describes planned work. Publication retains its existing input and
-contract-change detection, verification, atomic saving and rollback. Model publication
-retains its publication lock. Keep each service's output transaction intact.
+Modified files describes planned work. Model publication retains its publication lock
+and each service's rollback-protected output transaction.
+
+Finish editing before running generation/validation; start the next edit only after
+that command exits. While it runs, another LLM, sub-agent or command must not edit,
+add or delete its inputs or generation destinations in the same worktree. The running
+command's planned saves are permitted. Concurrent read-only investigation is allowed.
+For parallel editing, use a separate worktree selected by the Human.
+
+Ordinary generation prepares and validates all selected candidates in one stage and
+compares the consumed input bytes, required file sets and selected contract once,
+inside the publication lock before the first output save. On any input change, report
+the paths and stop without saving any output or retrying automatically; preserve the
+external edits. Even unchanged outputs require this comparison. This boundary and the
+operating rule do not guarantee continuous detection of every concurrent edit.
+IMPORT and other authority writers retain their dedicated publication checks and callbacks.
 
 ### Common transitions
 
@@ -30,7 +43,7 @@ retains its publication lock. Keep each service's output transaction intact.
 
 - Each process selects the contract with `BLUEPRINT_TASK_FILE`; the local loop/validator can also use `--task-file`. Explicit selection is mandatory when multiple tasks are running. Before changing planned files, update Modified files/Allowed paths and refresh with `task_contract.py --task-file tasks/<task-name>.md`.
 - Read-only investigation and chat-only design consultation do not require contract registration or switching.
-- Generated views whose publication bytes are unchanged are excluded from publication. Retain candidate validation and recheck inputs and output differences under the publication lock before saving.
+- Generated views whose publication bytes are unchanged are excluded from publication. Retain candidate validation and the single all-target input comparison in Selection and publication; publish only the validated changed bytes.
 - For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
 - Complete only after successful final validation under [Validation policy](loop-engineering.md#validation-policy) and all requested work is finished. Use `task_contract.py --task-file tasks/<task-name>.md --complete`; IMPORT completion retains its evidence check. Delete completed contracts when the diff disappears; do not retain task history or evidence.
 - When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.

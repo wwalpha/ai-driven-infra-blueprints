@@ -93,7 +93,7 @@ def framework_changed(paths: set[str]) -> bool:
 
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
                  directory: Path, heartbeat_seconds: float = 30, jobs: int = 1,
-                 diagnostics=None) -> int:
+                 diagnostics=None, stop_after_validator_failure=False) -> int:
     """Only adjacent regression scripts overlap; diagnostics retain command order."""
     started = time.perf_counter()
     failed = []
@@ -178,6 +178,9 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     if result != "pass":
                         failed.append(step)
                     displayed += 1
+                    if stop_after_validator_failure and displayed == 1 and result != 'pass':
+                        record('steps_skipped', reason='integrated validator failed', count=len(commands) - next_index)
+                        next_index = len(commands)
             status = "fail" if failed else "pass"
             if failed:
                 print(f"Blueprint local loop: FAIL ({', '.join(failed)})", flush=True)
@@ -425,12 +428,15 @@ def main() -> int:
     parser.add_argument("--validation-jobs", type=int, choices=(1, 2, 4), default=4,
                         help="Service validation workers (default: 4)")
     parser.add_argument("--fresh", action="store_true", help="Revalidate catalog/services without successful-result reuse")
+    parser.add_argument("--write", action="store_true", help="Generate and validate selected Models before remaining checks")
     parser.add_argument("--staged", action="store_true", help="Validate a fixed staged tree in a private repository")
     parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
     parser.add_argument("--affected", action="store_true", help="Select proven affected checks; unknown dependencies run all")
     args = parser.parse_args()
     if args.task_file:
         os.environ[SELECTOR] = args.task_file
+    if args.staged and args.write:
+        parser.error("--staged cannot be combined with --write")
     if args.staged != bool(args.base):
         parser.error("--staged and --base must be specified together")
     if args.affected and (args.mode == "full" or args.all):
@@ -448,6 +454,8 @@ def main() -> int:
             if selected.is_file():
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
+        if args.write and (scope == set() or args.all and active_scope(root) == set()):
+            raise ValueError("--write requires service scope; framework scope cannot generate Models")
         repository_changed = changed_paths(root) if not args.staged else set()
         changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
@@ -506,6 +514,7 @@ def main() -> int:
                     "--repository-root",
                     str(root),
                     "--jobs", str(args.validation_jobs),
+                    *(["--write"] if args.write else []),
                     *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
                     *(["--all"] if full_validation else []),
                     *(["--repository-wide-iac"] if regression else []),
@@ -532,7 +541,7 @@ def main() -> int:
         utf8_preflight(directory, environment, diagnostics)
         if args.staged:
             return staged_snapshot(root, args, directory, environment)
-        result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics)
+        result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics, stop_after_validator_failure=args.write)
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         return result

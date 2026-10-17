@@ -35,6 +35,10 @@ class TaskValidation:
         self.requirement_ids = []
         self.acceptance_checks = []
         self.acceptance_results = []
+        self.impact = None
+        self.design_impact = None
+        self.contract_text = None
+        self.import_checked = False
 
     def git_paths(self, args: list[str]) -> set[str]:
         result = subprocess.run(
@@ -44,7 +48,7 @@ class TaskValidation:
         return {path for path in result.stdout.split("\0") if path} if result.returncode == 0 else set()
 
 
-    def check_task_scope(self) -> None:
+    def check_task_scope(self, contract_text=None) -> None:
         prompt = task_path(self.root)
         self.changed_paths = (
             self.git_paths(["diff", "--no-renames", "--name-only", "-z"])
@@ -66,7 +70,8 @@ class TaskValidation:
             )
             return
 
-        lines = prompt.read_text(encoding="utf-8").splitlines()
+        self.contract_text = contract_text if contract_text is not None else prompt.read_text(encoding="utf-8")
+        lines = self.contract_text.splitlines()
         contract = self.section(lines, "## Task contract")
         task_types = []
         for line in contract:
@@ -138,7 +143,9 @@ class TaskValidation:
         self.check_task_boundary(prompt)
         from import_guard import require_import_changes
         try:
+            # Normal Task validation also covers generation=True, with stricter IMPORT completion.
             require_import_changes(self.root, self.changed_paths)
+            self.import_checked = True
         except (OSError, ValueError, KeyError) as error:
             self.check(False, str(error))
 
@@ -188,17 +195,17 @@ class TaskValidation:
                 self.check(not forbidden, f"{self.task_type} task boundary violation: {changed}")
 
 
-    def check_issue_gate(self) -> None:
+    def check_issue_gate(self, scope=...) -> None:
         if not self.task_type:
             return
         try:
-            scope = active_scope(self.root)
+            scope = active_scope(self.root) if scope is ... else scope
             if self.task_type == "migration" and scope:
                 reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
                            for name in ("issues.md", "iac-issues.md", "diff.md")}
                 prompt = task_path(self.root)
                 permitted = reports | {self.relative(prompt)}
-                lines = prompt.read_text(encoding="utf-8").splitlines()
+                lines = (self.contract_text or prompt.read_text(encoding="utf-8")).splitlines()
                 allowed = self.section(lines, "## Allowed paths")
                 allowed = {line[3:-1] for line in allowed if re.fullmatch(r"- `[^`]+`", line)}
                 if allowed & reports and allowed <= permitted and self.changed_paths <= permitted:
@@ -221,15 +228,16 @@ class TaskValidation:
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             design_sources = {path for path in changed if path.startswith('model/templates/') or
                               path.startswith('model/parameters/') and Path(path).name in {'parameters.yaml', 'bindings.json'}}
-            text = task_path(self.root).read_text(encoding='utf-8')
+            text = self.contract_text or task_path(self.root).read_text(encoding='utf-8')
             if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
                 from import_guard import require_import_changes
                 try:
-                    require_import_changes(self.root, self.changed_paths)
+                    if not self.import_checked:
+                        require_import_changes(self.root, self.changed_paths)
                     design_sources |= {path for path in changed if path.startswith('model/parameters/') and Path(path).name == 'observed.json'}
                 except (OSError, ValueError) as error:
                     self.check(False, str(error))
-            models = {'model/' + '/'.join(entry) + '.properties' for entry in affected(self.root, design_sources)}
+            models = {'model/' + '/'.join(entry) + '.properties' for entry in (self.design_impact if self.design_impact is not None else affected(self.root, design_sources))}
             self.check(bool(models), "design task must change authoritative YAML service inputs")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
@@ -271,7 +279,7 @@ class TaskValidation:
 
 
 
-    def check_acceptance_checks(self, registered) -> None:
+    def check_acceptance_checks(self, registered, scope=None, *, results_only=False) -> None:
         for requirement_id, kind, value in self.acceptance_checks:
             before = len(self.findings.errors)
             if kind == "changed":
@@ -284,6 +292,8 @@ class TaskValidation:
                 handler = registered.get(value)
                 self.check(handler is not None, f"unknown registered Acceptance check: {requirement_id}: {value}")
                 if handler:
-                    handler()
+                    result = (self.findings.result(value, scope) if results_only else
+                              self.findings.evaluate(value, scope, handler))
+                    self.check(result.status == 'PASS', f'Acceptance check is {result.status}: {requirement_id}: {value}')
             if len(self.findings.errors) == before:
                 self.acceptance_results.append(f"{requirement_id}:{kind}:{value}")

@@ -99,7 +99,7 @@ def check_boundaries():
         with patch.object(first, 'check_resource_layout', side_effect=lambda: first.check(False, 'handler failed')) as handler:
             first.check_acceptance_checks()
             handler.assert_called_once_with()
-        assert first.errors[-3:] == ['handler failed', 'unknown registered Acceptance check: R2: unknown', 'required changed path missing: R3: pending.md']
+        assert first.errors[-4:] == ['handler failed', 'Acceptance check is FAIL: R1: framework.resource-layout', 'unknown registered Acceptance check: R2: unknown', 'required changed path missing: R3: pending.md']
         assert not first.acceptance_results
         # A failed read keeps Project's already-determined mode and propagates failure.
         write(root / 'project.json', '{}\n')

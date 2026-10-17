@@ -41,12 +41,13 @@ def check_generated_identifier(
     logical_id: str,
     rows: list[list[str]],
     identifier_outputs: dict[str, set[str]],
- *, findings) -> None:
+ *, findings, values=None) -> None:
     acquired = set()
     from model_files import load_model
     model = findings.canonical_root / 'model' / path.resolve().relative_to(findings.canonical_root / 'docs/designs').with_suffix('.properties')
     try:
-        values = load_model(model).values
+        if values is None:
+            values = load_model(model).values
         for rid, resource in entries(values, 'desired.resource.'):
             if resource.get('resourceMode') == 'IMPORT' and resource.get('logicalId') == logical_id:
                 acquired.update((row['property'], str(literal(values['observed.row.' + row_id + '.value'])))
@@ -242,7 +243,7 @@ def check_design_tables(
                 for required in schema_catalog.required_properties(resource_type):
                     if resource_type in catalog_property_owners.get(required, set()):
                         findings.check(required in present, f"required grouped property missing: {findings.relative(path)}: {child['logicalId']}: {required}")
-            check_generated_identifier(path, resource_type, child["logicalId"], child["rows"], identifier_outputs, findings=findings)
+            check_generated_identifier(path, resource_type, child["logicalId"], child["rows"], identifier_outputs, findings=findings, values=values)
         findings.check(
             len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
             f"design must contain exactly one H1 title: {findings.relative(path)}",
@@ -471,7 +472,7 @@ def check_design_tables(
                             )
                 check_generated_identifier(
                     path, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), rows, identifier_outputs
-                , findings=findings)
+                , findings=findings, values=values)
                 check_required_name_tag(
                     path, current_resource_type, current_logical_id, rows,
                     heading_modes.get((current_resource_type, current_logical_id), "CREATE"),

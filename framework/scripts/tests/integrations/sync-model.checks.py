@@ -10,52 +10,48 @@ from support.sync_model_fixtures import *
 
 from support.it_workspace import copy_framework
 
-@pytest.mark.parametrize('fault', ['missing', 'corrupt', 'omitted', 'source', 'mapping', 'project', 'part', 'consumer', 'extra'])
-def check_publication_readback(generated_policy, fault):
-    import sync_files
+@pytest.mark.parametrize('fault', ['source', 'mapping', 'project', 'part', 'consumer', 'extra'])
+def check_publication_boundary(generated_policy, fault):
     root, model, values, design, artifact, register = generated_policy
-    values['desired.note.001.text'] = '保存後の照合を確認する。'
-    document = json.loads(values['desired.row.001-002.document'])
-    document['Statement'][0]['Action'] = 'sts:AssumeRoleWithSAML'
-    values['desired.row.001-002.document'] = json.dumps(document)
+    values['desired.note.001.text'] = '保存前の一括照合を確認する。'
     write_model(model, values)
     env = register([design, artifact])
     originals = {file: file.read_bytes() for file in (design, artifact)}
-    save = sync_files.save_files
+    validate = sync_runtime.validate_candidates
     concurrent = None
 
-    def faulty_save(outputs):
+    def mutate_before_save(*args, **kwargs):
         nonlocal concurrent
-        selected = artifact in outputs
-        if selected and fault == 'omitted':
-            save({p: content for p, content in outputs.items() if p != artifact})
-        else:
-            save(outputs)
-        if selected:
-            if fault == 'missing':
-                artifact.unlink()
-            elif fault == 'corrupt':
-                artifact.write_bytes(b'{}\n')
-            elif fault in {'part', 'consumer', 'extra'}:
-                template = next(file for file in load_model(model).files if file.suffix == '.tpl')
-                target = (template.with_suffix('') / 'unlisted.properties' if fault == 'part' else
-                          root / 'model/parameters/dev/other/new/parameters.yaml' if fault == 'consumer' else
-                          artifact.parent / 'unexpected.json')
-                concurrent = target, b'{}\n'
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(concurrent[1])
-            elif fault in {'source', 'mapping', 'project'}:
-                target = (next(file for file in load_model(model).files if file.suffix == '.tpl')
-                          if fault == 'source' else
-                          root / 'framework/mappings/aws/iam.yaml' if fault == 'mapping' else root / 'project.json')
-                concurrent = target, target.read_bytes() + b'\n'
-                target.write_bytes(concurrent[1])
-    with patch.dict(os.environ, env), patch.object(sync_files, 'save_files', side_effect=faulty_save):
-        with pytest.raises(ValueError, match='not saved correctly|inputs changed|file set changed'):
+        result = validate(*args, **kwargs)
+        template = next(file for file in load_model(model).files if file.suffix == '.tpl')
+        target = {'source': template, 'mapping': root/'framework/mappings/aws/iam.yaml',
+                  'project': root/'project.json', 'part': template.with_suffix('')/'unlisted.properties',
+                  'consumer': root/'model/parameters/dev/other/new/parameters.yaml',
+                  'extra': artifact.parent/'unexpected.json'}[fault]
+        concurrent = target, (target.read_bytes() if target.exists() else b'') + b'\n'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(concurrent[1])
+        return result
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'validate_candidates', side_effect=mutate_before_save), \
+         patch.object(sync_runtime, '_publish_transaction', side_effect=AssertionError('published before input comparison')):
+        with pytest.raises(ValueError, match='inputs changed'):
             MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
     assert {file: file.read_bytes() for file in originals} == originals
-    if concurrent:
-        assert concurrent[0].read_bytes() == concurrent[1], 'concurrent input edits must survive rollback'
+    assert concurrent[0].read_bytes() == concurrent[1]
+
+
+def check_normal_writer_contents(generated_policy):
+    root, model, values, design, artifact, register = generated_policy
+    values['desired.note.001.text'] = '保存された内容をテストで確認する。'
+    document = json.loads(values['desired.row.001-002.document'])
+    document['Statement'][0]['Sid'] = 'WrittenOnce'
+    values['desired.row.001-002.document'] = json.dumps(document)
+    write_model(model, values)
+    with patch.dict(os.environ, register([design, artifact])), \
+         patch.object(sync_runtime, 'verify_saved', side_effect=AssertionError('normal runtime readback')):
+        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+    assert values['desired.note.001.text'] in design.read_text()
+    assert json.loads(artifact.read_text()) == document
 
 
 @pytest.mark.parametrize('note', [False, True])
@@ -66,7 +62,7 @@ def check_unchanged_sidecar(generated_policy, note):
         write_model(model, values)
     env = register([design] if note else [])
     before = artifact.read_bytes(), artifact.stat().st_mtime_ns
-    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publish', wraps=sync_runtime.publish) as publish, \
+    with patch.dict(os.environ, env), patch.object(sync_runtime, '_publish_transaction', wraps=sync_runtime._publish_transaction) as publish, \
          patch.object(sync_runtime, 'validate_candidates', wraps=sync_runtime.validate_candidates) as validate:
         assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
     assert validate.call_count == 1, 'no-op outputs still require candidate validation'
@@ -110,23 +106,16 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
     changed = (artifact if drift == 'sidecar' else root / env['BLUEPRINT_TASK_FILE'] if drift == 'task'
                else next(file for file in load_model(model).files if file.suffix == '.tpl'))
     content = ('{}\n' if drift == 'sidecar' else '# concurrent change\n' + changed.read_text(encoding='utf-8'))
-    lock = sync_runtime.publication_lock
-
-    @contextmanager
-    def change_under_lock(root):
-        with lock(root) as journal:
-            changed.write_text(content, encoding='utf-8')
-            yield journal
-
-    with patch.dict(os.environ, env), patch.object(sync_runtime, 'publication_lock', change_under_lock):
-        if drift in {'source', 'task'}:
-            with pytest.raises(ValueError, match='scope changed' if drift == 'task' else 'inputs changed'):
-                MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
-            assert design.read_bytes() == original
-            assert changed.read_text(encoding='utf-8') == content
-        else:
-            assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
-            assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
+    validate = sync_runtime.validate_candidates
+    def mutate(*args, **kwargs):
+        result = validate(*args, **kwargs)
+        changed.write_text(content, encoding='utf-8')
+        return result
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'validate_candidates', side_effect=mutate):
+        with pytest.raises(ValueError, match='inputs changed'):
+            MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
+    assert design.read_bytes() == original
+    assert changed.read_text(encoding='utf-8') == content
 
 
 
@@ -191,6 +180,8 @@ def check_unchanged_sidecar_validation(generated_policy):
 
 
 def check_failure_counts(framework_root) -> None:
+    from types import SimpleNamespace
+    from validation.findings import Findings
     root = framework_root
     models = root / "model/dev/non-cde"
     docs = root / "docs/designs/dev/non-cde"
@@ -207,6 +198,19 @@ def check_failure_counts(framework_root) -> None:
 
     # Retained references warn without adding a failed service or failure diagnostics.
     broken = {f"reference-{number}": docs / "service-09.md" for number in range(5)}
+    def context(stage, source, generated, destinations, accounts=None):
+        findings = Findings(stage)
+        scope = {(*p.relative_to(root / 'docs/designs').parts[:2], p.stem) for p in generated}
+        for name in ('design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'):
+            findings.evaluate(name, scope, lambda: None)
+        return SimpleNamespace(errors=[], findings=findings)
+    def checked(stage, source, paths, sources, **kwargs):
+        findings = Findings(stage)
+        findings.candidate = kwargs['context'].findings.candidate
+        scope = {(*p.relative_to(stage / 'docs/designs').parts[:2], p.stem) for p in paths}
+        for name in ('design.projection', 'design.names', 'design.tables', 'design.overviews', 'design.links', 'design.artifacts', 'design.observed'):
+            findings.evaluate(name, scope, lambda: None)
+        return findings
     for extra_inputs in (False, True):
         if extra_inputs:
             write_model(models / 'invalid.properties', 'invalid properties\n')
@@ -216,7 +220,8 @@ def check_failure_counts(framework_root) -> None:
             with redirect_stderr(warnings), patch.object(sync_runtime, "validate_required_properties"), \
                  patch.object(sync_runtime, "markdown_for", side_effect=render), \
                  patch.object(sync_runtime, "rendered_design", return_value="generated\n"), \
-                 patch.object(sync_views, "validate_views"), \
+                 patch.object(sync_views, "validate_views", side_effect=checked if write else None), \
+                 patch.object(sync_views, "validation_context", side_effect=context), \
                  patch.object(sync_views, "broken_design_links", side_effect=[{}, broken, {}]), \
                  redirect_stdout(io.StringIO()):
                 try:

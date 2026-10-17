@@ -44,14 +44,14 @@ def memoized(function):
     return wrapped
 
 
-def digest_files(root, paths):
+def digest_files(root, paths, contents=None):
     digest = hashlib.sha256()
     for path in sorted(set(paths)):
         relative = path.relative_to(root)
         if any((root.joinpath(*relative.parts[:number])).is_symlink()
                for number in range(1, len(relative.parts) + 1)):
             raise ValueError("symlink inputs cannot reuse validation results")
-        content = path.read_bytes() if path.is_file() else None
+        content = contents[path] if contents is not None else path.read_bytes() if path.is_file() else None
         # Length-delimited names and byte hashes distinguish missing/empty/new files.
         digest.update(json.dumps([relative.as_posix(), None if content is None else
                                   hashlib.sha256(content).hexdigest()]).encode("utf-8"))
@@ -69,17 +69,20 @@ class PassCache:
         if self.directory == root or root in self.directory.parents:
             raise ValueError("validation cache must be outside the repository")
 
-    def common_key(self):
+    def common_key(self, contents=None):
         paths = [self.root / "AGENTS.md", self.root / "README.md"]
         if self.include_project:
             paths.append(self.root / "project.json")
-        paths.extend(path for directory in ("framework", ".agents")
-                     for path in (self.root / directory).rglob("*") if (path.is_file() or path.is_symlink()) and not (path.suffix == ".pyc" and "__pycache__" in path.parts))
-        inputs = [digest_files(self.root, paths)]
+        def files(root, names):
+            if contents is not None:
+                return [p for p, data in contents.items() if data is not None and any(p.is_relative_to(root / name) for name in names)]
+            return [p for name in names for p in (root / name).rglob('*')
+                    if (p.is_file() or p.is_symlink()) and not (p.suffix == '.pyc' and '__pycache__' in p.parts)]
+        paths.extend(files(self.root, ('framework', '.agents')))
+        inputs = [digest_files(self.root, paths, contents)]
         runtime = Path(__file__).resolve().parents[2]
         if runtime != self.root:
-            inputs.append(digest_files(runtime, [path for path in (runtime / "framework").rglob("*")
-                                                 if (path.is_file() or path.is_symlink()) and not (path.suffix == ".pyc" and "__pycache__" in path.parts)]))
+            inputs.append(digest_files(runtime, files(runtime, ('framework',)), contents))
         return hashlib.sha256(json.dumps(inputs).encode()).hexdigest()
 
     def key(self, kind, inputs=""):

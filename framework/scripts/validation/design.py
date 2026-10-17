@@ -143,9 +143,9 @@ def markdown_service_metadata(
 
 def model_service_metadata(
     path: Path, catalog_types: set[str]
-, *, findings) -> tuple[str, tuple[str, ...]] | None:
+, *, findings, values=None) -> tuple[str, tuple[str, ...]] | None:
     try:
-        lines = read_model(path).splitlines()
+        lines = (read_model(path) if values is None else "".join(f"{k}={v}\n" for k, v in values.items())).splitlines()
     except (OSError, ValueError) as error:
         findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
         return None
@@ -170,7 +170,7 @@ def model_service_metadata(
 
 def check_design_service_ownership(
     markdown_paths: list[Path]
-, *, findings, root) -> tuple[
+, *, findings, root, design_sources=None) -> tuple[
     dict[Path, tuple[str, tuple[str, ...]]],
     set[str],
     dict[str, set[str]],
@@ -186,7 +186,7 @@ def check_design_service_ownership(
         relative = markdown_path.relative_to(docs_base)
         model_path = (model_base / relative).with_suffix(".properties")
         markdown_metadata = markdown_service_metadata(markdown_path, catalog_types, findings=findings)
-        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings) if service_source(model_path) is not None else None
+        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings, values=(design_sources or {}).get(markdown_path)) if service_source(model_path) is not None else None
         if markdown_metadata is None or model_metadata is None:
             continue
         findings.check(markdown_metadata == model_metadata, f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}")
@@ -317,12 +317,15 @@ def check_policy_tables(paths, findings) -> None:
             findings.check(False, f"invalid policy tables: {findings.relative(path)}: {error}")
 
 
-def check_observed_values(paths: list[Path] | None = None, *, findings, root, scope) -> None:
+def check_observed_values(paths: list[Path] | None = None, *, findings, root, scope, design_sources=None) -> None:
     for path in scoped_files(root, "model", ".properties", scope) if paths is None else paths:
         try:
             if service_source(path) is None:
                 continue
-            values = properties(read_model(path))
+            view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+            values = (design_sources or {}).get(view)
+            if values is None:
+                values = properties(read_model(path))
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
             continue
@@ -349,7 +352,7 @@ def check_api_design_catalog(findings, root):
     findings.check(not errors, "; ".join(errors) or "API design catalog is invalid")
 
 
-def check_catalog_inputs(findings, root, set_schema_catalog):
+def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
     result = subprocess.run(
         [sys.executable, str(root / "framework" / "scripts" / "update-catalog-lock.py")],
         cwd=root,
@@ -359,11 +362,12 @@ def check_catalog_inputs(findings, root, set_schema_catalog):
     )
     findings.check(result.returncode == 0, result.stdout.strip() or "catalog lock check failed")
 
-    schema_failures = snapshot_errors(root)
-    findings.check(not schema_failures, "; ".join(schema_failures) or "CloudFormation schema snapshot check failed")
-    api_failures = api_snapshot_errors(root)
-    findings.check(not api_failures, "; ".join(api_failures) or "API design snapshot check failed")
-    if not schema_failures and not api_failures:
+    def schema_check():
+        errors = snapshot_errors(root)
+        findings.check(not errors, '; '.join(errors) or 'CloudFormation schema snapshot check failed')
+    schema = findings.evaluate('framework.cloudformation-schema-catalog', scope, schema_check)
+    api = findings.evaluate('framework.api-design-catalog', scope, lambda: check_api_design_catalog(findings, root))
+    if schema.status == api.status == 'PASS':
         set_schema_catalog(DesignSchemaCatalog(root))
 
     aws_materials = set(material_files(root))

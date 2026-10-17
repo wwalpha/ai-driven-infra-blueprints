@@ -382,6 +382,11 @@ def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
     from aws_mapping_display import validate_mappings
     validate_mappings(values, root)
     validate_required_properties(values, root)
+    return render_validated_model(path, values, root)
+
+
+def render_validated_model(path: Path, values: dict[str, str], root: Path) -> str:
+    """Internal renderer after mapping/required-property preflight, before artifacts."""
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root)
     service = path.stem

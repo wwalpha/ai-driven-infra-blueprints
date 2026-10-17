@@ -149,20 +149,7 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
             require_import_changes(root, output={**output, **{p: None for p in obsolete}})
         if task_revision(root) != expected_task:
             raise ValueError("task scope changed after planning; rerun generation")
-        originals = {p: p.read_bytes() if p.is_file() else None for p in paths}
-        record = {'root': str(root.resolve()), 'originals': {p.relative_to(root).as_posix():
-                  None if data is None else base64.b64encode(data).decode() for p, data in originals.items()}}
-        # fsync the recovery journal before the first repository write.
-        temporary = journal.with_suffix('.pending')
-        with temporary.open('w', encoding='utf-8') as stream:
-            stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temporary, journal)
-        if memo_table() is not None:
-            memo_table().clear()
-        try:
-            sync_files.save_files(output)
-            for path in obsolete:
-                path.unlink(missing_ok=True)
+        def finish():
             if verify is not None:
                 verify()
                 expected_inputs = {p: data for p, data in (inputs or {}).items() if p not in paths}
@@ -172,11 +159,42 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
                     raise ValueError('generation inputs changed during publication')
             if task_revision(root) != expected_task:
                 raise ValueError('task scope changed during publication; rerun generation')
-        except (OSError, ValueError):
-            sync_files.restore_files(originals)
-            journal.unlink()
-            raise
+        _publish_transaction(root, output, obsolete, journal, finish=finish)
+
+
+def _publish_transaction(root, output, obsolete, journal, *, originals=None, finish=None):
+    """Journal and rollback shared by guarded publication and validated generation plans.
+
+    The caller holds publication_lock and owns authorization/input validation. A supplied
+    originals map is the already compared generation plan, including only changed files.
+    """
+    planned = originals is not None
+    if originals is None:
+        originals = {p: p.read_bytes() if p.is_file() else None for p in set(output) | set(obsolete)}
+    record = {'root': str(root.resolve()), 'originals': {p.relative_to(root).as_posix():
+              None if data is None else base64.b64encode(data).decode() for p, data in originals.items()}}
+    temporary = journal.with_suffix('.pending')
+    with temporary.open('w', encoding='utf-8') as stream:
+        stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
+    os.replace(temporary, journal)
+    if memo_table() is not None:
+        memo_table().clear()
+    try:
+        if planned:
+            for path, content in output.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding='utf-8', newline='')
+        else:
+            sync_files.save_files(output)
+        for path in obsolete:
+            path.unlink(missing_ok=True)
+        if finish is not None:
+            finish()
+    except (OSError, ValueError):
+        sync_files.restore_files(originals)
         journal.unlink()
+        raise
+    journal.unlink()
 
 
 def service_source(path):
@@ -949,7 +967,9 @@ def reference_values(path, identity, kind, mode, _context=None):
         return LoadedModel('', values, {}, files)
 
 
-def load_expansion(path):
+@scoped_read
+@memoized
+def load_expansion(path, _context=None):
     return load_sources(path, expand)
 
 
