@@ -92,6 +92,9 @@ def small_framework(root, services, kinds):
     for relative in paths:
         destination = root / relative; destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(m.ROOT / relative, destination)
+    owners = json.loads((m.ROOT / 'framework/mappings/aws/owners.json').read_text(encoding='utf-8'))
+    (root / 'framework/mappings/aws/owners.json').write_text(json.dumps({kind: service for kind, service in owners.items()
+        if service in services}), encoding='utf-8')
     (root / 'project.json').write_text(json_text({'projectName': 'fixture', 'targets': [{'environment': 'dev',
         'awsAccountId': ACCOUNT, 'awsProfile': 'confirmed', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
 

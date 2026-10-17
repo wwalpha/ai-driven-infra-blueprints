@@ -7,6 +7,13 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.aws_mapping_fixtures import *
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, replace
+import pytest
+from threading import Barrier
+import aws_mapping_catalog
+from utils.aws_mappings import mappings_for, owners, mapping_alias
+from validation_cache import memo_table
 
 def check_payload_selection():
     mapping = aws_mapping.registry(ROOT, 'config')
@@ -57,7 +64,7 @@ def check_v3_registry():
         mapping = aws_mapping.registry(ROOT, path.stem)
         runtime = aws_mapping.runtime_registry(ROOT, path.stem)
         from aws_mapping_catalog import runtime_properties
-        assert runtime.properties == aws_mapping.Registry(ROOT, path.stem, runtime_properties).properties
+        assert runtime.properties == aws_mapping.Registry(ROOT, path.stem, document, runtime_properties(ROOT, path.stem, document)).properties
         assert dict(runtime.getters) == dict(mapping.getters)
         assert runtime.identities == mapping.identities
         assert mapping.resource_types == document['resourceTypes'].keys()
@@ -94,33 +101,34 @@ def check_v3_registry():
 
 
 def check_registry_cache():
-    @input_scope
-    def cached():
-        first = aws_mapping.registry(ROOT, 'config')
-        assert aws_mapping.registry(ROOT, 'config') is first
-        assert first.identities[RECORDER] == aws_mapping.Identity('recorder', 'name', None, 'Name')
-        for mutate in (lambda: setattr(first.identities[RECORDER], 'id_path', 'other'),
-                       lambda: first.identities.__setitem__(RECORDER, None),
-                       lambda: first.getters['recorder'].__setitem__('resources', ())):
-            try:
-                mutate()
-            except (FrozenInstanceError, AttributeError):
-                pass
-            else:
-                raise AssertionError('mutable Registry definition')
-        assert isinstance(first.getters['recorder']['resources'], tuple)
-        return first
-    with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as read:
-        first = cached()
-        assert read.call_count == 1
-        assert cached() is not first
-        assert read.call_count == 2, 'cache must not survive input scopes'
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory), 'config')
+        @input_scope
+        def cached():
+            first = aws_mapping.registry(root, 'config')
+            assert aws_mapping.registry(root, 'config') is first
+            assert first.identities[RECORDER] == aws_mapping.Identity('recorder', 'name', None, 'Name')
+            for mutate in (lambda: setattr(first.identities[RECORDER], 'id_path', 'other'),
+                           lambda: first.identities.__setitem__(RECORDER, None),
+                           lambda: first.getters['recorder'].__setitem__('resources', ()),
+                           lambda: setattr(first, 'service', 'other')):
+                with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
+                    mutate()
+            assert isinstance(first.getters['recorder']['resources'], tuple)
+            return first
+        with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as read, \
+             patch.object(aws_mapping_catalog, 'catalog_properties', wraps=aws_mapping_catalog.catalog_properties) as compile:
+            first = cached()
+            assert read.call_count == compile.call_count == 1
+            assert cached() is not first
+            assert read.call_count == 1 and compile.call_count == 2
 
 
 def check_baseline():
     expected = {kind + '.' + prop: m.Field('recorder' if kind == RECORDER else 'channel', path, norm, default)
                 for kind, props in BASELINE.items() for prop, (path, norm, default) in props.items()}
-    assert dict(aws_mapping.Registry(ROOT, 'config').fields) == expected
+    assert {key: replace(field, default=field.copy_default())
+            for key, field in aws_mapping.registry(ROOT, 'config').fields.items()} == expected
     @input_scope
     def cached():
         first = aws_mapping.registry(ROOT, 'config')
@@ -137,95 +145,295 @@ def check_baseline():
     assert m.normalize(None, 'bucket-fixture', 'name') == 'bucket-fixture'
 
 
+def check_import_and_owners_are_lazy():
+    # A fresh interpreter verifies import side effects without reloading shared state.
+    import subprocess
+    code = """from pathlib import Path
+from unittest.mock import patch
+with patch.object(Path, 'read_text', side_effect=AssertionError('unexpected read')):
+    import utils.aws_mappings
+assert not utils.aws_mappings._instances
+"""
+    subprocess.run([sys.executable, '-c', code], cwd=ROOT / 'framework/scripts', check=True)
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory), 'config', 'iam')
+        original = Path.read_text
+        reads = []
+        def read(path, *args, **kwargs):
+            reads.append(path)
+            return original(path, *args, **kwargs)
+        barrier = Barrier(8)
+        def obtain(_):
+            barrier.wait(timeout=10)
+            return mappings_for(root)
+        with patch.object(Path, 'read_text', read), patch.object(aws_mapping, 'yaml_read') as parse:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                providers = list(pool.map(obtain, range(8)))
+            assert all(provider is providers[0] for provider in providers)
+            assert owners(root) is owners(root)
+            assert owners(root)[RECORDER] == 'config'
+            assert reads == [root / 'framework/mappings/aws/owners.json']
+            parse.assert_not_called()
+            with pytest.raises(KeyError):
+                owners(root)['Unknown.Resource']
+            with pytest.raises(TypeError):
+                owners(root)[RECORDER] = 'iam'
+            for service in ('unknown', '../config', None):
+                with pytest.raises(ValueError, match='unknown Mapping service'):
+                    providers[0].get(service)
+            assert len(reads) == 1
+
+
 def check_runtime_cache():
-    import os
-    from concurrent.futures import ThreadPoolExecutor
-    from aws_mapping_catalog import runtime_properties
-
-    content = (ROOT / 'framework/mappings/aws/config.yaml').read_text(encoding='utf-8')
     with TemporaryDirectory() as directory:
-        roots = [Path(directory) / name for name in ('first', 'second')]
-        for root in roots:
-            path = root / 'framework/mappings/aws/config.yaml'
-            path.parent.mkdir(parents=True)
-            path.write_text(content, encoding='utf-8')
-            path.with_name('iam.yaml').write_text(
-                (ROOT / 'framework/mappings/aws/iam.yaml').read_text(encoding='utf-8'), encoding='utf-8')
-        root = roots[0]
-        path = root / 'framework/mappings/aws/config.yaml'
-        with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as read:
-            first = aws_mapping.runtime_registry(root, 'config')
-            again = aws_mapping.runtime_registry(root, 'config')
-            assert read.call_count == 1 and first.properties == again.properties
-            second = aws_mapping.runtime_registry(roots[1], 'config')
-            assert read.call_count == 2 and second.root == roots[1]
-            iam = aws_mapping.runtime_registry(root, 'iam')
-            assert read.call_count == 3 and iam.service == 'iam' and 'IAM.Role' in iam.resource_types
-
+        root = mapping_fixture(Path(directory) / 'first', 'config', 'iam', 'sns')
+        other = mapping_fixture(Path(directory) / 'second', 'config')
+        original = Path.read_text
+        reads = []
+        def read(path, *args, **kwargs):
+            if path.suffix == '.yaml':
+                reads.append(path)
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', read), \
+             patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse, \
+             patch.object(aws_mapping_catalog, 'runtime_properties', wraps=aws_mapping_catalog.runtime_properties) as compile:
+            provider = mappings_for(root)
+            first = provider.get('config')
+            assert provider.get(owners(root)[RECORDER]) is provider.get(owners(root)[CHANNEL]) is first
             @input_scope
-            def snapshot():
-                pinned = aws_mapping.runtime_registry(root, 'config')
-                stat = path.stat()
-                path.write_text(content.replace('name: RoleName', 'name: OtherRole'), encoding='utf-8')
-                os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-                assert aws_mapping.runtime_registry(root, 'config') is pinned
-                return pinned
-
-            assert snapshot().properties[RECORDER + '.RoleARN'].name == 'RoleName'
-            changed = aws_mapping.runtime_registry(root, 'config')
-            assert read.call_count == 4 and changed.properties[RECORDER + '.RoleARN'].name == 'OtherRole'
-            path.write_text('invalid: [', encoding='utf-8')
-            for _ in range(2):
-                try:
-                    aws_mapping.runtime_registry(root, 'config')
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError('invalid YAML reused a Registry')
-            assert read.call_count == 6, 'exceptions must not be cached'
-            path.write_text(content, encoding='utf-8')
-            assert aws_mapping.runtime_registry(root, 'config').properties == first.properties
-            assert read.call_count == 6
-            # Returned attributes and nested defaults must never mutate the private cached Registry.
-            first.getters = {}
-            first.service = 'changed'
-            default = RECORDER + '.RecordingGroup.ResourceTypes'
-            first.fields[default].default.append('changed')
-            fresh = aws_mapping.runtime_registry(root, 'config')
-            assert fresh.service == 'config' and fresh.getters and fresh.fields[default].default == []
-            assert fresh.fields[default] is fresh.properties[default].field
-            assert fresh.properties == aws_mapping.Registry(root, 'config', runtime_properties).properties
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                registries = list(pool.map(lambda _: aws_mapping.runtime_registry(root, 'config'), range(8)))
-            assert all(item.properties == fresh.properties for item in registries)
-            assert len({id(item) for item in registries}) == 8
-            registries[0].fields[default].default.append('thread-local')
-            assert all(item.fields[default].default == [] for item in registries[1:])
+            def scoped():
+                assert aws_mapping.runtime_registry(root, 'config') is first
+                memo_table().clear()
+                assert aws_mapping.runtime_registry(root, 'config') is first
+            scoped()
+            scoped()
+            assert parse.call_count == compile.call_count == 1
+            assert mappings_for(root).get('iam').service == 'iam'
+            assert mappings_for(other).get('config') is not first
+            assert parse.call_count == compile.call_count == 3
+            assert reads == [root / 'framework/mappings/aws/config.yaml', root / 'framework/mappings/aws/iam.yaml',
+                             other / 'framework/mappings/aws/config.yaml']
+            # These are static definitions: later filesystem changes cannot alter this instance.
+            (root / 'framework/mappings/aws/config.yaml').write_text('invalid: [', encoding='utf-8')
+            assert provider.get('config') is first
+            assert parse.call_count == 3
 
 
-def check_runtime_cache_snapshot_and_bound():
+def check_parallel_services():
     with TemporaryDirectory() as directory:
-        root = Path(directory)
-        path = root / 'framework/mappings/aws/fixture.yaml'
-        path.parent.mkdir(parents=True)
-        content = json.dumps({'version': 3, 'service': 'fixture', 'getters': {}, 'resourceTypes': {}})
-        path.write_text(content, encoding='utf-8')
+        root = mapping_fixture(Path(directory), 'config', 'iam')
+        provider = mappings_for(root)
+        start, parsing = Barrier(8), Barrier(2)
         original = aws_mapping.yaml_read
+        def parse(content):
+            parsing.wait(timeout=10)  # Different services must not hold a common lock.
+            return original(content)
+        def get(number):
+            start.wait(timeout=10)
+            return provider.get('config' if number % 2 else 'iam')
+        with patch.object(aws_mapping, 'yaml_read', side_effect=parse) as read, \
+             patch.object(aws_mapping_catalog, 'runtime_properties', wraps=aws_mapping_catalog.runtime_properties) as compile:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(get, range(8)))
+            assert read.call_count == compile.call_count == 2
+        assert all(item is results[number % 2] for number, item in enumerate(results))
 
-        def read(snapshot):
-            path.write_text('invalid: [', encoding='utf-8')
-            return original(snapshot)
 
-        with patch.object(aws_mapping, 'yaml_read', side_effect=read):
-            assert aws_mapping.runtime_registry(root, 'fixture').service == 'fixture'
-        for number in range(129):
-            path.write_text(content + f'\n# {number}', encoding='utf-8')
-            aws_mapping.runtime_registry(root, 'fixture')
-        assert aws_mapping._runtime_registry.cache_info().currsize == 128
-        path.write_text(content, encoding='utf-8')
-        with patch.object(aws_mapping, 'yaml_read', wraps=original) as parsed:
-            aws_mapping.runtime_registry(root, 'fixture')
-            assert parsed.call_count == 1, 'least recently used snapshot must be evicted'
+def check_runtime_full_reuse():
+    with TemporaryDirectory() as directory:
+        for order in ('runtime-first', 'full-first', 'parallel'):
+            root = mapping_fixture(Path(directory) / order, 'sqs')
+            provider = mappings_for(root)
+            barrier = Barrier(8)
+            def obtain(number):
+                barrier.wait(timeout=10)
+                return provider.get('sqs') if number % 2 else aws_mapping.registry(root, 'sqs')
+            with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+                if order == 'runtime-first':
+                    runtime, full = provider.get('sqs'), aws_mapping.registry(root, 'sqs')
+                elif order == 'full-first':
+                    full, runtime = aws_mapping.registry(root, 'sqs'), provider.get('sqs')
+                else:
+                    with ThreadPoolExecutor(max_workers=8) as pool:
+                        results = list(pool.map(obtain, range(8)))
+                    runtime, full = results[1], results[0]
+                    assert all(results[n] is runtime for n in (1, 3, 5, 7))
+                assert parse.call_count == 1
+                # Full compilation retains input extraction classification; runtime retains executable fields.
+                assert full.getters == runtime.getters and full.identities == runtime.identities
+                key = 'SQS.Queue.QueueName'
+                assert full.properties[key].field.classification == 'local_metadata'
+                assert runtime.properties[key].field.classification == 'supported'
+                assert provider.get('sqs') is runtime
+
+
+def check_runtime_failures():
+    class Cancelled(BaseException):
+        pass
+    with TemporaryDirectory() as directory:
+        for fault in ('read', 'parse', 'runtime', 'control'):
+            root = mapping_fixture(Path(directory) / fault, 'config')
+            provider = mappings_for(root)
+            if fault == 'parse':
+                (root / 'framework/mappings/aws/config.yaml').write_text('invalid: [', encoding='utf-8')
+            original = Path.read_text
+            reads = []
+            def read(path, *args, **kwargs):
+                if path.suffix == '.yaml':
+                    reads.append(path)
+                    if fault == 'read':
+                        raise OSError('injected read failure')
+                return original(path, *args, **kwargs)
+            barrier = Barrier(8)
+            def obtain(_):
+                barrier.wait(timeout=10)
+                try:
+                    provider.get('config')
+                except BaseException as error:
+                    return error
+                raise AssertionError('failure accepted')
+            runtime = aws_mapping_catalog.runtime_properties
+            def compile(*args):
+                if fault == 'runtime':
+                    raise ValueError('injected runtime failure')
+                if fault == 'control':
+                    raise Cancelled('control exception')
+                return runtime(*args)
+            with patch.object(Path, 'read_text', read), \
+                 patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse, \
+                 patch.object(aws_mapping_catalog, 'runtime_properties', side_effect=compile) as build:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    errors = list(pool.map(obtain, range(8)))
+                with pytest.raises(type(errors[0])):
+                    provider.get('config')
+                assert all(error is errors[0] for error in errors)
+                assert len(reads) == 1
+                assert parse.call_count == (0 if fault == 'read' else 1)
+                assert build.call_count == (1 if fault in ('runtime', 'control') else 0)
+                if fault in ('runtime', 'control'):
+                    assert aws_mapping.registry(root, 'config').service == 'config'
+                    assert parse.call_count == 1, 'runtime failure must retain a usable document'
+
+
+def check_full_failure_isolation():
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory), 'sns')
+        provider = mappings_for(root)
+        with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+            for target in ('sdk_shape', 'DesignSchemaCatalog'):
+                with patch.object(aws_mapping_catalog, target, side_effect=ValueError('injected full failure')):
+                    @input_scope
+                    def failed():
+                        with pytest.raises(ValueError, match='injected full failure'):
+                            aws_mapping.registry(root, 'sns')
+                    failed()
+                    runtime = provider.get('sns')
+                    failed()
+                    assert provider.get('sns') is runtime
+                @input_scope
+                def success():
+                    return aws_mapping.registry(root, 'sns')
+                assert success().resource_types == runtime.resource_types
+            assert parse.call_count == 1
+
+
+def check_stage_alias():
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory) / 'source', 'config')
+        stage = mapping_fixture(Path(directory) / 'stage', 'config')
+        provider = mappings_for(root)
+        with pytest.raises(RuntimeError, match='injected'), mapping_alias(root, stage):
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                results = list(pool.map(lambda _: mappings_for(stage).get('config'), range(4)))
+            assert all(item is provider.get('config') for item in results)
+            sibling = mapping_fixture(Path(str(stage) + '-prefix'), 'config')
+            assert mappings_for(sibling) is not provider
+            with pytest.raises(ValueError, match='already has a provider'), mapping_alias(root, stage):
+                pass
+            raise RuntimeError('injected')
+        assert mappings_for(stage) is not provider
+        with pytest.raises(ValueError, match='already has a provider'), mapping_alias(root, stage):
+            pass
+        second = Path(directory) / 'short-lived'
+        with mapping_alias(root, second):
+            assert mappings_for(second) is provider
+        assert second not in __import__('utils.aws_mappings', fromlist=['_aliases'])._aliases
+
+
+def check_ownership_errors():
+    with TemporaryDirectory() as directory:
+        for number, index in enumerate(('{}', '[]', '{"Config.ConfigurationRecorder":1}',
+                '{"bad":"config"}', '{"Config.ConfigurationRecorder":"../config"}',
+                '{"Config.ConfigurationRecorder":"config","Config.ConfigurationRecorder":"iam"}',
+                '{"Config.ConfigurationRecorder":NaN}')):
+            root = Path(directory) / str(number)
+            path = root / 'framework/mappings/aws/owners.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(index, encoding='utf-8')
+            with patch.object(aws_mapping, 'yaml_read') as parse, pytest.raises(ValueError):
+                mappings_for(root)
+            parse.assert_not_called()
+        for fault in ('missing', 'extra', 'owner'):
+            root = mapping_fixture(Path(directory) / fault, 'config', 'iam')
+            path = root / 'framework/mappings/aws/owners.json'
+            index = json.loads(path.read_text(encoding='utf-8'))
+            if fault == 'missing':
+                del index[CHANNEL]
+            elif fault == 'extra':
+                index['Config.Unknown'] = 'config'
+            else:
+                index[CHANNEL] = 'iam'
+            path.write_text(json.dumps(index), encoding='utf-8')
+            with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+                for _ in range(2):
+                    with pytest.raises(ValueError, match='ownership index mismatch'):
+                        mappings_for(root).get('config')
+                assert parse.call_count == 1
+
+
+def check_readonly_defaults():
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory), 'config')
+        path = root / 'framework/mappings/aws/config.yaml'
+        document = aws_mapping.yaml_read(path.read_text(encoding='utf-8'))
+        key = RECORDER + '.RecordingGroup.ResourceTypes'
+        values = [[], {'nested': [False, 0, None, {'leaf': []}]}, False, 0, None, m.MISSING]
+        for number, default in enumerate(values):
+            document['resourceTypes'][RECORDER]['properties']['RecordingGroup.ResourceTypes']['aws']['default'] = default
+            candidate = mapping_fixture(Path(directory) / str(number), 'config')
+            (candidate / 'framework/mappings/aws/config.yaml').write_text(json.dumps(document), encoding='utf-8')
+            result = mappings_for(candidate).get('config')
+            field = result.fields[key]
+            assert field is result.properties[key].field
+            assert field.copy_default() == default
+            assert type(field.copy_default()) is type(default)
+            assert asdict(replace(result.properties[key], field=replace(field, default=field.copy_default())))['field']['default'] == default
+            with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
+                result.getters['recorder']['resources'] += ('changed',)
+            with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
+                result.properties[key].field.default = 'changed'
+            if isinstance(default, list):
+                with pytest.raises(AttributeError):
+                    field.default.append('changed')
+                field.copy_default().append('independent')
+                assert field.copy_default() == default
+                assert m.normalize(None, field.copy_default(), 'set') == []
+            if isinstance(default, dict):
+                with pytest.raises(TypeError):
+                    field.default['changed'] = True
+                detached = field.copy_default()
+                detached['changed'] = True
+                assert field.copy_default() == default
+                if 'nested' in default:
+                    with pytest.raises(AttributeError):
+                        field.default['nested'][3]['leaf'].append(1)
+                    detached['nested'][3]['leaf'].append(1)
+                    assert field.copy_default() == default
+        # Field is embedded verbatim into standalone audits; it must need no repo imports.
+        generator = module('model-test.py', 'model_test_generator')
+        namespace = {}
+        exec('from dataclasses import dataclass\n' + generator.definitions(ROOT / 'framework/scripts/check-model-aws.py', ['Field']), namespace)
+        assert namespace['Field'](default={'nested': (False, 0, None)}).copy_default() == {'nested': [False, 0, None]}
 
 
 if __name__ == '__main__':

@@ -15,6 +15,10 @@ import threading
 import validation_cache
 import model_templates
 from validation.findings import Findings
+import utils.aws_mappings as mapping_state
+from utils.aws_mappings import mappings_for, mapping_alias
+from support.aws_mapping_fixtures import mapping_fixture
+import aws_mapping
 
 COMMON = ('check_resource_names', 'check_design_tables', 'check_design_overviews',
           'check_design_links', 'check_design_artifacts', 'check_observed_values')
@@ -201,12 +205,16 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
 
 def check_single_and_parallel_threads(tmp_path):
     root, stage = tmp_path / 'root', tmp_path / 'stage'
+    mapping_fixture(root, 'iam', 's3')
+    provider = mappings_for(root)
     paths = [root / 'docs/designs/dev/team' / (s + '.md') for s in ('iam', 's3')]
     main = threading.get_ident()
     for count in (1, 2):
         threads = []
         barrier = threading.Barrier(2) if count == 2 else None
         def validate(*args, **kwargs):
+            assert mappings_for(stage) is provider
+            assert mappings_for(stage).get('iam') is provider.get('iam')
             threads.append((threading.get_ident(), validation_cache.memo_table()))
             if barrier:
                 barrier.wait(timeout=10)
@@ -223,7 +231,9 @@ def check_single_and_parallel_threads(tmp_path):
             else:
                 assert len({thread for thread, _ in threads}) == 2
                 assert all(thread != main for thread, _ in threads)
-        run_candidates()
+        with mapping_alias(root, stage):
+            run_candidates()
+        assert stage not in mapping_state._aliases and stage not in mapping_state._instances
 
 
 def check_authorization_before_memo_and_publication(generated_policy, monkeypatch):
@@ -279,6 +289,40 @@ def check_scoped_validation_threads_and_failures(tmp_path):
                 assert len({thread for thread, _ in seen}) == 2
                 assert all(thread != main and memo is not scope for thread, memo in seen)
         validate()
+
+
+@pytest.mark.parametrize('fault', ['none', 'stage', 'generation', 'worker'])
+def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
+    root, _, _, _, _, register = generated_policy
+    monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([])['BLUEPRINT_TASK_FILE'])
+    provider = mappings_for(root)
+    stages = []
+    original = sync_runtime.stage_inputs
+    def stage_inputs(stage, source, *args):
+        stages.append(stage)
+        assert source == root and mappings_for(stage) is provider
+        assert stage not in mapping_state._instances
+        assert mappings_for(stage).get('iam') is provider.get('iam')
+        if fault == 'stage':
+            raise ValueError('injected stage failure')
+        return original(stage, source, *args)
+    def fail(*args, **kwargs):
+        assert mappings_for(args[0]) is provider
+        raise ValueError('injected ' + fault + ' failure')
+    with patch.object(sync_runtime, 'stage_inputs', side_effect=stage_inputs), \
+         patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+        from contextlib import nullcontext
+        target = (patch.object(sync_runtime, 'generate_views', side_effect=fail) if fault == 'generation' else
+                  patch.object(sync_views, 'validate_views', side_effect=fail) if fault == 'worker' else nullcontext())
+        with target:
+            if fault == 'none':
+                assert MODULE.sync(root, False, *ENTRY[:2], ['iam']) == 0
+            else:
+                with pytest.raises(ValueError, match='injected'):
+                    MODULE.sync(root, False, *ENTRY[:2], ['iam'])
+        assert len(stages) == 1 and parse.call_count == 1
+    assert all(stage not in mapping_state._aliases and stage not in mapping_state._instances for stage in stages)
+    assert mappings_for(root) is provider
 
 
 if __name__ == '__main__':

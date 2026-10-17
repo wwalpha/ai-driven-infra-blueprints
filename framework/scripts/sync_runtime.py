@@ -20,6 +20,7 @@ from task_contract import task_path, task_revision
 from issue_gate import require_no_issues
 from validation_scope import scoped_files
 from validation_cache import input_scope, memo_table
+from utils.aws_mappings import mapping_alias
 from sync_files import changed_files, save_files, restore_files, markdown_newlines
 import sync_views
 from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total
@@ -322,7 +323,7 @@ def sync(
             failures.append(f"{path.relative_to(root)}: {error}")
     for path in sorted(set(markdown_paths) - {(docs / path.relative_to(models)).with_suffix(".md") for path in model_paths}):
         failures.append(f"authoritative YAML Model inputs missing: {path.relative_to(root)}")
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory() as directory, mapping_alias(root, Path(directory).resolve()):
         stage = Path(directory).resolve()
         saved_paths, baseline_links = stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write)
         with phase("snapshot"):

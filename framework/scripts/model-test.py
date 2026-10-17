@@ -147,7 +147,8 @@ def generate(root, environment, selector, service):
                                       False, False, key, 'model')
         mappings[name] = {'getters': {k: dict(v) for k, v in mapping.getters.items()},
                           'identities': {k: asdict(v) for k, v in mapping.identities.items()},
-                          'properties': {k: asdict(v) for k, v in props.items()}}
+                          'properties': {k: asdict(replace(v, field=replace(v.field, default=v.field.copy_default())))
+                                         for k, v in props.items()}}
         for _, row in entries(data.values, 'desired.row.'):
             prop = row['property']
             kind = '.'.join(prop.split('.')[:2])

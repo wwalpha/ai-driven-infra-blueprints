@@ -1609,3 +1609,18 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `model-validation-reuse` | `check_single_and_parallel_threads` | IT | [integrations/model-validation-reuse.checks.py:208](integrations/model-validation-reuse.checks.py#L208) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_authorization_before_memo_and_publication` | IT | [integrations/model-validation-reuse.checks.py:236](integrations/model-validation-reuse.checks.py#L236) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_scoped_validation_threads_and_failures` | IT | [integrations/model-validation-reuse.checks.py:261](integrations/model-validation-reuse.checks.py#L261) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
+
+## Static Mapping sharing acceptance
+
+| Source | Case | Layer | Implementation | Execution / count | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `static-aws-mappings` | `check_import_and_owners_are_lazy` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_runtime_cache` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_parallel_services` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_runtime_full_reuse` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_runtime_failures` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_full_failure_isolation` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_stage_alias` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_ownership_errors` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_readonly_defaults` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_sync_mapping_lifetime` | IT | [integrations/model-validation-reuse.checks.py](integrations/model-validation-reuse.checks.py) | pytest / 4 | 実syncのstage作成前登録・正常/例外解除・source共有 | 新規合成回帰 |

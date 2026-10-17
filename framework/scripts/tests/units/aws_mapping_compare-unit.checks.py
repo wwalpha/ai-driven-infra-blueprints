@@ -10,12 +10,17 @@ from support.aws_mapping_compare_fixtures import *
 
 def check_missing_catalog_field():
     # Catalog field deletion is rejected before STS/session construction.
+    from tempfile import TemporaryDirectory
+    from support.aws_mapping_fixtures import mapping_fixture
+    from aws_mapping import registry
     document = ROOT / 'framework/mappings/aws/config.yaml'
     import yaml
     candidate = yaml.safe_load(document.read_text(encoding='utf-8'))
     del candidate['resourceTypes']['Config.DeliveryChannel']['properties']['S3KeyPrefix']
-    with patch('aws_mapping.yaml_read', return_value=candidate):
-        assert outcome(lambda: Registry(ROOT, 'config'))[0] == 'error'
+    with TemporaryDirectory() as directory:
+        root = mapping_fixture(Path(directory), 'config')
+        (root / 'framework/mappings/aws/config.yaml').write_text(yaml.safe_dump(candidate), encoding='utf-8')
+        assert outcome(lambda: registry(root, 'config'))[0] == 'error'
 
 
 

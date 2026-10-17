@@ -42,6 +42,7 @@ def check_config():
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes((ROOT / relative).read_bytes())
+        (root / 'framework/mappings/aws/owners.json').write_text(json.dumps({kind: 'config' for kind in (RECORDER, CHANNEL)}), encoding='utf-8')
         template = root / 'variable.properties.tpl'
         template.write_text('\n'.join([
             '# model-template: 1', '# definition: channel',

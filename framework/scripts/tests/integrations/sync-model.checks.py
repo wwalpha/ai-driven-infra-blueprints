@@ -409,6 +409,7 @@ def check_required_property_parents(tmp_path) -> None:
 
 def check_workflow(tmp_path) -> None:
     root = tmp_path
+    copy_framework(root / "framework/mappings", relative="mappings")
     materials = root / "framework" / "materials" / "aws"
     materials.mkdir(parents=True)
     (materials / 'EC2_VPC.properties').write_text('EC2.VPC.VpcId=IDENTIFIER_OUTPUT\n',encoding="utf-8")

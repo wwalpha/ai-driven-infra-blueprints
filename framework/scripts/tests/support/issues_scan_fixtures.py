@@ -90,7 +90,7 @@ def render_iac(root, path, environment, directory, services, records, display=No
 
 def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=False):
     # Only immutable framework inputs/runtime; never copy any consumer/task/report.
-    for directory in ('materials', 'rules', 'scripts'):
+    for directory in ('materials', 'rules', 'scripts', 'mappings'):
         copy_framework(root / 'framework' / directory, relative=Path('') / directory, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     target = {'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
     write(root / 'project.json', json.dumps({'projectName': 'fixture', 'targets': [target]}) + '\n')

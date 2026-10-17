@@ -418,14 +418,15 @@ def check_it_inventory(tmp_path):
     assert not errors, errors
     assert cases[('integrations/design_layout.checks.py', 'check_quicksight_group_principal_reference')] == ('pytest', 1)
     assert cases[('integrations/sync-model.checks.py', 'check_incoming_reference_models')] == ('pytest', 2)
+    assert cases[('integrations/model-validation-reuse.checks.py', 'check_sync_mapping_lifetime')] == ('pytest', 4)
     row = '| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n'
     (tmp_path / 'CASES.md').write_text(row + row)
     with pytest.raises(ValueError, match='duplicate'):
         run_it.registered_cases(tmp_path)
     assert run_it.reachability({}, [])
-    assert len(cases) == 305
+    assert len(cases) == 306
     original = [value for value in cases.values() if value[0] in ('direct', 'pytest')]
-    assert len(original) == 286 and sum(count for _, count in original) == 373
+    assert len(original) == 287 and sum(count for _, count in original) == 377
     assert sum(mode == 'direct' for mode, _ in original) == 112
     assert sum(mode == 'direct_group' for mode, _ in cases.values()) == 13
     assert sum(mode == 'module' for mode, _ in cases.values()) == 6

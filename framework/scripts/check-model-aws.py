@@ -64,6 +64,16 @@ class Field:
     classification: str = "supported"
     reason: str = ""
 
+    def copy_default(self):
+        from collections.abc import Mapping
+        def copy(value):
+            if isinstance(value, Mapping):
+                return {key: copy(item) for key, item in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [copy(item) for item in value]
+            return value
+        return copy(self.default)
+
 
 class AcquisitionError(Exception):
     def __init__(self, api, code, status="acquisition_failed", request=None):
@@ -577,7 +587,7 @@ def compare_resource(ctx, resource):
         try:
             response, value = mapped_value(ctx, resource, mapping, definition, prop)
             if value == MISSING:
-                value = field.default
+                value = field.copy_default()
             if resource.kind == "KMS.Alias" and response.get("ParentMismatch"):
                 parent = resource.parent()
                 results.append({**item, "status": "difference", "propertiesKey": "desired.resource." + resource.number + ".parentReference",

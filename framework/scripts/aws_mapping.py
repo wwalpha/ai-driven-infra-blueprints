@@ -1,7 +1,5 @@
 """Catalog-keyed AWS Mapping Registry shared by validation and AWS Compare."""
-from dataclasses import dataclass
-from copy import copy, deepcopy
-from functools import lru_cache
+from dataclasses import dataclass, replace
 from pathlib import Path
 import re
 from types import MappingProxyType
@@ -55,24 +53,42 @@ class Property:
     transform: str = 'identity'
 
 
+def readonly(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: readonly(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(readonly(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, init=False)
 class Registry:
-    def __init__(self, root: Path, service: str, compile_properties=None, *, content=None):
-        self.root, self.service = Path(root), text(service, 'service')
-        path = mapping_path(self.root, service)
-        document = yaml_read(path.read_text(encoding='utf-8') if content is None else content)
-        from aws_mapping_catalog import catalog_properties
-        result = (compile_properties or catalog_properties)(self.root, service, document)
-        self.resource_types = frozenset(document['resourceTypes'])
-        self.adapter_resource_types = frozenset(resource for definition in document['getters'].values()
-                                                if definition['kind'] == 'adapter' for resource in definition['resources'])
-        self.getters = MappingProxyType({name: MappingProxyType({key: tuple(value) if isinstance(value, list) else value
-                                                               for key, value in definition.items()})
-                                         for name, definition in document['getters'].items()})
-        self.identities = MappingProxyType({resource: Identity(value['identity']['getter'], value['identity']['idPath'],
-                                                               value['identity']['arnPath'], value['identity']['nameProperty'])
-                                            for resource, value in document['resourceTypes'].items() if 'identity' in value})
-        self.properties = MappingProxyType(result)
-        self.fields = MappingProxyType({key: prop.field for key, prop in result.items() if prop.include})
+    root: Path
+    service: str
+    resource_types: frozenset
+    adapter_resource_types: frozenset
+    getters: object
+    identities: object
+    properties: object
+    fields: object
+
+    def __init__(self, root, service, document, properties):
+        result = {key: replace(prop, field=replace(prop.field, default=readonly(prop.field.default)))
+                  for key, prop in properties.items()}
+        values = {
+            'root': Path(root), 'service': service,
+            'resource_types': frozenset(document['resourceTypes']),
+            'adapter_resource_types': frozenset(resource for definition in document['getters'].values()
+                                                if definition['kind'] == 'adapter' for resource in definition['resources']),
+            'getters': readonly(document['getters']),
+            'identities': MappingProxyType({resource: Identity(value['identity']['getter'], value['identity']['idPath'],
+                                                              value['identity']['arnPath'], value['identity']['nameProperty'])
+                                           for resource, value in document['resourceTypes'].items() if 'identity' in value}),
+            'properties': MappingProxyType(result),
+            'fields': MappingProxyType({key: prop.field for key, prop in result.items() if prop.include}),
+        }
+        for key, value in values.items():
+            object.__setattr__(self, key, value)
 
 
 def mapping_path(root, service):
@@ -83,28 +99,13 @@ def mapping_path(root, service):
 
 @memoized
 def registry(root: Path, service: str) -> Registry:
-    """Reuse YAML/SDK validation within the existing validation_cache.input_scope."""
-    return Registry(root, service)
+    """Validate SDK/Schema/catalog within the current input scope, reusing static YAML."""
+    from utils.aws_mappings import mappings_for
+    from aws_mapping_catalog import catalog_properties
+    document = mappings_for(root)._document(service)
+    return Registry(root, service, document, catalog_properties(root, service, document))
 
 
-@memoized
 def runtime_registry(root: Path, service: str) -> Registry:
-    # Read once: the cache key and compiler must use the same snapshot.
-    root = Path(root)
-    content = mapping_path(root, service).read_text(encoding='utf-8')
-    cached = _runtime_registry(root.absolute(), service, content)
-    result = copy(cached)
-    result.root = root
-    result.getters = MappingProxyType({name: MappingProxyType(deepcopy(dict(definition)))
-                                      for name, definition in cached.getters.items()})
-    result.identities = MappingProxyType(deepcopy(dict(cached.identities)))
-    properties = deepcopy(dict(cached.properties))
-    result.properties = MappingProxyType(properties)
-    result.fields = MappingProxyType({key: prop.field for key, prop in properties.items() if prop.include})
-    return result
-
-
-@lru_cache(maxsize=128)
-def _runtime_registry(root, service, content):
-    from aws_mapping_catalog import runtime_properties
-    return Registry(root, service, runtime_properties, content=content)
+    from utils.aws_mappings import mappings_for
+    return mappings_for(root).get(service)

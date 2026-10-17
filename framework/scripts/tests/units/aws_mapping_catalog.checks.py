@@ -18,7 +18,8 @@ import shutil
 import socket
 import yaml
 
-from aws_mapping import Registry, registry as mapping_registry
+from aws_mapping import registry as mapping_registry
+from utils.aws_mappings import owners
 from aws_mapping_catalog import project, catalog_properties
 from validation_cache import input_scope
 from aws_mapping_display import MODEL_ONLY, display_name, formal_name
@@ -34,9 +35,13 @@ def coverage():
     catalog = {line.partition('=')[0] for p in design_material_files(ROOT)
                for line in p.read_text(encoding='utf-8').splitlines() if '=' in line and not line.startswith('#')}
     properties, types, sources, summaries = {}, set(), Counter(), []
+    expected_owners = {}
     for path in sorted((ROOT / 'framework/mappings/aws').glob('*.yaml')):
         registry = mapping_registry(ROOT, path.stem)
         document = yaml.safe_load(path.read_text(encoding='utf-8'))
+        for kind in document['resourceTypes']:
+            assert kind not in expected_owners, 'duplicate ownership'
+            expected_owners[kind] = path.stem
         declared = {kind + '.' + prop: definition
                     for kind, resource in document['resourceTypes'].items()
                     for prop, definition in resource['properties'].items()}
@@ -58,6 +63,7 @@ def coverage():
             assert formal_name(display_name(key, kind, ROOT), kind, ROOT) == key, 'display roundtrip: ' + key
             if prop.source != 'aws':
                 assert prop.field.classification != 'supported' and prop.constraint
+    assert dict(owners(ROOT)) == expected_owners, 'ownership index missing/extra/wrong owner'
     assert properties.keys() == catalog, 'missing/extra catalog mapping'
     model_only = {key for service in m.SERVICES
                   for key in getattr(m.service_module(service), 'MODEL_FIELDS', {})}
@@ -136,8 +142,16 @@ def schema_checks():
         target.parent.mkdir(parents=True)
 
         def load(value):
-            target.write_text(yaml.safe_dump(value, sort_keys=False), encoding='utf-8')
-            return Registry(root, 'sns')
+            # Each definition is complete before first use of its independent root.
+            candidate_root = root / str(load.number)
+            load.number += 1
+            shutil.copytree(catalog, candidate_root / 'framework/materials')
+            mapping = candidate_root / 'framework/mappings/aws/sns.yaml'
+            mapping.parent.mkdir(parents=True)
+            mapping.write_text(yaml.safe_dump(value, sort_keys=False), encoding='utf-8')
+            mapping.with_name('owners.json').write_text(json.dumps({kind: 'sns' for kind in document['resourceTypes']}), encoding='utf-8')
+            return mapping_registry(candidate_root, 'sns')
+        load.number = 0
 
         assert len(load(document).properties) == sum(
             len(resource['properties']) for resource in document['resourceTypes'].values())

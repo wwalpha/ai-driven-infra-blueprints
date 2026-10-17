@@ -1,35 +1,13 @@
 """Mapping-owned Markdown names and visibility; formal Model rows stay intact."""
 from pathlib import Path
-from functools import lru_cache
 
-from model_parameter_inputs import yaml_read
+from utils.aws_mappings import owners
 from model_core import entries
 from validation_cache import input_scope, memoized
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ONLY = frozenset({'EC2.VPC.Name', 'EC2.Subnet.Name', 'EC2.RouteTable.Name',
                         'EC2.FlowLog.Name', 'S3.Bucket.Region'})
-
-
-@lru_cache(maxsize=2)
-def parsed_owners(documents):
-    """Cache immutable YAML bytes; every new scope still reads the current file set."""
-    result = {}
-    for service, content in documents:
-        document = yaml_read(content)
-        for kind in document['resourceTypes']:
-            if kind in result:
-                raise ValueError('duplicate display Mapping ownership: ' + kind)
-            result[kind] = service
-    if not result:
-        raise ValueError('display Mapping files are missing')
-    return result
-
-
-@memoized
-def owners(root):
-    return parsed_owners(tuple((path.stem, path.read_text(encoding='utf-8'))
-                              for path in sorted((root / 'framework/mappings/aws').glob('*.yaml'))))
 
 
 @memoized
