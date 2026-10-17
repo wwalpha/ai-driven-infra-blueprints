@@ -3,6 +3,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import hashlib
 import io
+import hmac
+import os
+import secrets
+import stat
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -254,8 +259,8 @@ def read_proof(root):
     try:
         if file.is_symlink():
             raise ValueError('symlink import evidence')
-        proof = json.loads(file.read_text(encoding='utf-8'))
-        if (proof['version'] != 2
+        proof = read_sealed(root, file)
+        if (proof['version'] != 3
                 or proof['task'] != workflow(root) or proof['base'] != base_revision(root)
                 or proof['scope'] != list(selected(root)) or not proof['acquisition']
                 or not isinstance(proof['sources'], dict) or not proof['plan']
@@ -276,31 +281,32 @@ def read_proof(root):
         raise ValueError('IMPORT change has no verified /import evidence; flags and contract declarations are insufficient') from error
 
 
-def record_import(root, output, scope, ctx, plan, complete=True):
-    """Bind the acquired plan to exact source bytes before the guarded transaction."""
+def record_import(root, output, evidence, plan, complete=True):
+    """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
     from import_scope import selected
     identity = selected(root)
-    if not ctx.verified or scope != {identity} or ctx.services != (identity[2],) or (ctx.target['environment'], ctx.target['directory']) != identity[:2]:
-        raise ValueError('import evidence requires the verified selected AWS context')
+    acquisition = read_acquisition(root, evidence, identity, False)
+    if (acquisition['root'] != str(root.resolve()) or acquisition['task'] != workflow(root)
+            or acquisition['scope'] != list(identity) or acquisition['dryRun']):
+        raise ValueError('IMPORT evidence does not authorize this source publication')
     planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
-    if plan.get('sources') != planned or not ctx.trace:
-        raise ValueError('import evidence requires the acquired source plan')
+    if plan.get('sources') != planned:
+        raise ValueError('IMPORT evidence requires the checked candidate sources')
     prior = {}
     if changed_sources(root):
         require_import_changes(root, generation=True)
         prior = read_proof(root)['sources']
-    sources = {**prior, **{p.relative_to(root).as_posix(): None if text is None else hashlib.sha256(text.encode('utf-8')).hexdigest()
-                         for p, text in output.items()}}
-    proof = {'version': 2, 'task': workflow(root), 'base': base_revision(root),
-             'scope': list(identity), 'sources': sources, 'before': {p.relative_to(root).as_posix():
-                 hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None for p in output},
-             'plan': digest(plan), 'acquisition': digest(ctx.trace), 'ownedArtifacts': plan['ownedArtifacts'],
-             'connection': {key: ctx.target.get(key) for key in ('environment', 'directory', 'awsExecutionAccountId', 'awsAccountId', 'awsRegion', 'awsProfile')},
-             'complete': complete,
+    sources = {**prior, **{name: text_hash(text) for name, text in planned.items()}}
+    proof = {'version': 3, 'task': workflow(root), 'base': base_revision(root),
+             'scope': list(identity), 'sources': sources,
+             'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
+             'plan': digest(plan), 'acquisition': digest(acquisition),
+             'acquiredAt': acquisition['acquiredAt'], 'ownedArtifacts': plan['ownedArtifacts'],
+             'connection': acquisition['connection'], 'complete': complete,
              'model': 'pending', 'markdown': 'not-run', 'designValidation': 'not-run'}
     file = proof_path(root)
     file.parent.mkdir(parents=True, exist_ok=True)
-    atomic_files({file: json_text(proof) + '\n'}, staging_directory=file.parent)
+    write_sealed(root, file, proof)
 
 
 def finish_import(root, model=None, markdown=None):
@@ -311,7 +317,7 @@ def finish_import(root, model=None, markdown=None):
     if markdown is not None:
         proof['markdown'] = markdown
     file = proof_path(root)
-    atomic_files({file: json_text(proof) + '\n'}, staging_directory=file.parent)
+    write_sealed(root, file, proof)
 
 
 def copy_import_proof(root, snapshot):
@@ -323,4 +329,108 @@ def copy_import_proof(root, snapshot):
     proof = read_proof(root)
     destination = proof_path(snapshot)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    atomic_files({destination: json_text(proof) + '\n'}, staging_directory=destination.parent)
+    write_sealed(snapshot, destination, proof)
+
+
+def text_hash(text):
+    return None if text is None else hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def file_hash(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def evidence_store(root):
+    """Private local seal, outside Git; not AWS credentials or a response snapshot."""
+    base = Path(tempfile.gettempdir()).resolve() / ('blueprint-import-' + digest(str(Path.home()))[:16])
+    directory = base / digest(str(root.resolve()))
+    for path in (base, directory):
+        path.mkdir(mode=0o700, exist_ok=True)
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
+            raise ValueError('IMPORT unsafe temporary evidence directory')
+        if os.name != 'nt' and (info.st_uid != os.getuid() or info.st_mode & 0o077):
+            raise ValueError('IMPORT evidence directory must be private to the current user')
+    return directory
+
+
+def seal_key(root):
+    path = evidence_store(root) / 'seal.key'
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        descriptor = None
+    if descriptor is not None:
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(secrets.token_bytes(32))
+    if path.is_symlink() or not path.is_file() or (os.name != 'nt' and (path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077)):
+        raise ValueError('IMPORT unsafe local evidence seal')
+    value = path.read_bytes()
+    if len(value) != 32:
+        raise ValueError('IMPORT invalid local evidence seal')
+    return value
+
+
+def sealed(root, value):
+    payload = json_text(value)
+    return json_text({'payload': value, 'signature': hmac.new(seal_key(root), payload.encode('utf-8'), 'sha256').hexdigest()}) + '\n'
+
+
+def read_sealed(root, file):
+    if file.is_symlink():
+        raise ValueError('IMPORT symlink evidence is forbidden')
+    envelope = json.loads(file.read_text(encoding='utf-8'))
+    if set(envelope) != {'payload', 'signature'} or not isinstance(envelope['signature'], str):
+        raise ValueError('IMPORT invalid sealed evidence')
+    expected = hmac.new(seal_key(root), json_text(envelope['payload']).encode('utf-8'), 'sha256').hexdigest()
+    if not hmac.compare_digest(expected, envelope['signature']):
+        raise ValueError('IMPORT acquisition evidence was modified')
+    return envelope['payload']
+
+
+def write_sealed(root, file, value):
+    atomic_files({file: sealed(root, value)}, staging_directory=file.parent)
+
+
+def acquired(root, identity, ctx, records, sources, consumers, dry_run):
+    if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
+        raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
+    directory = Path(tempfile.mkdtemp(prefix='session-', dir=evidence_store(root)))
+    try:
+        value = {'version': 1, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
+                 'base': base_revision(root), 'scope': list(identity), 'dryRun': dry_run,
+                 'acquiredAt': datetime.now(timezone.utc).isoformat(), 'status': 'acquired',
+                 'connection': {key: ctx.target.get(key) for key in ('environment', 'directory', 'awsExecutionAccountId', 'awsAccountId', 'awsRegion', 'awsProfile')},
+                 'sts': {'account': ctx.target.get('awsExecutionAccountId', ctx.target['awsAccountId']), 'verified': True},
+                 'trace': ctx.trace, 'records': records, 'sources': sources,
+                 'consumers': [list(item) for item in sorted(consumers)]}
+        write_sealed(root, directory / 'acquisition.json', value)
+        (directory / 'candidates').mkdir()
+        # This is a disposition/evidence document, never a Model mutation language.
+        (directory / 'selection.json').write_text(json_text({'resources': [], 'excluded': [], 'unreflected': []}) + '\n', encoding='utf-8')
+        return directory / 'acquisition.json', value
+    except Exception:
+        shutil.rmtree(directory)
+        raise
+
+
+def read_acquisition(root, file, identity, dry_run):
+    file = Path(file).absolute()
+    store = evidence_store(root)
+    if file.name != 'acquisition.json' or file.parent.parent != store or not file.parent.name.startswith('session-') or file.parent.is_symlink():
+        raise ValueError('IMPORT acquisition must use its original external evidence identifier')
+    value = read_sealed(root, file)
+    if (value.get('version') != 1 or value.get('root') != str(root.resolve())
+            or value.get('scope') != list(identity) or value.get('dryRun') is not dry_run
+            or value.get('base') != base_revision(root) or value.get('status') != 'acquired'
+            or value.get('task') != (None if dry_run else workflow(root))
+            or value.get('sts', {}).get('verified') is not True):
+        raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
+    return value
+
+
+def discard_acquisition(root, file):
+    file = Path(file).absolute()
+    if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
+        raise ValueError('IMPORT refusing to remove an unknown temporary directory')
+    shutil.rmtree(file.parent)

@@ -56,7 +56,9 @@ and value-preserving source refactors retain their existing workflow and validat
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
 not decide design correctness or run issue gates, naming/schema constraints, cross-service
-reference validation, candidate copies, generated equality or local loops.
+reference validation, whole-repository candidate copies, generated equality or local loops.
+The agent edits only changed source candidates outside the repository; publication
+checks their syntax and native types without applying unrelated design constraints.
 Explicit issues retains those design and consistency checks without requiring AWS.
 
 Bind importer evidence to Task, target, acquisition, planned source changes,
@@ -64,13 +66,21 @@ pre-save snapshots and saved source hashes. The source publication guard and Wor
 completion verify this evidence without expanding old Git Models or other services.
 Self-declared flags cannot authorize changes. Missing, stale or incomplete evidence
 blocks reflection completion. Ordinary workflows retain their IMPORT protection.
-Evidence is ignored local metadata at `<execution-root>/.blueprint/import/<task-name>.json`, using the selected `tasks/<task-name>.md`. Never save raw responses.
+Acquisition evidence is a private sealed temporary session outside the repository,
+binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
+source hashes and the direct consumer set across acquire/publish processes. The agent
+records correspondence and ordinary edited sources there. After publication, remove
+temporary acquisition/candidate contents; retain only the ignored completion receipt at
+`<execution-root>/.blueprint/import/<task-name>.json` for the selected task. Dry-run
+persists no Model, displays, contract or completion receipt and cleans its session.
+Never save raw responses. See 08_import for failure/cancellation cleanup.
 
 Preserve CREATE, identities, bindings, unselected inputs and logical reference declarations.
 Save acquired reference values as observations without replacing a conflicting logical
 link. Non-secret acquired IDs/ARNs may persist; inferred/generated ARNs and secrets may
 not. Keep ordinary settings in desired/parameters, never move all settings to observed.
-Shared Property promotion preserves only that Property's old values in direct users;
+Agent-selected shared Property edits preserve only that Property's old values in direct users,
+including necessary parameters.yaml and bindings.json changes in the same transaction;
 no recursive reference search or whole-Model comparison. Retain unrelated parameters.
 
 Save Model sources atomically first. Then generate and atomically save only the selected

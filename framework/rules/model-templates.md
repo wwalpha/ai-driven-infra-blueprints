@@ -339,26 +339,26 @@ Keep distinct definitions for different roles even if expanded values happen to 
 Add only inputs needed to preserve real differences; do not split service sources by CFn stacks.
 
 
-## IMPORT Property promotion
+## IMPORT Property source edits
 
-AWS-confirmed values are authoritative only for selected IMPORT Properties. The importer
-first reuses provable independent parameter updates. A fixed/shared expression mismatch
-then promotes only that Property to an instance parameter in its common Definition,
-without changing fixed instance maps or introducing value-only private Definitions.
-Use existing schema types (string, integer, number, boolean, object, array, null), typed
-JSON document/node expansion and literal serialization; format: literal also supports
-object/array/null as a complete scalar, never a fragment or document placeholder.
+The agent executing [08_import](../prompts/codex/08_import.md) chooses correspondence,
+managed additions, changed Properties and parameter names. Python acquires/normalizes
+facts and verifies ordinary edited sources; it never reconstructs Model composition,
+automatically promotes parameters, names public instances or deletes unused inputs.
+Reuse existing input names; edit common templates only when required by meaning.
+Native setting types remain unchanged. Keep common Definitions, fixed IDs and logical
+references, and preserve unchanged YAML comments/order/spacing through local edits.
 
-Only when a Property is promoted, enumerate direct users of its Definition and evaluate
-that Property's old expression from local inputs. Preserve CREATE and other instances'
-values; never traverse service references or expand entire foreign Models for comparison.
-Keep unrelated declarations and YAML inputs. Remove an old input only when the required
-rewrite removes its last use. Unrepresentable expressions fail with Property provenance.
-Acquired non-secret ARN strings are values; generated ARNs and secrets remain forbidden.
+For a changed shared Property, use registered direct Definition consumers once and
+preserve that Property's prior values/expressions/references from local inputs. Necessary
+parameters.yaml and bindings.json changes in those consumers belong to the same source
+transaction. Do not change other consumers' observed values, CREATE settings or instance
+sets. Do not traverse recursive consumers or expand foreign Models for comparison.
+An unpreservable dependent change is left pending during agent candidate preparation;
+publish rejects an invalid candidate as a whole, without silently filtering it.
 
-The acquisition scope stays one environment/target/service. Save planned Model sources
-in one guarded journal transaction; then generate and publish only that service's views
-in a second transaction. Display failure retains saved Model. Recheck source snapshots,
-output collisions and hashes; do not perform candidate validation or
-source/view equality validation. Unchanged Model can regenerate stale displays. Explicit
-issues remains responsible for design/input/reference and generated consistency checks.
+The acquisition scope remains one environment/target/service. Source publication checks
+types, syntax, evidence, identities, references, scope, preservation and concurrent
+changes under the existing journal transaction. Only selected-service Markdown/JSON is
+then published separately. Display failure retains saved Model. Explicit issues remains
+responsible for design constraints and generated consistency checks.

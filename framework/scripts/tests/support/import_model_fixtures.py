@@ -1,134 +1,37 @@
-"""Offline import safety and real generator regressions; no AWS network calls."""
-
+"""Authored import seeds and Mock CLI only; never read an executing project's Model."""
+import copy
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
 
-from pathlib import Path
-
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
-
-from contextlib import redirect_stdout
-
-import io
-
-import hashlib
-
-import builtins
-
-import json
-
-import os
-
-import shutil
-
-import socket
-
-import subprocess
-
-import tempfile
-
-from unittest.mock import patch
-
 from script_loader import module
-
-from support.validator import load
-
-m = module('import-model.py', 'import_model_cli')
-
-from model_files import load_model
-
-from model_parameter_inputs import parameter_text
-
-from model_templates import json_text, load_expansion, resolve
-
+from model_templates import json_text, load_for_edit, service_source
+from model_parameter_inputs import yaml_read
+from import_sources import parameter_edit
 from support.model_sources import write_model
 
-from task_contract import start
-
-from validation_cache import input_scope
-
-import import_guard
-
-import sync_runtime
-
+m = module('import-model.py', 'import_model_cli')
 ACCOUNT = '123456789012'
+TARGET = 'cde'
+SERVICES = ('vpc', 'config', 'cloudwatch-logs', 'data-firehose', 'quicksight', 'security-hub', 'transit-gateway')
+SUBNETS = [
+    ('dat-private-1a', '10.10.0.0/25', 'ap-northeast-1a'),
+    ('dat-private-1c', '10.10.0.128/25', 'ap-northeast-1c'),
+    ('snf-private-1a', '10.10.1.0/26', 'ap-northeast-1a'),
+    ('snf-private-1c', '10.10.1.64/26', 'ap-northeast-1c'),
+    ('pen-private-1a', '10.10.1.128/26', 'ap-northeast-1a'),
+    ('tgw-private-1a', '10.10.1.192/28', 'ap-northeast-1a'),
+    ('tgw-private-1c', '10.10.1.208/28', 'ap-northeast-1c'),
+]
+VPC_ID = 'vpc-00000000000000001'
 
-COUNT = 0
 
 def check(value, message):
-    global COUNT
     assert value, message
-    COUNT += 1
 
-def rejected(function, message):
-    try:
-        function()
-    except ValueError as error:
-        check(message in str(error), str(error))
-    else:
-        raise AssertionError('expected rejection: ' + message)
-
-def values():
-    result = {'desired.service.cloudwatch-logs.serviceId': 'cloudwatch-logs',
-              'desired.service.cloudwatch-logs.ownedCatalogResourceTypes': 'Logs.LogGroup',
-              'display.service.title': '# CloudWatch Logs 詳細設計'}
-    for number, mode in [('001', 'IMPORT'), ('002', 'CREATE')]:
-        result.update({f'desired.resource.{number}.resourceType': 'Logs.LogGroup',
-                       f'desired.resource.{number}.logicalId': 'Group' + number,
-                       f'desired.resource.{number}.anchor': 'cloudwatch-logs-fixture-' + number,
-                       f'desired.resource.{number}.resourceMode': mode,
-                       f'display.resource.{number}.comment': 'ログを保存する'})
-        for index, (prop, value) in enumerate([('LogGroupName', 'fixture-' + number), ('RetentionInDays', '30'),
-                                               ('DeletionProtectionEnabled', 'false'), ('LogGroupClass', 'STANDARD')], 1):
-            base = f'desired.row.{number}-{index:03d}.'
-            result.update({base + 'property': 'Logs.LogGroup.' + prop, base + 'value': '`' + value + '`', base + 'comment': 'ログの設定'})
-    return result
-
-def fixture(root, parameter=True):
-    small_framework(root, ['cloudwatch-logs'], ['Logs.LogGroup'])
-    (root / 'project.json').write_text(json_text({'projectName': 'fixture', 'targets': [{'environment': 'dev', 'awsAccountId': ACCOUNT,
-        'awsProfile': 'confirmed', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
-    path = root / 'model/dev' / ACCOUNT / 'cloudwatch-logs.properties'
-    write_model(path, values())
-    template = root / 'model/templates' / ACCOUNT / 'cloudwatch-logs.properties.tpl'
-    if parameter:
-        text = template.read_text(encoding='utf-8').replace('# definition: Fixture_dev\n',
-            '# definition: Fixture_dev\n# parameter: Days {"type":"integer","description":"保持日数","required":true}\n')
-        text = text.replace('desired.row.row_001-002.value=`30`', 'desired.row.row_001-002.value=<<Days>>')
-        template.write_text(text, encoding='utf-8')
-        directory = root / 'model/parameters/dev' / ACCOUNT / 'cloudwatch-logs'
-        (directory / 'parameters.yaml').write_text('instances:\n  fixture:\n    parameters:\n      Days: 30\n', encoding='utf-8')
-    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], cwd=root, check=True)
-    return path
-
-def generate(root, scope, write):
-    command = [sys.executable, '-B', str(m.ROOT / 'framework/scripts/sync-model.py'), '--repository-root', str(root)]
-    if write:
-        command.append('--write')
-    for identity in sorted(scope):
-        command += ['--scope', '/'.join(identity)]
-    result = subprocess.run(command, cwd=root, capture_output=True, text=True, encoding='utf-8')
-    if result.returncode:
-        raise ValueError(result.stderr)
-
-def contract(root, files, service="cloudwatch-logs", target=ACCOUNT):
-    lines = ['# Import fixture', '## Task contract', '- Task type: `design`', '- Workflow: `import`', '- Task status: `running`',
-             '## Goal', 'Import selected mock settings', '## Required changes', '- [R1] Refresh IMPORT and generate views',
-             '## Validation scope', f'- `dev/{target}/{service}`', '## Allowed paths']
-    paths = ['tasks/import-fixture.md', *sorted(files)]
-    lines += ['- `' + p + '`' for p in paths]
-    lines += ['## Modified files', *['- `' + p + '`' for p in paths], '## Acceptance checks',
-              f'- [R1] `exists:docs/designs/dev/{target}/{service}.md`']
-    source = root.parent / (root.name + '-contract.md')
-    source.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    start(root, 'tasks/import-fixture.md', source.read_text(encoding='utf-8'))
-
-def snapshot(root):
-    return {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts and not p.is_relative_to(root / '.blueprint/import')}
 
 class AwsCli:
     def __init__(self, account=ACCOUNT, fail=None, profile='confirmed'):
@@ -171,43 +74,6 @@ class AwsCli:
             raise AssertionError('unmocked AWS CLI call: ' + service + '.' + operation)
         return subprocess.CompletedProcess(command, 0, json.dumps(responses[(service, operation)]), '')
 
-def register_plan(root, plan, service='cloudwatch-logs', target=ACCOUNT):
-    files = set(plan['files'])
-    files |= {f'docs/designs/{identity}.md' for identity in plan['scope']}
-    contract(root, files, service, target)
-    text = (root / 'tasks/import-fixture.md').read_text(encoding='utf-8')
-    text = text.replace(f'- `dev/{target}/{service}`', '\n'.join('- `' + identity + '`' for identity in plan['scope']))
-    (root / 'tasks/import-fixture.md').write_text(text, encoding='utf-8')
-
-def values_for_service(service, kind, fields, create_fields=None):
-    data = {'desired.service.' + service + '.serviceId': service,
-            'desired.service.' + service + '.ownedCatalogResourceTypes': kind,
-            'display.service.title': '# ' + service + ' 詳細設計'}
-    for number, properties, mode in [('001', fields, 'IMPORT'), ('002', create_fields or {}, 'CREATE')]:
-        if not properties:
-            continue
-        data.update({f'desired.resource.{number}.resourceType': kind, f'desired.resource.{number}.logicalId': 'Fixture' + number,
-                     f'desired.resource.{number}.resourceMode': mode, f'desired.resource.{number}.anchor': m.resource_anchor(service, str(properties.get('Name', properties.get('LogGroupName', kind))), kind),
-                     f'display.resource.{number}.comment': '既存の設定'})
-        for index, (prop, value) in enumerate(properties.items(), 1):
-            key = f'desired.row.{number}-{index:03d}.'
-            data.update({key + 'property': kind + '.' + prop, key + 'value': m.model_literal(value), key + 'comment': '既存の設定'})
-    return data
-
-def setup_service(root, service, kind, fields, create_fields=None, alias=None):
-    fixture(root)
-    small_framework(root, [service], [kind])
-    if alias:
-        project = json.loads((root / 'project.json').read_text(encoding='utf-8'))
-        project['targets'][0]['alias'] = alias
-        project['targets'].append({**project['targets'][0], 'alias': 'non-cde', 'awsAccountId': '210987654321'})
-        (root / 'project.json').write_text(json_text(project) + '\n', encoding='utf-8')
-    target = alias or ACCOUNT
-    path = root / 'model/dev' / target / (service + '.properties')
-    write_model(path, values_for_service(service, kind, fields, create_fields))
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'service'], cwd=root, check=True)
-    return path
 
 def small_framework(root, services, kinds):
     with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
@@ -222,22 +88,209 @@ def small_framework(root, services, kinds):
                   Path('framework/materials/api') / (kind.replace('.', '_', 1) + '.json') if 'AWS::' + kind.replace('.', '::', 1) not in index else schema / index['AWS::' + kind.replace('.', '::', 1)],
                   Path('framework/rules/aws-resource-naming') / (kind.split('.')[0] + '.md')}
     paths |= {Path('framework/mappings/aws') / (service + '.yaml') for service in services}
+    paths = {p for p in paths if p.parent != Path("framework/rules/aws-resource-naming") or (m.ROOT / p).is_file()}
     for relative in paths:
         destination = root / relative; destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(m.ROOT / relative, destination)
     (root / 'project.json').write_text(json_text({'projectName': 'fixture', 'targets': [{'environment': 'dev',
         'awsAccountId': ACCOUNT, 'awsProfile': 'confirmed', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
 
-import pytest
-
-from support.pytest_cli import run
-
-@pytest.fixture(autouse=True)
-def reset_count():
-    global COUNT
-    COUNT = 0
-    yield
-    COUNT = 0
 
 
-__all__ = ['ACCOUNT', 'AwsCli', 'COUNT', 'Path', 'builtins', 'check', 'contract', 'fixture', 'generate', 'hashlib', 'import_guard', 'input_scope', 'io', 'json', 'json_text', 'load', 'load_expansion', 'load_model', 'm', 'module', 'os', 'parameter_text', 'patch', 'pytest', 'redirect_stdout', 'rejected', 'register_plan', 'reset_count', 'resolve', 'run', 'setup_service', 'shutil', 'small_framework', 'snapshot', 'socket', 'start', 'subprocess', 'sync_runtime', 'sys', 'tempfile', 'values', 'values_for_service', 'write_model']
+def spec(kind='string', **extra):
+    return {'type': kind, 'description': '合成fixtureの設定', 'required': True, **extra}
+
+
+def metadata(service, kinds):
+    return ['# definition: Metadata', 'desired.service.' + service + '.serviceId=' + service,
+            'desired.service.' + service + '.ownedCatalogResourceTypes=' + ','.join(kinds),
+            'display.service.title=# ' + service + ' 詳細設計', '# end-definition']
+
+
+def binding(definition, number, rows, anchor):
+    return {'definition': definition, 'resources': {'resource': number},
+            'rows': {name: number + '-' + str(index).zfill(3) for index, name in enumerate(rows, 1)},
+            'parameters': {'Anchor': anchor}}
+
+
+def declaration(name, kind, fields, parameters, mode='<<ResourceMode>>'):
+    lines = ['# definition: ' + name, '# internal: Anchor string', '# resource: resource']
+    lines += ['# parameter: ' + key + ' ' + json_text(value) for key, value in parameters.items()]
+    lines += ['# row: ' + local + ' resource' for local in fields]
+    lines += ['desired.resource.resource.resourceType=' + kind,
+              'desired.resource.resource.anchor=<<Anchor>>',
+              'desired.resource.resource.resourceMode=' + mode,
+              'display.resource.resource.comment=合成テスト用のリソース']
+    for local, (prop, value) in fields.items():
+        lines += ['desired.row.' + local + '.property=' + kind + '.' + prop,
+                  'desired.row.' + local + '.value=' + value,
+                  'desired.row.' + local + '.comment=合成テストの取得設定']
+    return lines + ['# end-definition']
+
+
+def save_service(root, service, template, parameters, bindings, observed=None, environment='dev'):
+    import yaml
+    entry = root / 'model/templates' / TARGET / (service + '.properties.tpl')
+    directory = root / 'model/parameters' / environment / TARGET / service
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    entry.write_text('\n'.join(template) + '\n', encoding='utf-8')
+    (directory / 'parameters.yaml').write_text('# Authored synthetic fixture; never live AWS evidence\n' + yaml.safe_dump(parameters, allow_unicode=True, sort_keys=False, default_flow_style=False), encoding='utf-8')
+    (directory / 'bindings.json').write_text(json.dumps(bindings, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    if observed:
+        (directory / 'observed.json').write_text(json.dumps({'version': 1, 'values': observed}, indent=2) + '\n', encoding='utf-8')
+
+
+def build_seed(root):
+    root.mkdir(exist_ok=True)
+    kinds = ['EC2.VPC', 'EC2.Subnet', 'Config.ConfigurationRecorder', 'Logs.LogGroup',
+             'KinesisFirehose.DeliveryStream', 'QuickSight.DataSource', 'SecurityHub.Hub', 'EC2.TransitGatewayVpcAttachment']
+    small_framework(root, SERVICES, kinds)
+    (root / 'project.json').write_text(json_text({'projectName': 'synthetic-import-fixture', 'targets': [
+        {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
+         'awsProfile': 'confirmed', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}), encoding='utf-8')
+    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
+    vpc_fields = {'id': ('VpcId', '[<<Id_resource>>](#<<Anchor>>)'), 'cidr': ('CidrBlock', '<<CidrBlock>>'),
+                  'name': ('Name', '`main-vpc`'), 'hostnames': ('EnableDnsHostnames', '`true`'), 'support': ('EnableDnsSupport', '`true`')}
+    subnet_fields = {'id': ('SubnetId', '[<<Id_resource>>](#<<Anchor>>)'), 'vpc': ('VpcId', '[001](#vpc-main)'),
+                     'cidr': ('CidrBlock', '<<CidrBlock>>'), 'name': ('Name', '<<SubnetName>>'),
+                     'zone': ('AvailabilityZone', '`<<AvailabilityZone1>>`'), 'public': ('MapPublicIpOnLaunch', '`false`')}
+    lines = ['# model-template: 1'] + ['# input: ' + name + ' ' + json_text(spec(source='service'))
+                                      for name in ('ResourceMode', 'AvailabilityZone1', 'AvailabilityZone2')]
+    lines += metadata('vpc', ['EC2.VPC', 'EC2.Subnet'])
+    lines += declaration('Vpc', 'EC2.VPC', vpc_fields, {'CidrBlock': spec(format='literal')})
+    lines += declaration('SubnetZone1', 'EC2.Subnet', subnet_fields, {'CidrBlock': spec(format='literal'), 'SubnetName': spec(format='literal')})
+    lines += declaration('SubnetZone2', 'EC2.Subnet', {k: (p, v.replace('AvailabilityZone1', 'AvailabilityZone2')) for k, (p, v) in subnet_fields.items()},
+                         {'CidrBlock': spec(format='literal'), 'SubnetName': spec(format='literal')})
+    parameters = {'parameters': {'ResourceMode': 'IMPORT', 'AvailabilityZone1': 'ap-northeast-1a', 'AvailabilityZone2': 'ap-northeast-1c'},
+                  'instances': {'main-vpc': {'parameters': {'CidrBlock': '10.10.0.0/23'}}}}
+    bindings = {'instances': {'service': empty, 'main-vpc': binding('Vpc', '001', vpc_fields, 'vpc-main')}}
+    observed = {'observed.row.001-001.value': VPC_ID}
+    for n, (name, cidr, az) in enumerate(SUBNETS, 2):
+        number = str(n).zfill(3)
+        parameters['instances'][name] = {'parameters': {'CidrBlock': cidr, 'SubnetName': name}}
+        bindings['instances'][name] = binding('SubnetZone1' if az.endswith('a') else 'SubnetZone2', number, subnet_fields, 'vpc-' + name)
+        observed['observed.row.' + number + '-001.value'] = 'subnet-' + str(n).zfill(17)
+        observed['observed.row.' + number + '-002.value'] = VPC_ID
+    save_service(root, 'vpc', lines, parameters, bindings, observed)
+    stg = copy.deepcopy(parameters)
+    stg['parameters']['ResourceMode'] = 'CREATE'
+    save_service(root, 'vpc', lines, stg, bindings, environment='stg')
+
+    fields = {'name': ('LogGroupName', '<<LogGroupName>>'), 'days': ('RetentionInDays', '<<RetentionDays>>'),
+              'protected': ('DeletionProtectionEnabled', '`false`'), 'class': ('LogGroupClass', '`STANDARD`')}
+    lines = ['# model-template: 1'] + metadata('cloudwatch-logs', ['Logs.LogGroup'])
+    lines += declaration('LogGroup', 'Logs.LogGroup', fields,
+                         {'ResourceMode': spec(), 'LogGroupName': spec(format='literal'), 'RetentionDays': spec('integer')})
+    bindings = {'instances': {'service': empty, 'application-log': binding('LogGroup', '001', fields, 'cloudwatch-logs-application'),
+                             'create-log': binding('LogGroup', '002', fields, 'cloudwatch-logs-create')}}
+    for env in ('dev', 'stg'):
+        parameters = {'instances': {'application-log': {'parameters': {'ResourceMode': 'IMPORT' if env == 'dev' else 'CREATE',
+                           'LogGroupName': 'fixture-001' if env == 'dev' else 'stg-application', 'RetentionDays': 30}},
+                       'create-log': {'parameters': {'ResourceMode': 'CREATE', 'LogGroupName': 'fixture-002', 'RetentionDays': 30}}}}
+        save_service(root, 'cloudwatch-logs', lines, parameters, bindings, environment=env)
+    basic = {
+        'config': ('Config.ConfigurationRecorder', {'Name': 'actual-recorder', 'Id': 'actual-recorder',
+                   'RecordingGroup.AllSupported': False, 'RecordingGroup.IncludeGlobalResourceTypes': True,
+                   'RecordingGroup.ResourceTypes': ['AWS::EC2::VPC'], 'RecordingGroup.ExclusionByResourceTypes.ResourceTypes': [],
+                   'RoleARN': 'AWSServiceRoleForConfig'}),
+        'data-firehose': ('KinesisFirehose.DeliveryStream', {'DeliveryStreamName': 'fixture'}),
+        'quicksight': ('QuickSight.DataSource', {'DataSourceId': 'actual-source', 'Name': 'actual-source', 'Type': 'ATHENA'}),
+        'security-hub': ('SecurityHub.Hub', {'AutoEnableControls': True, 'ControlFindingGenerator': 'SECURITY_CONTROL'}),
+        'transit-gateway': ('EC2.TransitGatewayVpcAttachment', {'Id': 'tgw-attach-fixture', 'VpcId': VPC_ID,
+                            'TransitGatewayId': 'tgw-fixture', 'SubnetIds': ['subnet-' + str(2).zfill(17)]}),
+    }
+    for service, (kind, fields) in basic.items():
+        values = {'desired.service.' + service + '.serviceId': service,
+                  'desired.service.' + service + '.ownedCatalogResourceTypes': kind,
+                  'display.service.title': '# ' + service + ' 詳細設計',
+                  'desired.resource.001.resourceType': kind, 'desired.resource.001.resourceMode': 'IMPORT',
+                  'desired.resource.001.anchor': service + '-fixture', 'display.resource.001.comment': '合成fixture'}
+        for i, (prop, value) in enumerate(fields.items(), 1):
+            key = 'desired.row.001-' + str(i).zfill(3) + '.'
+            values.update({key + 'property': kind + '.' + prop, key + 'value': m.model_literal(value), key + 'comment': '合成fixture'})
+        write_model(root / 'model/dev' / TARGET / (service + '.properties'), values)
+
+
+def fixture(root, service='cloudwatch-logs', register=True):
+    from support.it_workspace import populate
+    from task_contract import start
+    populate('import_sources', root)
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic import seed'], cwd=root, check=True)
+    path = root / 'model/dev' / TARGET / (service + '.properties')
+    if register:
+        sources = {p.relative_to(root).as_posix() for p in load_for_edit(path).files}
+        sources |= {f'model/parameters/dev/{TARGET}/{service}/observed.json', f'docs/designs/dev/{TARGET}/{service}.md'}
+        paths = sorted(sources | {'tasks/import-fixture.md'})
+        text = '\n'.join(['# Import fixture', '## Task contract', '- Task type: `design`', '- Workflow: `import`',
+                           '- Task status: `running`', '- IMPORT target: `dev/' + TARGET + '/' + service + '`',
+                           '## Goal', 'Apply authored synthetic candidates', '## Required changes', '- [R1] Reflect selected synthetic values',
+                           '## Validation scope', '- `dev/' + TARGET + '/' + service + '`',
+                           '## Allowed paths', *['- `' + p + '`' for p in paths],
+                           '## Modified files', *['- `' + p + '`' for p in paths],
+                           '## Acceptance checks', '- [R1] `exists:docs/designs/dev/' + TARGET + '/' + service + '.md`']) + '\n'
+        start(root, 'tasks/import-fixture.md', text)
+    return path
+
+
+def aws(service='cloudwatch-logs', *, changed=False, noise=False, profile='confirmed'):
+    cli = AwsCli(profile=profile)
+    cli.logs = [{'logGroupName': 'fixture-001', 'retentionInDays': 90 if changed else 30, 'deletionProtectionEnabled': False, 'logGroupClass': 'STANDARD'},
+                {'logGroupName': 'fixture-002', 'retentionInDays': 99, 'deletionProtectionEnabled': True, 'logGroupClass': 'STANDARD'}]
+    vpcs = [{'VpcId': VPC_ID, 'CidrBlock': '10.11.0.0/23' if changed else '10.10.0.0/23', 'Tags': [{'Key': 'Name', 'Value': 'main-vpc'}]}]
+    subnets = [{'SubnetId': 'subnet-' + str(n).zfill(17), 'VpcId': VPC_ID, 'CidrBlock': cidr, 'AvailabilityZone': az,
+                'MapPublicIpOnLaunch': False, 'Tags': [{'Key': 'Name', 'Value': name}]} for n, (name, cidr, az) in enumerate(SUBNETS, 2)]
+    if noise:
+        vpcs.insert(0, {'VpcId': 'vpc-00000000000000000', 'CidrBlock': '172.16.0.0/16', 'Tags': [{'Key': 'Name', 'Value': 'unmanaged'}]})
+        subnets += [{'SubnetId': 'subnet-unmanaged', 'VpcId': 'vpc-00000000000000000', 'CidrBlock': SUBNETS[0][1], 'AvailabilityZone': SUBNETS[0][2],
+                     'Tags': [{'Key': 'Name', 'Value': SUBNETS[0][0]}], 'MapPublicIpOnLaunch': False}]
+    cli.responses.update({
+        ('ec2', 'describe-vpcs'): {'Vpcs': vpcs}, ('ec2', 'describe-subnets'): {'Subnets': subnets},
+        ('firehose', 'list-delivery-streams'): {'DeliveryStreamNames': ['fixture']},
+        ('firehose', 'describe-delivery-stream'): {'DeliveryStreamDescription': {'DeliveryStreamName': 'fixture', 'DeliveryStreamType': 'DirectPut', 'Destinations': []}},
+        ('securityhub', 'describe-hub'): {'HubArn': 'arn:aws:securityhub:ap-northeast-1:' + ACCOUNT + ':hub/default', 'AutoEnableControls': True, 'ControlFindingGenerator': 'SECURITY_CONTROL'},
+        ('ec2', 'describe-transit-gateway-vpc-attachments'): {'TransitGatewayVpcAttachments': [{'TransitGatewayAttachmentId': 'tgw-attach-fixture', 'VpcId': VPC_ID,
+              'TransitGatewayId': 'tgw-fixture', 'SubnetIds': ['subnet-' + str(2).zfill(17)]}]},
+    })
+    return cli
+
+
+def stage(acquisition, files, resources=(), excluded=(), pending=()):
+    destination = Path(acquisition['candidates'])
+    for relative, text in files.items():
+        path = destination / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+    Path(acquisition['selection']).write_text(json_text({'resources': list(resources), 'excluded': list(excluded), 'unreflected': list(pending)}), encoding='utf-8')
+
+
+def correspondence(acquisition, identity, resource='001', action='update', basis=()):
+    record = next(r for r in acquisition['records'] if r['identity'] == identity)
+    return {'record': record['record'], 'resource': resource, 'action': action,
+            'reason': 'Synthetic project membership explicitly supplied by the test', 'basis': list(basis)}
+
+
+def exclusions(acquisition, selected):
+    return [{'record': r['record'], 'reason': 'Synthetic fixture marks this resource as outside management'}
+            for r in acquisition['records'] if r['record'] not in {item['record'] for item in selected}]
+
+
+def logs_edit(root, acquisition, days=90):
+    path = root / 'model/parameters/dev' / TARGET / 'cloudwatch-logs/parameters.yaml'
+    original = path.read_text(encoding='utf-8')
+    params = yaml_read(original)
+    params['instances']['application-log']['parameters']['RetentionDays'] = days
+    files = {path.relative_to(root).as_posix(): parameter_edit(original, params)} if parameter_edit(original, params) != original else {}
+    selected = [correspondence(acquisition, 'fixture-001')]
+    stage(acquisition, files, selected, exclusions(acquisition, selected))
+    return files
+
+
+def publish_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):
+    return m.publish_acquisition(root, 'dev', service, acquisition['evidence'], TARGET, dry_run)
+
+
+def snapshot(root):
+    return {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts}

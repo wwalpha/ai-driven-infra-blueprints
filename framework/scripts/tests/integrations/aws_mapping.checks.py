@@ -115,13 +115,11 @@ def check_config():
                    for kind, getter, payload in [(RECORDER, 'recorder', recorder), (CHANNEL, 'channel', channel)]]
         ctx, _ = context()
         model = ctx.model(path)
-        imported = importer.snapshot_values(ctx, model, copy.deepcopy(records), {})
-        imported_values, _, unreflected, _ = imported
-        assert not unreflected
-        assert set(dict(entries(imported_values, 'desired.row.'))) == set(dict(entries(model.values, 'desired.row.')))
-        assert dict(entries(imported_values, 'desired.resource.')) == dict(entries(model.values, 'desired.resource.'))
-        assert imported_values['desired.row.002-002.value'] == bucket_value
-        assert imported_values['desired.row.001-009.value'] == '`' + role + '`', 'IMPORT retains the acquired ARN instead of reducing it to a name'
+        normalized = importer.normalize_records(ctx, 'config', copy.deepcopy(records))
+        captured = {record['kind']: record['properties'] for record in normalized}
+        assert captured[CHANNEL][CHANNEL + '.S3BucketName']['value'] == 'fixture-bucket'
+        assert captured[RECORDER][RECORDER + '.RoleARN']['value'] == role, 'acquisition retains the ARN instead of reducing it to a name'
+        assert all(item['status'] == 'captured' for record in normalized for item in record['properties'].values())
         assert load_model(path).values == model.values
         tables = []
         for resource in model.resources:

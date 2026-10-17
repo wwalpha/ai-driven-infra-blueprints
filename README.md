@@ -105,19 +105,28 @@ add `--dry-run` for read-only inventory/planning. An explicit `--no-profile` omi
 configured Profile for that run and uses the AWS CLI default credential chain, including
 inherited environment settings. AWS CLI retains the selected Target's project.json Region
 and verifies STS Account. Without `--no-profile`, it uses the configured Profile when present.
-Import replaces the IMPORT portion from the complete supported AWS inventory without
-Model value/name filters; CREATE is
-preserved. Environment/service are mandatory; target may
-be omitted only when the service resolves uniquely within the environment. AWS/IaC
-remain unchanged. Normal import uses a design Task Contract with Workflow `import`.
-IMPORT runs in the worktree selected by the Human, retaining its contract, import evidence
-and required validation. Evidence is ignored at `.blueprint/import/<task-name>.json`.
+Import acquires the supported AWS inventory without Model-name filters. The agent
+matches existing resources, selects managed additions and edits ordinary template,
+parameters, bindings and observed candidates. Python verifies and saves them; it does
+not automatically reconstruct Models or assign public names. CREATE and existing fixed
+IDs/references remain protected. Environment/service are mandatory; target may be omitted
+only when unambiguous. AWS/IaC remain unchanged.
+
+The internal CLI requires `--phase acquire`, then `--phase publish --evidence <returned path>`
+with agent edits between them; [08_import](framework/prompts/codex/08_import.md) is the
+single workflow authority. Both phases take `--dry-run` for a temporary candidate diff.
+No legacy automatic-reconstruction fallback exists. Normal import uses a design Task
+with Workflow `import` in the Human-selected worktree. Shared edits preserve direct
+consumers through necessary YAML/binding edits in the same source transaction. Only the
+selected service's displays are generated in a second transaction.
 
 [IMPORT configuration authority](framework/rules/model-information.md#import-configuration-authority)
-is enforced at saving, generation, Task Validation and Worktree integration. aws-check
-only compares; update/ordinary design delegate IMPORT configuration changes to import.
-Identical expanded values permit source refactoring. Local evidence is hash-only and
-outside the repository; direct Git/filesystem manipulation can bypass unexecuted checks.
+is enforced at saving, generation, Task completion and Worktree integration. Temporary
+acquisition/candidate contents stay outside Git and are cleaned after publication;
+`.blueprint/import/<task-name>.json` keeps a small sealed completion receipt for recovery.
+aws-check only compares; update/ordinary design delegate substantive IMPORT changes.
+A local integrity seal detects accidental/tampered evidence through these entrypoints;
+direct Git/filesystem manipulation can bypass checks that are not executed.
 
 ### PDF dependencies
 

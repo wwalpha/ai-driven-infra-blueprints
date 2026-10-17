@@ -1,6 +1,6 @@
 ---
 name: import
-description: Retrieve one AWS service through the CLI, reflect selected IMPORT sources atomically, then generate its Markdown/JSON in a separate transaction. Preserve CREATE, unselected settings and logical references. Design validation belongs to explicit issues execution.
+description: Acquire one AWS service through Python, judge and edit ordinary Model candidates as the agent, then verify/publish sources and generate selected Markdown/JSON. Follow 08_import for the complete workflow.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute

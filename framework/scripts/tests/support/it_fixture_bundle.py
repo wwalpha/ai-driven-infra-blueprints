@@ -11,7 +11,7 @@ import sys
 
 ENV = 'BLUEPRINT_IT_FIXTURES'
 REPOSITORY = Path(__file__).resolve().parents[4]
-NAMES = ('framework', 'input_templates', 'typed_services', 'generated_policy')
+NAMES = ('framework', 'input_templates', 'typed_services', 'generated_policy', 'import_sources')
 _local = None
 
 
@@ -40,6 +40,9 @@ def build(root, name):
     elif name in ('input_templates', 'typed_services'):
         from support import service_fixtures
         getattr(service_fixtures, 'build_' + name)(destination)
+    elif name == 'import_sources':
+        from support.import_model_fixtures import build_seed
+        build_seed(destination)
     elif name == 'generated_policy':
         from support.sync_model_fixtures import build_generated_policy
         from support.model_sources import catalog_display
