@@ -23,7 +23,7 @@ from model_core import entries
 from model_parameter_inputs import yaml_read
 from model_templates import json_text, load_for_edit, service_source
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    aws, binding, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, snapshot, spec, stage)
+    aws, binding, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, snapshot, spec, stage, shared_retention)
 
 
 @pytest.fixture(autouse=True)
@@ -329,6 +329,89 @@ def check_shared_property_and_bindings(tmp_path):
     assert not (root / 'docs/designs/stg').exists()
     assert input_file(root, env='stg', name='observed.json').exists() is False
     assert 'model/parameters/stg/cde/cloudwatch-logs/bindings.json' in result['files']
+
+
+@pytest.mark.parametrize('spill', [False, True])
+def check_shared_input_consumers(tmp_path, spill):
+    root = tmp_path / 'case'
+    fixture(root)
+    output = shared_retention(root)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'shared input fixture'], cwd=root, check=True)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
+    path = input_file(root, env='stg')
+    if spill:
+        params = yaml_read(output[path])
+        params['parameters']['RetentionDays'] = 90
+        output[path] = parameter_edit(output[path], params)
+    selected = [correspondence(acquired, 'fixture-001')]
+    stage(acquired, {p.relative_to(root).as_posix(): text for p, text in output.items()}, selected, exclusions(acquired, selected))
+    before = snapshot(root)
+    if spill:
+        with patch.object(m, 'record_import', side_effect=AssertionError('must reject before recording')), \
+             patch.object(m, 'publish', side_effect=AssertionError('must reject before saving')), \
+             patch.object(sync_runtime, 'view_plan', side_effect=AssertionError('must reject before display')), \
+             pytest.raises(ValueError, match='stg/cde/cloudwatch-logs/create-log/Audit/'):
+            publish_fixture(root, acquired)
+        assert snapshot(root) == before
+        assert not (Path(acquired['evidence']).parent / 'publication.json').exists()
+        import_guard.discard_acquisition(root, acquired['evidence'])
+    else:
+        result = publish_fixture(root, acquired)
+        assert result['status'] == 'complete' and result['model'] == 'reflected'
+        assert result['preservedConsumers'] == ['stg/cde/cloudwatch-logs']
+        stg = load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values
+        assert stg['desired.row.001-002.value'] == stg['desired.row.002-002.value'] == '30'
+        assert not (root / 'docs/designs/stg').exists()
+
+
+@pytest.mark.parametrize('service,scenario', [('cloudwatch-logs', 'duplicate'), ('cloudwatch-logs', 'new'),
+                                               ('vpc', 'duplicate'), ('vpc', 'hide-observed')])
+def check_add_identity_boundary(tmp_path, service, scenario):
+    root = tmp_path / 'case'
+    fixture(root, service)
+    cli = aws(service, changed=True)
+    if scenario == 'new':
+        cli.logs.append({**cli.logs[0], 'logGroupName': 'managed-new'})
+    acquired = m.acquire(root, 'dev', service, TARGET, cli_runner=cli)
+    params_file, bindings_file = input_file(root, service), input_file(root, service, name='bindings.json')
+    params = yaml_read(params_file.read_text(encoding='utf-8'))
+    bindings = json.loads(bindings_file.read_text(encoding='utf-8'))
+    instance = 'application-log' if service == 'cloudwatch-logs' else 'main-vpc'
+    params['instances']['added'] = copy.deepcopy(params['instances'][instance])
+    if service == 'cloudwatch-logs':
+        params['instances']['added']['parameters'].update(LogGroupName='managed-new' if scenario == 'new' else 'fixture-001', RetentionDays=90)
+    else:
+        params['instances']['added']['parameters']['CidrBlock'] = '10.11.0.0/23'
+    seed = bindings['instances'][instance]
+    bindings['instances']['added'] = {**copy.deepcopy(seed), 'resources': {'resource': '009'},
+        'rows': {local: number.replace('001-', '009-') for local, number in seed['rows'].items()}, 'parameters': {'Anchor': 'added'}}
+    files = {params_file.relative_to(root).as_posix(): parameter_edit(params_file.read_text(encoding='utf-8'), params),
+             bindings_file.relative_to(root).as_posix(): json_text(bindings)}
+    if service == 'vpc':
+        path = input_file(root, service, name='observed.json')
+        observed = json.loads(path.read_text(encoding='utf-8'))
+        observed['values']['observed.row.009-001.value'] = VPC_ID
+        if scenario == 'hide-observed':
+            observed['values'].pop('observed.row.001-001.value')
+        files[path.relative_to(root).as_posix()] = json_text(observed)
+    identity = 'managed-new' if scenario == 'new' else 'fixture-001' if service == 'cloudwatch-logs' else VPC_ID
+    selected = [correspondence(acquired, identity, '009', 'add')]
+    stage(acquired, files, selected, exclusions(acquired, selected))
+    before = snapshot(root)
+    if scenario == 'new':
+        result = publish_fixture(root, acquired, service)
+        assert result['status'] == 'complete' and result['resources']['added'] == 1
+        assert 'added' in json.loads(bindings_file.read_text(encoding='utf-8'))['instances']
+    else:
+        with patch.object(m, 'record_import', side_effect=AssertionError('must reject before recording')), \
+             patch.object(m, 'publish', side_effect=AssertionError('must reject before saving')), \
+             patch.object(sync_runtime, 'view_plan', side_effect=AssertionError('must reject before display')), \
+             pytest.raises(ValueError, match='009.*001'):
+            publish_fixture(root, acquired, service)
+        assert snapshot(root) == before
+        assert not (Path(acquired['evidence']).parent / 'publication.json').exists()
+        import_guard.discard_acquisition(root, acquired['evidence'])
 
 
 def check_unacquired_property_rejection(tmp_path):

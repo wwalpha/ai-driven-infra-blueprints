@@ -15,7 +15,7 @@ import pytest
 import import_guard
 from import_sources import (candidate_sources, equivalent, parameter_edit, preserve_bindings,
                             property_values, selection_records, verify_values, typed_equal)
-from import_promotion import changed_properties, property_value
+from import_promotion import changed_inputs, changed_properties, property_inputs, property_value, preserve_consumers
 from model_templates import Definition, Expansion
 from model_parameter_inputs import check_value as validate_value, schema, yaml_read
 from script_loader import module
@@ -91,13 +91,25 @@ def check_yaml_empty_and_order():
     assert not equivalent(None, 'value') and equivalent(None, None)
 
 
-def check_physical_identity_wins_over_mutable_settings():
+@pytest.mark.parametrize('alias', [False, True])
+def check_physical_identity_wins_over_mutable_settings(alias):
     old = resource()
+    captured = record()
+    if alias:
+        old['desired.row.001-001.property'] = 'EC2.VPC.Id'
+        captured['identityProperties'] = ['EC2.VPC.VpcId', 'EC2.VPC.Id']
     new = {**old, 'desired.row.001-002.value': '`10.11.0.0/23`'}
-    chosen = selection_records(selection(), [record()], old, new, schema_for)
+    chosen = selection_records(selection(), [captured], old, new, schema_for)
     changes = verify_values(expansion(old), expansion(new), chosen, schema_for)
     assert changes == [{'resource': '001', 'record': 'record-1', 'property': 'EC2.VPC.CidrBlock'}]
     assert not verify_values(expansion(old), expansion(old), chosen, schema_for)
+    captured['properties']['EC2.VPC.Name']['value'] = 'renamed-vpc'
+    new['desired.row.001-003.value'] = '`renamed-vpc`'
+    assert selection_records(selection(), [captured], old, new, schema_for)['001'] == captured
+    from model_files import resource_row_index
+    with patch('import_sources.resource_row_index', wraps=resource_row_index) as indexed:
+        assert len(verify_values(expansion(old), expansion(new), {'001': captured}, schema_for)) == 2
+    assert indexed.call_count == 2
 
 
 @pytest.mark.parametrize('mutation, message', [
@@ -156,6 +168,107 @@ def check_subnet_parent_is_required():
         selection_records(selection(basis=['EC2.Subnet.Name', 'EC2.Subnet.CidrBlock']), [captured], old, old, schema_for)
 
 
+@pytest.mark.parametrize('kind,identity_prop', [('EC2.VPC', 'VpcId'), ('Logs.LogGroup', 'LogGroupName')])
+@pytest.mark.parametrize('hide_observed', [False, True])
+def check_duplicate_add_uses_baseline(kind, identity_prop, hide_observed):
+    old = resource(kind=kind)
+    if kind == 'Logs.LogGroup':
+        old['desired.row.001-001.property'] = kind + '.' + identity_prop
+        old['desired.row.001-001.value'] = '`fixture-001`'
+        old.pop('observed.row.001-001.value')
+    identity = 'fixture-001' if kind == 'Logs.LogGroup' else 'vpc-confirmed'
+    captured = {**record(identity), 'kind': kind, 'identityProperty': kind + '.' + identity_prop}
+    new = {**old, **resource('009', kind=kind)}
+    if hide_observed:
+        new.pop('observed.row.001-001.value', None)
+        new['desired.row.001-001.value'] = '`hidden-in-candidate`'
+    with pytest.raises(ValueError, match='record-1.*009.*001'):
+        selection_records(selection(rid='009', action='add'), [captured], old, new, schema_for)
+
+
+def check_selection_identity_duplicate():
+    captured = record('vpc-new')
+    duplicate = {**captured, 'record': 'record-2'}
+    new = {**resource('008', identity='vpc-new'), **resource('009', identity='vpc-new')}
+    picked = selection(rid='008', action='add')
+    picked['resources'].extend(selection('record-2', '009', 'add')['resources'])
+    with pytest.raises(ValueError, match='duplicate identity'):
+        selection_records(picked, [captured, duplicate], {}, new, schema_for)
+
+
+def check_existing_identity_ambiguity_is_local():
+    old = {**resource(), **resource('008')}
+    captured = record()
+    with pytest.raises(ValueError, match='001,008'):
+        selection_records(selection(), [captured], old, old, schema_for)
+    fresh = record('vpc-new')
+    new = {**old, **resource('009', identity='vpc-new')}
+    assert selection_records(selection(rid='009', action='add'), [fresh], old, new, schema_for)
+    # An unrelated old resource with multiple identity rows is not a global gate.
+    old.update({'desired.row.008-004.property': 'EC2.VPC.VpcId', 'desired.row.008-004.value': '`vpc-other`'})
+    assert selection_records(selection(rid='009', action='add'), [fresh], old, new, schema_for)
+    assert selection_records({'resources': [], 'excluded': [], 'unreflected': [{'record': captured['record'], 'reason': 'ambiguous'}]},
+                             [captured], old, old, schema_for) == {}
+
+
+@pytest.mark.parametrize('unknown', [None, '', 'UNSET', 'PENDING_DEPLOY'])
+def check_unknown_identity_does_not_block_add(unknown):
+    old = resource(identity=unknown)
+    new = {**old, **resource('009')}
+    assert selection_records(selection(rid='009', action='add'), [record()], old, new, schema_for)
+
+
+@pytest.mark.parametrize('fault', [None, 'missing', 'ambiguous', 'type', 'unconfirmed', 'cycle', 'label', 'external', 'candidate', 'same-parent', 'no-other-fact'])
+def check_subnet_local_parent_evidence(fault):
+    parent = resource()
+    subnet = resource('002', kind='EC2.Subnet', identity=None)
+    subnet['desired.row.002-001.property'] = 'EC2.Subnet.SubnetId'
+    subnet.update({'desired.row.002-004.property': 'EC2.Subnet.VpcId', 'desired.row.002-004.value': '[001](#vpc-main)'})
+    old = {**parent, **subnet}
+    if fault == 'missing':
+        old['desired.row.002-004.value'] = '[001](#absent)'
+    elif fault == 'ambiguous':
+        old.update(resource('003'))
+        old['desired.resource.003.anchor'] = 'vpc-main'
+    elif fault == 'type':
+        old['desired.resource.001.resourceType'] = 'EC2.Subnet'
+    elif fault in {'unconfirmed', 'candidate', 'cycle'}:
+        old.pop('observed.row.001-001.value')
+        if fault == 'cycle':
+            old['desired.row.001-001.value'] = '[002](#vpc-extra)'
+    elif fault == 'label':
+        old['desired.row.002-004.value'] = '[003](#vpc-main)'
+    elif fault == 'external':
+        old['desired.row.002-004.value'] = '[001](vpc.md#vpc-main)'
+    captured = {**record('subnet-confirmed', '10.10.0.0/23'), 'kind': 'EC2.Subnet', 'identityProperty': 'EC2.Subnet.SubnetId'}
+    captured['properties'] = {p.replace('EC2.VPC.', 'EC2.Subnet.'): value for p, value in captured['properties'].items()}
+    captured['properties']['EC2.Subnet.VpcId'] = {'status': 'captured', 'value': 'vpc-confirmed'}
+    other = copy.deepcopy(captured)
+    other.update(record='other-subnet', identity='subnet-other')
+    other['properties']['EC2.Subnet.VpcId']['value'] = 'vpc-other'
+    if fault == 'same-parent':
+        other['properties']['EC2.Subnet.VpcId']['value'] = 'vpc-confirmed'
+    elif fault == 'no-other-fact':
+        old['desired.row.002-003.value'] = '`unknown-name`'
+    parent_record = record(record_id='parent')
+    picked = selection(rid='002', basis=['EC2.Subnet.Name', 'EC2.Subnet.CidrBlock', 'EC2.Subnet.VpcId'])
+    picked['excluded'] = [{'record': r['record'], 'reason': 'outside selected update'} for r in (other, parent_record)]
+    new = dict(old)
+    if fault == 'candidate':
+        new['observed.row.001-001.value'] = '`vpc-confirmed`'
+    if fault:
+        with pytest.raises(ValueError, match='ambiguous or unsupported'):
+            selection_records(picked, [captured, other, parent_record], old, new, schema_for)
+    else:
+        from model_files import resource_row_index
+        with patch('import_sources.resource_row_index', wraps=resource_row_index) as indexed:
+            assert selection_records(picked, [captured, other, parent_record], old, new, schema_for) == {'002': captured}
+        assert indexed.call_count == 1
+        assert old['desired.row.002-004.value'] == '[001](#vpc-main)'
+        # Candidate/observed verification does not gain the matching-only fallback.
+        assert property_values(old, '002', 'EC2.Subnet.VpcId', {'type': 'string'}) is None
+
+
 def check_new_resource_and_explicit_dispositions():
     old = resource()
     new = {**old, **resource('009', identity='vpc-new', cidr='10.11.0.0/23')}
@@ -201,6 +314,88 @@ def check_shared_property_typed_preservation():
     params['instances']['main']['parameters']['EnableDnsSupport'] = 'false'
     with pytest.raises(ValueError, match='type'):
         property_value(new, 'desired.row.dns.value', params, binding, 'main', 'stg')
+
+
+@pytest.mark.parametrize('dependency', ['value', 'optional', 'optional-json', 'choice', 'default', 'anchor', 'instance', 'internal'])
+def check_other_definition_input_dependencies(tmp_path, dependency):
+    from model_templates import json_text
+    from support.import_model_fixtures import spec
+    key = 'desired.row.dns.value'
+    boolean = dependency in {'optional', 'optional-json', 'choice'}
+    initial, changed = (False, True) if boolean else (30, 90)
+    shared = spec('boolean' if boolean else 'integer', source='service', **({'default': initial} if dependency == 'default' else {}))
+    app = definition('<<Shared>>', {'Shared': shared})
+    promoted = definition('<<Moved>>', {'Shared': shared, 'Moved': spec('boolean' if boolean else 'integer', source='service')})
+    audit = definition('<<Shared>>', {'Shared': shared})
+    if dependency == 'optional':
+        audit = audit._replace(values={key: '`true`'}, optional={key: 'Shared'})
+    elif dependency == 'optional-json':
+        audit = audit._replace(values={key: '`{"enabled":true}`'}, optional_json={(key, '/enabled'): 'Shared'})
+    elif dependency == 'choice':
+        audit = audit._replace(values={key: '`false`'}, choices={(key, None, 'Shared'): '`true`'})
+    elif dependency == 'anchor':
+        audit = audit._replace(values={key: '<<Anchor_vpc>>', 'desired.resource.vpc.anchor': '<<Shared>>'})
+    elif dependency in {'instance', 'internal'}:
+        audit = audit._replace(parameters={'Shared': spec('integer', **({'internal': True} if dependency == 'internal' else {}))})
+    path = tmp_path / 'model/dev/cde/cloudwatch-logs.properties'
+    template = tmp_path / 'model/templates/cde/cloudwatch-logs.properties.tpl'
+    directory = tmp_path / 'model/parameters/dev/cde/cloudwatch-logs'
+    consumer = tmp_path / 'model/parameters/stg/cde/cloudwatch-logs'
+    consumer.mkdir(parents=True)
+    bindings = {'instances': {name: {'definition': name, 'resources': {'vpc': str(n)}, 'rows': {'dns': str(n) + '-001'},
+                                    'parameters': {'Shared': 30} if dependency == 'internal' and name == 'Audit' else {}}
+                               for n, name in enumerate(('App', 'Audit'), 1)}}
+    parameters = {'parameters': {'Shared': initial}, 'instances': {'Audit': {'parameters': {'Shared': 30}}}}
+    original = json_text(parameters)
+    (consumer / 'parameters.yaml').write_text(original)
+    (consumer / 'bindings.json').write_text(json_text(bindings))
+    baseline = SimpleNamespace(files={directory / 'bindings.json': json_text({'instances': {}}), directory / 'parameters.yaml': '{}'})
+    candidate = copy.deepcopy(parameters)
+    candidate['parameters'].update(Shared=changed, Moved=initial)
+    output = {template: 'edited', consumer / 'parameters.yaml': json_text(candidate)}
+    def parsed(path, output=None):
+        return ({'App': promoted if output else app, 'Audit': audit}, {})
+    with patch('import_promotion.service_source', return_value=(tmp_path, template, directory)), patch('import_promotion.parse_template', side_effect=parsed):
+        if dependency in {'instance', 'internal'}:
+            assert preserve_consumers(path, baseline, output, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})[1]
+        else:
+            with pytest.raises(ValueError, match='stg/cde/cloudwatch-logs/Audit/Audit/'):
+                preserve_consumers(path, baseline, output, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})
+        # Removing an explicit service input and retaining its default is a valid move.
+        if dependency == 'default':
+            candidate['parameters'].pop('Shared')
+        else:
+            candidate['parameters']['Shared'] = initial
+        output[consumer / 'parameters.yaml'] = json_text(candidate)
+        assert preserve_consumers(path, baseline, output, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})[1]
+
+
+@pytest.mark.parametrize('spill', [False, True])
+def check_authored_shared_input_move(tmp_path, spill):
+    from support.import_model_fixtures import shared_retention
+    from model_templates import load_for_edit
+    output = shared_retention(tmp_path)
+    path = tmp_path / 'model/dev/cde/cloudwatch-logs.properties'
+    before = load_for_edit(path)
+    stg = tmp_path / 'model/parameters/stg/cde/cloudwatch-logs/parameters.yaml'
+    if spill:
+        params = yaml_read(output[stg])
+        params['parameters']['RetentionDays'] = 90
+        output[stg] = parameter_edit(output[stg], params)
+        with pytest.raises(ValueError, match='stg/cde/cloudwatch-logs/create-log/Audit/'):
+            preserve_consumers(path, before, output, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})
+    else:
+        assert preserve_consumers(path, before, output, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})[1]
+        after = load_for_edit(path, output)
+        assert after.values['desired.row.001-002.value'] == '90'
+        assert after.values['desired.row.002-002.value'] == '30'
+
+
+def check_input_absence_and_native_types():
+    assert changed_inputs({}, {'parameters': {'Nullable': None}}) == {('service', 'Nullable')}
+    assert changed_inputs({'parameters': {'Value': False}}, {'parameters': {'Value': 0}})
+    assert changed_inputs({'parameters': {'Value': 0}}, {'parameters': {'Value': ''}})
+    assert changed_inputs({'parameters': {'Nullable': None}}, {})
 
 
 def check_shared_reference_is_symbolic():

@@ -162,9 +162,9 @@ def typed_row(row, raw, schema):
     return value
 
 
-def property_values(values, rid, prop, schema, *, observed=False):
+def property_values(values, rid, prop, schema, *, observed=False, rows=None, local_identity=None):
     result = []
-    for row_id, row in resource_row_index(values)[rid]:
+    for row_id, row in (resource_row_index(values) if rows is None else rows).get(rid, []):
         if row['property'] != prop:
             continue
         raw = values.get('observed.row.' + row_id + '.value') if observed else row['value']
@@ -173,7 +173,10 @@ def property_values(values, rid, prop, schema, *, observed=False):
         if observed:
             row = {key: value for key, value in row.items() if key != 'document'}
         elif LINK.fullmatch(raw) or '<<' in raw:
+            link = LINK.fullmatch(raw)
             raw = values.get('observed.row.' + row_id + '.value')
+            if raw is None and link and local_identity is not None:
+                raw = local_identity(link, prop)
             if raw is None:
                 continue
         result.append(typed_row(row, raw, schema))
@@ -191,7 +194,57 @@ def selection_records(selection, records, old, new, property_schema):
     acquired = {r['record']: r for r in records}
     old_resources = dict(entries(old, 'desired.resource.'))
     new_resources = dict(entries(new, 'desired.resource.'))
-    selected, used = {}, set()
+    rows = resource_row_index(old)
+    identity_properties = {}
+    for record in records:
+        identity_properties.setdefault(record['kind'], set()).update(
+            prop for prop in record.get('identityProperties', [record['identityProperty']]) if prop)
+    identities, owners, anchors = {}, {}, {}
+    for rid, resource in old_resources.items():
+        anchors.setdefault(resource.get('anchor'), []).append(rid)
+        known = set()
+        for row_id, row in rows.get(rid, []):
+            prop = row['property']
+            if prop not in identity_properties.get(resource['resourceType'], set()):
+                continue
+            raw = row['value']
+            if LINK.fullmatch(raw) or '<<' in raw:
+                raw = old.get('observed.row.' + row_id + '.value')
+            if raw is None:
+                continue
+            value = typed_row(row, raw, property_schema(prop))
+            if isinstance(value, str) and value.strip() and value not in {'PENDING_DEPLOY', 'UNSET'} and not LINK.fullmatch(value) and '<<' not in value:
+                known.add(value)
+                owners.setdefault((resource['resourceType'], value), set()).add(rid)
+        identities[rid] = known
+
+    def local_identity(link, prop):
+        if link[2] or len(targets := anchors.get(link[3], [])) != 1:
+            return None
+        target = targets[0]
+        resource = old_resources[target]
+        if link[1] not in {target, resource.get('logicalId'), resource.get('cfn-logicalId')}:
+            return None
+        # Only the referenced type's Mapping identity can supply this local ID.
+        identity_prop = resource['resourceType'] + '.' + prop.rsplit('.', 1)[-1]
+        if identity_prop not in identity_properties.get(resource['resourceType'], set()):
+            return None
+        known = identities[target]
+        if len(known) != 1:
+            return None
+        value = next(iter(known))
+        if owners[resource['resourceType'], value] != {target}:
+            return None
+        return '`' + value + '`'
+
+    matched = {}
+    def matching_value(rid, prop):
+        key = rid, prop
+        if key not in matched:
+            matched[key] = property_values(old, rid, prop, property_schema(prop), rows=rows, local_identity=local_identity)
+        return matched[key]
+
+    selected, used, selected_identities = {}, set(), set()
     for item in selection['resources']:
         if set(item) != {'record', 'resource', 'action', 'reason', 'basis'} or not isinstance(item['reason'], str) or not item['reason'].strip():
             raise ValueError('IMPORT correspondence requires an action, reason and basis')
@@ -207,15 +260,17 @@ def selection_records(selection, records, old, new, property_schema):
         basis = item['basis']
         if not isinstance(basis, list) or any(not isinstance(p, str) for p in basis) or len(basis) != len(set(basis)):
             raise ValueError('IMPORT correspondence basis must name distinct acquired Properties')
+        identity_key = record['kind'], record['identity']
+        collisions = owners.get(identity_key, set())
+        if identity_key in selected_identities or collisions - {rid}:
+            raise ValueError('IMPORT acquired record ' + record['record'] + ' for Resource ' + rid
+                             + ' has ambiguous or duplicate identity with existing Resource IDs: ' + ','.join(sorted(collisions)))
         if rid in old_resources:
             identity_prop = record['identityProperty']
-            known = next((value for prop in record.get('identityProperties', [identity_prop]) if prop
-                          if (value := property_values(old, rid, prop, property_schema(prop))) not in (None, 'PENDING_DEPLOY', 'UNSET', '')), None)
-            if known in ('PENDING_DEPLOY', 'UNSET', ''):
-                known = None
-            if known is not None:
-                if known != record['identity']:
-                    raise ValueError('IMPORT confirmed physical identity does not match the selected AWS record')
+            known = identities[rid]
+            if known:
+                if known != {record['identity']}:
+                    raise ValueError('IMPORT confirmed physical identity does not match the selected AWS record: ' + rid)
             elif identity_prop is None and basis == ['$scope']:
                 if sum(r['kind'] == record['kind'] for r in records) != 1 or sum(r['resourceType'] == record['kind'] for r in old_resources.values()) != 1:
                     raise ValueError('IMPORT account/Region singleton correspondence is ambiguous')
@@ -225,12 +280,13 @@ def selection_records(selection, records, old, new, property_schema):
                 def matches(candidate):
                     return candidate['kind'] == record['kind'] and all(
                         candidate['properties'].get(prop, {}).get('status') == 'captured'
-                        and property_values(old, rid, prop, property_schema(prop)) is not None
-                        and typed_equal(property_values(old, rid, prop, property_schema(prop)), candidate['properties'][prop]['value'])
+                        and matching_value(rid, prop) is not None
+                        and typed_equal(matching_value(rid, prop), candidate['properties'][prop]['value'])
                         for prop in basis)
                 if [r['record'] for r in records if matches(r)] != [record['record']]:
                     raise ValueError('IMPORT ambiguous or unsupported resource correspondence')
         selected[rid] = record
+        selected_identities.add(identity_key)
         used.add(record['record'])
     for item in selection['excluded']:
         if set(item) != {'record', 'reason'} or item['record'] not in acquired or item['record'] in used or not isinstance(item['reason'], str) or not item['reason'].strip():
@@ -295,10 +351,10 @@ def verify_values(before, after, selected, property_schema):
             if capture.get('status') != 'captured':
                 raise ValueError('IMPORT candidate uses an unacquired Property: ' + prop)
             schema = property_schema(prop)
-            actual = property_values(new, rid, prop, schema)
+            actual = property_values(new, rid, prop, schema, rows=indexed_new)
             if desired_changed and not typed_equal(actual, capture['value']):
                 raise ValueError('IMPORT candidate value differs from the acquired Property: ' + prop)
-            if observation_changed and not typed_equal(property_values(new, rid, prop, schema, observed=True), capture['value']):
+            if observation_changed and not typed_equal(property_values(new, rid, prop, schema, observed=True, rows=indexed_new), capture['value']):
                 raise ValueError('IMPORT observation differs from the acquired Property: ' + prop)
             changes.append({'resource': rid, 'record': record['record'], 'property': prop})
     for rid in new_resources.keys() - old_resources.keys():
@@ -306,7 +362,7 @@ def verify_values(before, after, selected, property_schema):
             raise ValueError('IMPORT new resource requires a selected acquisition')
         record = selected[rid]
         prop = record['identityProperty']
-        if prop and property_values(new, rid, prop, property_schema(prop)) != record['identity']:
+        if prop and property_values(new, rid, prop, property_schema(prop), rows=indexed_new) != record['identity']:
             raise ValueError('IMPORT new resource must retain its acquired physical identity')
         for _, row in indexed_new[rid]:
             link = LINK.fullmatch(row['value'])

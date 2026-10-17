@@ -238,6 +238,34 @@ def fixture(root, service='cloudwatch-logs', register=True):
     return path
 
 
+def shared_retention(root):
+    """Two authored Definitions sharing one input; return a value-preserving move."""
+    fields = {'name': ('LogGroupName', '<<LogGroupName>>'), 'days': ('RetentionInDays', '<<RetentionDays>>'),
+              'protected': ('DeletionProtectionEnabled', '`false`'), 'class': ('LogGroupClass', '`STANDARD`')}
+    lines = ['# model-template: 1', '# input: RetentionDays ' + json_text(spec('integer', source='service'))]
+    lines += metadata('cloudwatch-logs', ['Logs.LogGroup'])
+    for name in ('App', 'Audit'):
+        lines += declaration(name, 'Logs.LogGroup', fields, {'ResourceMode': spec(), 'LogGroupName': spec(format='literal')})
+    bindings = {'instances': {'service': {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}},
+                             'application-log': binding('App', '001', fields, 'cloudwatch-logs-application'),
+                             'create-log': binding('Audit', '002', fields, 'cloudwatch-logs-create')}}
+    output = {}
+    for env in ('dev', 'stg'):
+        params = {'parameters': {'RetentionDays': 30}, 'instances': {
+            'application-log': {'parameters': {'ResourceMode': 'IMPORT' if env == 'dev' else 'CREATE',
+                                               'LogGroupName': 'fixture-001' if env == 'dev' else 'stg-application'}},
+            'create-log': {'parameters': {'ResourceMode': 'CREATE', 'LogGroupName': 'fixture-002'}}}}
+        save_service(root, 'cloudwatch-logs', lines, params, bindings, environment=env)
+        path = root / 'model/parameters' / env / TARGET / 'cloudwatch-logs/parameters.yaml'
+        params['instances']['application-log']['parameters']['AppRetention'] = 90 if env == 'dev' else 30
+        output[path] = parameter_edit(path.read_text(encoding='utf-8'), params)
+    template = root / 'model/templates' / TARGET / 'cloudwatch-logs.properties.tpl'
+    text = template.read_text(encoding='utf-8').replace('# definition: App\n',
+        '# definition: App\n# parameter: AppRetention ' + json_text(spec('integer')) + '\n')
+    output[template] = text.replace('desired.row.days.value=<<RetentionDays>>', 'desired.row.days.value=<<AppRetention>>', 1)
+    return output
+
+
 def aws(service='cloudwatch-logs', *, changed=False, noise=False, profile='confirmed'):
     cli = AwsCli(profile=profile)
     cli.logs = [{'logGroupName': 'fixture-001', 'retentionInDays': 90 if changed else 30, 'deletionProtectionEnabled': False, 'logGroupClass': 'STANDARD'},
