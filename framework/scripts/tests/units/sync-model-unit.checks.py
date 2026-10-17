@@ -8,6 +8,31 @@ if not __debug__:
 
 from support.sync_model_fixtures import *
 
+def check_stage_inputs_without_framework(tmp_path):
+    root, stage = tmp_path / 'source', tmp_path / 'stage'
+    files = {
+        'framework/mappings/aws/fixture.yaml': b'Framework definition\n',
+        'model/templates/team/iam.properties.tpl': b'# synthetic template\n',
+        'model/parameters/dev/team/iam/parameters.yaml': b'instances: {}\n',
+        'docs/designs/dev/team/iam.md': b'# candidate\n',
+        'docs/designs/dev/team/iam/policy.json': b'{}\n',
+        'project.json': b'{}\n',
+    }
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    document = root / 'docs/designs/dev/team/iam.md'
+    with patch.object(shutil, 'copytree', wraps=shutil.copytree) as copies:
+        sync_runtime.stage_inputs(stage, root, {document: {}}, [], [document], None, False)
+    assert not (stage / 'framework').exists() and not (stage / 'framework').is_symlink()
+    assert all(not Path(call.args[0]).is_relative_to(root / 'framework') for call in copies.call_args_list)
+    for relative, content in files.items():
+        assert (root / relative).read_bytes() == content
+        if not relative.startswith('framework/'):
+            assert (stage / relative).read_bytes() == content
+
+
 def check_property_path_parents():
     paths = {"ConnectionInput.PhysicalConnectionRequirements.SubnetId", "Rules[].Target.Name", "ConnectionInputName"}
     assert property_paths_with_parents(paths) == {

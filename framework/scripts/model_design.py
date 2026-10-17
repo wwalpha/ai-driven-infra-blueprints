@@ -194,10 +194,10 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
                                      f"cross-account:{arn} in the policy row comment")
 
 
-def stack_markdown(path, values, root):
+def stack_markdown(path, values, root, *, definitions_root=None):
     limit, stacks = stack_model(values)
     for _, stack in stacks:
-        if errors := naming_errors(root, "CloudFormation.Stack", [["1", "StackName", stack["name"], "名前"]]):
+        if errors := naming_errors(definitions_root or root, "CloudFormation.Stack", [["1", "StackName", stack["name"], "名前"]]):
             raise ValueError("; ".join(errors))
     settings, artifacts = deployment_settings(values)
     delivery = []
@@ -221,13 +221,13 @@ def stack_markdown(path, values, root):
             for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
 
 
-def validate_resource_identities(path, values, root, resources):
+def validate_resource_identities(path, values, root, resources, *, definitions_root=None):
     relative = path.parent.relative_to(root / "docs/designs") if path.is_relative_to(root / "docs/designs") else None
     target = design_target(path, root)
     validate_kms_policy_accounts(values, target)
     stack_source = root / "model" / relative / "cloudformation-stacks.properties" if relative is not None else None
     stack_names = None
-    identity_catalog = DesignSchemaCatalog(root)
+    identity_catalog = DesignSchemaCatalog(definitions_root or root)
     for identity, resource in resources:
         if "cfn-logicalId" not in resource:
             if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE" and f"desired.resource.{identity}.logicalId" not in values:
@@ -377,18 +377,18 @@ def resource_table_lines(resource, name, rows, children, root):
 
 
 @input_scope
-def markdown_for(path: Path, values: dict[str, str], root: Path) -> str:
+def markdown_for(path: Path, values: dict[str, str], root: Path, *, definitions_root: Path | None = None) -> str:
     """Validated generation used by ordinary design and explicit validation."""
     from aws_mapping_display import validate_mappings
-    validate_mappings(values, root)
-    validate_required_properties(values, root)
-    return render_validated_model(path, values, root)
+    validate_mappings(values, definitions_root or root)
+    validate_required_properties(values, definitions_root or root)
+    return render_validated_model(path, values, root, definitions_root=definitions_root)
 
 
-def render_validated_model(path: Path, values: dict[str, str], root: Path) -> str:
+def render_validated_model(path: Path, values: dict[str, str], root: Path, *, definitions_root: Path | None = None) -> str:
     """Internal renderer after mapping/required-property preflight, before artifacts."""
     if path.stem == "cloudformation-stacks":
-        return stack_markdown(path, values, root)
+        return stack_markdown(path, values, root, definitions_root=definitions_root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")
@@ -396,9 +396,9 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path) -> st
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
-    validate_resource_identities(path, values, root, resources)
-    details, by_anchor = resource_details(values, root, service, owned, resources, bound_resource_anchors(path))
-    return render_markdown(path, values, root, owned, details, grouped_resources(values, details, by_anchor))
+    validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
+    details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, bound_resource_anchors(path))
+    return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor))
 
 
 @input_scope

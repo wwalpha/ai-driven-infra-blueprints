@@ -40,7 +40,7 @@ class Validator:
     checks = owned_field("findings", "checks")
     errors = owned_field("findings", "errors")
 
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False, definitions_root: Path | None = None) -> None:
         self.findings = Findings(root)
         self.check = self.findings.check
         self.check_file = self.findings.check_file
@@ -59,6 +59,7 @@ class Validator:
         self.contract_scope = contract_scope
         self.generated_models_checked = False
         self.root = root
+        self.definitions_root = definitions_root or root
         self.task = TaskValidation(root, self.findings)
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
@@ -288,7 +289,7 @@ class Validator:
         self.service_keys = keys
         missing = self.scope - reused.keys()
         # Generation needs the whole selected consumer scope, even with partial cache hits.
-        generator = Validator(self.root, self.scope, workers=self.workers, model_check=self.model_check)
+        generator = Validator(self.root, self.scope, workers=self.workers, model_check=self.model_check, definitions_root=self.definitions_root)
         generator.accounts = self.accounts
         if missing:
             generator.check_generated_service_models()
@@ -298,9 +299,9 @@ class Validator:
 
         @input_scope
         def validate(scope):
-            validator = Validator(self.root, scope)
+            validator = Validator(self.root, scope, definitions_root=self.definitions_root)
             validator.accounts = self.accounts
-            validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.root)
+            validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
             validator.generated_models_checked = True
             validator.check_designs()
             validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
@@ -356,7 +357,7 @@ class Validator:
             errors = self.model_check(self.scope)
             self.check(not errors, "\n".join(errors) or "generated service models match")
             return
-        command = [sys.executable, str(self.root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
+        command = [sys.executable, str(self.definitions_root / "framework/scripts/sync-model.py"), "--repository-root", str(self.root),
                    "--jobs", str(self.workers)]
         if self.scope is None:
             command.append("--all")
@@ -383,7 +384,7 @@ class Validator:
             self.checks += cached
             for check_id in ('framework.cloudformation-schema-catalog', 'framework.api-design-catalog'):
                 self.findings.evaluate(check_id, self.scope, lambda: None)
-            self.schema_catalog = DesignSchemaCatalog(self.root)
+            self.schema_catalog = DesignSchemaCatalog(self.definitions_root)
             print("Catalog validation: reused (content hashes match)")
             if not self.write:
                 self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during catalog validation")
@@ -428,25 +429,25 @@ class Validator:
 
 
     def check_structure(self) -> None:
-        return framework_contracts.check_structure(self.findings, self.root, consumer=self.scope != set())
+        return framework_contracts.check_structure(self.findings, self.root, consumer=self.scope != set(), definitions_root=self.definitions_root)
 
     def check_framework_active_task_transition(self) -> None:
-        return framework_contracts.check_framework_active_task_transition(self.findings, self.root)
+        return framework_contracts.check_framework_active_task_transition(self.findings, self.definitions_root)
 
     def check_framework_rule_readings(self) -> None:
-        return framework_contracts.check_framework_rule_readings(self.findings, self.root)
+        return framework_contracts.check_framework_rule_readings(self.findings, self.definitions_root)
 
     def check_framework_design_handoff(self) -> None:
-        return framework_contracts.check_framework_design_handoff(self.findings, self.root)
+        return framework_contracts.check_framework_design_handoff(self.findings, self.definitions_root)
 
     def check_framework_task_completion_contract(self) -> None:
-        return framework_contracts.check_framework_task_completion_contract(self.findings, self.root)
+        return framework_contracts.check_framework_task_completion_contract(self.findings, self.definitions_root)
 
     def check_framework_task_type_dispatch(self) -> None:
         return framework_contracts.check_framework_task_type_dispatch(self.findings, self.task_type)
 
     def check_framework_focused_check_runner(self) -> None:
-        return framework_contracts.check_framework_focused_check_runner(self.findings, self.root)
+        return framework_contracts.check_framework_focused_check_runner(self.findings, self.definitions_root)
 
     def check_validation_scope(self) -> None:
         self.task.impact = project.check_validation_scope(self.accounts, self.changed_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
@@ -464,13 +465,13 @@ class Validator:
 
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
-        return framework_contracts.check_framework_cloudformation_schema_catalog(self.findings, self.root)
+        return framework_contracts.check_framework_cloudformation_schema_catalog(self.findings, self.definitions_root)
 
     def check_framework_schema_backed_design_validation(self) -> None:
-        return framework_contracts.check_framework_schema_backed_design_validation(self.findings, self.root)
+        return framework_contracts.check_framework_schema_backed_design_validation(self.findings, self.definitions_root)
 
     def check_framework_cfn_lint_validation(self) -> None:
-        return framework_contracts.check_framework_cfn_lint_validation(self.findings, self.root)
+        return framework_contracts.check_framework_cfn_lint_validation(self.findings, self.definitions_root)
 
     def check_project_topology(self) -> None:
         if self.scope == set():
@@ -482,10 +483,10 @@ class Validator:
         return project.check_initialized_paths(self.accounts, self.findings, self.root, self.scope, self.template_mode, candidates=self.write)
 
     def check_api_design_catalog(self) -> None:
-        return design.check_api_design_catalog(self.findings, self.root)
+        return design.check_api_design_catalog(self.findings, self.definitions_root)
 
     def check_catalog_inputs(self) -> None:
-        design.check_catalog_inputs(self.findings, self.root, lambda catalog: setattr(self, "schema_catalog", catalog), self.scope)
+        design.check_catalog_inputs(self.findings, self.definitions_root, lambda catalog: setattr(self, "schema_catalog", catalog), self.scope)
 
     def check_task_scope(self) -> None:
         return self.task.check_task_scope()
@@ -541,7 +542,7 @@ class Validator:
     def catalog_design_properties(
         self,
     ) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
-        return design.catalog_design_properties(self.root)
+        return design.catalog_design_properties(self.definitions_root)
 
     def check_service_file(self, path: Path, service_id: str, owned_types: tuple[str, ...]) -> None:
         return design.check_service_file(path, service_id, owned_types, findings=self.findings)
@@ -564,20 +565,20 @@ class Validator:
         dict[str, set[str]],
         dict[str, set[str]],
     ]:
-        return design.check_design_service_ownership(markdown_paths, findings=self.findings, root=self.root, design_sources=getattr(self, "design_sources", {}))
+        return design.check_design_service_ownership(markdown_paths, findings=self.findings, root=self.root, design_sources=getattr(self, "design_sources", {}), definitions_root=self.definitions_root)
 
     @staticmethod
     def is_policy_document_property(property_name: str) -> bool:
         return design.is_policy_document_property(property_name)
 
     def check_resource_layout(self) -> None:
-        return design.check_resource_layout(findings=self.findings, root=self.root)
+        return design.check_resource_layout(findings=self.findings, root=self.definitions_root)
 
     def check_resource_names(self, service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None) -> None:
-        return design.check_resource_names(service_metadata, self.design_files() if paths is None else paths, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope)
+        return design.check_resource_names(service_metadata, self.design_files() if paths is None else paths, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_policy_tables(self) -> None:
-        return self.findings.evaluate('framework.policy-tables', self.scope, lambda: design.check_policy_tables(self.design_files(), self.findings))
+        return self.findings.evaluate('framework.policy-tables', self.scope, lambda: design.check_policy_tables(self.design_files(), self.findings, definitions_root=self.definitions_root))
 
     def check_observed_values(self, paths: list[Path] | None = None) -> None:
         return design.check_observed_values(paths, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}))
@@ -624,14 +625,14 @@ class Validator:
         identifier_outputs: dict[str, set[str]],
         paths: list[Path] | None = None,
     ) -> None:
-        return design_tables.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs, self.design_files() if paths is None else paths, design_sources=getattr(self, "design_sources", {}), findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, markdown_iam_policy_artifacts=self.markdown_iam_policy_artifacts, root=self.root, schema_catalog=self.schema_catalog, scope=self.scope)
+        return design_tables.check_design_tables(service_metadata, catalog_types, catalog_property_owners, identifier_outputs, self.design_files() if paths is None else paths, design_sources=getattr(self, "design_sources", {}), findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, markdown_iam_policy_artifacts=self.markdown_iam_policy_artifacts, root=self.root, schema_catalog=self.schema_catalog, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_design_overviews(self, paths: list[Path] | None = None) -> None:
-        return design_links.check_design_overviews(self.design_files() if paths is None else paths, findings=self.findings, root=self.root, scope=self.scope)
+        return design_links.check_design_overviews(self.design_files() if paths is None else paths, findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                            design_index: DesignIndex | None = None) -> None:
-        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope)
+        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
         return design_links.check_design_artifacts(paths, accounts=self.accounts, findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, root=self.root)
@@ -640,7 +641,7 @@ class Validator:
         return project.check_target_file(path, base, accounts=self.accounts, findings=self.findings)
 
     def check_stack_designs(self, paths: list[Path] | None = None) -> None:
-        return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}))
+        return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}), definitions_root=self.definitions_root)
 
     def check_iac_selection(self) -> None:
         if self.scope == set() and not self.accounts:

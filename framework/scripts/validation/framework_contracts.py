@@ -28,7 +28,8 @@ REQUIRED_DIRECTORIES = (
 CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 
 
-def check_structure(findings, root, *, consumer=True):
+def check_structure(findings, root, *, consumer=True, definitions_root=None):
+    definitions_root = definitions_root or root
     for filename in (
         "AGENTS.md",
         "README.md",
@@ -48,7 +49,8 @@ def check_structure(findings, root, *, consumer=True):
         "framework/scripts/cloudformation_schema.py",
         "framework/scripts/sync-model.py",
     ):
-        findings.check((root / filename).is_file(), f"required file missing: {filename}")
+        base = definitions_root if filename.startswith('framework/') else root
+        findings.check((base / filename).is_file(), f"required file missing: {filename}")
     for directory in REQUIRED_DIRECTORIES:
         findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
     if consumer:
@@ -56,7 +58,7 @@ def check_structure(findings, root, *, consumer=True):
             findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
     codex_prompt_names = sorted(
         path.name
-        for path in (root / "framework" / "prompts" / "codex").glob("*")
+        for path in (definitions_root / "framework" / "prompts" / "codex").glob("*")
         if path.is_file()
     )
     invalid_prompt_names = [
@@ -69,7 +71,7 @@ def check_structure(findings, root, *, consumer=True):
         "Codex prompt numbers must be unique",
     )
     actual_rules = {
-        path.name for path in (root / "framework" / "rules").glob("*.md")
+        path.name for path in (definitions_root / "framework" / "rules").glob("*.md")
     }
     findings.check(REQUIRED_RULES <= actual_rules, f"required rules missing: {sorted(REQUIRED_RULES - actual_rules)}")
 
@@ -251,5 +253,5 @@ def check_framework_cfn_lint_validation(findings, root):
         root / "framework" / "scripts" / "check-deploy-context.py",
     )
     for path in paths:
-        findings.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {findings.relative(path)}")
+        findings.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {path.relative_to(root).as_posix()}")
 

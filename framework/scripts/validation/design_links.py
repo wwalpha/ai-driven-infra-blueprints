@@ -35,11 +35,11 @@ def endpoint_dns_reference(source, property_name, label, target, resource, confi
                 and configuration.get("EC2.VPCEndpoint.VpcEndpointType") == "Interface"
                 and configuration.get("EC2.VPCEndpoint.ServiceName") == f"com.amazonaws.vpce.{match[3]}.{match[2]}")
 
-def check_design_overviews(paths: list[Path] | None = None, *, findings, root, scope) -> None:
+def check_design_overviews(paths: list[Path] | None = None, *, findings, root, scope, definitions_root=None) -> None:
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
         try:
-            lines = security_group_table_lines(lines, root)
+            lines = security_group_table_lines(lines, definitions_root or root)
         except ValueError:
             pass
         overview_indices = [
@@ -177,8 +177,9 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
 
 @input_scope
 def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
-                       design_index: DesignIndex | None = None, design_sources=None, findings, root, scope) -> None:
-    design_index = design_index or DesignIndex(root)
+                       design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None) -> None:
+    definitions_root = definitions_root or root
+    design_index = design_index or DesignIndex(definitions_root)
     source_values = {}
     for source in design_files(root=root, scope=scope) if paths is None else paths:
         source_values[source] = (design_sources or {}).get(source)
@@ -196,7 +197,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
     for source in sources:
         document = design_index.get(source)
         try:
-            semantic = validation_lines(document.raw.display_lines, source_values[source], root)
+            semantic = validation_lines(document.raw.display_lines, source_values[source], definitions_root)
             visible_text[source] = (document.visible_text if semantic is document.raw.display_lines else
                                     re.sub(r"<!--.*?-->", "", "\n".join(semantic), flags=re.DOTALL))
         except ValueError:
@@ -248,7 +249,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         lines = source_lines
         try:
             lines, children = view.expanded
-            lines = validation_lines(lines, source_values.get(path), root)
+            lines = validation_lines(lines, source_values.get(path), definitions_root)
             for anchor, child in children.items():
                 identity = GROUPED[child["resourceType"]]["identityProperty"]
                 if identity != "Id":
@@ -391,7 +392,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             if len(cells) != 4:
                 continue
             cloudtrail = CLOUDTRAIL_DATA_RESOURCE.fullmatch(cells[1])
-            linked_list = linked_list_property(cells[1], list_resource_type, root)
+            linked_list = linked_list_property(cells[1], list_resource_type, definitions_root)
             if not cloudtrail and not linked_list:
                 continue
             link = RESOURCE_LINK_PATTERN.fullmatch(cells[2])
@@ -412,7 +413,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 f"{('CloudTrail DataResources' if cloudtrail else 'Subnet/Security Group list')} must link to a {expected} in the same target: {findings.relative(source)}: {cells[2]}",
             )
         try:
-            source_lines = validation_lines(document.raw.display_lines, values, root)
+            source_lines = validation_lines(document.raw.display_lines, values, definitions_root)
         except ValueError as error:
             findings.check(False, f"invalid Security Group tables: {findings.relative(source)}: {error}")
         variable_type = ""
@@ -425,7 +426,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             if len(cells) == 4:
-                cells[1] = formal_property(cells[1], reference_kind, root)
+                cells[1] = formal_property(cells[1], reference_kind, definitions_root)
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
             link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None

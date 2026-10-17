@@ -186,7 +186,8 @@ def check_design_tables(
     catalog_property_owners: dict[str, set[str]],
     identifier_outputs: dict[str, set[str]],
     paths: list[Path] | None = None,
- *, design_sources, findings, markdown_design_artifacts, markdown_iam_policy_artifacts, root, schema_catalog, scope) -> None:
+ *, design_sources, findings, markdown_design_artifacts, markdown_iam_policy_artifacts, root, schema_catalog, scope, definitions_root=None) -> None:
+    definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
         try:
@@ -226,15 +227,15 @@ def check_design_tables(
                     findings.check(False, f"resource table Property must omit heading resource type: {findings.relative(path)}:{cursor + 1}: {cells[1]}")
                 cursor += 1
         try:
-            lines = security_group_table_lines(lines, root)
-            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=root)
-            lines = expanded_display_rows(lines, root)
+            lines = security_group_table_lines(lines, definitions_root)
+            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root)
+            lines = expanded_display_rows(lines, definitions_root)
         except ValueError as error:
             findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
             children = {}
         for child in children.values():
             resource_type = child["resourceType"]
-            child["rows"] = validation_rows(child["rows"], values, resource_type, child["logicalId"], root)
+            child["rows"] = validation_rows(child["rows"], values, resource_type, child["logicalId"], definitions_root)
             if schema_catalog is not None:
                 present = {
                     resource_property_path(resource_type, prop)
@@ -306,7 +307,7 @@ def check_design_tables(
             semantic = shown
             if all(len(row) == 4 for row in shown):
                 try:
-                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), root)
+                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), definitions_root)
                 except ValueError as error:
                     findings.check(False, f"invalid Model display projection: {findings.relative(path)}: {error}")
             for number, cells in enumerate(semantic, 1):

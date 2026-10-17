@@ -59,14 +59,14 @@ def resource_index(loaded, catalog):
     return direct, legacy
 
 
-def validate_mapping_targets(root, environment, directory, values):
+def validate_mapping_targets(root, environment, directory, values, *, definitions_root=None):
     """Validate resource-owned stack identities before templates exist."""
     stack_model(values)
     from model_references import bound_stack_names
     names = set(bound_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties')) or {
         stack['name'] for _, stack in entries(values, 'desired.stack.')}
     loaded = models(root, environment, directory)
-    direct, _ = resource_index(loaded, DesignSchemaCatalog(root))
+    direct, _ = resource_index(loaded, DesignSchemaCatalog(definitions_root or root))
     errors = {}
     for (name, logical), candidates in direct.items():
         if name not in names:

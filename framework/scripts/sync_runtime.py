@@ -44,7 +44,6 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
             return str(destination)
         return shutil.copytree(source, destination, copy_function=copy_file, ignore=shutil.ignore_patterns("__pycache__"))
     docs, models = root / "docs/designs", root / "model"
-    copy_tree(root / 'framework', stage / 'framework')
     for base in ('model/templates', 'model/parameters'):
         if base == 'model/parameters' and services is not None:
             continue
@@ -166,7 +165,7 @@ def generate_views(stage, root, destinations, failures):
                 artifacts[artifact] = content
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
-            save_files({staged: markdown_for(staged, values, stage)})
+            save_files({staged: markdown_for(staged, values, stage, definitions_root=root)})
             generated[path] = [*artifacts, staged]
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
@@ -176,7 +175,7 @@ def generate_views(stage, root, destinations, failures):
         try:
             staged = stage / path.relative_to(root)
             if path.name != STACK_DESIGN:
-                save_files({staged: rendered_design(staged)})
+                save_files({staged: rendered_design(staged, definitions_root=root)})
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
             del generated[path]
@@ -203,7 +202,7 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
 
     while generated:
         total(len(generated))
-        design_index = DesignIndex()  # A new snapshot after each restore_view phase.
+        design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
         rejected = []
         context = None
         if validation is not None:

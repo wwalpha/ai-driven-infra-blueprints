@@ -170,13 +170,13 @@ def model_service_metadata(
 
 def check_design_service_ownership(
     markdown_paths: list[Path]
-, *, findings, root, design_sources=None) -> tuple[
+, *, findings, root, design_sources=None, definitions_root=None) -> tuple[
     dict[Path, tuple[str, tuple[str, ...]]],
     set[str],
     dict[str, set[str]],
     dict[str, set[str]],
 ]:
-    catalog_types, catalog_property_owners, identifier_outputs = catalog_design_properties(root)
+    catalog_types, catalog_property_owners, identifier_outputs = catalog_design_properties(definitions_root or root)
     metadata: dict[Path, tuple[str, tuple[str, ...]]] = {}
     owners: dict[tuple[str, str, str], Path] = {}
     docs_base = root / "docs" / "designs"
@@ -234,7 +234,8 @@ def check_resource_layout(findings, root) -> None:
 
 
 @input_scope
-def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None, *, design_sources, findings, root, scope) -> None:
+def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None, *, design_sources, findings, root, scope, definitions_root=None) -> None:
+    definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
         try:
@@ -242,8 +243,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             bound_anchors = bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
             modes = resource_modes(lines, values)
-            lines = security_group_table_lines(lines, root)
-            lines = expanded_display_rows(lines, root)
+            lines = security_group_table_lines(lines, definitions_root)
+            lines = expanded_display_rows(lines, definitions_root)
             values = values or {}
             labels = {
                 (resource.get("resourceType"), resource.get("logicalId"), label)
@@ -266,19 +267,19 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             mode = modes.get(anchor, "CREATE")
             try:
                 from aws_mapping_display import validation_rows
-                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), root)
+                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), definitions_root)
                 name = resource_display_name(resource_type, semantic, display, mode)
             except ValueError as error:
                 findings.check(False, f"{findings.relative(path)}: {error}")
                 return
-            for error in naming_errors(root, resource_type, rows, mode):
+            for error in naming_errors(definitions_root, resource_type, rows, mode):
                 findings.check(False, f"{findings.relative(path)}: {error}")
             findings.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}")
             findings.check(name is None or display == name, f"resource heading must display resource name: {findings.relative(path)}: {resource_type}: {display} != {name}")
             if name is None:
                 if display == resource_type:
-                    findings.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(root, resource_type, mode), f"resource type display requires a single nameless independent resource: {findings.relative(path)}: {resource_type}")
-                confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(root, resource_type, mode)
+                    findings.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(definitions_root, resource_type, mode), f"resource type display requires a single nameless independent resource: {findings.relative(path)}: {resource_type}")
+                confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(definitions_root, resource_type, mode)
                 findings.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
             if path in service_metadata:
                 expected = bound_anchors.get((resource_type, identities.get(current)),
@@ -306,11 +307,11 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                         findings.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {findings.relative(path)}: expected {expected}")
 
 
-def check_policy_tables(paths, findings) -> None:
+def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
     for path in paths:
         try:
             findings.check(
-                rendered_policy_design(path) == path.read_text(encoding="utf-8"),
+                rendered_policy_design(path, definitions_root=definitions_root) == path.read_text(encoding="utf-8"),
                 f"Policy tables or overview differ from design JSON/properties: {findings.relative(path)}",
             )
         except (OSError, ValueError) as error:
@@ -373,8 +374,8 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
     aws_materials = set(material_files(root))
     for path in design_material_files(root):
         text = path.read_text(encoding="utf-8")
-        findings.check(text.endswith("\n"), f"catalog file lacks final newline: {findings.relative(path)}")
+        findings.check(text.endswith("\n"), f"catalog file lacks final newline: {path.relative_to(root).as_posix()}")
         if path in aws_materials:
             lines = text.splitlines()
-            findings.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {findings.relative(path)}")
+            findings.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {path.relative_to(root).as_posix()}")
 

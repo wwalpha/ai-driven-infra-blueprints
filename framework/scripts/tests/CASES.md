@@ -1652,3 +1652,13 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `units/blueprint-loop-unit.checks.py` | `check_staged_write_rejected` | UT | [units/blueprint-loop-unit.checks.py:502](units/blueprint-loop-unit.checks.py#L502) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `integrations/sync-model.checks.py` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py:43](integrations/sync-model.checks.py#L43) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/validation_cache-unit.checks.py` | `check_retained_common_key` | UT | [units/validation_cache-unit.checks.py:81](units/validation_cache-unit.checks.py#L81) | pytest / 1 | 保持したbytesのCatalog key互換性と変更検出 | 新仕様の回帰 |
+
+## Framework definitions outside sync candidates
+
+| Original | Case | Layer | Current | Execution | Responsibility | Preservation |
+| --- | --- | --- | --- | --- | --- | --- |
+| `units/sync-model-unit.checks.py` | `check_stage_inputs_without_framework` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | Frameworkのコピーとリンクを作らずModel/Markdown/JSON/project入力をstageへ保持 | 新規 |
+| `integrations/sync-model.checks.py` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 1 | 元FrameworkのSchema/Mapping/Layout/Policyとstage候補で生成・検証・投影がバイト一致し定義を不変に保つ | 新規 |
+| `integrations/sync-model.checks.py` | `check_stage_candidate_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 6 | 元の正常文書を使わずstage Model/names/schema/overview/policy/linkの破損を検出する | 新規 |
+| `integrations/sync-model.checks.py` | `check_stage_definition_errors` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 4 | 元FrameworkのSchema/Mapping/Naming/Layout参照エラーを握りつぶさない | 新規 |
+| `integrations/sync-model.checks.py` | `check_stage_cloudformation_definitions` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 1 | CFn生成バイト一致とstage stack authorityの変更を検出し元保存値に戻らない | 新規 |

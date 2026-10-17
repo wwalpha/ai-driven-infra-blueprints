@@ -10,6 +10,155 @@ from support.sync_model_fixtures import *
 
 from support.it_workspace import copy_framework
 
+def check_stage_definition_sources(generated_policy, tmp_path):
+    from utils.aws_mappings import mapping_alias, mappings_for
+    from design_document import DesignIndex
+    root, model, values, design, artifact, _ = generated_policy
+    originals = {p: p.read_bytes() for p in (design, artifact)}
+    definitions = {p: p.read_bytes() for p in (root / 'framework').rglob('*') if p.is_file()}
+    stage = tmp_path / 'candidates'
+    staged = stage / design.relative_to(root)
+    with mapping_alias(root, stage):
+        sync_runtime.stage_inputs(stage, root, {design: values}, [model], [design], ['iam'], False)
+        assert mappings_for(stage) is mappings_for(root)
+        failures = []
+        generated = sync_runtime.generate_views(stage, root, {design: values}, failures)
+        sync_runtime.validate_candidates(stage, root, generated, {design: values}, failures, 1, False)
+        assert not failures, failures
+        assert not (stage / 'framework').exists() and not (stage / 'framework').is_symlink()
+        assert load_model(stage / model.relative_to(root)).values == load_model(model).values
+        assert {p: (stage / p.relative_to(root)).read_bytes() for p in originals} == originals
+        assert model_projection.model_for(staged, root, source=values, design_index=DesignIndex(root)) == model_projection.model_for(design, root, source=values)
+        validator = sync_views.view_validator(stage, root)
+        assert validator.root == stage and validator.definitions_root == root
+        assert validator.findings.canonical_root == stage.resolve()
+        validator.check_resource_layout()
+        assert not validator.errors, validator.errors
+    assert {p: p.read_bytes() for p in definitions} == definitions
+    assert {p: p.read_bytes() for p in originals} == originals
+
+
+@pytest.mark.parametrize('fault,expected', [
+    ('model', 'model service'), ('names', 'resource heading must display resource name'),
+    ('tables', 'schema'), ('overview', 'resource overview must appear exactly once'),
+    ('policy', 'invalid policy tables'), ('links', 'broken design link'),
+])
+def check_stage_candidate_isolation(generated_policy, tmp_path, fault, expected):
+    from utils.aws_mappings import mapping_alias
+    root, model, values, design, artifact, _ = generated_policy
+    stage = tmp_path / 'candidates'
+    staged = stage / design.relative_to(root)
+    originals = {p: p.read_bytes() for p in (design, artifact)}
+    with mapping_alias(root, stage):
+        sync_runtime.stage_inputs(stage, root, {design: values}, [model], [design], ['iam'], False)
+        validator = sync_views.view_validator(stage, root)
+        validator.scope = {('dev', '123456789012', 'iam')}
+        validator.check_project_topology()
+        if fault == 'model':
+            write_model(stage / model.relative_to(root), values | {'desired.service.iam.serviceId': 's3'})
+        elif fault == 'policy':
+            (stage / artifact.relative_to(root)).write_text('{}\n', encoding='utf-8')
+        else:
+            content = staged.read_text(encoding='utf-8')
+            if fault == 'names':
+                content = content.replace('### IAM.Role: app-dev-role', '### IAM.Role: other-role')
+            elif fault == 'tables':
+                content = content.replace('| RoleName |', '| MaxSessionDuration |')
+            elif fault == 'overview':
+                content = content.replace('## リソース一覧', '## 候補の破損')
+            else:
+                content += '\n[参照先](missing.md#missing)\n'
+            staged.write_text(content, encoding='utf-8')
+        metadata, *catalog = validator.check_design_service_ownership([staged])
+        validator.check_resource_names(metadata, [staged])
+        validator.check_design_tables(metadata, *catalog, [staged])
+        validator.check_design_overviews([staged])
+        validator.check_design_links(catalog[2], [staged])
+        validator.check_policy_tables()
+        assert any(expected in error for error in validator.errors), validator.errors
+        assert all(str(root) not in error and str(stage) not in error for error in validator.errors)
+        assert not (stage / 'framework').exists()
+    assert {p: p.read_bytes() for p in originals} == originals
+
+
+@pytest.mark.parametrize('definition', ['schema', 'mapping', 'naming', 'layout'])
+def check_stage_definition_errors(generated_policy, tmp_path, definition):
+    from utils.aws_mappings import mapping_alias
+    root, model, values, design, _, _ = generated_policy
+    stage = tmp_path / 'candidates'
+    staged = stage / design.relative_to(root)
+    sync_runtime.stage_inputs(stage, root, {design: values}, [model], [design], ['iam'], False)
+    source = root / 'framework' / {
+        'schema': 'materials/cloudformation-schema/ap-northeast-1/index.json',
+        'mapping': 'mappings/aws/owners.json',
+        'naming': 'rules/aws-resource-naming.md',
+        'layout': 'rules/resource-layout.json',
+    }[definition]
+    read = Path.read_text
+    def fail(path, *args, **kwargs):
+        if path == source:
+            raise FileNotFoundError('unavailable Framework definition: ' + definition)
+        return read(path, *args, **kwargs)
+    with patch.object(Path, 'read_text', fail):
+        if definition == 'layout':
+            validator = sync_views.view_validator(stage, root)
+            validator.check_resource_layout()
+            assert any('unavailable Framework definition: layout' in e for e in validator.errors), validator.errors
+        else:
+            with pytest.raises(FileNotFoundError, match='unavailable Framework definition: ' + definition):
+                if definition == 'mapping':
+                    with mapping_alias(root, stage):
+                        pass
+                elif definition == 'schema':
+                    sync_views.view_validator(stage, root)
+                else:
+                    model_design.markdown_for(staged, values, stage, definitions_root=root)
+    assert not (stage / 'framework').exists()
+
+
+def check_stage_cloudformation_definitions(generated_policy, tmp_path):
+    from utils.aws_mappings import mapping_alias
+    root, model, values, design, _, _ = generated_policy
+    stack_model = model.with_name('cloudformation-stacks.properties')
+    stack_design = design.with_name('cloudformation-stacks.md')
+    stacks = {
+        'desired.deployment.maxConcurrentStacks': '1',
+        'desired.stack.001.name': 'cfn-stack-app-dev-iam',
+        'desired.stack.001.template': 'iam.yaml',
+        'desired.stack.001.parameters': 'iam.json',
+        'desired.stack.001.deployOrder': '10',
+        'display.stack.001.comment': 'アプリケーションの実行権限',
+    }
+    write_model(stack_model, stacks)
+    values = values | {'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-iam-AppRole'}
+    write_model(model, values)
+    expected = design.read_bytes()
+    expected_stack = model_design.markdown_for(stack_design, stacks, root).encode('utf-8')
+    stack_design.write_bytes(expected_stack)
+    stage = tmp_path / 'candidates'
+    staged = stage / design.relative_to(root)
+    staged_stack = stage / stack_design.relative_to(root)
+    with mapping_alias(root, stage):
+        sources = {design: values, stack_design: stacks}
+        sync_runtime.stage_inputs(stage, root, sources, [model, stack_model], list(sources), ['iam', 'cloudformation-stacks'], False)
+        failures = []
+        generated = sync_runtime.generate_views(stage, root, sources, failures)
+        sync_runtime.validate_candidates(stage, root, generated, sources, failures, 1, False)
+        assert not failures, failures
+        assert staged.read_bytes() == expected and staged_stack.read_bytes() == expected_stack
+        # Only the staged stack authority changes; the saved stack remains valid.
+        write_model(stage / stack_model.relative_to(root), stacks | {'desired.stack.001.name': 'cfn-stack-other-dev-iam'})
+        with pytest.raises(ValueError, match='undeclared stack'):
+            model_design.markdown_for(staged, values, stage, definitions_root=root)
+        validator = sync_views.view_validator(stage, root)
+        validator.scope = {('dev', '123456789012', 'cloudformation-stacks')}
+        validator.check_project_topology()
+        staged_stack.write_text(expected_stack.decode('utf-8').replace('cfn-stack-app-dev-iam', 'cfn-stack-other-dev-iam'), encoding='utf-8')
+        validator.check_stack_designs([staged_stack])
+        assert any('undeclared stack' in error for error in validator.errors), validator.errors
+    assert stack_design.read_bytes() == expected_stack and not (stage / 'framework').exists()
+
+
 @pytest.mark.parametrize('fault', ['source', 'mapping', 'project', 'part', 'consumer', 'extra'])
 def check_publication_boundary(generated_policy, fault):
     root, model, values, design, artifact, register = generated_policy
@@ -191,7 +340,8 @@ def check_failure_counts(framework_root) -> None:
         write_model(models / f"service-{number:02d}.properties", "fixture.value=test\n")
         (docs / f"service-{number:02d}.md").write_text("generated\n")
 
-    def render(path, values, stage):
+    def render(path, values, stage, *, definitions_root=None):
+        assert definitions_root == root
         if int(path.stem.removeprefix("service-")) < 9:
             raise ValueError("fixture render failure")
         return "generated\n"

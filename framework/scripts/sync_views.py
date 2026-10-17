@@ -29,7 +29,7 @@ def view_validator(stage: Path, root: Path):
     spec = importlib.util.spec_from_file_location("blueprint_view_validator", Path(__file__).with_name("validate-blueprint.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    validator = module.Validator(stage)
+    validator = module.Validator(stage, definitions_root=root)
     validator.schema_catalog = module.DesignSchemaCatalog(root)
     return validator
 
@@ -39,7 +39,7 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
     if not paths:
         return {}
     validator = view_validator(stage, root)
-    validator.check_design_links(identifier_outputs(root), paths)
+    validator.check_design_links(identifier_outputs(root), paths, design_index=DesignIndex(root))
     broken = {}
     for error in validator.errors:
         kind, _, reference = error.partition(": ")
