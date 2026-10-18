@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_is_file, input_text
 from model_references import bound_resource_anchors
 import json
 import re
@@ -142,7 +143,7 @@ def check_markdown_iam_policy_artifacts(
         return
     target = (relative.parts[0], relative.parts[1])
     from design_layout import resource_identity_metadata
-    entry_numbers, _ = resource_identity_metadata(path.read_text(encoding="utf-8").splitlines(), values=design_model_values(path, design_sources=design_sources, root=root)) if path.is_file() else ({}, {})
+    entry_numbers, _ = resource_identity_metadata(input_text(path, encoding="utf-8").splitlines(), values=design_model_values(path, design_sources=design_sources, root=root)) if input_is_file(path) else ({}, {})
     legacy = logical_id not in entry_numbers.values()
     properties = [row[1].removeprefix("IAM.Role.") for row in rows]
 
@@ -189,7 +190,7 @@ def check_design_tables(
  *, design_sources, findings, markdown_design_artifacts, markdown_iam_policy_artifacts, root, schema_catalog, scope, definitions_root=None) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
-        lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
+        lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
         try:
             identities = resource_logical_ids(lines)
             bound_anchors = bound_resource_anchors(path)
@@ -516,7 +517,7 @@ def check_api_design_rows(path: Path, resource_type: str, logical_id: str, rows:
                 artifact = (path.parent / link.group(1)).resolve()
                 if artifact.parent != path.with_suffix("").resolve():
                     raise ValueError("API JSON artifact must belong to this service")
-                value = json.loads(artifact.read_text(encoding="utf-8"))
+                value = json.loads(input_text(artifact, encoding="utf-8"))
             else:
                 if LINK_PATTERN.fullmatch(raw):
                     raise ValueError("API root property requires a literal or an object JSON artifact")

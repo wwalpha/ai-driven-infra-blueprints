@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from validation_cache import PassCache, input_scope
+from validation_cache import PassCache, input_scope, recording_inputs, input_is_file
 from validation import scenario, cloudformation, iac, terraform, design, design_tables, design_links, project, framework_contracts
 from validation.task import TaskValidation
 from validation.framework_contracts import CODEX_PROMPT_FILENAME_PATTERN
@@ -53,13 +53,14 @@ class Validator:
         self.catalog_pending = None
         self.catalog_key = None
         self.model_check = model_check
-        self.cache = PassCache(root, fresh, include_project=scope != set()) if cache else None
+        self.cache = PassCache(root, fresh, include_project=scope != set(), definitions_root=definitions_root) if cache else None
         self.relative_paths = self.findings.relative_paths
         self.scope = scope
         self.contract_scope = contract_scope
         self.generated_models_checked = False
         self.root = root
-        self.definitions_root = definitions_root or root
+        from utils.aws_mappings import definition_root
+        self.definitions_root = definitions_root or definition_root(root)
         self.task = TaskValidation(root, self.findings)
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
@@ -73,41 +74,40 @@ class Validator:
     @input_scope
     def run(self) -> int:
         if not self.write:
-            return self._run()
+            from contextlib import ExitStack
+            from utils.aws_mappings import mapping_alias, definition_root
+            with ExitStack() as lifetime:
+                if self.scope != set() and self.definitions_root != self.root and definition_root(self.root) != self.definitions_root:
+                    lifetime.enter_context(mapping_alias(self.definitions_root, self.root))
+                self.task.fix_baseline()
+                return self._run()
         if self.scope == set() or self.contract_scope == set():
             self.check(False, '--write requires service scope; framework scope cannot generate Models')
             return self.report()
         from sync_runtime import GenerationInputs
         from model_templates import publication_lock
+        from contextlib import ExitStack
+        from utils.aws_mappings import mapping_alias, definition_root
         with publication_lock(self.root):
-            snapshot = GenerationInputs(self.root)
-        try:
-            snapshot.materialize()
+            snapshot = GenerationInputs(self.root, self.definitions_root)
+        with ExitStack() as lifetime:
+            lifetime.callback(snapshot.close)
+            lifetime.enter_context(recording_inputs(snapshot))
+            if self.definitions_root != self.root and definition_root(self.root) != self.definitions_root:
+                lifetime.enter_context(mapping_alias(self.definitions_root, self.root))
+            self.task.fix_baseline()
+            common = self.cache or PassCache(self.root, definitions_root=self.definitions_root)
+            # Register the full cache dependency set before lookup; never derive it from
+            # the growing subset of project inputs already consumed.
+            common.common_inputs(snapshot)
             if self.cache:
-                try:
-                    self.cache.common = self.cache.common_key(snapshot.contents)
-                    self.catalog_key = self.cache.key('catalog')
-                except (OSError, ValueError, KeyError, TypeError):
-                    self.catalog_key = None
+                self.cache.common = self.cache.common_key(snapshot=snapshot)
+                self.catalog_key = self.cache.key('catalog')
             return self._run(snapshot)
-        finally:
-            snapshot.close()
 
     def input_check(self, snapshot, handler):
-        if snapshot is None:
-            return handler()
-        root, canonical = self.root, self.findings.canonical_root
-        paths, task_root = self.iac_paths, self.task.root
-        try:
-            self.root = self.task.root = snapshot.stage
-            self.findings.canonical_root = snapshot.stage
-            self.relative_paths.clear()
-            if paths is not None:
-                self.iac_paths = {snapshot.stage / p.relative_to(root) for p in paths}
-            return handler()
-        finally:
-            self.root, self.task.root, self.findings.canonical_root, self.iac_paths = root, task_root, canonical, paths
-            self.relative_paths.clear()
+        # Read boundaries use the invocation recorder; Task/Git/IaC stay on real root.
+        return handler()
 
     def _run(self, snapshot=None) -> int:
         self.relative_paths.clear()
@@ -183,14 +183,14 @@ class Validator:
 
 
     def generate_and_validate(self, snapshot, registered):
-        from sync_runtime import prepare_generation, validate_generation, publish_generation, report_generation
+        from sync_runtime import prepare_generation, validate_generation, publish_generation, report_generation, planned_outputs
         from task_contract import paths_in, status
         name, text = snapshot.expected_task
         self.check(text is not None and status(text, name == 'tasks/active.md') == 'running',
                    '--write requires a running task contract')
         if self.errors:
             return
-        plan = prepare_generation(self.root, self.scope, snapshot=snapshot)
+        plan = prepare_generation(self.root, self.scope, snapshot=snapshot, definitions_root=self.definitions_root)
         try:
             plan.accounts = self.accounts
             validate_generation(plan, jobs=self.workers)
@@ -214,17 +214,6 @@ class Validator:
                            'candidate policy validation is FAIL or NOT_RUN for the required scope')
             self.findings.evaluate('framework.policy-tables', self.scope, policy_result)
             candidate_error_count = len(self.errors)
-            planned = {p for outputs in plan.expected_outputs.values() for p, content in outputs.items()
-                       if snapshot.read(p) != content.encode('utf-8')}
-            allowed = paths_in(text, '## Allowed paths')
-            modified = paths_in(text, '## Modified files')
-            for path in planned:
-                relative = path.relative_to(self.root).as_posix()
-                self.check(relative in modified and any(self.task.matches(relative, pattern) for pattern in allowed),
-                           f'generated path is outside task scope: {relative}')
-                parts = path.relative_to(self.root / 'docs/designs').parts
-                identity = (*parts[:2], Path(parts[2]).stem)
-                self.check(self.scope is None or identity in self.scope, f'generated path is outside Validation scope: {relative}')
             # Resolve every registered content handler before the first repository write.
             for _, kind, value in self.acceptance_checks:
                 if kind == 'check':
@@ -237,11 +226,24 @@ class Validator:
                 self.input_check(snapshot, self.check_iac_selection)
             if self.infrastructure_phase != 'destroy' and (self.scope is None or self.task_type == 'infrastructure'):
                 self.input_check(snapshot, self.check_cloudformation_yaml_rules)
-                self.input_check(snapshot, self.check_cloudformation_environment_parameters)
+                self.input_check(snapshot, lambda: self.check_cloudformation_environment_parameters(stack_definitions=self.candidate_stacks(plan)))
             if self.scope is None or self.task_type == 'scenario-test':
                 self.input_check(snapshot, self.check_scenarios)
                 self.input_check(snapshot, self.check_results)
                 self.input_check(snapshot, self.check_scenario_changes)
+            if len(self.errors) != candidate_error_count:
+                return
+            planned = planned_outputs(plan)
+            allowed = paths_in(text, '## Allowed paths')
+            modified = paths_in(text, '## Modified files')
+            for path in planned:
+                relative = path.relative_to(self.root).as_posix()
+                self.check(relative in modified and any(self.task.matches(relative, pattern) for pattern in allowed),
+                           f'generated path is outside task scope: {relative}')
+                parts = path.relative_to(self.root / 'docs/designs').parts
+                identity = (*parts[:2], Path(parts[2]).stem)
+                self.check(self.scope is None or identity in self.scope, f'generated path is outside Validation scope: {relative}')
+            self.check_task_boundary(self.root / name, {p.relative_to(self.root).as_posix() for p in planned})
             if len(self.errors) != candidate_error_count:
                 return
             before_publication = len(plan.failures)
@@ -258,10 +260,7 @@ class Validator:
                 # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
             if self.cache and self.catalog_pending is not None:
                 self.cache.save(*self.catalog_pending)
-            self.task.changed_paths = (
-                self.task.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
-                self.task.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']) |
-                self.task.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])) - {'.lock'}
+            self.task.changed_paths = self.task.final_paths()
             self.check_task_type_requirements()
             self.check_acceptance_checks()
             try:
@@ -275,7 +274,7 @@ class Validator:
     def check_scoped_designs(self) -> None:
         # These whole-scope checks must also run when individual services are reused.
         self.check_design_service_ownership(self.design_files())
-        self.check_stack_designs()
+        self.findings.evaluate('design.stacks', self.scope, lambda: {'stack_definitions': self.check_stack_designs()})
         keys = {}
         reused = {}
         for entry in sorted(self.scope):
@@ -367,10 +366,10 @@ class Validator:
         if self.scope is not None and len(self.scope) == 1 and not os.environ.get("BLUEPRINT_PROFILE_DIR"):
             from sync_views import saved_design_validation
             with saved_design_validation(self.root, next(iter(self.scope))):
-                result = runner.main([*arguments, "--repository-root", str(self.root)])
+                result = runner.main([*arguments, "--repository-root", str(self.root)], definitions_root=self.definitions_root)
             self.check(result == 0, "generated service models match" if result == 0 else "generated service model check failed")
             return
-        code, diagnostics = runner.run(arguments, repository_root=self.root)
+        code, diagnostics = runner.run(arguments, repository_root=self.root, definitions_root=self.definitions_root)
         self.check(code == 0, diagnostics.strip() or "generated service model check failed")
 
 
@@ -403,7 +402,7 @@ class Validator:
 
     def check_designs(self) -> None:
         self.check_generated_service_models()
-        self.check_stack_designs()
+        self.findings.evaluate('design.stacks', self.scope, lambda: {'stack_definitions': self.check_stack_designs()})
         markdown_paths = self.design_files()
         properties_paths = [path for path in scoped_files(self.root, "model", ".properties", self.scope) if path.stem != Path(STACK_DESIGN).stem]
         markdown = {
@@ -450,13 +449,13 @@ class Validator:
         return framework_contracts.check_framework_focused_check_runner(self.findings, self.definitions_root)
 
     def check_validation_scope(self) -> None:
-        self.task.impact = project.check_validation_scope(self.accounts, self.changed_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
+        self.task.impact = project.check_validation_scope(self.accounts, self.task.scope_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
         if self.write and self.task_type == 'design':
-            desired = {p for p in self.changed_paths if p.startswith('model/templates/') or
+            desired = {p for p in self.task.permission_paths if p.startswith('model/templates/') or
                        p.startswith('model/parameters/') and Path(p).name in {'parameters.yaml', 'bindings.json'}}
             if not desired:
                 self.task.design_impact = set()
-            elif any(p.startswith('model/') and Path(p).name == 'observed.json' for p in self.changed_paths):
+            elif any(p.startswith('model/') and Path(p).name == 'observed.json' for p in self.task.permission_paths):
                 # Desired-source task requirements differ from all-source validation impact.
                 from model_templates import affected
                 self.task.design_impact = affected(self.root, desired)
@@ -476,7 +475,7 @@ class Validator:
     def check_project_topology(self) -> None:
         if self.scope == set():
             return
-        self.template_mode = not (self.root / "project.json").is_file()
+        self.template_mode = not input_is_file(self.root / "project.json")
         project.check_project_topology(self.accounts, self.findings, self.root, self.template_mode)
 
     def check_initialized_paths(self) -> None:
@@ -491,8 +490,8 @@ class Validator:
     def check_task_scope(self) -> None:
         return self.task.check_task_scope()
 
-    def check_task_boundary(self, prompt: Path) -> None:
-        return self.task.check_task_boundary(prompt)
+    def check_task_boundary(self, prompt: Path, paths=None) -> None:
+        return self.task.check_task_boundary(prompt, paths)
 
     def check_issue_gate(self) -> None:
         return self.task.check_issue_gate(self.scope) if self.write else self.task.check_issue_gate()
@@ -640,7 +639,7 @@ class Validator:
     def check_target_file(self, path: Path, base: Path) -> tuple[str, str] | None:
         return project.check_target_file(path, base, accounts=self.accounts, findings=self.findings)
 
-    def check_stack_designs(self, paths: list[Path] | None = None) -> None:
+    def check_stack_designs(self, paths: list[Path] | None = None) -> dict[Path, list[dict]]:
         return cloudformation.check_stack_designs(self.stack_design_files() if paths is None else paths, accounts=self.accounts, findings=self.findings, root=self.root, scope=self.scope, design_sources=getattr(self, "design_sources", {}), definitions_root=self.definitions_root)
 
     def check_iac_selection(self) -> None:
@@ -648,15 +647,27 @@ class Validator:
             return
         iac.check_iac_selection(self.root, self.scope, self.accounts, self.template_mode, self.findings)
         if self.scope is None or self.task_type == "infrastructure" or any(
-                terraform.is_terraform_path(path) for path in self.changed_paths):
-            terraform.check_configuration(self.root, self.scope, self.accounts, self.findings, self.changed_paths)
+                terraform.is_terraform_path(path) for path in self.task.scope_paths):
+            terraform.check_configuration(self.root, self.scope, self.accounts, self.findings, self.task.scope_paths)
 
     def check_cloudformation_yaml_rules(self) -> None:
         cloudformation.check_cloudformation_yaml_rules(self.root, self.iac_paths, self.findings)
 
-    def check_cloudformation_environment_parameters(self) -> None:
+    def candidate_stacks(self, plan):
+        findings = plan.validation.get(None)
+        if findings is None:
+            return {}
+        result = findings.result('design.stacks', plan.generated_scope)
+        return {self.root / path.relative_to(plan.stage): stacks
+                for path, stacks in result.metadata.get('stack_definitions', {}).items()}
+
+    def check_cloudformation_environment_parameters(self, stack_definitions=None) -> None:
+        if stack_definitions is None:
+            result = self.findings.result('design.stacks', self.scope)
+            if result.status == 'PASS':
+                stack_definitions = result.metadata.get('stack_definitions')
         cloudformation.check_cloudformation_environment_parameters(
-            self.root, self.iac_paths, self.accounts, self.stack_design_files(), self.findings)
+            self.root, self.iac_paths, self.accounts, self.stack_design_files(), self.findings, stack_definitions=stack_definitions)
 
     def check_scenarios(self) -> None:
         scenario.check_scenarios(self.root, self.findings, self.scenario_ids)
@@ -665,7 +676,7 @@ class Validator:
         scenario.check_results(self.root, self.accounts, self.template_mode, self.result_files, self.findings)
 
     def check_scenario_changes(self) -> None:
-        scenario.check_scenario_changes(self.changed_paths, self.result_files, self.findings)
+        scenario.check_scenario_changes(self.task.scope_paths, self.result_files, self.findings)
 
 
 def parse_args() -> argparse.Namespace:

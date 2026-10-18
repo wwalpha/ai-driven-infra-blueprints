@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 import re
 
 from sync_files import atomic_files
-from validation_cache import memoized
+from validation_cache import memoized, input_is_dir, input_is_file, input_is_symlink, input_select, input_text
 
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -81,15 +81,15 @@ def selected_text(root, records, name):
 
 def contracts(root):
     directory = root / "tasks"
-    if directory.is_symlink():
+    if input_is_symlink(directory):
         raise ValueError("tasks directory must not use symlinks")
     result = {}
-    if directory.is_dir():
-        for path in sorted(directory.iterdir()):
+    if input_is_dir(directory):
+        for path in sorted(input_select(directory)):
             relative = path.relative_to(root).as_posix()
-            if not TASK_NAME.fullmatch(relative) or path.is_symlink() or not path.is_file():
+            if not TASK_NAME.fullmatch(relative) or input_is_symlink(path) or not input_is_file(path):
                 raise ValueError(f"invalid task contract file: {relative}")
-            result[relative] = path.read_text(encoding="utf-8")
+            result[relative] = input_text(path, encoding="utf-8")
     return result
 
 

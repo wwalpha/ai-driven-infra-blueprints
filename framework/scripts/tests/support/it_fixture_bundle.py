@@ -46,12 +46,8 @@ def build(root, name):
     elif name == 'generated_policy':
         from support.sync_model_fixtures import build_generated_policy
         from support.model_sources import catalog_display
-        # The generator needs framework catalogs; only the authored outputs enter this seed.
-        shutil.copytree(root / 'framework/framework', destination / 'framework')
         with catalog_display():
-            values = build_generated_policy(destination)
-        protect(destination / 'framework', False)
-        shutil.rmtree(destination / 'framework')
+            values = build_generated_policy(destination, definitions_root=root / 'framework')
         (destination / 'fixture-values.json').write_text(json.dumps(values), encoding='utf-8')
     else:
         raise ValueError(f'unknown IT fixture: {name}')

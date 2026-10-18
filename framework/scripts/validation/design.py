@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_text
 from validation_cache import input_scope
 from model_templates import service_source
 from collections import Counter
@@ -106,7 +107,7 @@ def check_service_file(path: Path, service_id: str, owned_types: tuple[str, ...]
 def markdown_service_metadata(
     path: Path, catalog_types: set[str]
 , *, findings) -> tuple[str, tuple[str, ...]] | None:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = input_text(path, encoding="utf-8").splitlines()
     service_lines = [line for line in lines if line.startswith("- Design service ID:")]
     owned_lines = [line for line in lines if line.startswith("- Owned catalog resource types:")]
     findings.check(len(service_lines) == 1, f"Design service ID must appear exactly once: {findings.relative(path)}")
@@ -227,7 +228,7 @@ def check_resource_layout(findings, root) -> None:
 def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None, *, design_sources, findings, root, scope, definitions_root=None) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
-        lines = resource_heading_lines(without_policy_tables(path.read_text(encoding="utf-8").splitlines()))
+        lines = resource_heading_lines(without_policy_tables(input_text(path, encoding="utf-8").splitlines()))
         try:
             identities = resource_logical_ids(lines)
             bound_anchors = bound_resource_anchors(path)
@@ -301,7 +302,7 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
     for path in paths:
         try:
             findings.check(
-                rendered_policy_design(path, definitions_root=definitions_root) == path.read_text(encoding="utf-8"),
+                rendered_policy_design(path, definitions_root=definitions_root) == input_text(path, encoding="utf-8"),
                 f"Policy tables or overview differ from design JSON/properties: {findings.relative(path)}",
             )
         except (OSError, ValueError) as error:
@@ -363,7 +364,7 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
 
     aws_materials = set(material_files(root))
     for path in design_material_files(root):
-        text = path.read_text(encoding="utf-8")
+        text = input_text(path, encoding="utf-8")
         findings.check(text.endswith("\n"), f"catalog file lacks final newline: {path.relative_to(root).as_posix()}")
         if path in aws_materials:
             lines = text.splitlines()

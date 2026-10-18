@@ -1,4 +1,5 @@
 """Resolve local authoritative inputs and desired/observed display rows; reads files."""
+from validation_cache import input_exists, input_is_file, input_text
 
 import json
 import re
@@ -67,11 +68,11 @@ def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) 
 
 def design_target(path: Path, root: Path) -> dict:
     project = root / "project.json"
-    if project.is_file() and path.is_relative_to(root / "docs/designs"):
+    if input_is_file(project) and path.is_relative_to(root / "docs/designs"):
         relative = path.parent.relative_to(root / "docs/designs")
         if len(relative.parts) == 2:
             environment, directory = relative.parts
-            return next((item for item in json.loads(project.read_text(encoding="utf-8")).get("targets", [])
+            return next((item for item in json.loads(input_text(project, encoding="utf-8")).get("targets", [])
                          if item.get("environment") == environment and item.get("alias", item.get("awsAccountId")) == directory), {})
     return {}
 
@@ -109,7 +110,7 @@ def bound_resource_anchors(path: Path) -> dict[tuple[str, str], str]:
     if len(path.parents) >= 5 and path.parents[2].name == "designs" and path.parents[3].name == "docs":
         path = path.parents[4] / "model" / path.parents[1].name / path.parent.name / (path.stem + ".properties")
     paths = source_paths(path)
-    if paths is None or not paths[2].exists():
+    if paths is None or not input_exists(paths[2]):
         return {}
     registered = service_source(path)
     if registered is None:

@@ -1,4 +1,5 @@
 """Terraform root/module boundaries; Terraform itself retains full syntax validation."""
+from validation_cache import input_is_dir, input_is_file, input_select, input_text
 
 import json
 import re
@@ -37,8 +38,8 @@ def placement(path, root):
 
 
 def files(root):
-    return sorted(path for path in (root / 'infra').rglob('*')
-                  if path.is_file() and is_terraform_path(path.relative_to(root))
+    return sorted(path for path in input_select(root / 'infra', '*', recursive=True)
+                  if input_is_file(path) and is_terraform_path(path.relative_to(root))
                   and not any(part.startswith('.') for part in path.relative_to(root).parts))
 
 
@@ -125,7 +126,7 @@ def tokens(text):
 
 
 def blocks(path):
-    text = path.read_text(encoding='utf-8')
+    text = input_text(path, encoding='utf-8')
     if path.name.endswith('.tf.json'):
         data = json.loads(text)
         for kind, values in data.items():
@@ -201,14 +202,14 @@ def check_configuration(root, scope, accounts, findings, changed_paths=()):
                     if not literal:
                         continue
                     resolved = (path.parent / source).resolve()
-                    if environment is not None and resolved.is_dir() and resolved != expected and resolved.is_relative_to(expected):
+                    if environment is not None and input_is_dir(resolved) and resolved != expected and resolved.is_relative_to(expected):
                         calls.setdefault((directory, name), []).append((environment, path, resolved))
                     if path not in active:
                         continue
                     gates = [path, *(changed for changed in changed_modules.get(directory, [])
                                      if changed.resolve().is_relative_to(resolved))]
                     for gate in gates:
-                        findings.check_file(resolved.is_dir(), gate, f'Terraform Module source does not exist: {findings.relative(path)}: {name}')
+                        findings.check_file(input_is_dir(resolved), gate, f'Terraform Module source does not exist: {findings.relative(path)}: {name}')
                         findings.check_file(resolved != expected and resolved.is_relative_to(expected), gate,
                                             f'Terraform Module source must resolve inside {expected.relative_to(root.resolve())}/<module> for this target: {findings.relative(path)}: {name}')
         except (OSError, ValueError, TypeError, AttributeError) as error:

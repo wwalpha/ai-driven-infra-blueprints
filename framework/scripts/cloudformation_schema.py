@@ -2,6 +2,7 @@
 """Check or refresh the CloudFormation provider schemas used by this blueprint."""
 
 from __future__ import annotations
+from validation_cache import input_bytes, input_select, input_text
 
 import argparse
 import hashlib
@@ -37,7 +38,7 @@ def design_type(material: Path) -> str:
 
 
 def material_files(root: Path) -> list[Path]:
-    return sorted((root / "framework" / "materials" / "aws").glob("*.properties"))
+    return sorted(input_select(root / "framework" / "materials" / "aws", "*.properties"))
 
 
 def canonical_json(value: Any) -> str:
@@ -46,7 +47,7 @@ def canonical_json(value: Any) -> str:
 
 def manifest_text(root: Path, files: list[Path]) -> str:
     return "".join(
-        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n"
+        f"{hashlib.sha256(input_bytes(path)).hexdigest()}  {path.relative_to(root).as_posix()}\n"
         for path in files
     )
 
@@ -230,14 +231,14 @@ def refresh(root: Path) -> None:
         "source": SOURCE_URL,
     }
     expected = {"index.json", *(filename for filename, _ in schemas.values())}
-    for stale in directory.glob("*.json"):
+    for stale in input_select(directory, "*.json"):
         if stale.name not in expected:
             stale.unlink()
     (directory / "index.json").write_text(canonical_json(index), encoding="utf-8")
     for filename, schema in schemas.values():
         (directory / filename).write_text(canonical_json(schema), encoding="utf-8")
 
-    schema_files = sorted(directory.glob("*.json"))
+    schema_files = sorted(input_select(directory, "*.json"))
     metadata = {
         "schema.archiveSha256": hashlib.sha256(archive).hexdigest(),
         "schema.manifest": "framework/materials/cloudformation-schema.sha256",
@@ -261,7 +262,7 @@ def snapshot_errors(root: Path) -> list[str]:
     try:
         metadata = dict(
             line.split("=", 1)
-            for line in metadata_path.read_text(encoding="utf-8").splitlines()
+            for line in input_text(metadata_path, encoding="utf-8").splitlines()
             if "=" in line
         )
         catalog = CloudFormationSchemaCatalog(root)
@@ -278,12 +279,12 @@ def snapshot_errors(root: Path) -> list[str]:
     if re.fullmatch(r"[0-9a-f]{64}", metadata.get("schema.archiveSha256", "")) is None:
         errors.append("schema.archiveSha256 is invalid")
 
-    schema_files = sorted(catalog.directory.glob("*.json"))
+    schema_files = sorted(input_select(catalog.directory, "*.json"))
     expected_names = {"index.json", *catalog.resource_types.values()}
     if {path.name for path in schema_files} != expected_names:
         errors.append("schema snapshot files do not match index.json")
     try:
-        if manifest_path.read_text(encoding="utf-8") != manifest_text(root, schema_files):
+        if input_text(manifest_path, encoding="utf-8") != manifest_text(root, schema_files):
             errors.append("framework/materials/cloudformation-schema.sha256 does not match the schema snapshot")
     except FileNotFoundError:
         errors.append("framework/materials/cloudformation-schema.sha256 is missing")
@@ -301,7 +302,7 @@ def snapshot_errors(root: Path) -> list[str]:
         except (FileNotFoundError, KeyError, json.JSONDecodeError) as error:
             errors.append(f"schema cannot be loaded: {resource_type}: {error}")
             continue
-        for line in material.read_text(encoding="utf-8").splitlines():
+        for line in input_text(material, encoding="utf-8").splitlines():
             key, separator, marker = line.partition("=")
             if not separator or not key.startswith(prefix) or marker not in {"", IDENTIFIER_OUTPUT}:
                 errors.append(f"invalid catalog line: {resource_type}: {line}")

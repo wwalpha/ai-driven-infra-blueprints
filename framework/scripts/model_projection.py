@@ -1,4 +1,5 @@
 """Read-only Markdown projection for validation; never publishes Model inputs."""
+from validation_cache import input_is_file, input_text
 
 from collections import defaultdict, deque
 import hashlib
@@ -26,7 +27,7 @@ RESOURCE_LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 
 
 def json_sha256(path: Path) -> str:
-    content = json.loads(path.read_text(encoding="utf-8"))
+    content = json.loads(input_text(path, encoding="utf-8"))
     return document_sha256(content)
 
 
@@ -44,7 +45,7 @@ def identifier_outputs(root: Path) -> dict[str, set[str]]:
         resource_type = path.stem.replace("_", ".", 1)
         outputs[resource_type] = {
             line.partition("=")[0]
-            for line in path.read_text(encoding="utf-8").splitlines()
+            for line in input_text(path, encoding="utf-8").splitlines()
             if line.endswith("=IDENTIFIER_OUTPUT") and line.partition("=")[0] not in HIDDEN_PROPERTIES
         }
     return outputs
@@ -56,7 +57,7 @@ def linked_resource(path: Path, value: str, *, design_index: DesignIndex | None 
         return None
     _, target_text, fragment = match.groups()
     target = path if not target_text else path.parent / target_text
-    if not target.is_file():
+    if not input_is_file(target):
         return None
     pending_anchor = ""
     view = (design_index or DesignIndex()).get(target).view(frozenset({fragment}))
@@ -88,7 +89,7 @@ def one_match(pattern: re.Pattern[str], lines: list[str], label: str, path: Path
 
 @input_scope
 def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | None = None,
-              design_index: DesignIndex | None = None) -> str:
+              design_index: DesignIndex | None = None, definitions_root: Path | None = None) -> str:
     """Read-only projection for verification; never save it by default."""
     if path.name == STACK_DESIGN:
         from design_layout import stack_delivery
@@ -112,7 +113,7 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
         source = design_model_values(path, root)
     if source is not None:
         from aws_mapping_display import projection
-        source = projection(source, root or Path(__file__).resolve().parents[2])
+        source = projection(source, definitions_root or root or Path(__file__).resolve().parents[2])
     modes = resource_modes(lines, source)
     from design_layout import resource_identity_metadata
     resource_numbers, cfn_ids = resource_identity_metadata(lines, values=source)
@@ -236,7 +237,7 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                     )
                 if match := JSON_LINK.fullmatch(cells[2]):
                     artifact = path.parent / match.group(1)
-                    if not artifact.is_file():
+                    if not input_is_file(artifact):
                         raise ValueError(f"linked JSON artifact is missing: {artifact}")
                     digest = json_sha256(artifact)
                     output.append(f"desired.row.{key}.artifactSha256={digest}")

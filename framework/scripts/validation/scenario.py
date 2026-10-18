@@ -1,4 +1,5 @@
 """Scenario definitions and current Result records; never execute scenarios."""
+from validation_cache import input_is_dir, input_is_file, input_is_symlink, input_select, input_text
 
 
 from datetime import datetime
@@ -12,7 +13,7 @@ RESULT_METADATA = ("Scenario ID", "Environment", "AWS account ID", "AWS region",
 def metadata_values(path: Path, label: str) -> list[str]:
     pattern = re.compile(rf"- {re.escape(label)}: `([^`]+)`")
     values: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in input_text(path, encoding="utf-8").splitlines():
         if not line.startswith(f"- {label}:"):
             continue
         match = pattern.fullmatch(line)
@@ -32,20 +33,20 @@ def is_rfc3339(value: str) -> bool:
 
 def check_scenarios(root, findings, scenario_ids) -> None:
     root = root / "tests" / "scenarios"
-    if not root.is_dir():
+    if not input_is_dir(root):
         return
-    for entry in sorted(root.iterdir()):
-        if entry.name == ".gitkeep" and entry.is_file():
+    for entry in sorted(input_select(root)):
+        if entry.name == ".gitkeep" and input_is_file(entry):
             continue
-        findings.check(entry.is_dir(), f"tests/scenarios root may contain only .gitkeep or scenario directories: {findings.relative(entry)}")
-        if not entry.is_dir():
+        findings.check(input_is_dir(entry), f"tests/scenarios root may contain only .gitkeep or scenario directories: {findings.relative(entry)}")
+        if not input_is_dir(entry):
             continue
         scenario_id = entry.name
         valid_id = LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None
         findings.check(valid_id, f"invalid scenario ID: {scenario_id}")
         scenario_file = entry / "scenario.md"
-        findings.check(scenario_file.is_file(), f"scenario.md missing: {findings.relative(entry)}")
-        if not scenario_file.is_file():
+        findings.check(input_is_file(scenario_file), f"scenario.md missing: {findings.relative(entry)}")
+        if not input_is_file(scenario_file):
             continue
         values = metadata_values(scenario_file, "Scenario ID")
         findings.check(len(values) == 1, f"Scenario ID must appear exactly once: {findings.relative(scenario_file)}")
@@ -92,33 +93,33 @@ def check_result_metadata(path, scenario_id, environment, target_directory, acco
 
 def check_audit_logs(repository, directory, accounts, template_mode, findings):
     environment = directory.name
-    for target in sorted(directory.iterdir()):
-        findings.check(target.is_dir() and not target.is_symlink() and (environment, target.name) in accounts,
+    for target in sorted(input_select(directory)):
+        findings.check(input_is_dir(target) and not input_is_symlink(target) and (environment, target.name) in accounts,
                        f"audit log target is not defined in project.json: {findings.relative(target)}")
-        if not target.is_dir() or target.is_symlink():
+        if not input_is_dir(target) or input_is_symlink(target):
             continue
         findings.check(not template_mode, f"template mode cannot contain audit logs: {findings.relative(target)}")
-        for path in sorted(target.iterdir()):
+        for path in sorted(input_select(target)):
             match = re.fullmatch(r"([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9]{8}-[0-9]{6})(?:-[0-9]{6})?\.log", path.name)
-            valid = path.is_file() and not path.is_symlink() and match is not None
+            valid = input_is_file(path) and not input_is_symlink(path) and match is not None
             if valid:
                 try:
                     datetime.strptime(match[2], '%Y%m%d-%H%M%S')
                 except ValueError:
                     valid = False
-                valid = valid and (repository / 'tests' / environment / target.name / (match[1] + '.py')).is_file()
+                valid = valid and input_is_file(repository / 'tests' / environment / target.name / (match[1] + '.py'))
             findings.check(valid, f"invalid audit log or missing generated test: {findings.relative(path)}")
 
 
 def check_results(repository, accounts, template_mode, result_files, findings) -> None:
     root = repository / "tests" / "results"
-    if not root.is_dir():
+    if not input_is_dir(root):
         return
-    for scenario_entry in sorted(root.iterdir()):
-        if scenario_entry.name == ".gitkeep" and scenario_entry.is_file():
+    for scenario_entry in sorted(input_select(root)):
+        if scenario_entry.name == ".gitkeep" and input_is_file(scenario_entry):
             continue
-        findings.check(scenario_entry.is_dir(), f"tests/results root may contain only .gitkeep or scenario directories: {findings.relative(scenario_entry)}")
-        if not scenario_entry.is_dir():
+        findings.check(input_is_dir(scenario_entry), f"tests/results root may contain only .gitkeep or scenario directories: {findings.relative(scenario_entry)}")
+        if not input_is_dir(scenario_entry):
             continue
         if scenario_entry.name in {environment for environment, _ in accounts}:
             check_audit_logs(repository, scenario_entry, accounts, template_mode, findings)
@@ -126,27 +127,27 @@ def check_results(repository, accounts, template_mode, result_files, findings) -
         scenario_id = scenario_entry.name
         findings.check(LOWER_KEBAB_PATTERN.fullmatch(scenario_id) is not None, f"invalid result scenario ID: {scenario_id}")
         scenario_file = repository / "tests" / "scenarios" / scenario_id / "scenario.md"
-        findings.check(scenario_file.is_file(), f"orphan result without scenario: {findings.relative(scenario_entry)}")
-        for environment_entry in sorted(scenario_entry.iterdir()):
-            findings.check(environment_entry.is_dir(), f"result scenario directory may contain only environment directories: {findings.relative(environment_entry)}")
-            if not environment_entry.is_dir():
+        findings.check(input_is_file(scenario_file), f"orphan result without scenario: {findings.relative(scenario_entry)}")
+        for environment_entry in sorted(input_select(scenario_entry)):
+            findings.check(input_is_dir(environment_entry), f"result scenario directory may contain only environment directories: {findings.relative(environment_entry)}")
+            if not input_is_dir(environment_entry):
                 continue
             environment = environment_entry.name
-            for target_entry in sorted(environment_entry.iterdir()):
-                findings.check(target_entry.is_dir(), f"result environment directory may contain only target directories: {findings.relative(target_entry)}")
-                if not target_entry.is_dir():
+            for target_entry in sorted(input_select(environment_entry)):
+                findings.check(input_is_dir(target_entry), f"result environment directory may contain only target directories: {findings.relative(target_entry)}")
+                if not input_is_dir(target_entry):
                     continue
                 target_directory = target_entry.name
                 target = (environment, target_directory)
                 findings.check(target in accounts, f"result target is not defined in project.json: {findings.relative(target_entry)}")
                 findings.check(not template_mode, f"template mode cannot contain scenario results: {findings.relative(target_entry)}")
-                for child in sorted(target_entry.iterdir()):
-                    findings.check(child.is_file(), f"result target directory cannot contain subdirectories: {findings.relative(child)}")
-                    if child.is_file() and child.suffix.lower() == ".md":
+                for child in sorted(input_select(target_entry)):
+                    findings.check(input_is_file(child), f"result target directory cannot contain subdirectories: {findings.relative(child)}")
+                    if input_is_file(child) and child.suffix.lower() == ".md":
                         findings.check(child.name == "result.md", f"result history copy is forbidden: {findings.relative(child)}")
                 result_file = target_entry / "result.md"
-                findings.check(result_file.is_file(), f"result.md missing: {findings.relative(target_entry)}")
-                if result_file.is_file():
+                findings.check(input_is_file(result_file), f"result.md missing: {findings.relative(target_entry)}")
+                if input_is_file(result_file):
                     result_files.setdefault(scenario_id, []).append(result_file)
                     check_result_metadata(
                         result_file,

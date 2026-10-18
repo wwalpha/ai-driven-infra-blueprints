@@ -1,4 +1,5 @@
 """Lazy CFn/API JSON definitions, shared read-only by contract per source root."""
+from validation_cache import input_select, input_text
 from collections.abc import Mapping
 import json
 from pathlib import Path
@@ -20,21 +21,21 @@ class Schemas:
     @property
     def resource_types(self):
         return load_once(self._lock, self._cache, ('index',), lambda: json.loads(
-            (self.directory / 'index.json').read_text(encoding='utf-8'))['resourceTypes'])
+            input_text(self.directory / 'index.json', encoding='utf-8'))['resourceTypes'])
 
     @property
     def api_paths(self):
         return load_once(self._lock, self._cache, ('api-index',), lambda: {
             path.stem.replace('_', '.', 1): path
-            for path in (self.root / 'framework/materials/api').glob('*.json')})
+            for path in input_select(self.root / 'framework/materials/api', '*.json')})
 
     def cloudformation(self, resource_type):
         return load_once(self._lock, self._cache, ('cfn', resource_type), lambda: json.loads(
-            (self.directory / self.resource_types[resource_type]).read_text(encoding='utf-8')))
+            input_text(self.directory / self.resource_types[resource_type], encoding='utf-8')))
 
     def api(self, resource_type):
         return load_once(self._lock, self._cache, ('api', resource_type), lambda: json.loads(
-            self.api_paths[resource_type].read_text(encoding='utf-8')))
+            input_text(self.api_paths[resource_type], encoding='utf-8')))
 
 
 class ApiSchemas(Mapping):

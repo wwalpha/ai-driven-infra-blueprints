@@ -1,4 +1,5 @@
 """Explicit active-task validation scope; never infer a repository-wide fallback."""
+from validation_cache import input_is_file, input_select, input_text
 
 from pathlib import Path
 import re
@@ -9,11 +10,11 @@ def active_scope(root: Path, full: bool = False) -> set[tuple[str, str, str]] | 
     if full:
         return None
     path = task_path(root)
-    if not path.is_file():
+    if not input_is_file(path):
         if contracts(root):
             return set()  # All registered tasks are completed; retain shared idle checks.
         raise ValueError("validation scope missing: selected task contract; specify scope or --all")
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = input_text(path, encoding="utf-8").splitlines()
     selected = []
     inside = False
     found = False
@@ -55,16 +56,16 @@ def scoped_files(root: Path, base: str, suffix: str, scope) -> list[Path]:
         from model_templates import model_paths
         return model_paths(root) if scope is None else sorted(directory/env/target/(service+suffix) for env,target,service in scope)
     if scope is None:
-        return sorted(directory.rglob(f"*{suffix}"))
+        return sorted(input_select(directory, f"*{suffix}", recursive=True))
     return sorted(path for environment, target, service in scope
-                  if (path := directory / environment / target / f"{service}{suffix}").is_file())
+                  if input_is_file(path := directory / environment / target / f"{service}{suffix}"))
 
 
 def reference_lines(path: Path, fragments: set[str], *, lines: list[str] | None = None) -> list[str]:
     """Read only referenced resource blocks, including their enclosing grouped parent."""
     from design_layout import RESOURCE, ANCHOR, resource_heading_lines
     if lines is None:
-        lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
+        lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
     starts = []
     for index, line in enumerate(lines):
         if RESOURCE.fullmatch(line):

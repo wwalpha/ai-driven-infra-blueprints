@@ -50,6 +50,87 @@ t.publish(root,{original:'a=crash\\n',root/'new.json':'{}\\n'})
     with templates.publication_lock(root):pass
     assert original.read_text()=='a=old\n'
 
+    def callback():
+        path = root/'view.md'
+        path.write_bytes(b'original\r\n')
+        called = []
+        def finish_import():
+            called.append(path.read_bytes())
+            raise ValueError('injected completion callback failure')
+        with pytest.raises(ValueError, match='completion callback'):
+            templates.publish(root, {path: 'changed\n'}, inputs={}, verify=finish_import)
+        assert called == [b'changed\r\n']
+        assert path.read_bytes() == b'original\r\n'
+        with templates.publication_lock(root) as journal:
+            assert not journal.exists()
+
+    callback()
+
+    def recovery():
+        first, created = root/'view.md', root/'artifact.json'
+        first.write_bytes(b'original\r\n')
+        originals = {first: first.read_bytes(), created: None}
+        write = Path.write_text
+        def interrupted(path, *args, **kwargs):
+            result = write(path, *args, **kwargs)
+            if path == created:
+                raise KeyboardInterrupt()
+            return result
+        with templates.publication_lock(root) as journal:
+            with patch.object(Path, 'write_text', interrupted), pytest.raises(KeyboardInterrupt):
+                templates._publish_transaction(root, {first: 'changed\n', created: '{}\n'}, (), journal,
+                                               originals=originals)
+            assert journal.is_file()
+        # Recovery precedes the next generation snapshot and its originals/output differences.
+        with templates.publication_lock(root) as journal:
+            assert first.read_bytes() == originals[first] and not created.exists()
+            assert not journal.exists()
+        with templates.publication_lock(root) as journal:
+            with patch.object(Path, 'write_text', side_effect=OSError('injected I/O')), pytest.raises(OSError):
+                templates._publish_transaction(root, {first: 'changed\n'}, (), journal,
+                                               originals={first: originals[first]})
+            assert first.read_bytes() == originals[first] and not journal.exists()
+
+    recovery()
+
+    def file_rollback():
+        from support.model_sources import write_fixture_files as save_files
+        first, created, last = [root / name for name in ('first.md', 'new.json', 'last.md')]
+        originals = {first: b'first\r\n', last: b'last\r\n'}
+        write_text, write_bytes = Path.write_text, Path.write_bytes
+        for failed in (first, created, last):
+            for path, content in originals.items():
+                path.write_bytes(content)
+            calls = []
+            def fail_write(path, *args, **kwargs):
+                calls.append(path)
+                if path == failed:
+                    write_text(path, 'partially written', encoding='utf-8')
+                    raise OSError('injected publication failure')
+                return write_text(path, *args, **kwargs)
+            with patch.object(Path, 'write_text', fail_write):
+                with pytest.raises(OSError) as error:
+                    save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+                assert str(error.value) == 'injected publication failure'
+            assert failed in calls
+            assert {path: path.read_bytes() for path in originals} == originals
+        restores = []
+        def fail_restore(path, content):
+            restores.append(path)
+            raise OSError('injected restoration failure')
+        with patch.object(Path, 'write_text', fail_write), patch.object(Path, 'write_bytes', fail_restore):
+            with pytest.raises(OSError) as error:
+                save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+            assert 'generated-file rollback failed:' in str(error.value)
+            assert all(f'{path}: injected restoration failure' in str(error.value) for path in (last, first))
+        assert last in calls and restores == [last, first]
+        for path, content in originals.items():
+            write_bytes(path, content)
+        with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
+            save_files({path: content.decode('utf-8') for path, content in originals.items()})
+        print('File rollback: PASS (first/middle/last partial write, restoration error, no-op)')
+
+    file_rollback()
 
 def check_expansion(root):
     from model_parameter_inputs import yaml_read
@@ -215,8 +296,7 @@ desired.row.name.value=<<Producer>>
     assert templates.affected(root, {relative, template.relative_to(root)}) == own
     change('Name','committed-name'); git('add',str(relative)); git('commit','-m','Fixture change')
     assert templates.affected(root, {relative}) == chain
-    with patch('worktree_task.committed_task_paths', return_value={relative.as_posix()}), \
-         patch('worktree_task.load', return_value=(None,None,None,{'start':baseline})):
+    with patch('worktree_task.task_start_commit', return_value=baseline):
         assert templates.affected(root, {relative}) == chain  # Pinned task baseline survives commits.
 
 

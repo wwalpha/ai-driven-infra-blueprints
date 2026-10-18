@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_is_file, input_select, input_text
 import json
 import re
 from pathlib import Path
@@ -37,7 +38,7 @@ def endpoint_dns_reference(source, property_name, label, target, resource, confi
 
 def check_design_overviews(paths: list[Path] | None = None, *, findings, root, scope, definitions_root=None) -> None:
     for path in design_files(root=root, scope=scope) if paths is None else paths:
-        lines = resource_heading_lines(path.read_text(encoding="utf-8").splitlines())
+        lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
         try:
             lines = security_group_table_lines(lines, definitions_root or root)
         except ValueError:
@@ -209,7 +210,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 linked = (source.parent / target if target else source).resolve()
                 if outside_design(root, linked):
                     continue
-                if linked.is_file() and linked.suffix == ".md" and linked.is_relative_to(root / "docs/designs"):
+                if input_is_file(linked) and linked.suffix == ".md" and linked.is_relative_to(root / "docs/designs"):
                     references.add(linked)
                     fragments.setdefault(linked, set()).add(fragment)
     anchors = {
@@ -312,8 +313,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             target = (source if not target_text else source.parent / target_text).resolve()
             if outside_design(root, target):
                 continue
-            findings.check(target.is_file(), f"broken design link: {findings.relative(source)}: {raw}")
-            if separator and target.is_file():
+            findings.check(input_is_file(target), f"broken design link: {findings.relative(source)}: {raw}")
+            if separator and input_is_file(target):
                 findings.check(fragment in anchors.get(target, set()), f"missing design anchor: {findings.relative(source)}: {raw}")
         document = design_index.get(source)
         observed_references = set()
@@ -506,8 +507,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
 
 def check_design_artifacts(paths: list[Path] | None = None, *, accounts, findings, markdown_design_artifacts, root) -> None:
     base = root / "docs" / "designs"
-    artifacts = {path.resolve() for path in base.rglob("*.json")} if paths is None else {
-        artifact.resolve() for path in paths for artifact in path.with_suffix("").rglob("*.json")
+    artifacts = {path.resolve() for path in input_select(base, "*.json", recursive=True)} if paths is None else {
+        artifact.resolve() for path in paths for artifact in input_select(path.with_suffix(""), "*.json", recursive=True)
     }
     for artifact in sorted(artifacts):
         relative = artifact.relative_to(base)
@@ -518,9 +519,9 @@ def check_design_artifacts(paths: list[Path] | None = None, *, accounts, finding
         findings.check(target in accounts, f"design JSON artifact target is not defined: {findings.relative(artifact)}")
         findings.check(LOWER_KEBAB_PATTERN.fullmatch(relative.parts[2]) is not None, f"invalid design JSON service ID: {findings.relative(artifact)}")
         findings.check(LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None, f"invalid design JSON artifact ID: {findings.relative(artifact)}")
-        findings.check((artifact.parent.parent / f"{relative.parts[2]}.md").is_file(), f"design JSON artifact has no owning service Markdown: {findings.relative(artifact)}")
+        findings.check(input_is_file(artifact.parent.parent / f"{relative.parts[2]}.md"), f"design JSON artifact has no owning service Markdown: {findings.relative(artifact)}")
         try:
-            content = json.loads(artifact.read_text(encoding="utf-8"))
+            content = json.loads(input_text(artifact, encoding="utf-8"))
         except json.JSONDecodeError as error:
             findings.errors.append(f"invalid design JSON artifact: {findings.relative(artifact)}: {error}")
             continue

@@ -1,4 +1,5 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
+from validation_cache import input_text
 from concurrent.futures import Future
 from contextlib import contextmanager
 import json
@@ -37,7 +38,7 @@ class Mappings:
     def __init__(self, root):
         from policy_tables import unique_object, invalid_constant
         self._root = Path(root)
-        index = json.loads((self._root / 'framework/mappings/aws/owners.json').read_text(encoding='utf-8'),
+        index = json.loads(input_text(self._root / 'framework/mappings/aws/owners.json', encoding='utf-8'),
                            object_pairs_hook=unique_object, parse_constant=invalid_constant)
         if not isinstance(index, dict) or not index or any(
                 not re.fullmatch(r'[A-Za-z0-9]+\.[A-Za-z0-9]+', kind)
@@ -58,7 +59,7 @@ class Mappings:
         self._require_service(service)
         def load():
             import aws_mapping
-            document = aws_mapping.yaml_read(aws_mapping.mapping_path(self._root, service).read_text(encoding='utf-8'))
+            document = aws_mapping.yaml_read(input_text(aws_mapping.mapping_path(self._root, service), encoding='utf-8'))
             expected = {kind for kind, owner in self._owners.items() if owner == service}
             if (not isinstance(document, dict) or document.get('service') != service
                     or not isinstance(document.get('resourceTypes'), dict)

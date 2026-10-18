@@ -177,18 +177,33 @@ def load(where, task_id):
     return primary, common, path, state
 
 
-def committed_task_paths(root, task_file):
-    """Reuse the managed worktree's pinned start; never read another checkout's diff."""
+def task_start_commit(root, task_file):
+    """Return the existing managed baseline, failing closed on invalid lifecycle state."""
     _, _, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
+    managed = root.resolve().parent == primary / '.worktrees'
     if not path.exists():
-        return None  # No pinned lifecycle baseline is available.
+        if managed:
+            raise Blocked('managed worktree task lifecycle state missing')
+        return None
     _, _, _, state = load(root, Path(task_file).stem)
-    if Path(state["worktree"]).resolve() != root.resolve():
-        return None  # This lifecycle baseline is for another checkout.
-    if git(root, "merge-base", "--is-ancestor", state["start"], "HEAD", check=False).returncode:
-        raise Blocked("task lifecycle start is not an ancestor of HEAD")
-    return paths(root, "diff", "--no-renames", "--name-only", "-z", state["start"], "HEAD")
+    if Path(state['worktree']).resolve() != root.resolve():
+        if managed:
+            raise Blocked('selected task lifecycle belongs to another worktree')
+        return None
+    if state['task_file'] != task_file:
+        raise Blocked('selected task does not match managed task_file')
+    task_worktree(root, state)
+    start = output(root, 'rev-parse', '--verify', state['start'] + '^{commit}')
+    if git(root, 'merge-base', '--is-ancestor', start, 'HEAD', check=False).returncode:
+        raise Blocked('task lifecycle start is not an ancestor of HEAD')
+    return start
+
+
+def committed_task_paths(root, task_file):
+    """Committed changes since Task start; retain IMPORT/finalize caller semantics."""
+    start = task_start_commit(root, task_file)
+    return None if start is None else paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
 
 
 def idle_git(root):

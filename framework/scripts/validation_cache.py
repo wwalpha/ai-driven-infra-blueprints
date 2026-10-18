@@ -1,5 +1,6 @@
 """Invocation-local input reuse and content-addressed successful validation results."""
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 import hashlib
@@ -14,16 +15,93 @@ import tempfile
 _inputs = ContextVar("blueprint_inputs", default=None)
 
 
+_generation_inputs = ContextVar("generation_inputs", default=None)
+
+
+@contextmanager
+def recording_inputs(inputs):
+    token = _generation_inputs.set(inputs)
+    try:
+        yield
+    finally:
+        _generation_inputs.reset(token)
+
+
+def input_recorder(path):
+    inputs = _generation_inputs.get()
+    return inputs if inputs is not None and inputs.tracks(Path(path)) else None
+
+
+def input_bytes(path):
+    path = Path(path)
+    inputs = input_recorder(path)
+    if inputs is None:
+        return path.read_bytes()
+    data = inputs.read(path)
+    if data is None:
+        raise FileNotFoundError(2, "No such file or directory", str(path))
+    return data
+
+
+def input_text(path, encoding="utf-8", errors=None):
+    if input_recorder(path) is None:
+        return Path(path).read_text(encoding=encoding, errors=errors)
+    return input_bytes(path).decode(encoding, errors or "strict").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def input_kind(path):
+    path = Path(path)
+    inputs = input_recorder(path)
+    if inputs is not None:
+        return inputs.kind(path)
+    return ("symlink" if path.is_symlink() else "file" if path.is_file() else
+            "dir" if path.is_dir() else "missing")
+
+
+def input_is_file(path):
+    return input_kind(path) == "file"
+
+
+def input_is_dir(path):
+    return input_kind(path) == "dir"
+
+
+def input_exists(path):
+    return input_kind(path) != "missing"
+
+
+def input_is_symlink(path):
+    return input_kind(path) == "symlink"
+
+
+def input_select(base, pattern="*", *, recursive=False, kinds=None):
+    base = Path(base)
+    inputs = input_recorder(base)
+    if inputs is not None:
+        return inputs.select(base, pattern, recursive, kinds)
+    paths = base.rglob(pattern) if recursive else base.glob(pattern)
+    return tuple(sorted(p for p in paths if kinds is None or input_kind(p) in kinds))
+
+
+@contextmanager
+def input_context():
+    if _inputs.get() is not None:
+        yield
+        return
+    token = _inputs.set({})
+    try:
+        from import_guard import baseline_scope
+        with baseline_scope():
+            yield
+    finally:
+        _inputs.reset(token)
+
+
 def input_scope(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
-        if _inputs.get() is not None:
+        with input_context():
             return function(*args, **kwargs)
-        token = _inputs.set({})
-        try:
-            return function(*args, **kwargs)
-        finally:
-            _inputs.reset(token)
     return wrapped
 
 
@@ -59,8 +137,10 @@ def digest_files(root, paths, contents=None):
 
 
 class PassCache:
-    def __init__(self, root, fresh=False, directory=None, *, include_project=True):
+    def __init__(self, root, fresh=False, directory=None, *, include_project=True, definitions_root=None):
         self.root = root
+        from utils.aws_mappings import definition_root
+        self.definitions_root = definitions_root or definition_root(root)
         self.fresh = fresh
         self.common = None
         self.include_project = include_project
@@ -69,20 +149,33 @@ class PassCache:
         if self.directory == root or root in self.directory.parents:
             raise ValueError("validation cache must be outside the repository")
 
-    def common_key(self, contents=None):
-        paths = [self.root / "AGENTS.md", self.root / "README.md"]
-        if self.include_project:
-            paths.append(self.root / "project.json")
-        def files(root, names):
-            if contents is not None:
-                return [p for p, data in contents.items() if data is not None and any(p.is_relative_to(root / name) for name in names)]
-            return [p for name in names for p in (root / name).rglob('*')
-                    if (p.is_file() or p.is_symlink()) and not (p.suffix == '.pyc' and '__pycache__' in p.parts)]
-        paths.extend(files(self.root, ('framework', '.agents')))
-        inputs = [digest_files(self.root, paths, contents)]
+    def common_inputs(self, snapshot=None):
+        """The complete historical common set, including actual definitions/runtime."""
+        groups = {}
         runtime = Path(__file__).resolve().parents[2]
-        if runtime != self.root:
-            inputs.append(digest_files(runtime, files(runtime, ('framework',)), contents))
+        for root, names in ((self.root, ('framework', '.agents')),
+                            (self.definitions_root, ('framework', '.agents')), (runtime, ('framework',))):
+            paths = groups.setdefault(root, set())
+            for name in names:
+                base = root / name
+                selected = (snapshot.select(base, '*', True, ('file', 'symlink')) if snapshot else
+                            input_select(base, '*', recursive=True, kinds=('file', 'symlink')))
+                paths.update(p for p in selected if not (p.suffix == '.pyc' and '__pycache__' in p.parts))
+        for root in {self.root, self.definitions_root}:
+            groups[root].update(root / p for p in ('AGENTS.md', 'README.md'))
+        if self.include_project:
+            groups[self.root].add(self.root / 'project.json')
+        if snapshot is not None:
+            for paths in groups.values():
+                for path in paths:
+                    snapshot.read(path)
+        return groups
+
+    def common_key(self, contents=None, *, snapshot=None):
+        groups = self.common_inputs(snapshot)
+        if snapshot is not None:
+            contents = snapshot.contents
+        inputs = [[str(root), digest_files(root, paths, contents)] for root, paths in groups.items()]
         return hashlib.sha256(json.dumps(inputs).encode()).hexdigest()
 
     def key(self, kind, inputs=""):

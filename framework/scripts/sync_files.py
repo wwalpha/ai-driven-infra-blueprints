@@ -1,5 +1,7 @@
 """Service file publication and best-effort rollback; no selection or validation."""
 
+from validation_cache import input_bytes, input_is_file
+
 import os
 import tempfile
 from pathlib import Path
@@ -52,9 +54,9 @@ def restore_files(originals: dict[Path, bytes | None]) -> None:
 
 def markdown_newlines(path, content):
     """Preserve the existing view's line endings without changing generated content."""
-    if not path.is_file():
+    if not input_is_file(path):
         return content
-    original = path.read_bytes()
+    original = input_bytes(path)
     bare = original.replace(b"\r\n", b"")
     if b"\r" in bare:
         raise ValueError(f"unsupported Markdown newline: {path}")

@@ -6,7 +6,29 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.sync_model_fixtures import *
+import io
+import json
+import os
+import shutil
+import threading
+from contextlib import redirect_stdout, redirect_stderr
+from unittest.mock import patch
+import pytest
+import sync_progress as progress
+import sync_runtime
+import sync_views
+import model_design
+import model_projection
+from model_files import load_model, read_model
+from design_catalog import property_paths_with_parents
+from support.validator import load
+from support.pytest_cli import run
+from support.model_sources import write_model, write_fixture_files
+from support.sync_model_fixtures import MODULE, SCRIPT, generated_policy
+from utils.aws_mappings import definition_root
+
+pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
+
 
 from support.it_workspace import copy_framework
 
@@ -15,7 +37,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
     from design_document import DesignIndex
     root, model, values, design, artifact, _ = generated_policy
     originals = {p: p.read_bytes() for p in (design, artifact)}
-    definitions = {p: p.read_bytes() for p in (root / 'framework').rglob('*') if p.is_file()}
+    definitions = {p: p.read_bytes() for p in (definition_root(root) / 'framework').rglob('*') if p.is_file()}
     stage = tmp_path / 'candidates'
     staged = stage / design.relative_to(root)
     with mapping_alias(root, stage):
@@ -30,12 +52,32 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         assert {p: (stage / p.relative_to(root)).read_bytes() for p in originals} == originals
         assert model_projection.model_for(staged, root, source=values, design_index=DesignIndex(root)) == model_projection.model_for(design, root, source=values)
         validator = sync_views.view_validator(stage, root)
-        assert validator.root == stage and validator.definitions_root == root
+        assert validator.root == stage and validator.definitions_root == definition_root(root)
         assert validator.findings.canonical_root == stage.resolve()
         validator.check_resource_layout()
         assert not validator.errors, validator.errors
+    values['desired.note.001.text'] = '最小stageの通常保存を検証する。'
+    write_model(model, values)
+    register = generated_policy[-1]
+    unrelated = [root/'docs/designs/dev/123456789012/unrelated.md', root/'infra/unrelated.yaml', root/'tests/results/unrelated.log']
+    for path in unrelated:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('unrelated input\n')
+    validate = sync_runtime.validate_generation
+    def inspect(plan, **kwargs):
+        result = validate(plan, **kwargs)
+        assert not (plan.stage/'framework').exists() and not (plan.stage/'framework').is_symlink()
+        assert not (root/'framework').exists()
+        assert all(not (plan.stage/p.relative_to(root)).exists() for p in unrelated)
+        assert set(p.relative_to(plan.stage).parts[0] for p in plan.stage.rglob('*')) <= {'model', 'docs', 'project.json'}
+        # An unrelated log's content is not a generation dependency.
+        assert unrelated[-1] not in plan.snapshot.contents
+        unrelated[-1].write_text('log changed during generation\n')
+        return result
+    with patch.dict(os.environ, register([design, artifact])), patch.object(sync_runtime, 'validate_generation', side_effect=inspect):
+        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam'], definitions_root=definition_root(root)) == 0
     assert {p: p.read_bytes() for p in definitions} == definitions
-    assert {p: p.read_bytes() for p in originals} == originals
+    assert values['desired.note.001.text'] in design.read_text()
 
 
 @pytest.mark.parametrize('fault,expected', [
@@ -88,7 +130,7 @@ def check_stage_definition_errors(generated_policy, tmp_path, definition):
     stage = tmp_path / 'candidates'
     staged = stage / design.relative_to(root)
     sync_runtime.stage_inputs(stage, root, {design: values}, [model], [design], ['iam'], False)
-    source = root / 'framework' / {
+    source = definition_root(root) / 'framework' / {
         'schema': 'materials/cloudformation-schema/ap-northeast-1/index.json',
         'mapping': 'mappings/aws/owners.json',
         'naming': 'rules/aws-resource-naming.md',
@@ -107,8 +149,8 @@ def check_stage_definition_errors(generated_policy, tmp_path, definition):
         else:
             with pytest.raises(FileNotFoundError, match='unavailable Framework definition: ' + definition):
                 if definition == 'mapping':
-                    with mapping_alias(root, stage):
-                        pass
+                    from utils.aws_mappings import Mappings
+                    Mappings(definition_root(root))
                 elif definition == 'schema':
                     sync_views.view_validator(stage, root)
                 else:
@@ -143,9 +185,28 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
         sync_runtime.stage_inputs(stage, root, sources, [model, stack_model], list(sources), ['iam', 'cloudformation-stacks'], False)
         failures = []
         generated = sync_runtime.generate_views(stage, root, sources, failures)
-        sync_runtime.validate_candidates(stage, root, generated, sources, failures, 1, False)
+        validation = {}
+        sync_runtime.validate_candidates(stage, root, generated, sources, failures, 1, True, validation)
         assert not failures, failures
         assert staged.read_bytes() == expected and staged_stack.read_bytes() == expected_stack
+        scope = {('dev', '123456789012', service) for service in ('iam', 'cloudformation-stacks')}
+        metadata = validation[None].result('design.stacks', scope).metadata['stack_definitions']
+        assert metadata[staged_stack][0]['name'] == 'cfn-stack-app-dev-iam'
+        # IaC uses the validated candidate, even when the saved stack is stale.
+        stack_design.write_bytes(expected_stack.replace(b'iam.json', b'stale.json'))
+        parameter = root/'infra/cloudformation/parameters/dev/123456789012/iam.json'
+        parameter.parent.mkdir(parents=True, exist_ok=True)
+        parameter.write_text('[]\n')
+        template = root/'infra/cloudformation/templates/iam.yaml'
+        template.parent.mkdir(parents=True, exist_ok=True)
+        template.write_text('Resources: {}\n')
+        iac_validator = load('validate-blueprint').Validator(root, scope, iac_paths={template, parameter})
+        iac_validator.check_project_topology()
+        logical = {root/path.relative_to(stage): definitions for path, definitions in metadata.items()}
+        with patch('validation.cloudformation.stack_design', side_effect=AssertionError('candidate stack reparsed')):
+            iac_validator.check_cloudformation_environment_parameters(stack_definitions=logical)
+        assert not iac_validator.errors, iac_validator.errors
+        stack_design.write_bytes(expected_stack)
         # Only the staged stack authority changes; the saved stack remains valid.
         write_model(stage / stack_model.relative_to(root), stacks | {'desired.stack.001.name': 'cfn-stack-other-dev-iam'})
         with pytest.raises(ValueError, match='undeclared stack'):
@@ -159,7 +220,7 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
     assert stack_design.read_bytes() == expected_stack and not (stage / 'framework').exists()
 
 
-@pytest.mark.parametrize('fault', ['source', 'mapping', 'project', 'part', 'consumer', 'extra'])
+@pytest.mark.parametrize('fault', ['source', 'mapping', 'project', 'part', 'consumer', 'extra', 'contract'])
 def check_publication_boundary(generated_policy, fault):
     root, model, values, design, artifact, register = generated_policy
     values['desired.note.001.text'] = '保存前の一括照合を確認する。'
@@ -173,10 +234,10 @@ def check_publication_boundary(generated_policy, fault):
         nonlocal concurrent
         result = validate(*args, **kwargs)
         template = next(file for file in load_model(model).files if file.suffix == '.tpl')
-        target = {'source': template, 'mapping': root/'framework/mappings/aws/iam.yaml',
+        target = {'source': template, 'mapping': definition_root(root)/'framework/mappings/aws/iam.yaml',
                   'project': root/'project.json', 'part': template.with_suffix('')/'unlisted.properties',
                   'consumer': root/'model/parameters/dev/other/new/parameters.yaml',
-                  'extra': artifact.parent/'unexpected.json'}[fault]
+                  'extra': artifact.parent/'unexpected.json', 'contract': root/env['BLUEPRINT_TASK_FILE']}[fault]
         concurrent = target, (target.read_bytes() if target.exists() else b'') + b'\n'
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(concurrent[1])
@@ -191,16 +252,44 @@ def check_publication_boundary(generated_policy, fault):
 
 def check_normal_writer_contents(generated_policy):
     root, model, values, design, artifact, register = generated_policy
-    values['desired.note.001.text'] = '保存された内容をテストで確認する。'
+    values['desired.note.001.text'] = '一回の候補を保存する。'
     document = json.loads(values['desired.row.001-002.document'])
     document['Statement'][0]['Sid'] = 'WrittenOnce'
     values['desired.row.001-002.document'] = json.dumps(document)
     write_model(model, values)
-    with patch.dict(os.environ, register([design, artifact])), \
-         patch.object(sync_runtime, 'verify_saved', side_effect=AssertionError('normal runtime readback')):
-        assert MODULE.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+    from model_templates import load_sources
+    from validation_cache import input_scope
+    import model_templates
+    from contextlib import ExitStack
+    from validation import design as design_checks, design_tables, design_links, cloudformation
+    materialize = sync_runtime.GenerationInputs.open_stage
+    stages = []
+    def check_stage(inputs):
+        stage = materialize(inputs)
+        assert not (stage / 'framework').exists()
+        assert not (stage / 'framework').is_symlink()
+        stages.append(stage)
+        return stage
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(sync_runtime.GenerationInputs, 'open_stage', check_stage))
+        checks = [(design_checks, name) for name in ('check_design_service_ownership', 'check_resource_names',
+                  'check_observed_values', 'check_policy_tables')]
+        checks += [(sync_runtime, 'validate_required_properties'), (design_tables, 'check_design_tables'), (design_links, 'check_design_overviews'),
+                   (design_links, 'check_design_links'), (design_links, 'check_design_artifacts'),
+                   (cloudformation, 'check_stack_designs'), (sync_views, 'check_projection')]
+        counters = [stack.enter_context(patch.object(module, name, wraps=getattr(module, name))) for module, name in checks]
+        with patch.dict(os.environ, register([design, artifact])), \
+             patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
+             patch.object(sync_views, 'validate_views', wraps=sync_views.validate_views) as validate, \
+             patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as verify, \
+             patch.object(model_templates, 'load_sources', wraps=load_sources) as expand, \
+             patch.object(sync_runtime, 'verify_saved', side_effect=AssertionError('post-save readback')):
+            assert sync_runtime.sync(root, True, 'dev', '123456789012', ['iam']) == 0
+        assert len(set(stages)) == generate.call_count == validate.call_count == verify.call_count == 1
+        assert len([call for call in expand.call_args_list if call.args[0].stem == 'iam']) == 1
+        assert all(counter.call_count == 1 for counter in counters), [counter.call_count for counter in counters]
     assert values['desired.note.001.text'] in design.read_text()
-    assert json.loads(artifact.read_text()) == document
+    assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
 
 
 @pytest.mark.parametrize('note', [False, True])
@@ -503,7 +592,7 @@ def check_required_preflight(framework_root) -> None:
 
 def check_required_property_parents(tmp_path) -> None:
     root = tmp_path
-    copy_framework(root / 'framework')
+    copy_framework(definition_root(root) / 'framework')
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/glue.properties"
@@ -887,7 +976,7 @@ def check_input_mutation(generated_policy, filename, mutation):
     directory = root / 'model/parameters/dev/123456789012/iam'
     source = root / 'model/templates/123456789012/iam.properties.tpl' if filename == 'template' else directory / filename
     if mutation == 'add' and filename != 'observed.json':
-        source = (source.with_suffix('') / 'added.properties' if filename == 'template' else directory / 'new' / filename)
+        source = (source.with_suffix('') / 'added.properties' if filename == 'template' else root / 'model/parameters/dev/new/iam' / filename)
     if filename == 'observed.json' and mutation != 'add' and not source.exists():
         source.write_text('{"version":1,"values":{}}\n')
     original = {p: p.read_bytes() for p in (design, artifact)}
@@ -903,6 +992,366 @@ def check_input_mutation(generated_policy, filename, mutation):
         with pytest.raises(ValueError, match='inputs changed'):
             sync_runtime.sync(root, True, 'dev', '123456789012', ['iam'])
     assert original == {p: p.read_bytes() for p in original}
+
+
+
+@pytest.fixture
+def internal_sync_project(tmp_path):
+    from support.model_templates_fixtures import fixture, config_model, write_fixture
+    import subprocess
+    from support.it_fixture_bundle import source as seed
+    from utils.aws_mappings import mapping_alias
+    definitions = seed('framework')
+    lifetime = __import__('contextlib').ExitStack()
+    lifetime.enter_context(mapping_alias(definitions, tmp_path))
+    fixture(tmp_path, ('dev', 'stg'), definitions_root=definitions)
+    for env in ('dev', 'stg'):
+        write_fixture(tmp_path, env, 'config', config_model())
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    try:
+        yield tmp_path
+    finally:
+        lifetime.close()
+
+
+
+@pytest.mark.parametrize('selection', [
+    ['--scope', 'dev/team/config', '--scope', 'stg/team/config'], ['--all']])
+@pytest.mark.parametrize('jobs', [1, 4])
+def check_internal_sync_isolation(internal_sync_project, selection, jobs, capsys):
+    from script_loader import module
+    from validation_cache import input_scope, memo_table
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    root = internal_sync_project
+    entry = ('dev', 'team', 'config')
+    source = root/'model/dev/team/config.properties'
+    design = root/'docs/designs/dev/team/config.md'
+    saved = design.read_bytes()
+    inputs = root/'model/parameters/dev/team/config/parameters.yaml'
+    original = inputs.read_bytes()
+    memories = []
+    sync = runner.sync
+    def observed(*args, **kwargs):
+        assert memo_table() is None
+        assert sync_views._saved_design_validation.get() is None
+        assert progress._current.get()[0] is not parent_progress
+        return sync(*args, **kwargs)
+    @input_scope
+    def calls():
+        parent = memo_table()
+        load_model(source)
+        parent_snapshot = dict(parent)
+        with sync_views.saved_design_validation(root, entry), \
+             parent_progress.worker('parent'), patch.object(runner, 'sync', side_effect=observed):
+            for invalid in (False, True, False):
+                # Parent memo retains the old source; the runner must read it again.
+                inputs.write_bytes(original + (b'broken: [\n' if invalid else b''))
+                code, text = runner.run(['--jobs', str(jobs), *selection], repository_root=root)
+                assert code == (1 if invalid else 0), text
+                assert ('Design Markdown sync: FAIL' if invalid else 'Design Markdown sync: PASS') in text, text
+                assert 'consumer=parent' not in text
+                assert memo_table() is parent and parent == parent_snapshot
+                assert sync_views._saved_design_validation.get() == (root, entry)
+                memories.append(text)
+        assert design.read_bytes() == saved
+    parent_progress = progress.Progress()
+    capsys.readouterr()
+    # Keep the parent's progress out of the streams under test as well.
+    parent_progress.output = io.StringIO()
+    calls()
+    captured = capsys.readouterr()
+    assert not captured.out and not captured.err, captured
+    assert progress._current.get() is None and memo_table() is None
+    assert sync_views._saved_design_validation.get() is None
+    assert len(memories) == 3
+
+
+
+def check_internal_sync_real_diagnostics(internal_sync_project, capsys):
+    from script_loader import module
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    root = internal_sync_project
+    scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
+    args = [arg for entry in sorted(scope) for arg in ('--scope', '/'.join(entry))]
+    code, text = runner.run(['--scope', 'dev/team/config'], repository_root=root)
+    assert code == 1 and 'include all affected Model services' in text and 'stg/team/config' in text
+    design = root/'docs/designs/dev/team/config.md'
+    saved = design.read_bytes()
+    design.write_bytes(saved + b'old generated output\n')
+    capsys.readouterr()
+    code, text = runner.run(args, repository_root=root)
+    assert code == 1 and 'generated Markdown is stale or missing' in text
+    assert 'docs/designs/dev/team/config.md' in text
+    validator = load('validate-blueprint').Validator(root, scope)
+    validator.check_generated_service_models()
+    assert any('generated Markdown is stale or missing' in error and 'dev/team/config.md' in error
+               for error in validator.errors), validator.errors
+    design.write_bytes(saved)
+    assert runner.run(args, repository_root=root)[0] == 0
+    assert capsys.readouterr() == ('', '')
+
+
+
+@pytest.mark.parametrize('initial', [False, True])
+def check_integrated_validator(generated_policy, initial):
+    import subprocess
+    root, model, values, design, artifact, register = generated_policy
+    head_design = design.read_bytes()
+    env = register([design, artifact, artifact.parent/"extra.json"])
+    task = root/env['BLUEPRINT_TASK_FILE']
+    task.write_text(task.read_text() + '\n## Required changes\n- [R1] Generate the selected service.\n'
+                    '## Acceptance checks\n- [R1] `check:framework.generated-service-model`\n'
+                    '- [R1] `check:framework.policy-tables`\n- [R1] `exists:docs/designs/dev/123456789012/iam.md`\n')
+    for name in ('AGENTS.md', 'README.md', 'docs/system-overview.md'):
+        p = root/name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('# Independent fixture\n')
+    for name in ('infra/cloudformation/parameters/dev/123456789012', 'tests/scenarios', 'tests/results'):
+        (root/name).mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture'], cwd=root, check=True)
+    if initial:
+        shutil.rmtree(design.parent)
+        readonly = load('validate-blueprint').Validator(root, {('dev', '123456789012', 'iam')})
+        readonly.check_project_topology()
+        readonly.check_validation_scope()
+        assert any('validation input missing' in error for error in readonly.errors)
+    from import_guard import snapshots
+    base = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    with snapshots(root, base, {}, definitions_root=definition_root(root)) as (before, after):
+        assert after == root
+        assert not (before/'framework').exists() and not (before/'framework').is_symlink()
+        assert not any(p.name == 'framework' for p in before.parent.rglob('*'))
+    original_project = (root/'project.json').read_bytes()
+    with snapshots(root, base, {root/'project.json': '{}\n'}, definitions_root=definition_root(root)) as (before, after):
+        assert after != root and (after/'project.json').read_bytes() == b'{}\n'
+        assert (root/'project.json').read_bytes() == original_project
+        assert not (after/'framework').exists() and not (before/'framework').exists()
+    values['desired.note.001.text'] = '統合した生成と検証を確認する。'
+    write_model(model, values)
+    validator_module = load('validate-blueprint')
+    import model_templates, import_guard
+    published = False
+    read_bytes, transaction = Path.read_bytes, sync_runtime._publish_transaction
+    def read(path):
+        if published and path.is_relative_to(root):
+            raise AssertionError('normal post-save readback: ' + str(path))
+        return read_bytes(path)
+    def publish(*args, **kwargs):
+        nonlocal published
+        result = transaction(*args, **kwargs)
+        published = True
+        return result
+    with patch.dict(os.environ, env), \
+         patch.object(model_templates, 'affected', wraps=model_templates.affected) as impact, \
+         patch.object(import_guard, 'require_import_changes', wraps=import_guard.require_import_changes) as import_check, \
+         patch.object(sync_runtime, '_publish_transaction', side_effect=publish), \
+         patch.object(Path, 'read_bytes', read), \
+         patch.object(model_templates, 'load_sources', wraps=model_templates.load_sources) as expand, \
+         patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
+         patch.object(sync_views, 'validate_views', wraps=sync_views.validate_views) as validate, \
+         patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as verify, \
+         patch.object(validator_module.Validator, 'check_generated_service_models', side_effect=AssertionError('regenerated for Acceptance')):
+        validator = validator_module.Validator(root, {('dev', '123456789012', 'iam')}, write=True)
+        assert validator.run() == 0, validator.errors
+        assert len(validator.acceptance_results) == 3
+    assert generate.call_count == validate.call_count == verify.call_count == 1
+    assert sum(call.args[0] == model for call in expand.call_args_list) == 1
+    print('integrated write counts: current Model=1, generation=1, candidate validation=1, guard=1, post-save readback=0')
+    assert impact.call_count == import_check.call_count == 1
+    assert values['desired.note.001.text'] in design.read_text()
+    if not initial:
+        from tempfile import TemporaryDirectory
+        scope = {('dev', '123456789012', 'iam')}
+        with TemporaryDirectory() as cache, patch.dict(os.environ, {**env, 'BLUEPRINT_VALIDATION_CACHE_DIR': cache}):
+            cold = validator_module.Validator(root, scope, cache=True)
+            assert cold.run() == 0, cold.errors
+            with patch.object(sync_runtime, 'generate_views', side_effect=AssertionError('warm cache regenerated')):
+                warm = validator_module.Validator(root, scope, cache=True)
+                assert warm.run() == 0, warm.errors
+            with patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate:
+                fresh = validator_module.Validator(root, scope, cache=True, fresh=True)
+                assert fresh.run() == 0, fresh.errors
+                assert generate.call_count == 1
+            originals = {p: p.read_bytes() for p in (design, artifact)}
+            extra = artifact.parent/'extra.json'
+            for path, content in ((design, originals[design]+b'old Markdown\n'), (artifact, b'{}\n'), (extra, b'{}\n')):
+                path.write_bytes(content)
+                invalid = validator_module.Validator(root, scope, cache=True)
+                assert invalid.run() == 1
+                if path != extra:
+                    assert not any('framework.generated-service-model' in result for result in invalid.acceptance_results)
+                if path == extra:
+                    path.unlink()
+                else:
+                    path.write_bytes(originals[path])
+        # Real Git commits remain visible against the pinned synthetic managed baseline.
+        baseline = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Task generated B'], cwd=root, check=True)
+        with patch.dict(os.environ, env), patch('worktree_task.task_start_commit', return_value=baseline), \
+             patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as guard, \
+             patch.object(sync_runtime, '_publish_transaction', side_effect=AssertionError('no-op publication')):
+            committed_write = validator_module.Validator(root, scope, write=True)
+            assert committed_write.run() == 0, committed_write.errors
+            assert guard.call_count == 1
+            committed_read = validator_module.Validator(root, scope)
+            assert committed_read.run() == 0, committed_read.errors
+            assert committed_write.changed_paths == committed_read.changed_paths
+            assert design.relative_to(root).as_posix() in committed_write.changed_paths
+        # Publication can return committed B to the original Task-start A.
+
+        values.pop('desired.note.001.text')
+        write_model(model, values)
+        template = root/'model/templates/123456789012/iam.properties.tpl'
+        template.write_bytes(template.read_bytes()+b'# source-only comment\n')
+        task.write_text(task.read_text()+'- [R1] `changed:docs/designs/dev/123456789012/iam.md`\n')
+        with patch.dict(os.environ, env), patch('worktree_task.task_start_commit', return_value=baseline):
+            restored = validator_module.Validator(root, scope, write=True)
+            assert restored.run() == 1
+        assert design.read_bytes() == head_design
+        assert any('required changed path missing' in error for error in restored.errors)
+        assert design.relative_to(root).as_posix() not in restored.changed_paths
+        assert design.relative_to(root).as_posix() in restored.task.permission_paths
+        from validation.findings import Findings
+        from validation.task import TaskValidation
+        with patch.dict(os.environ, env), patch('worktree_task.task_start_commit', return_value=baseline):
+            final = TaskValidation(root, Findings(root))
+            final.check_task_scope()
+            assert design.relative_to(root).as_posix() not in final.changed_paths
+            assert design.relative_to(root).as_posix() in final.permission_paths
+
+    if initial:
+        originals = {p: p.read_bytes() for p in (design, artifact)}
+        contract = task.read_text()
+        task.write_text(contract.replace('- Task type: `design`', '- Task type: `scenario-test`'))
+        # Commit current source/output state so only the prospective output violates type.
+        subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Boundary baseline'], cwd=root, check=True)
+        with patch.dict(os.environ, env):
+            boundary = validator_module.Validator(root, {('dev', '123456789012', 'iam')}, write=True)
+            boundary.task.fix_baseline()
+            design.unlink()
+            # Hold initial permission paths empty; exercise the planned-output boundary itself.
+            with patch.object(boundary.task, 'git_paths', return_value=set()), \
+                 patch.object(sync_runtime, '_publish_transaction', side_effect=AssertionError('forbidden publisher')) as publisher:
+                assert boundary.run() == 1
+            assert not publisher.called
+            assert any('scenario-test task boundary violation' in e for e in boundary.errors), boundary.errors
+            assert not design.exists() and artifact.read_bytes() == originals[artifact]
+        design.write_bytes(originals[design])
+        task.write_text(contract)
+
+        values['desired.note.001.text'] = '保存失敗時にもModel入力を保持する。'
+        write_model(model, values)
+        write = Path.write_text
+        def fail_write(path, *args, **kwargs):
+            if path == design:
+                write(path, 'partial output', encoding='utf-8')
+                raise OSError('injected publication I/O')
+            return write(path, *args, **kwargs)
+        with patch.dict(os.environ, env), patch.object(Path, 'write_text', fail_write), \
+             patch.object(validator_module.Validator, 'check_policy_tables', side_effect=AssertionError('post-save content handler')):
+            failed = validator_module.Validator(root, {('dev', '123456789012', 'iam')}, write=True)
+            assert failed.run() == 1
+        assert originals == {p: p.read_bytes() for p in originals}
+        assert any('injected publication I/O' in error for error in failed.errors)
+        assert not any('framework.policy-tables' in result for result in failed.acceptance_results)
+        assert load_model(model).values['desired.note.001.text'] == values['desired.note.001.text']
+
+
+
+@pytest.mark.parametrize('failure', ['none', 'input', 'candidate', 'io', 'rollback'])
+def check_multiple_targets_barrier(generated_policy, failure):
+    root, model, values, design, artifact, register = generated_policy
+    scope = {('dev', '123456789012', 'iam'), ('stg', '123456789012', 'logs')}
+    project = json.loads((root/'project.json').read_text())
+    project['targets'].append({**project['targets'][0], 'environment': 'stg'})
+    (root/'project.json').write_text(json.dumps(project)+'\n')
+    log_model = root/'model/stg/123456789012/logs.properties'
+    log_values = {'desired.service.logs.serviceId': 'logs',
+                  'desired.service.logs.ownedCatalogResourceTypes': 'Logs.LogGroup',
+                  'display.service.title': '# Logs 詳細設計',
+                  'desired.resource.001.resourceType': 'Logs.LogGroup',
+                  'desired.resource.001.logicalId': 'ApplicationLog',
+                  'desired.resource.001.anchor': 'logs-cwlogs-app-stg',
+                  'display.resource.001.comment': 'アプリケーションの実行ログ',
+                  'desired.row.001-001.property': 'Logs.LogGroup.LogGroupName',
+                  'desired.row.001-001.value': '`cwlogs-app-stg`',
+                  'desired.row.001-001.comment': 'ログを識別する名前'}
+    if failure == 'candidate':
+        del log_values['desired.row.001-001.value']
+    write_model(log_model, log_values)
+    log_design = root/'docs/designs/stg/123456789012/logs.md'
+    env = register([design, artifact, log_design])
+    task = root/env['BLUEPRINT_TASK_FILE']
+    task.write_text(task.read_text().replace('- `dev/123456789012/iam`\n',
+                    '- `dev/123456789012/iam`\n- `stg/123456789012/logs`\n', 1))
+    original = design.read_bytes()
+    values['desired.note.001.text'] = '先行対象も後続の確認を待つ。'
+    write_model(model, values)
+    events = []
+    validate, transaction = sync_runtime.validate_generation, sync_runtime._publish_transaction
+    def validated(plan, **kwargs):
+        assert len(plan.generated) == (1 if failure == 'candidate' else 2)
+        assert design.read_bytes() == original and not log_design.exists()
+        validate(plan, **kwargs)
+        events.append('validated')
+        if failure == 'input':
+            source = root/'model/parameters/stg/123456789012/logs/parameters.yaml'
+            source.write_bytes(source.read_bytes()+b'\n')
+    published = False
+    read_bytes = Path.read_bytes
+    def read(path):
+        if published and failure == 'none' and path.is_relative_to(root):
+            raise AssertionError('normal post-save input/output read: ' + str(path))
+        return read_bytes(path)
+    def publish(*args, **kwargs):
+        nonlocal published
+        assert events == ['validated']
+        if failure == 'io' and log_design in args[1]:
+            raise OSError('injected late target I/O')
+        if failure == 'rollback':
+            import sync_files
+            write = Path.write_text
+            def failed_write(path, *a, **kw):
+                if path == design:
+                    write(path, 'partial output', encoding='utf-8')
+                    raise OSError('injected write failure')
+                return write(path, *a, **kw)
+            with patch.object(Path, 'write_text', failed_write), \
+                 patch.object(sync_files, 'restore_files', side_effect=OSError('injected restore failure')):
+                return transaction(*args, **kwargs)
+        result = transaction(*args, **kwargs)
+        published = True
+        return result
+    with patch.dict(os.environ, env), patch.object(sync_runtime, 'validate_generation', side_effect=validated), \
+         patch.object(sync_runtime, '_publish_transaction', side_effect=publish) as saved, \
+         patch.object(sync_runtime, 'stage_inputs', wraps=sync_runtime.stage_inputs) as stages, \
+         patch.object(Path, 'read_bytes', read):
+        if failure == 'input':
+            with pytest.raises(ValueError, match='inputs changed'):
+                sync_runtime.run_generation(root, scope)
+            assert not saved.called and design.read_bytes() == original and not log_design.exists()
+        elif failure == 'rollback':
+            with pytest.raises(ValueError, match='rollback incomplete; recovery journal retained'):
+                sync_runtime.run_generation(root, scope)
+            assert saved.call_count == 1 and not log_design.exists()
+            from model_templates import publication_lock
+            with publication_lock(root) as journal:
+                assert not journal.exists() and design.read_bytes() == original
+        elif failure in {'candidate', 'io'}:
+            with pytest.raises(ValueError, match='1 services succeeded; 1 services failed'):
+                sync_runtime.run_generation(root, scope)
+            assert not log_design.exists() and values['desired.note.001.text'] in design.read_text()
+        else:
+            assert sync_runtime.run_generation(root, scope) == 0
+            assert saved.call_count == 2 and log_design.is_file()
+        assert stages.call_count == 1
 
 
 

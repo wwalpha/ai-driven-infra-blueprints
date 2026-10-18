@@ -6,7 +6,18 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.sync_model_fixtures import *
+import io
+import os
+import pytest
+from unittest.mock import patch
+from contextlib import redirect_stdout
+from support.sync_model_fixtures import MODULE, generated_policy
+from support.model_sources import write_model
+from model_files import load_model, read_model
+import sync_runtime
+import sync_views
+
+pytestmark = pytest.mark.usefixtures('catalog_display_fixture')
 from support.validator import MODULE as validator_module
 from contextvars import ContextVar
 from collections import defaultdict
@@ -44,8 +55,8 @@ def trace_validation(root, legacy=False):
                     current.reset(token)
             setattr(validator, name, call)
         return validator
-    def factory(stage, source):
-        return instrument(original_factory(stage, source), 'candidate')
+    def factory(stage, source, definitions_root=None):
+        return instrument(original_factory(stage, source, definitions_root), 'candidate')
     def record(original):
         def call(findings, condition, *args):
             key = current.get()
@@ -297,6 +308,7 @@ def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([])['BLUEPRINT_TASK_FILE'])
     provider = mappings_for(root)
     stages = []
+    already_loaded = 'iam' in provider._runtime
     original = sync_runtime.stage_inputs
     def stage_inputs(stage, source, *args):
         stages.append(stage)
@@ -320,7 +332,7 @@ def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
             else:
                 with pytest.raises(ValueError, match='injected'):
                     MODULE.sync(root, False, *ENTRY[:2], ['iam'])
-        assert len(stages) == 1 and parse.call_count == 1
+        assert len(stages) == 1 and parse.call_count == (0 if already_loaded else 1)
     assert all(stage not in mapping_state._aliases and stage not in mapping_state._instances for stage in stages)
     assert mappings_for(root) is provider
 

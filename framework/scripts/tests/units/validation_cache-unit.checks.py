@@ -80,16 +80,36 @@ def check_cache_location(tmp_path):
 
 def check_retained_common_key(tmp_path):
     from sync_runtime import GenerationInputs
-    root = tmp_path
+    root = tmp_path/'project'
+    root.mkdir()
+    definitions = tmp_path/'definitions'
+    rule = definitions/'.agents/skills/task/SKILL.md'
+    rule.parent.mkdir(parents=True)
+    rule.write_bytes(b'original rules')
+    (definitions/'AGENTS.md').write_bytes(b'original agents')
     path = root/'framework/catalog.json'
     path.parent.mkdir()
     path.write_bytes(b'{}\n')
-    snapshot = GenerationInputs(root)
-    cache = PassCache(root)
-    retained = cache.common_key(snapshot.contents)
+    snapshot = GenerationInputs(root, definitions)
+    cache = PassCache(root, definitions_root=definitions)
+    retained = cache.common_key(snapshot=snapshot)
     assert retained == cache.common_key()
+    unrelated = root/'tests/results/unrelated.log'
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_bytes(b'unrelated')
+    assert unrelated not in snapshot.contents
+    assert cache.common_key() == retained
+    snapshot.verify()
+    from validation_cache import recording_inputs, input_bytes
+    assert snapshot.contents[rule] == b'original rules'
+    assert snapshot.contents[definitions/'AGENTS.md'] == b'original agents'
+    rule.write_bytes(b'changed rules')
+    with recording_inputs(snapshot):
+        assert input_bytes(rule) == b'original rules'
+    assert cache.common_key() != retained
+    rule.write_bytes(b'original rules')
     path.write_bytes(b'[]\n')
-    assert cache.common_key(snapshot.contents) == retained
+    assert cache.common_key(snapshot=snapshot) == retained
     assert cache.common_key() != retained
     try:
         snapshot.verify()

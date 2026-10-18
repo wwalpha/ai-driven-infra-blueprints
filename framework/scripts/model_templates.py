@@ -1,5 +1,6 @@
 """Explicit service sources, restricted Pystache expansion and runtime Model expansion."""
 from __future__ import annotations
+from validation_cache import input_bytes, input_exists, input_is_dir, input_is_file, input_is_symlink, input_select
 
 import argparse
 import base64
@@ -66,7 +67,7 @@ def source_paths(path):
 
 
 def safe(root, path):
-    if not path.is_relative_to(root) or any(p.is_symlink() for p in [path, *path.parents] if p.is_relative_to(root)):
+    if not path.is_relative_to(root) or any(input_is_symlink(p) for p in [path, *path.parents] if p.is_relative_to(root)):
         raise ValueError(f"unsafe Model source path: {path}")
 
 
@@ -207,13 +208,13 @@ def service_source(path):
     require_readable(root, path)
     with publication_lock(root):
         safe(root, directory)
-        if not directory.exists():
+        if not input_exists(directory):
             return None
-        if not directory.is_dir():
+        if not input_is_dir(directory):
             raise ValueError(f'Model source must be a service directory: {directory}')
         for file in (template, *parameter_files(directory)):
             safe(root, file)
-            if not file.is_file():
+            if not input_is_file(file):
                 raise ValueError(f'required YAML Model input missing: {file}')
         safe(root, directory/'observed.json')
         return paths
@@ -223,7 +224,7 @@ def read_observed(directory):
     """Only an absent file means unobserved; malformed data and read errors propagate."""
     path = directory/'observed.json'
     try:
-        text = path.read_bytes().decode('utf-8')
+        text = input_bytes(path).decode('utf-8')
     except FileNotFoundError:
         return {'version':1, 'values':{}}, {}
     return json_read(text), {path:text}
@@ -266,7 +267,7 @@ def input_snapshot(path):
 
 
 def parameter_files(directory):
-    if (directory/'parameters.json').exists():
+    if input_exists(directory/'parameters.json'):
         raise ValueError(f'unsupported JSON Model inputs: {directory / "parameters.json"}')
     return [directory/'parameters.yaml', directory/'bindings.json']
 
@@ -278,15 +279,15 @@ def model_paths(root, environment=None, alias=None):
     if identity is not None:
         return sorted(model_path(root, item) for item in readable(root)
                       if environment in (None, item[0]) and alias in (None, item[1]) and
-                      (root / 'model/parameters' / Path(*item)).is_dir())
+                      input_is_dir(root / 'model/parameters' / Path(*item)))
     result = []
-    for directory in sorted((root/'model/parameters').glob('*/*/*')):
+    for directory in sorted(input_select(root/'model/parameters', '*/*/*')):
         env, target, service = directory.relative_to(root/'model/parameters').parts
         if environment is not None and env != environment or alias is not None and target != alias:
             continue
         if any(not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', item) for item in (env,target,service)):
             raise ValueError(f'invalid Model source identity: {directory}')
-        if not directory.is_dir() or directory.is_symlink():
+        if not input_is_dir(directory) or input_is_symlink(directory):
             raise ValueError(f'Model source must be a real service directory: {directory}')
         result.append(root/'model'/env/target/(service+'.properties'))
     return result
@@ -340,7 +341,7 @@ def parse_template(path, source_files=None):
     from model_files import model_parts
     path = Path(path).absolute()
     source_files = source_files or {}
-    text = source_files[path] if path in source_files else path.read_bytes().decode('utf-8')
+    text = source_files[path] if path in source_files else input_bytes(path).decode('utf-8')
     if source_files:
         from model_files import INDEX_HEADER, PART_PREFIX
         lines = text.splitlines()
@@ -350,7 +351,7 @@ def parse_template(path, source_files=None):
                 raise ValueError('unsafe planned template part')
     else:
         parts = model_parts(path)
-    files = tuple((p, source_files[p] if p in source_files else p.read_bytes().decode('utf-8')) for p in dict.fromkeys([path, *parts]))
+    files = tuple((p, source_files[p] if p in source_files else input_bytes(p).decode('utf-8')) for p in dict.fromkeys([path, *parts]))
     definitions = _parse_template(path, tuple(parts), files)
     # Definitions are read-only; expansion adds dependencies only to its own file map.
     return definitions, dict(files)
@@ -839,7 +840,7 @@ def _reference_inputs(path, _context=None):
         selected = parameter_files(directory)
         for file in selected:
             safe(root, file)
-            files[file] = file.read_bytes().decode('utf-8')
+            files[file] = input_bytes(file).decode('utf-8')
         observed, observed_files = read_observed(directory)
         files.update(observed_files)
         parameters = yaml_read(files[directory/'parameters.yaml'])
@@ -993,7 +994,7 @@ def load_sources(path, expander, source_files=None):
         selected = parameter_files(directory)
         for file in (template, *selected, directory / 'observed.json'):
             safe(root,file)
-        inputs = {p: source_files[p] if p in source_files else p.read_bytes().decode('utf-8') for p in selected}
+        inputs = {p: source_files[p] if p in source_files else input_bytes(p).decode('utf-8') for p in selected}
         observed_path = directory / 'observed.json'
         if observed_path in source_files:
             raw = source_files[observed_path]
@@ -1078,10 +1079,10 @@ def source_inputs(path):
 
 def consumers(root, alias, service):
     result = set()
-    for path in (root / 'model/parameters').glob('*/' + alias + '/' + service):
+    for path in input_select(root / 'model/parameters', '*/' + alias + '/' + service):
         safe(root, path)
         environment = path.parent.parent.name
-        if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', environment) or not path.is_dir():
+        if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', environment) or not input_is_dir(path):
             raise ValueError('invalid registered Model consumer')
         result.add((environment, alias, service))
     return result

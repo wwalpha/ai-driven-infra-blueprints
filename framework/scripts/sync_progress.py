@@ -146,14 +146,14 @@ def stage(name):
 
 def tracked_sync(function):
     @wraps(function)
-    def wrapped(root, write, environment=None, target_directory=None, services=None, jobs=4):
+    def wrapped(root, write, environment=None, target_directory=None, services=None, jobs=4, **kwargs):
         current = _current.get()
         if current is None:
-            return function(root, write, environment, target_directory, services, jobs)
+            return function(root, write, environment, target_directory, services, jobs, **kwargs)
         progress, _ = current
         label = '/'.join((environment or '*', target_directory or '*', ','.join(services or ['*'])))
         with progress.worker(label):
-            return function(root, write, environment, target_directory, services, jobs)
+            return function(root, write, environment, target_directory, services, jobs, **kwargs)
     return wrapped
 
 

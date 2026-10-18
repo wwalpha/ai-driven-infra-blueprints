@@ -57,10 +57,11 @@ def check_dispatch():
                 if failed and name == 'check_model_files':
                     validator.check(False, 'prior model error')
             with ExitStack() as stack, redirect_stdout(io.StringIO()):
+                stack.enter_context(patch.object(validator.task, 'fix_baseline', lambda: invoked.append('fix_baseline')))
                 for name in methods:
                     stack.enter_context(patch.object(validator, name, lambda name=name: run_check(name)))
                 assert validator.run() == int(failed)
-            assert invoked == common + tail + ['check_acceptance_checks'], invoked
+            assert invoked == ['fix_baseline'] + common + tail + ['check_acceptance_checks'], invoked
 
 
 def check_boundaries():
@@ -111,7 +112,7 @@ def check_boundaries():
                 assert str(error) == 'cannot read' and not second.template_mode
             else:
                 raise AssertionError('read failure was hidden')
-            read.assert_called_once_with(encoding='utf-8')
+            read.assert_called_once_with(encoding='utf-8', errors=None)
         scope = {('dev', 'target', 'ec2')}
         first.schema_catalog = MODULE.DesignSchemaCatalog(SCRIPT.parents[2])
         with patch.object(first, 'check_design_service_ownership') as ownership, \

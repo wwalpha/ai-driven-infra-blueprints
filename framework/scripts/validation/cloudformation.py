@@ -1,3 +1,4 @@
+from validation_cache import input_is_file, input_select, input_text
 from model_templates import service_source
 """CloudFormation syntax, Environment and stack design checks."""
 
@@ -56,12 +57,12 @@ def unquoted_yaml(line: str) -> str:
 
 def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
     base = root / "infra" / "cloudformation" / "templates"
-    for path in sorted(base.rglob("*")):
+    for path in sorted(input_select(base, "*", recursive=True)):
         if iac_paths is not None and path not in iac_paths:
             continue
-        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+        if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml"}:
             continue
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = input_text(path, encoding="utf-8").splitlines()
         scalar_indent: int | None = None
         for index, line in enumerate(lines):
             indent = len(line) - len(line.lstrip(" "))
@@ -186,7 +187,7 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             )
 
 
-def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack_design_files, findings) -> None:
+def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack_design_files, findings, *, stack_definitions=None) -> None:
     def uses_environment(value) -> bool:
         if isinstance(value, list):
             return any(uses_environment(item) for item in value)
@@ -231,32 +232,44 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
     parameters = root / "infra" / "cloudformation" / "parameters"
     stack_parameters: dict[Path, Path] = {}
     designed_targets: set[tuple[str, str]] = set()
-    for design in stack_design_files:
+    definitions = stack_definitions
+    if definitions is None:
+        definitions = {}
+        for design in stack_design_files:
+            try:
+                definitions[design] = stack_design(design)
+            except ValueError:
+                continue
+    for design, stacks in definitions.items():
         target_parts = design.relative_to(root / "docs" / "designs").parts
         if len(target_parts) != 3:
             continue
         designed_targets.add((target_parts[0], target_parts[1]))
-        try:
-            stacks = stack_design(design)
-        except ValueError:
-            continue
         for stack in stacks:
             parameter_path = parameters / target_parts[0] / target_parts[1] / stack["parameters"]
             findings.check(parameter_path not in stack_parameters, f"parameter file belongs to multiple stacks: {stack['parameters']}")
             alias = accounts.get((target_parts[0], target_parts[1]), {}).get("alias", "")
             stack_parameters[parameter_path] = templates / alias / stack["template"]
     environment_templates: set[Path] = set()
-    for path in sorted(templates.rglob("*")):
+    for path in sorted(input_select(templates, "*", recursive=True)):
         if iac_paths is not None and path not in iac_paths:
             continue
-        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
+        if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
             continue
         try:
             from cfnlint.decode import decode
         except ImportError:
             findings.check(False, "cfn-lint Python runtime is required for CloudFormation Environment validation")
             return
-        document, decode_errors = decode(str(path))
+        from validation_cache import input_recorder, input_bytes
+        if input_recorder(path) is None:
+            document, decode_errors = decode(str(path))
+        else:
+            import tempfile
+            with tempfile.TemporaryDirectory(prefix='blueprint-cfn-') as directory:
+                candidate = Path(directory) / path.name
+                candidate.write_bytes(input_bytes(path))
+                document, decode_errors = decode(str(candidate))
         if decode_errors or not isinstance(document, dict):
             detail = decode_errors[0] if decode_errors else "expected a template object"
             findings.check_file(False, path, f"invalid CloudFormation template for Environment validation: {findings.relative(path)}: {detail}")
@@ -273,7 +286,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
             declared = isinstance(definitions, dict) and "Environment" in definitions
             findings.check_file(declared, path, f"CloudFormation resource uses Environment without Parameters.Environment: {findings.relative(path)}")
 
-    for path in sorted(parameters.rglob("*.json")):
+    for path in sorted(input_select(parameters, "*.json", recursive=True)):
         if iac_paths is not None and path not in iac_paths:
             continue
         parts = path.relative_to(parameters).parts
@@ -284,7 +297,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
             templates / target_directory / f"{path.stem}{suffix}"
             for suffix in (".yaml", ".yml", ".json")
         ] + [templates / f"{path.stem}{suffix}" for suffix in (".yaml", ".yml", ".json")]
-        matching_template = stack_parameters.get(path) or next((candidate for candidate in candidates if candidate.is_file()), None)
+        matching_template = stack_parameters.get(path) or next((candidate for candidate in candidates if input_is_file(candidate)), None)
         findings.check_file(
             (environment, target_directory) not in designed_targets or path in stack_parameters,
             path,
@@ -292,7 +305,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
         )
         requires_environment = matching_template in environment_templates
         try:
-            entries = json.loads(path.read_text(encoding="utf-8"))
+            entries = json.loads(input_text(path, encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             findings.check_file(False, path, f"invalid CloudFormation parameter JSON: {findings.relative(path)}: {error}")
             continue
@@ -317,7 +330,8 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
                 )
 
 
-def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, root, scope, design_sources=None, definitions_root=None) -> None:
+def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, root, scope, design_sources=None, definitions_root=None) -> dict[Path, list[dict]]:
+    definitions = {}
     names: set[tuple[str, str, str]] = set()
     for path in stack_design_files(root=root, scope=scope) if paths is None else paths:
         target = check_target_file(path, root / "docs" / "designs", accounts=accounts, findings=findings)
@@ -333,6 +347,7 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             from model_references import deployment_bucket
             stack_deployment_policy(path)
             stacks = stack_design(path)
+            definitions[path] = stacks
             from cloudformation_observed import validate_mapping_targets
             source = (root / "model" / path.relative_to(root / "docs" / "designs")).with_suffix(".properties")
             if service_source(source) is not None:
@@ -375,3 +390,5 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             findings.check(stack["parameters"] not in parameter_files, f"parameter file belongs to multiple stacks: {stack['parameters']}")
             parameter_files.add(stack["parameters"])
 
+
+    return definitions

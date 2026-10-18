@@ -4,6 +4,7 @@ Reference views retain validation_scope's selective parsing, including grouped
 parents. An index must be discarded or explicitly invalidated after writes;
 it never stores validation results or survives an invocation.
 """
+from validation_cache import input_is_dir, input_text
 
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -126,8 +127,8 @@ class DesignIndex:
         path = path.resolve()
         with self._lock:
             if path not in self._documents:
-                document = DesignDocument(path, path.read_text(encoding="utf-8"), self.root or next(
-                    (parent for parent in path.parents if (parent / "framework/mappings/aws").is_dir()), None))
+                document = DesignDocument(path, input_text(path, encoding="utf-8"), self.root or next(
+                    (parent for parent in path.parents if input_is_dir(parent / "framework/mappings/aws")), None))
                 # Construct these cheap text views once before sharing across workers.
                 document.lines, document.anchors, document.visible_text
                 self._documents[path] = document

@@ -19,10 +19,10 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         [arg for entry in sorted(scope) for arg in ('--scope', '/'.join(entry))])
     with patch.object(runner, 'run', return_value=(1, 'consumer missing: stg/team/config')) as run, \
          patch.object(subprocess, 'run', side_effect=AssertionError('Python subprocess')):
-        validator = VALIDATOR.Validator(tmp_path, scope, workers=workers)
+        validator = VALIDATOR.Validator(tmp_path, scope, workers=workers, definitions_root=tmp_path/'external-definitions')
         validator.check_generated_service_models()
         validator.check_generated_service_models()
-    run.assert_called_once_with(expected, repository_root=tmp_path)
+    run.assert_called_once_with(expected, repository_root=tmp_path, definitions_root=tmp_path/'external-definitions')
     assert any('consumer missing: stg/team/config' in error for error in validator.errors)
     with patch.object(runner, 'run', side_effect=AssertionError('hook bypassed')):
         empty = VALIDATOR.Validator(tmp_path, set())

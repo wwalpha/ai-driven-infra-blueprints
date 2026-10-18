@@ -10,6 +10,7 @@ from model_projection import model_for, identifier_outputs
 from design_layout import STACK_DESIGN
 from aws_mapping_display import projection
 from validation_cache import input_scope
+from utils.aws_mappings import definition_root
 
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
@@ -25,21 +26,22 @@ def saved_design_validation(root, entry):
         _saved_design_validation.reset(token)
 
 
-def view_validator(stage: Path, root: Path):
+def view_validator(stage: Path, root: Path, definitions_root=None):
+    definitions_root = definitions_root or definition_root(root)
     spec = importlib.util.spec_from_file_location("blueprint_view_validator", Path(__file__).with_name("validate-blueprint.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    validator = module.Validator(stage, definitions_root=root)
-    validator.schema_catalog = module.DesignSchemaCatalog(root)
+    validator = module.Validator(stage, definitions_root=definitions_root)
+    validator.schema_catalog = module.DesignSchemaCatalog(definitions_root)
     return validator
 
 
-def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str, Path]:
+def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitions_root=None) -> dict[str, Path]:
     """Use existing link diagnostics, keyed by source/link independently of failure kind."""
     if not paths:
         return {}
-    validator = view_validator(stage, root)
-    validator.check_design_links(identifier_outputs(root), paths, design_index=DesignIndex(root))
+    validator = view_validator(stage, root, definitions_root)
+    validator.check_design_links(identifier_outputs(definitions_root or definition_root(root)), paths, design_index=DesignIndex(root))
     broken = {}
     for error in validator.errors:
         kind, _, reference = error.partition(": ")
@@ -54,9 +56,9 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path]) -> dict[str,
     return broken
 
 
-def validation_context(stage, root, generated, sources, accounts=None):
+def validation_context(stage, root, generated, sources, accounts=None, definitions_root=None):
     """Whole-candidate scope metadata/ownership/stack checks, once per fixed state."""
-    validator = view_validator(stage, root)
+    validator = view_validator(stage, root, definitions_root)
     paths = [stage / p.relative_to(root) for p in generated]
     validator.scope = {(*p.relative_to(stage / 'docs/designs').parts[:2], p.stem) for p in paths}
     validator.design_sources = {stage / p.relative_to(root): values for p, values in sources.items()}
@@ -74,16 +76,16 @@ def validation_context(stage, root, generated, sources, accounts=None):
         'design/model group mismatch in generation candidates'))
     metadata = evaluate('design.ownership', lambda: {'ownership': validator.check_design_service_ownership(services)})
     validator.ownership = metadata.metadata['ownership']
-    evaluate('design.stacks', lambda: validator.check_stack_designs([p for p in paths if p.name == STACK_DESIGN]))
+    evaluate('design.stacks', lambda: {'stack_definitions': validator.check_stack_designs([p for p in paths if p.name == STACK_DESIGN])})
     validator.check_policy_tables()
     return validator
 
 
-def check_projection(stage, root, paths, sources, design_index):
+def check_projection(stage, root, paths, sources, design_index, definitions_root=None):
     for path in paths:
         source = sources[root / path.relative_to(stage)]
-        actual = properties(model_for(path, root, source=source, design_index=design_index))
-        formal = {key: value for key, value in projection(source, root).items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
+        actual = properties(model_for(path, root, source=source, design_index=design_index, definitions_root=definitions_root))
+        formal = {key: value for key, value in projection(source, definitions_root or definition_root(root)).items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
         actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
         if path.name == STACK_DESIGN:
             from model_core import stack_model, deployment_settings
@@ -101,7 +103,7 @@ def check_projection(stage, root, paths, sources, design_index):
 
 @input_scope
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
-                   design_index: DesignIndex | None = None, context=None):
+                   design_index: DesignIndex | None = None, context=None, definitions_root=None):
     """Return this candidate's domain results; never rerun Task/Git/common checks."""
     deferred = _saved_design_validation.get()
     if deferred is not None:
@@ -109,7 +111,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         if root.resolve() != deferred[0] or paths != [expected]:
             raise ValueError('saved design validation requires the selected single service')
     design_index = design_index or DesignIndex(root)
-    validator = view_validator(stage, root)
+    validator = view_validator(stage, root, definitions_root)
     validator.design_sources = {path: sources[root / path.relative_to(stage)] for path in paths}
     validator.scope = {(*p.relative_to(stage / "docs/designs").parts[:2], p.stem) for p in paths}
     if context is not None:
@@ -119,7 +121,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         validator.check_project_topology()
     evaluate = lambda name, handler: validator.findings.evaluate(name, validator.scope, handler)
     def projection_check():
-        check_projection(stage, root, paths, sources, design_index)
+        check_projection(stage, root, paths, sources, design_index, definitions_root)
         for path in paths:
             validator.check(True, f'model/display projection matches: {path.name}')
     evaluate('design.projection', projection_check)

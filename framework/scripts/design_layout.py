@@ -1,6 +1,7 @@
 """Shared display relationships and identified children in resource tables."""
 
 from __future__ import annotations
+from validation_cache import input_exists, input_text
 
 import json
 import re
@@ -17,7 +18,7 @@ from security_group_tables import security_group_table_lines
 
 
 LAYOUT_PATH = Path(__file__).resolve().parents[1] / "rules" / "resource-layout.json"
-LAYOUTS = json.loads(LAYOUT_PATH.read_text(encoding="utf-8"))
+LAYOUTS = json.loads(input_text(LAYOUT_PATH, encoding="utf-8"))
 RESOURCE_PROPERTY_PREFIXES = tuple(name + "." for name in LAYOUTS)
 GROUPED = {name: rule for name, rule in LAYOUTS.items() if isinstance(rule, dict)}
 GROUPED_RESOURCE_TYPES = {
@@ -184,7 +185,7 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
         return None
     source = (root / "model" / relative).with_suffix(".properties")
     from model_templates import source_paths
-    return properties(read_model(source)) if source_paths(source)[2].exists() else None
+    return properties(read_model(source)) if input_exists(source_paths(source)[2]) else None
 
 
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
@@ -214,7 +215,7 @@ def resource_has_name_property(root: Path, resource_type: str, mode: str = "CREA
                and line.partition("=")[2] != "IDENTIFIER_OUTPUT"
                for path in design_material_files(root)
                if path.stem.replace("_", ".", 1) == resource_type
-               for line in path.read_text(encoding="utf-8").splitlines())
+               for line in input_text(path, encoding="utf-8").splitlines())
 
 
 def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None, mode: str = "CREATE") -> str | None:
@@ -276,7 +277,7 @@ def resource_display_name(resource_type: str, rows: list[list[str]], selected_la
 
 
 def stack_deployment_policy(path: Path) -> int:
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
     if len(lines) < 2 or lines[0] != "# CloudFormation stack 詳細設計":
         raise ValueError("invalid CloudFormation stack design header; explicit DeployOrder migration required")
     match = re.fullmatch(r"<!-- max-concurrent-stacks: (.+) -->", lines[1])
@@ -287,7 +288,7 @@ def stack_deployment_policy(path: Path) -> int:
 
 def stack_design(path: Path) -> list[dict[str, str]]:
     """Read a target's stack detailed design."""
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in input_text(path, encoding="utf-8").splitlines()
              if line and not line.startswith(("<!-- templateBucket:", "<!-- templateKeyPrefix:"))]
     stack_deployment_policy(path)
     if lines[2:5] != [
@@ -316,7 +317,7 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 def stack_delivery(path: Path) -> dict[str, str]:
     """Read hidden template settings and artifact tables, including old stack views."""
     from model_core import ARTIFACT_FIELDS
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
     result = {}
     for line in lines:
         if line.startswith(("<!-- templateBucket:", "<!-- templateKeyPrefix:")):
@@ -397,14 +398,14 @@ def layout_errors(root: Path) -> list[str]:
     """Require an explicit display decision for every catalog resource."""
     errors = []
     try:
-        layouts = json.loads((root / "framework" / "rules" / "resource-layout.json").read_text(encoding="utf-8"))
+        layouts = json.loads(input_text(root / "framework" / "rules" / "resource-layout.json", encoding="utf-8"))
     except (OSError, ValueError) as error:
         return [f"cannot read resource layout decisions: {error}"]
     if not isinstance(layouts, dict):
         return ["resource layout decisions must be an object"]
     catalog = {
         path.stem.replace("_", ".", 1): {
-            line.partition("=")[0] for line in path.read_text(encoding="utf-8").splitlines()
+            line.partition("=")[0] for line in input_text(path, encoding="utf-8").splitlines()
         }
         for path in design_material_files(root)
     }

@@ -1,6 +1,7 @@
 """Design catalogs: retain CFn schemas and add pinned API design contracts."""
 
 from __future__ import annotations
+from validation_cache import input_select, input_text
 
 import argparse
 import json
@@ -17,7 +18,7 @@ QUICKSIGHT_GROUP = "QuickSight.Group"
 
 @memoized
 def design_material_files(root: Path) -> list[Path]:
-    return sorted([*material_files(root), *(root / "framework/materials/api").glob("*.properties")])
+    return sorted([*material_files(root), *input_select(root / "framework/materials/api", "*.properties")])
 
 
 def property_paths_with_parents(paths: set[str]) -> set[str]:
@@ -143,7 +144,7 @@ def selected_properties(root: Path, resource_type: str) -> set[str]:
 
 def api_snapshot_errors(root: Path) -> list[str]:
     directory = root / "framework/materials/api"
-    files = sorted(directory.glob("*"))
+    files = sorted(input_select(directory, "*"))
     try:
         catalog = DesignSchemaCatalog(root)
         expected_files = {
@@ -152,7 +153,7 @@ def api_snapshot_errors(root: Path) -> list[str]:
         }
         if {path.name for path in files} != expected_files:
             return ["API design catalog files differ from the registered API snapshots"]
-        if (root / "framework/materials/api-catalog.sha256").read_text(encoding="utf-8") != manifest_text(root, files):
+        if input_text(root / "framework/materials/api-catalog.sha256", encoding="utf-8") != manifest_text(root, files):
             return ["API design catalog checksum mismatch"]
 
         schema = catalog.schema(MACIE_JOB)
@@ -165,7 +166,7 @@ def api_snapshot_errors(root: Path) -> list[str]:
             return ["invalid Macie API snapshot provenance"]
         if schema["identifierOutputs"] != ["jobId"] or {"clientToken", "jobArn"} & schema["properties"].keys():
             return ["Macie catalog must separate jobId from runtime token and generated ARN"]
-        selected = (directory / "Macie_ClassificationJob.properties").read_text(encoding="utf-8").splitlines()
+        selected = input_text(directory / "Macie_ClassificationJob.properties", encoding="utf-8").splitlines()
         expected = [f"{MACIE_JOB}.{key}=" + ("IDENTIFIER_OUTPUT" if key == "jobId" else "") for key in sorted(schema["properties"])]
         if len(selected) != len(expected) or set(selected) != set(expected):
             return ["Macie API selection list does not match its design schema"]
@@ -201,7 +202,7 @@ def api_snapshot_errors(root: Path) -> list[str]:
             or source["modelSha256"] != "2c2fe286859ba2014551f49f60fc4ab3be90df17ae2632472b7912c14b774175"
         ):
             return ["QuickSight Group lifecycle, discovery, or source provenance is incomplete"]
-        selected = (directory / "QuickSight_Group.properties").read_text(encoding="utf-8").splitlines()
+        selected = input_text(directory / "QuickSight_Group.properties", encoding="utf-8").splitlines()
         expected = [
             "QuickSight.Group.AwsAccountId=",
             "QuickSight.Group.Namespace=",
@@ -226,7 +227,7 @@ def main() -> int:
     parser.add_argument("--cloudformation-type", help="Resolve a selected design type; reject API-only and unknown types")
     args = parser.parse_args()
     if args.write_lock:
-        files = sorted((args.repository_root / "framework/materials/api").glob("*"))
+        files = sorted(input_select(args.repository_root / "framework/materials/api", "*"))
         (args.repository_root / "framework/materials/api-catalog.sha256").write_text(manifest_text(args.repository_root, files), encoding="utf-8")
     errors = api_snapshot_errors(args.repository_root)
     if not errors and args.cloudformation_type:

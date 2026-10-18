@@ -1,6 +1,7 @@
 """Read YAML service Model values, locate their sources or extract a resource."""
 
 from __future__ import annotations
+from validation_cache import input_is_file, input_is_symlink, input_select, input_text
 
 import argparse
 import re
@@ -18,9 +19,9 @@ PART_PREFIX = "# part: "
 
 
 def model_parts(path: Path, *, text: str | None = None) -> list[Path]:
-    if path.is_symlink() or path.with_suffix("").is_symlink():
+    if input_is_symlink(path) or input_is_symlink(path.with_suffix("")):
         raise ValueError(f"model files must not use symlinks: {path}")
-    lines = (path.read_text(encoding="utf-8") if text is None else text).splitlines()
+    lines = (input_text(path, encoding="utf-8") if text is None else text).splitlines()
     indexed = bool(lines and lines[0] == INDEX_HEADER)
     if any(line.startswith(("# model-index:", PART_PREFIX)) for line in lines) and not indexed:
         raise ValueError(f"invalid model index: {path}")
@@ -35,12 +36,12 @@ def model_parts(path: Path, *, text: str | None = None) -> list[Path]:
             if line.removeprefix(PART_PREFIX) != expected:
                 raise ValueError(f"invalid or duplicate model part; expected {expected}: {path}")
             part = path.parent / expected
-            if part.is_symlink() or not part.is_file():
+            if input_is_symlink(part) or not input_is_file(part):
                 raise ValueError(f"missing or unsafe model part: {part}")
             parts.append(part)
         if not parts:
             raise ValueError(f"model index has no parts: {path}")
-    extras = set(path.with_suffix("").rglob("*.properties")) - set(parts)
+    extras = set(input_select(path.with_suffix(""), "*.properties", recursive=True)) - set(parts)
     if extras:
         raise ValueError(f"unlisted model parts: {sorted(str(part) for part in extras)}")
     return parts if indexed else [path]

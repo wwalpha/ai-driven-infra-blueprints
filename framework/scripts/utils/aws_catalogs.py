@@ -1,4 +1,5 @@
 """Lazy selection lists and derived indexes; definitions are read-only by contract."""
+from validation_cache import input_select, input_text
 from pathlib import Path
 from threading import Lock
 from types import MappingProxyType
@@ -18,13 +19,13 @@ class Catalogs:
     @property
     def paths(self):
         return load_once(self._lock, self._cache, ('paths',), lambda: tuple(sorted([
-            *(self.root / 'framework/materials/aws').glob('*.properties'),
-            *(self.root / 'framework/materials/api').glob('*.properties')])))
+            *input_select(self.root / 'framework/materials/aws', '*.properties'),
+            *input_select(self.root / 'framework/materials/api', '*.properties')])))
 
     def lines(self, resource_type):
         def load():
             path = next((p for p in self.paths if p.stem.replace('_', '.', 1) == resource_type), None)
-            return None if path is None else tuple(path.read_text(encoding='utf-8').splitlines())
+            return None if path is None else tuple(input_text(path, encoding='utf-8').splitlines())
         return load_once(self._lock, self._cache, ('lines', resource_type), load)
 
     def selected(self, resource_type):

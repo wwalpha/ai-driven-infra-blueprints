@@ -1,4 +1,5 @@
 """Propagate Model changes only through changed active resource references."""
+from validation_cache import input_bytes, input_is_file
 from pathlib import Path
 
 from model_parameter_inputs import parameter_value
@@ -122,8 +123,8 @@ def dependency_impact(root, changed, result, propagating, *, before=None):
         return propagate(root, result, propagating)
     with snapshots(root, base, {}) as (previous, current):
         # A claimed change without a versioned diff cannot establish a safe baseline.
-        known = any((previous/p).is_file() != (current/p).is_file() or
-                    ((previous/p).is_file() and (previous/p).read_bytes() != (current/p).read_bytes())
+        known = any(input_is_file(previous/p) != input_is_file(current/p) or
+                    (input_is_file(previous/p) and input_bytes(previous/p) != input_bytes(current/p))
                     for p in changed)
         if not known:
             return propagate(root, result, propagating)

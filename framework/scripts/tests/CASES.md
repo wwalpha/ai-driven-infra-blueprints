@@ -96,8 +96,8 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 
 | 元ファイル : 行 | Test Case名 | 分類 | 現在の配置 | 入口 / パターン数 | 分類理由 | 変更 |
 |---|---|---|---|---|---|---|
-| `sync-model runner` | `check_internal_sync_isolation` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_isolation) | pytest / 4 | 複数・全体、直列・並列のContext分離と入力再読込、失敗後復元 | 新規 |
-| `sync-model runner` | `check_internal_sync_real_diagnostics` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足と生成差分の実診断をValidatorへ伝達 | 新規 |
+| `sync-model runner` | `check_internal_sync_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_isolation) | pytest / 4 | 複数・全体、直列・並列のContext分離と入力再読込、失敗後復元 | 新規 |
+| `sync-model runner` | `check_internal_sync_real_diagnostics` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足と生成差分の実診断をValidatorへ伝達 | 新規 |
 | `sync-model runner` | `check_internal_sync_concurrent_output` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_concurrent_output) | pytest / 1 | 並行呼び出しのmemo・診断・heartbeat分離と後片付け | 新規 |
 | `sync-model runner` | `check_internal_sync_arguments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_arguments) | pytest / 4 | help・usage・引数エラーと終了状態、出力漏れ防止 | 新規 |
 | `Validator runner` | `check_internal_generation_dispatch` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#check_internal_generation_dispatch) | pytest / 4 | scope順序・workers・重複防止・空scope・hook優先 | 新規 |
@@ -204,7 +204,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/security_group_tables.checks.py:154` | `check_service_filenames` | UT | [units/security_group_tables-unit.checks.py:28](units/security_group_tables-unit.checks.py#L28) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/sync-model.checks.py:487` | `check_property_path_parents` | UT | [units/sync-model-unit.checks.py:11](units/sync-model-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/sync-model.checks.py:265` | `check_markdown_newlines` | UT | [units/sync-model-unit.checks.py:23](units/sync-model-unit.checks.py#L23) | pytest / 4 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:290` | `check_file_rollback` | UT | [units/sync-model-unit.checks.py:48](units/sync-model-unit.checks.py#L48) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `units/test_issues_iac.py:14` | `ImportValueResolutionTests.test_formal_pipeline_membership_and_configuration_context` | UT | [units/test_issues_iac.py:14](units/test_issues_iac.py#L14) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 変更不要 |
 | `units/test_issues_iac.py:63` | `ImportValueResolutionTests.test_api_managed_resource_remains_unverified_in_cloudformation_comparison` | UT | [units/test_issues_iac.py:63](units/test_issues_iac.py#L63) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 変更不要 |
 | `units/test_issues_iac.py:81` | `ImportValueResolutionTests.test_import_value_ignores_unrelated_incomplete_stack` | UT | [units/test_issues_iac.py:81](units/test_issues_iac.py#L81) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 変更不要 |
@@ -317,7 +316,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/security_group_tables-unit.checks.py::check_service_filenames` | L31: 7 ((('ec2.md', 'ec2', ('EC2.SecurityGroup',)), ('ec2.properties', 'ec2', ('EC2.SecurityGroupIngress',)), ('security-group.md', 'security-group', ('EC2.Instance',)), ('security-group.md', 'security-group', ('EC2.SecurityGroup', 'EC2.VPC')), ('security_group.md', 'security_group', ('EC2.SecurityGroup',)), ('security_group.properties', 'security_group', ('EC2.SecurityGroup',)), ('other_service.md', 'other_service', ('S3.Bucket',)))) |
 | `units/sync-model-unit.checks.py::check_property_path_parents` | 1（内部パラメータ化なし） |
 | `units/sync-model-unit.checks.py::check_markdown_newlines` | 1（内部パラメータ化なし） |
-| `units/sync-model-unit.checks.py::check_file_rollback` | L54: 動的 ((first, created, last))<br>L80: 動的 (originals.items())<br>L55: 動的 (originals.items())<br>L?: 3 (('first.md', 'new.json', 'last.md'))<br>L?: 動的 (originals)<br>L?: 動的 ((last, first))<br>L?: 動的 (originals.items()) |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_formal_pipeline_membership_and_configuration_context` | L?: 動的 (enumerate(fields)) |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_api_managed_resource_remains_unverified_in_cloudformation_comparison` | 1（内部パラメータ化なし） |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_import_value_ignores_unrelated_incomplete_stack` | 1（内部パラメータ化なし） |
@@ -567,7 +565,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `support/service_contracts.py:401` | `check` | IT | [integrations/service_contracts.py:400](integrations/service_contracts.py#L400) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/service_contracts.py:410` | `check_fixtures` | IT | [integrations/service_contracts.py:409](integrations/service_contracts.py#L409) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `integrations/sync-existing-files.checks.py:30` | `check_failure_safety` | IT | [integrations/sync-existing-files.checks.py:30](integrations/sync-existing-files.checks.py#L30) | direct / 1 | CLI/subprocessまたはGitとの連携 | 変更不要 |
-| `unknown/sync-model.checks.py:81` | `check_publication_boundary` | IT | [integrations/sync-model.checks.py:14](integrations/sync-model.checks.py#L14) | pytest / 6 | 保存前boundaryでsource/common/part/consumer/artifact追加を検出し全体保存ゼロ | 配置/共有fixture分離 |
+| `unknown/sync-model.checks.py:81` | `check_publication_boundary` | IT | [integrations/sync-model.checks.py:14](integrations/sync-model.checks.py#L14) | pytest / 7 | 保存前boundaryでsource/common/part/consumer/artifact追加を検出し全体保存ゼロ | 配置/共有fixture分離 |
 | `unknown/sync-model.checks.py:129` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py:62](integrations/sync-model.checks.py#L62) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/sync-model.checks.py:157` | `check_changed_sidecar_publication` | IT | [integrations/sync-model.checks.py:83](integrations/sync-model.checks.py#L83) | pytest / 3 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/sync-model.checks.py:177` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py:99](integrations/sync-model.checks.py#L99) | pytest / 6 | 変更なしJSONも入力として保存前照合し、sidecar/source/契約の外部変更を保持して停止 | 配置/共有fixture分離 |
@@ -1654,15 +1652,11 @@ main/module検証地点の現在配置: integrations=305, units=232。
 
 | Origin | Case | Class | Location | Entry / count | Responsibility | Change |
 | --- | --- | --- | --- | --- | --- | --- |
-| `units/sync-model-unit.checks.py` | `check_generation_counts` | UT | [units/sync-model-unit.checks.py:126](units/sync-model-unit.checks.py#L126) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_batch_input_change` | UT | [units/sync-model-unit.checks.py:157](units/sync-model-unit.checks.py#L157) | pytest / 7 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_snapshot_conflict` | UT | [units/sync-model-unit.checks.py:183](units/sync-model-unit.checks.py#L183) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_integrated_validator` | UT | [units/sync-model-unit.checks.py:194](units/sync-model-unit.checks.py#L194) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_multiple_targets_barrier` | UT | [units/sync-model-unit.checks.py:294](units/sync-model-unit.checks.py#L294) | pytest / 5 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_framework_write_does_not_discover` | UT | [units/sync-model-unit.checks.py:383](units/sync-model-unit.checks.py#L383) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/sync-model-unit.checks.py` | `check_result_reuse_is_scoped` | UT | [units/sync-model-unit.checks.py:392](units/sync-model-unit.checks.py#L392) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/model_templates-unit.checks.py` | `check_publish_callback_rollback` | UT | [units/model_templates-unit.checks.py:26](units/model_templates-unit.checks.py#L26) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/model_templates-unit.checks.py` | `check_generation_transaction_recovery` | UT | [units/model_templates-unit.checks.py:41](units/model_templates-unit.checks.py#L41) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
+| `units/sync-model-unit.checks.py` | `check_snapshot_conflict` | UT | [units/sync-model-unit.checks.py:183](units/sync-model-unit.checks.py#L183) | pytest / 1 | raw bytes矛盾・不存在・seal・列挙のguard | 新仕様の回帰 |
+| `integrations/sync-model.checks.py` | `check_integrated_validator` | IT | [integrations/sync-model.checks.py:194](integrations/sync-model.checks.py#L194) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
+| `integrations/sync-model.checks.py` | `check_multiple_targets_barrier` | IT | [integrations/sync-model.checks.py:294](integrations/sync-model.checks.py#L294) | pytest / 5 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
+| `units/sync-model-unit.checks.py` | `check_framework_write_does_not_discover` | UT | [units/sync-model-unit.checks.py:383](units/sync-model-unit.checks.py#L383) | pytest / 2 | framework writeをModel探索前に拒否 | 新仕様の回帰 |
+| `units/sync-model-unit.checks.py` | `check_result_reuse_is_scoped` | UT | [units/sync-model-unit.checks.py:392](units/sync-model-unit.checks.py#L392) | pytest / 1 | CheckResultの状態・キー・候補scope再利用境界 | 新仕様の回帰 |
 | `units/blueprint-loop-unit.checks.py` | `check_write_validator_stops_followups` | UT | [units/blueprint-loop-unit.checks.py:487](units/blueprint-loop-unit.checks.py#L487) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/blueprint-loop-unit.checks.py` | `check_staged_write_rejected` | UT | [units/blueprint-loop-unit.checks.py:502](units/blueprint-loop-unit.checks.py#L502) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `integrations/sync-model.checks.py` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py:43](integrations/sync-model.checks.py#L43) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
@@ -1672,8 +1666,25 @@ main/module検証地点の現在配置: integrations=305, units=232。
 
 | Original | Case | Layer | Current | Execution | Responsibility | Preservation |
 | --- | --- | --- | --- | --- | --- | --- |
-| `units/sync-model-unit.checks.py` | `check_stage_inputs_without_framework` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | Frameworkのコピーとリンクを作らずModel/Markdown/JSON/project入力をstageへ保持 | 新規 |
 | `integrations/sync-model.checks.py` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 1 | 元FrameworkのSchema/Mapping/Layout/Policyとstage候補で生成・検証・投影がバイト一致し定義を不変に保つ | 新規 |
 | `integrations/sync-model.checks.py` | `check_stage_candidate_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 6 | 元の正常文書を使わずstage Model/names/schema/overview/policy/linkの破損を検出する | 新規 |
 | `integrations/sync-model.checks.py` | `check_stage_definition_errors` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 4 | 元FrameworkのSchema/Mapping/Naming/Layout参照エラーを握りつぶさない | 新規 |
 | `integrations/sync-model.checks.py` | `check_stage_cloudformation_definitions` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 1 | CFn生成バイト一致とstage stack authorityの変更を検出し元保存値に戻らない | 新規 |
+
+## Generation publication boundary assertion mapping
+
+- `check_generation_counts` の回数・内容assertionはIT `check_normal_writer_contents` に統合。通常生成を別ケースで繰り返さない。
+- `check_batch_input_change` はIT `check_input_mutation` と `check_publication_boundary`（契約変更を追加）へ統合。
+- `check_stage_inputs_without_framework` の通常write保証はIT `check_stage_definition_sources` に統合。
+- UT `check_file_rollback`、`check_publish_callback_rollback`、`check_generation_transaction_recovery` はIT `model_templates.check_transactions` の固有assertionへ統合。
+- internal syncの実Git・生成・再読込はITへ移動。Fake runnerのContext/output・停止と軽量reader/Git差分判定はUTに残す。
+- generated_policy seedは共有definitions_rootから1回生成。通常ケースはproject/Model/出力/契約だけをコピーし、定義変更ケースだけ専用rootを用意する。
+
+| 元パス | 関数 | 分類 | 現在の配置 | 実行 / 条件数 | 検証責務 | 対応 |
+|---|---|---|---|---|---|---|
+| `units/sync-model-unit.checks.py` | `check_planned_outputs_and_boundary` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_planned_outputs_and_boundary) | pytest / 1 | 保存bytesのno-op選別と明示パスTask境界 | 軽量判定 |
+| `units/sync-model-unit.checks.py` | `check_final_git_paths` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_final_git_paths) | pytest / 4 | Fake Gitの固定基準・正味差分とindex許可集合 | 軽量判定 |
+
+| `units/sync-model-unit.checks.py` | `check_stage_dependency_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_stage_dependency_selection) | pytest / 1 | Fake Model file listで入出向き依存と最小stageを選別 | 軽量依存選択 |
+
+| `units/sync-model-unit.checks.py` | `check_git_baseline_fail_closed` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_git_baseline_fail_closed) | pytest / 1 | Fake Gitのmanaged/unborn/故障・NULパス | 軽量差分判定 |

@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_is_dir, input_is_file, input_select, input_text
 import re
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from .task import TASK_TYPES
@@ -50,16 +51,16 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
         "framework/scripts/sync-model.py",
     ):
         base = definitions_root if filename.startswith('framework/') else root
-        findings.check((base / filename).is_file(), f"required file missing: {filename}")
+        findings.check(input_is_file(base / filename), f"required file missing: {filename}")
     for directory in REQUIRED_DIRECTORIES:
-        findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
+        findings.check(input_is_dir(root / directory), f"required directory missing: {directory}")
     if consumer:
         for directory in ("model/parameters", "model/templates"):
-            findings.check((root / directory).is_dir(), f"required directory missing: {directory}")
+            findings.check(input_is_dir(root / directory), f"required directory missing: {directory}")
     codex_prompt_names = sorted(
         path.name
-        for path in (definitions_root / "framework" / "prompts" / "codex").glob("*")
-        if path.is_file()
+        for path in input_select(definitions_root / "framework" / "prompts" / "codex", "*")
+        if input_is_file(path)
     )
     invalid_prompt_names = [
         name for name in codex_prompt_names if not CODEX_PROMPT_FILENAME_PATTERN.fullmatch(name)
@@ -71,14 +72,14 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
         "Codex prompt numbers must be unique",
     )
     actual_rules = {
-        path.name for path in (definitions_root / "framework" / "rules").glob("*.md")
+        path.name for path in input_select(definitions_root / "framework" / "rules", "*.md")
     }
     findings.check(REQUIRED_RULES <= actual_rules, f"required rules missing: {sorted(REQUIRED_RULES - actual_rules)}")
 
 
 def check_framework_active_task_transition(findings, root):
-    agents = (root / "AGENTS.md").read_text(encoding="utf-8")
-    readme = (root / "README.md").read_text(encoding="utf-8")
+    agents = input_text(root / "AGENTS.md", encoding="utf-8")
+    readme = input_text(root / "README.md", encoding="utf-8")
     findings.check("## Task transition" in agents, "AGENTS.md lacks Task transition rules")
     findings.check("## Task transition" in readme, "README.md lacks Task transition workflow")
     findings.check("chat-only" in agents and "chat-only" in readme, "chat-only task handling is not defined")
@@ -93,9 +94,9 @@ def check_framework_active_task_transition(findings, root):
     }
     for relative, literal in required.items():
         path = root / relative
-        findings.check(path.is_file(), f"active task lifecycle file missing: {relative}")
-        if path.is_file():
-            findings.check(literal in path.read_text(encoding="utf-8"), f"active task lifecycle rule missing: {relative}")
+        findings.check(input_is_file(path), f"active task lifecycle file missing: {relative}")
+        if input_is_file(path):
+            findings.check(literal in input_text(path, encoding="utf-8"), f"active task lifecycle rule missing: {relative}")
 
 
 def check_framework_rule_readings(findings, root):
@@ -112,12 +113,12 @@ def check_framework_rule_readings(findings, root):
                                     "conflict-resolution-and-reproducible-validation", "retry-and-stop"}},
     }
     sources = [root / "AGENTS.md", root / "README.md",
-               *sorted((root / "framework/rules").glob("*.md")),
-               *sorted((root / "framework/prompts").rglob("*.md")),
-               *sorted((root / ".agents/skills").glob("*/SKILL.md"))]
+               *sorted(input_select(root / "framework/rules", "*.md")),
+               *sorted(input_select(root / "framework/prompts", "*.md", recursive=True)),
+               *sorted(input_select(root / ".agents/skills", "*/SKILL.md"))]
     for source in sources:
         try:
-            text = source.read_text(encoding="utf-8")
+            text = input_text(source, encoding="utf-8")
             rule_readings(root, source, text)
             sections = markdown_sections(text)
             for (relative, heading), required in routes.items():
@@ -154,10 +155,10 @@ def check_framework_rule_readings(findings, root):
 
 def check_framework_design_handoff(findings, root):
     path = root / "framework" / "prompts" / "chatbot" / "service-design.md"
-    findings.check(path.is_file(), "service design prompt is missing")
-    if not path.is_file():
+    findings.check(input_is_file(path), "service design prompt is missing")
+    if not input_is_file(path):
         return
-    prompt = path.read_text(encoding="utf-8")
+    prompt = input_text(path, encoding="utf-8")
     findings.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
     findings.check("blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md" in prompt, "service design prompt lacks integrated Model generation/validation")
     from deploy_preparation import markdown_prose, markdown_sections, rule_readings
@@ -208,8 +209,8 @@ def check_framework_design_handoff(findings, root):
 
 
 def check_framework_task_completion_contract(findings, root):
-    contract = (root / "framework/rules/task-contract.md").read_text(encoding="utf-8")
-    rules = (root / "framework" / "rules" / "loop-engineering.md").read_text(encoding="utf-8")
+    contract = input_text(root / "framework/rules/task-contract.md", encoding="utf-8")
+    rules = input_text(root / "framework" / "rules" / "loop-engineering.md", encoding="utf-8")
     findings.check("Requirement ID" in contract and "Acceptance checks" in contract, "task rules lack completion contract")
     findings.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
     from deploy_preparation import markdown_sections
@@ -224,7 +225,7 @@ def check_framework_task_type_dispatch(findings, task_type):
 
 
 def check_framework_focused_check_runner(findings, root):
-    loop = (root / "framework" / "scripts" / "blueprint-loop.py").read_text(encoding="utf-8")
+    loop = input_text(root / "framework" / "scripts" / "blueprint-loop.py", encoding="utf-8")
     findings.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
     findings.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 
@@ -235,10 +236,8 @@ def check_framework_cloudformation_schema_catalog(findings, root):
 
 
 def check_framework_schema_backed_design_validation(findings, root):
-    rules = (root / "framework" / "rules" / "detailed-design.md").read_text(encoding="utf-8")
-    prompt = (
-        root / "framework" / "prompts" / "chatbot" / "service-design.md"
-    ).read_text(encoding="utf-8")
+    rules = input_text(root / "framework" / "rules" / "detailed-design.md", encoding="utf-8")
+    prompt = input_text(root / "framework" / "prompts" / "chatbot" / "service-design.md", encoding="utf-8")
     findings.check("CloudFormation provider schema" in rules, "detailed design rules do not apply provider schemas")
     findings.check("CloudFormation provider schema" in prompt, "initial design prompt does not apply provider schemas")
     catalog = CloudFormationSchemaCatalog(root)
@@ -253,5 +252,5 @@ def check_framework_cfn_lint_validation(findings, root):
         root / "framework" / "scripts" / "check-deploy-context.py",
     )
     for path in paths:
-        findings.check("cfn-lint" in path.read_text(encoding="utf-8"), f"cfn-lint requirement missing: {path.relative_to(root).as_posix()}")
+        findings.check("cfn-lint" in input_text(path, encoding="utf-8"), f"cfn-lint requirement missing: {path.relative_to(root).as_posix()}")
 

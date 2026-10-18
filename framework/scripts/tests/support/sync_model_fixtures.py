@@ -8,48 +8,20 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model, load_model
-
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from support.model_sources import write_model, write_fixture_files
-
-import pytest
-
-pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
-
-from support.pytest_cli import run
-
-import sync_views
-
-import sync_runtime
-
-import model_design
-
-import model_projection
-
-import io
-
 import json
-
-import os
-
-import shutil
-
-from contextlib import contextmanager, redirect_stdout, redirect_stderr
-
+import pytest
+from model_files import load_model
+from support.model_sources import write_model
 from support.validator import load
-
-from unittest.mock import patch
-
-from design_catalog import property_paths_with_parents
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'sync-model.py')
 
 MODULE = load('sync-model')
 
-def build_generated_policy(root):
+def build_generated_policy(root, definitions_root=None):
     (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{
         'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1',
         'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
@@ -72,16 +44,22 @@ def build_generated_policy(root):
             'Effect': 'Allow', 'Principal': {'Service': 'lambda.amazonaws.com'}, 'Action': 'sts:AssumeRole'}]}),
     }
     write_model(model, values)
-    if MODULE.sync(root, True, 'dev', '123456789012', ['iam']) != 0:
+    if MODULE.sync(root, True, 'dev', '123456789012', ['iam'], definitions_root=definitions_root) != 0:
         raise RuntimeError('generated_policy fixture initialization failed')
     return values
 
 
 @pytest.fixture
-def generated_policy(tmp_path):
+def generated_policy(tmp_path, request):
     from support.it_workspace import populate
     root = populate("generated_policy", tmp_path)
-    populate("framework", root)
+    from support.it_fixture_bundle import source
+    from support.it_workspace import copy_framework
+    from utils.aws_mappings import mapping_alias
+    definitions = source('framework')
+    if request.node.originalname == 'check_stage_definition_errors' or (request.node.originalname == 'check_publication_boundary' and request.node.callspec.params.get('fault') == 'mapping'):
+        definitions = tmp_path / 'private-definitions'
+        copy_framework(definitions / 'framework')
     model = root / 'model/dev/123456789012/iam.properties'
     values = json.loads((root / 'fixture-values.json').read_text(encoding='utf-8'))
     (root / 'fixture-values.json').unlink()
@@ -98,7 +76,5 @@ def generated_policy(tmp_path):
                     f'## Modified files\n{listed}\n## Allowed paths\n{listed}\n')
         return {tasks.SELECTOR: name}
 
-    return root, model, values, design, artifact, register
-
-
-__all__ = ['MODULE', 'Path', 'SCRIPT', 'annotations', 'contextmanager', 'generated_policy', 'io', 'json', 'load', 'load_model', 'model_design', 'model_projection', 'os', 'patch', 'property_paths_with_parents', 'pytest', 'pytestmark', 'read_model', 'redirect_stderr', 'redirect_stdout', 'run', 'shutil', 'sync_runtime', 'sync_views', 'sys', 'write_fixture_files', 'write_model']
+    with mapping_alias(definitions, root):
+        yield root, model, values, design, artifact, register

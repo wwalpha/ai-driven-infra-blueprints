@@ -1,5 +1,5 @@
 """Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
 import hashlib
 import io
@@ -21,7 +21,8 @@ from model_templates import affected, json_text, model_paths
 from policy_tables import literal
 from sync_files import atomic_files, save_files
 from task_contract import contracts, section, task_path
-from validation_cache import digest_files
+from validation_cache import input_bytes, input_text, input_is_file, input_select
+from utils.aws_mappings import definition_root, mappings_for, mapping_alias
 
 
 _baselines = ContextVar('import_baselines', default=None)
@@ -42,7 +43,7 @@ def baseline_scope():
 
 def workflow(root):
     path = task_path(root)
-    text = path.read_text(encoding='utf-8')
+    text = input_text(path, encoding='utf-8')
     contract = section(text, '## Task contract')
     if '- Task type: `design`' not in contract or contract.count('- Workflow: `import`') != 1:
         raise ValueError('IMPORT configuration changes require the registered design /import workflow')
@@ -62,10 +63,11 @@ def base_revision(root):
             raise ValueError('cannot determine the versioned IMPORT baseline')
         return None  # Initial registration has no previous versioned configuration.
     if contracts(root):
-        from worktree_task import committed_task_paths, load
+        from worktree_task import task_start_commit
         name = task_path(root).relative_to(root).as_posix()
-        if committed_task_paths(root, name) is not None:
-            return load(root, Path(name).stem)[3]['start']
+        start = task_start_commit(root, name)
+        if start is not None:
+            return start
     return result.stdout.strip()
 
 
@@ -155,18 +157,18 @@ def archive_sources(root, base, paths, destination):
 
 
 @contextmanager
-def snapshots(root, base, output):
+def snapshots(root, base, output, definitions_root=None):
+    definitions_root = definitions_root or definition_root(root)
     for path in output:
         if not path.resolve().is_relative_to(root) or '..' in path.relative_to(root).parts:
             raise ValueError('unsafe candidate Model source path')
-    with tempfile.TemporaryDirectory(prefix='blueprint-import-guard-') as directory:
-        before, after = Path(directory).resolve() / 'before', Path(directory).resolve() / 'after'
-        after.mkdir()
+    with ExitStack() as lifetime:
+        directory = lifetime.enter_context(tempfile.TemporaryDirectory(prefix='blueprint-import-guard-'))
+        before = Path(directory).resolve() / 'before'
         paths = ['model', 'project.json']
         cache = _baselines.get()
+        key = (root, base, tuple(paths), mappings_for(definitions_root))
         if cache is not None:
-            framework = [p for p in (root / 'framework').rglob('*') if p.is_file() or p.is_symlink()]
-            key = (root, base, tuple(paths), digest_files(root, framework))
             before = cache[1].get(key)
         if cache is None or before is None:
             if cache is None:
@@ -174,20 +176,23 @@ def snapshots(root, base, output):
             else:
                 before = Path(tempfile.mkdtemp(dir=cache[0])).resolve()
             archive_sources(root, base, paths, before)
-            if (root / 'framework').is_dir():
-                shutil.copytree(root / 'framework', before / 'framework')
             if cache is not None:
                 cache[1][key] = before
-        if (root / 'framework').is_dir():
-            shutil.copytree(root / 'framework', after / 'framework')
-        if (root / 'model').is_dir():
-            shutil.copytree(root / 'model', after / 'model')
-        if (root / 'project.json').is_file():
-            shutil.copyfile(root / 'project.json', after / 'project.json')
-        save_files({after / p.relative_to(root): text for p, text in output.items() if text is not None})
-        for path, text in output.items():
-            if text is None:
-                (after / path.relative_to(root)).unlink(missing_ok=True)
+        lifetime.enter_context(mapping_alias(definitions_root, before))
+        after = root
+        if output:
+            after = Path(directory).resolve() / 'after'
+            after.mkdir()
+            lifetime.enter_context(mapping_alias(definitions_root, after))
+            for path in (*input_select(root / 'model', '*', recursive=True, kinds=('file',)), root / 'project.json'):
+                if input_is_file(path):
+                    destination = after / path.relative_to(root)
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(input_bytes(path))
+            save_files({after / p.relative_to(root): text for p, text in output.items() if text is not None})
+            for path, text in output.items():
+                if text is None:
+                    (after / path.relative_to(root)).unlink(missing_ok=True)
         yield before, after
 
 
@@ -241,7 +246,7 @@ def require_import_changes(root, supplied=None, output=None, generation=False):
             raise ValueError('IMPORT source change has no acquired change plan')
         for relative in expected:
             path = root / relative
-            text = output[path] if output and path in output else path.read_bytes().decode('utf-8') if path.is_file() else None
+            text = output[path] if output and path in output else input_bytes(path).decode('utf-8') if input_is_file(path) else None
             actual = None if text is None else hashlib.sha256(text.encode('utf-8')).hexdigest()
             if actual != expected[relative]:
                 raise ValueError('IMPORT configuration differs from acquired change plan: ' + relative)

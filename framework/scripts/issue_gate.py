@@ -1,4 +1,5 @@
 """Stop unrelated work on services with unresolved target-local issues."""
+from validation_cache import input_is_file, input_select, input_text
 
 import argparse
 from pathlib import Path
@@ -15,11 +16,11 @@ SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 def remediation_scope(root: Path) -> set[tuple[str, str, str]]:
     path = task_path(root)
-    if not path.is_file():
+    if not input_is_file(path):
         return set()
     result = set()
     inside = False
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in input_text(path, encoding="utf-8").splitlines():
         if line.startswith("## "):
             inside = line == "## Issue remediation"
         elif inside and line.strip():
@@ -45,7 +46,7 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
     block = []
     number = ""
     fence = ""
-    contents = path.read_text(encoding="utf-8")
+    contents = input_text(path, encoding="utf-8")
 
     def flush():
         if not number:
@@ -98,10 +99,10 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
 
 def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:
     errors = []
-    paths = ((root / "issues").glob("*/*/issues.md") if scope is None else
+    paths = (input_select(root / "issues", "*/*/issues.md") if scope is None else
              (root / "issues" / env / directory / "issues.md" for env, directory in {entry[:2] for entry in scope}))
     for path in sorted(paths):
-        if not path.is_file():
+        if not input_is_file(path):
             continue
         identity = path.parent.relative_to(root / "issues").parts
         if target is not None and identity != target:
@@ -127,9 +128,9 @@ def require_no_issues(root: Path, scope, *, target=None) -> None:
 
 
 def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
-    if not (root / "issues" / target[0] / target[1] / "issues.md").is_file():
+    if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
         return
-    scope = active_scope(root) if task_path(root).is_file() else None
+    scope = active_scope(root) if input_is_file(task_path(root)) else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
         scope = None  # An unrelated contract cannot bypass a target's issues.
     require_no_issues(root, scope, target=target)

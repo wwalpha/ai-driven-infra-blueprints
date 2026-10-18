@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_is_dir, input_is_file, input_text
 from pathlib import Path
 import json
 import re
@@ -45,7 +46,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             findings.check(False, f"invalid validation YAML input: {error}")
         for base, suffix in (() if candidates else (("docs/designs", ".md"),)):
             relative = f"{base}/{environment}/{target}/{service}{suffix}"
-            findings.check((root / relative).is_file(), f"validation input missing: {relative}")
+            findings.check(input_is_file(root / relative), f"validation input missing: {relative}")
     from model_templates import affected
     impact = set()
     try:
@@ -70,7 +71,7 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
     path = root / "project.json"
     if template_mode:
         return
-    text = path.read_text(encoding="utf-8")
+    text = input_text(path, encoding="utf-8")
     findings.check(text.endswith("\n"), "project.json must end with a newline")
     try:
         topology = json.loads(text)
@@ -213,5 +214,5 @@ def check_initialized_paths(accounts, findings, root, scope, template_mode, *, c
         elif values["engine"] == "terraform":
             paths.append(root_directory(root, (environment, target_directory)))
         for path in paths:
-            findings.check(path.is_dir(), f"initialized target path missing: {findings.relative(path)}")
+            findings.check(input_is_dir(path), f"initialized target path missing: {findings.relative(path)}")
 

@@ -7,6 +7,7 @@ Operate this repository in Codex with the repository root as the working directo
 ## Always applicable rules
 
 - Execute only the active prompt scope; do not automatically proceed to the next phase or another task. Do not infer unconfirmed resources, parameters, or mappings.
+- During generation, validation and publication, do not concurrently edit inputs, Task contracts or outputs in the same worktree. Concurrent read-only review is allowed; use a separate worktree for parallel edits. Retain the publication lock and stop all saves if the final input comparison detects changes.
 - Register this contract before repository changes. Preserve other tasks' contracts and uncommitted changes.
 - Apply unresolved-issue stop decisions and the exceptions for explicit repair and save-only tasks.
 - Perform AWS mutation and deploy/apply only within the permission scope explicitly stated by the infrastructure contract. Limit design AWS APIs to read-only retrieval of explicitly specified existing resources.

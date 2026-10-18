@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from validation_cache import input_text
+
 import argparse
 import json
 import re
@@ -35,7 +37,7 @@ def load_target(
 
     path = root / "project.json"
     try:
-        topology = json.loads(path.read_text(encoding="utf-8"))
+        topology = json.loads(input_text(path, encoding="utf-8"))
     except FileNotFoundError as error:
         raise DeployContextError("project.json is missing") from error
     except json.JSONDecodeError as error:

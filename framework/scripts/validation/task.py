@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from validation_cache import input_is_file, input_text
 import re
 import subprocess
 from pathlib import Path
@@ -30,6 +31,9 @@ class TaskValidation:
         self.check = findings.check
         self.relative = findings.relative
         self.changed_paths = set()
+        self.permission_paths = None
+        self.baseline = None
+        self.baseline_fixed = False
         self.task_type = ""
         self.infrastructure_phase = ""
         self.requirement_ids = []
@@ -40,37 +44,67 @@ class TaskValidation:
         self.contract_text = None
         self.import_checked = False
 
+    @property
+    def scope_paths(self):
+        return self.changed_paths if self.permission_paths is None else self.permission_paths
+
     def git_paths(self, args: list[str]) -> set[str]:
         result = subprocess.run(
             ["git", *args], cwd=self.root, check=False, capture_output=True, text=True
         )
-        self.check(result.returncode == 0, f"git {' '.join(args)} failed")
-        return {path for path in result.stdout.split("\0") if path} if result.returncode == 0 else set()
+        if result.returncode:
+            raise ValueError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+        return {path for path in result.stdout.split("\0") if path}
 
+
+    def fix_baseline(self):
+        if self.baseline_fixed:
+            return
+        from worktree_task import task_start_commit, git, output
+        prompt = task_path(self.root).relative_to(self.root).as_posix()
+        start = task_start_commit(self.root, prompt)
+        if start is None:
+            head = git(self.root, 'rev-parse', '--verify', 'HEAD^{commit}', check=False)
+            if head.returncode == 0:
+                start = head.stdout.strip()
+            else:
+                # A missing branch ref is unborn; detached/broken HEAD and non-Git fail.
+                ref = output(self.root, 'symbolic-ref', 'HEAD')
+                missing = git(self.root, 'show-ref', '--verify', '--quiet', ref, check=False)
+                if missing.returncode != 1:
+                    raise ValueError('cannot determine Git baseline: invalid HEAD')
+        self.baseline = start  # None explicitly means the empty unborn baseline.
+        self.baseline_fixed = True
+
+    def final_paths(self):
+        self.fix_baseline()
+        untracked = self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])
+        if self.baseline is None:
+            tracked = {p for p in self.git_paths(['ls-files', '--cached', '-z'])
+                       if (self.root / p).exists() or (self.root / p).is_symlink()}
+        else:
+            tracked = self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, '--'])
+        return (tracked | untracked) - {'.lock'}
 
     def check_task_scope(self, contract_text=None) -> None:
+        self.fix_baseline()
         prompt = task_path(self.root)
-        self.changed_paths = (
-            self.git_paths(["diff", "--no-renames", "--name-only", "-z"])
-            | self.git_paths(["diff", "--cached", "--no-renames", "--name-only", "-z"])
-            | self.git_paths(["ls-files", "--others", "--exclude-standard", "-z"])
-        ) - {".lock"}  # Per-repository password configuration is not a task artifact.
-        if not self.changed_paths and (not prompt.is_file() or
-                "- Task type:" not in prompt.read_text(encoding="utf-8")):
-            return  # Preserve the unchanged legacy idle state.
-        if prompt.is_file():
-            from worktree_task import committed_task_paths
-            committed = committed_task_paths(self.root, self.relative(prompt))
-            if committed is not None:
-                self.changed_paths |= committed
-        if not prompt.is_file():
-            self.check(
-                not (self.changed_paths - {"tasks/active.md"}),
-                f"active task prompt missing: {self.relative(prompt)} while repository has non-contract changes",
-            )
+        self.changed_paths = self.final_paths()
+        self.permission_paths = (
+            self.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
+            self.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']) |
+            self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])) - {'.lock'}
+        if self.baseline is not None:
+            self.permission_paths |= self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, 'HEAD', '--']) - {'.lock'}
+        if not self.permission_paths and (not input_is_file(prompt) or
+                '- Task type:' not in input_text(prompt, encoding='utf-8')):
+            return
+        if not input_is_file(prompt):
+            self.check(not (self.permission_paths - {'tasks/active.md'}),
+                       f'active task prompt missing: {self.relative(prompt)} while repository has non-contract changes')
             return
 
-        self.contract_text = contract_text if contract_text is not None else prompt.read_text(encoding="utf-8")
+        self.contract_text = contract_text if contract_text is not None else input_text(prompt, encoding="utf-8")
         lines = self.contract_text.splitlines()
         contract = self.section(lines, "## Task contract")
         task_types = []
@@ -137,14 +171,14 @@ class TaskValidation:
                    if (match := re.fullmatch(r"- `([^`]+)`", line))]
         self.check(bool(allowed), f"Allowed paths section missing or empty: {self.relative(prompt)}")
 
-        for changed in sorted(self.changed_paths):
+        for changed in sorted(self.permission_paths):
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
-        self.check_task_boundary(prompt)
+        self.check_task_boundary(prompt, self.scope_paths)
         from import_guard import require_import_changes
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.
-            require_import_changes(self.root, self.changed_paths)
+            require_import_changes(self.root, self.scope_paths)
             self.import_checked = True
         except (OSError, ValueError, KeyError) as error:
             self.check(False, str(error))
@@ -173,11 +207,11 @@ class TaskValidation:
         return path == prefix or path.startswith(prefix + "/")
 
 
-    def check_task_boundary(self, prompt: Path) -> None:
+    def check_task_boundary(self, prompt: Path, paths=None) -> None:
         if self.task_type not in TASK_TYPES:
             return
         prompt_path = self.relative(prompt)
-        for changed in sorted(self.changed_paths):
+        for changed in sorted(self.changed_paths if paths is None else paths):
             if self.task_type == "design":
                 forbidden = self.under(changed, "infra") or self.under(changed, "tests")
                 self.check(not forbidden, f"design task boundary violation: {changed}")
@@ -205,12 +239,12 @@ class TaskValidation:
                            for name in ("issues.md", "iac-issues.md", "diff.md")}
                 prompt = task_path(self.root)
                 permitted = reports | {self.relative(prompt)}
-                lines = (self.contract_text or prompt.read_text(encoding="utf-8")).splitlines()
+                lines = (self.contract_text or input_text(prompt, encoding="utf-8")).splitlines()
                 allowed = self.section(lines, "## Allowed paths")
                 allowed = {line[3:-1] for line in allowed if re.fullmatch(r"- `[^`]+`", line)}
-                if allowed & reports and allowed <= permitted and self.changed_paths <= permitted:
+                if allowed & reports and allowed <= permitted and self.scope_paths <= permitted:
                     return  # Report-only saves may continue; model saves and AWS guards still apply.
-            service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.changed_paths)
+            service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.scope_paths)
             if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
                 scope = set()  # Framework-wide validation does not target consumer services.
             require_no_issues(self.root, scope)
@@ -228,12 +262,12 @@ class TaskValidation:
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             design_sources = {path for path in changed if path.startswith('model/templates/') or
                               path.startswith('model/parameters/') and Path(path).name in {'parameters.yaml', 'bindings.json'}}
-            text = self.contract_text or task_path(self.root).read_text(encoding='utf-8')
+            text = self.contract_text or input_text(task_path(self.root), encoding='utf-8')
             if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
                 from import_guard import require_import_changes
                 try:
                     if not self.import_checked:
-                        require_import_changes(self.root, self.changed_paths)
+                        require_import_changes(self.root, self.scope_paths)
                     design_sources |= {path for path in changed if path.startswith('model/parameters/') and Path(path).name == 'observed.json'}
                 except (OSError, ValueError) as error:
                     self.check(False, str(error))
@@ -255,7 +289,7 @@ class TaskValidation:
                 if iac_changed:
                     from deploy_preparation import repair_changes
                     try:
-                        repair_changes(self.root, task_path(self.root).read_text(encoding="utf-8"),
+                        repair_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
                                        {path for path in changed if self.under(path, "infra")})
                     except (OSError, ValueError, KeyError, TypeError) as error:
                         self.check(False, f"infrastructure deploy phase must not change IaC without controlled repair evidence: {error}")

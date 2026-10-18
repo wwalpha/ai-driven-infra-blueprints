@@ -1,4 +1,5 @@
 """Human inputs; normalize into the existing explicit-ID template expansion contract."""
+from validation_cache import input_bytes
 import copy
 import ipaddress
 import re
@@ -261,7 +262,7 @@ def bind_instances(template, parameters, bindings, definitions, environment, che
     if any(isinstance(spec, dict) and spec.get('source') == 'consumer.executionAccountId'
            for definition in definitions.values() for spec in definition.parameters.values()):
         project = template.parents[3]/'project.json'
-        files[project] = project.read_bytes().decode('utf-8')
+        files[project] = input_bytes(project).decode('utf-8')
         execution_account = consumer_execution_account(template, environment)
     result = []
     for identity, binding in maps.items():
