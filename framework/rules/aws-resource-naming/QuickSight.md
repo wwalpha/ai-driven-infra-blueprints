@@ -8,7 +8,7 @@ Follow the [common rules](../aws-resource-naming.md) for the common scope, exclu
 | --- | --- | --- | --- | --- |
 | Amazon QuickSight | Group | `QuickSight.Group` | `GroupName` | `{{purpose}}` |
 | Amazon QuickSight | Data source | `QuickSight.DataSource` | `Name` | `qsds-{{application}}-{{environment}}-{{source_type}}-{{purpose}}` |
-| Amazon QuickSight | VPC connection | `QuickSight.VPCConnection` | `Name` | `qsvc-{{application}}-{{environment}}-{{purpose}}` |
+| Amazon QuickSight | VPC connection | `QuickSight.VPCConnection` | `Name` | `qsvc-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]` |
 
 ## Service-specific constraints
 
