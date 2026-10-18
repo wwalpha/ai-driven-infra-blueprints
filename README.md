@@ -267,7 +267,7 @@ Use `framework/`, `.agents/`, and root `AGENTS.md`/`README.md` as the common-ass
 python framework/scripts/sync-existing-files.py --target <target-repository>
 ```
 
-This command adds/updates `<target-repository>/framework/**`, `<target-repository>/.agents/**`, root `AGENTS.md`/`README.md`, and only `.github/workflows/framework-it.yml`. Other workflows are preserved. It does not copy/change project-specific `project.json`, `docs/`, `infra/`, `model/`, `tasks/`, or `tests/`. Use `--dry-run` to confirm differences before saving. Since synchronization counts reflect content differences at the destination, they may differ from local uncommitted file counts including unsynchronized files such as `tasks/<task-name>.md`. The summary displays synchronization scope and excluded paths.
+This command adds/updates `<target-repository>/framework/**`, `<target-repository>/.agents/**`, root `AGENTS.md`/`README.md`, excluding `framework/scripts/tests/**`. Workflows, including `.github/workflows/framework-it.yml`, are preserved. It does not copy/change project-specific `project.json`, `docs/`, `infra/`, `model/`, `tasks/`, or `tests/`. Use `--dry-run` to confirm differences before saving. Since synchronization counts reflect content differences at the destination, they may differ from local uncommitted file counts including unsynchronized files such as `tasks/<task-name>.md`. The summary displays synchronization scope and excluded paths.
 
 ## Repository structure
 
