@@ -238,6 +238,49 @@ def check_cidr_pending_deploy() -> None:
             return validator.errors
 
         assert not errors(valid), errors(valid)
+        from validation import design_tables
+
+        without_name = valid.replace("| 1 | Name | `vpc-app-stg` | VPCの名前 |\n", "").replace(
+            "| 2 | VpcId", "| 1 | VpcId").replace("| 3 | CidrBlock", "| 2 | CidrBlock")
+        for mode, text, expected in (
+            ("CREATE", valid, None),
+            ("CREATE", without_name, "required Name property"),
+            ("IMPORT", without_name, None),
+        ):
+            with patch.object(design_tables, "expanded_design", wraps=design_tables.expanded_design) as expand, \
+                 patch.object(design_tables, "expanded_display_rows", wraps=design_tables.expanded_display_rows) as display:
+                diagnostics = errors(f"<!-- resource-mode: vpc-vpc-app-stg {mode} -->\n" + text)
+                if expected is None:
+                    assert not diagnostics, (mode, diagnostics)
+                else:
+                    assert any(expected in error for error in diagnostics), diagnostics
+                assert expand.call_args.kwargs["modes"] == {"vpc-vpc-app-stg": mode}
+                assert display.call_args.kwargs["modes"] == {"vpc-vpc-app-stg": mode}
+
+        failed = path.with_name("network.md")
+        write(failed, valid.replace("vpc-vpc-app-stg", "network-vpc-app-stg"))
+        write(path, valid)
+        for source, failure in (
+            ("resource_logical_ids", ValueError("識別情報が曖昧")),
+            ("design_model_values", OSError("Model読み込み失敗")),
+        ):
+            original = getattr(design_tables, source)
+            for paths in ([failed], [failed, path]):
+                validator = schema_validator(root)
+                with patch.object(design_tables, source, side_effect=[failure, original(
+                    design_tables.resource_heading_lines(valid.splitlines())) if source == "resource_logical_ids" else None]), \
+                     patch.object(design_tables, "expanded_design", wraps=design_tables.expanded_design) as expand, \
+                     patch.object(design_tables, "expanded_display_rows", wraps=design_tables.expanded_display_rows) as display, \
+                     patch.object(design_tables, "check_required_name_tag", wraps=design_tables.check_required_name_tag) as names:
+                    result = validator.findings.evaluate("design.tables", None, lambda:
+                        validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog, paths=paths))
+                diagnostic = f"invalid resource identity: {failed.relative_to(root).as_posix()}: {failure}"
+                assert validator.errors == [diagnostic], validator.errors
+                assert result.status == "FAIL" and result.errors == (diagnostic,), result
+                assert expand.call_count == display.call_count == len(paths) - 1
+                assert [call.args[0] for call in names.call_args_list] == paths[1:]
+        failed.unlink()
+
         for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-vpc-app-stg)"):
             # Reject either table independently, not merely when both agree.
             assert any("CIDR must not use" in error for error in errors(valid.replace("`10.0.0.0/16`", pending, 1)))

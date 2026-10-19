@@ -4,6 +4,8 @@
 
 ## 数え方
 
+`units/validation_checks/design.py::check_cidr_pending_deploy` は既存VPC fixtureで識別情報失敗の回帰も検証する。`resource_logical_ids` のValueError、`design_model_values` のOSErrorを単独ファイル／後続正常サービスありの各条件で注入し、元診断・ファイルパスの完全一致、当該ファイルの後続展開停止、正常サービスのName検証到達、集約結果FAILを確認する。CREATE正常／Name欠落、IMPORTのName省略と両展開関数へのmodes伝達も確認する。実Model・AWS・ITは使用しない。
+
 ケース数は実行入口の関数（unittestはメソッド）を数える。pytestは設定から静的に算出し、decoratorの直積を展開した数も併記する。直接実行の関数、callback、main/module内の検証地点は別欄。mainは複数シナリオを含むため、検証地点の明細を別表で網羅し、関数数へ水増し加算しない。ヘルパーのassertは共通検証として保持し、テストケース数に加算しない。動的ループは入力式を記載し、実行しないと決まらない件数を推測しない。
 
 pytest件数はテスト定義・aliasと設定から算出する。直接実行入口で選択されるcallbackとpytestラッパーは重ねて合計しない。

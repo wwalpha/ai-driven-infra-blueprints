@@ -205,10 +205,7 @@ def check_design_tables(
                     heading_modes[match.groups()] = modes.get(anchor, "CREATE")
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid resource identity: {findings.relative(path)}: {error}")
-            values = None
-            identities = {}
-            bound_anchors = {}
-            heading_modes = {}
+            continue
         resource_type = ""
         for index, line in enumerate(lines):
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
