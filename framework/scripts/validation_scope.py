@@ -3,13 +3,13 @@ from validation_cache import input_is_file, input_select, input_text
 
 from pathlib import Path
 import re
-from task_contract import task_path, contracts
+from task_contract import task_path, contract_path, contracts
 
 
-def active_scope(root: Path, full: bool = False, *, task_file=None) -> set[tuple[str, str, str]] | None:
+def active_scope(root: Path, full: bool = False, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]] | None:
     if full:
         return None
-    path = task_path(root, selected=task_file)
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
     if not input_is_file(path):
         if contracts(root):
             return set()  # All registered tasks are completed; retain shared idle checks.

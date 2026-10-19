@@ -1788,3 +1788,13 @@ Model-only imports avoid the presentation dependency; cache comparisons unwrap b
 and read API scopes; saved-validation tracing excludes candidate validators; publication
 failure checks allow candidate validation; shared-input saves register a synthetic Task;
 partial-cache validation spies on compare_generation with the full consumer scope.
+
+## Approved suspend integration
+
+| 元パス | ケース | 区分 | 現在の入口 | 実行 / 件数 | 責務 | 保持内容 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `worktree_task.checks.py` | `check_approved_model_reads` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | 承認済みsuspendのModel比較・証跡・Git統合 | 合成Modelで値不変/IMPORT変更拒否/有効・欠落・改竄・期限・identity・scope・未完了証跡と通常実行拒否、status保持、cleanupを検証 |
+
+既存 `check_suspend_and_resume` に状態非依存の契約参照、通常実行拒否、selector・構造・symlink拒否を追加。
+
+既存 `check_model_operation_integration` の3シナリオに、承認済みsuspendのmerge/delete成功と不正な値変更拒否の3シナリオを追加。

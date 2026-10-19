@@ -1,7 +1,7 @@
 """Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
 from contextlib import contextmanager, ExitStack
 from collections.abc import Iterator
-from model_sources import SourceWriteContext
+from model_sources import SourceWriteContext, safe
 from contextvars import ContextVar
 import hashlib
 import io
@@ -22,7 +22,7 @@ from model_files import load_model, resource_row_index
 from model_templates import affected, json_text, model_paths
 from policy_tables import literal
 from sync_files import atomic_files, save_files
-from task_contract import contracts, section, task_path
+from task_contract import contracts, section, task_path, contract_path
 from validation_cache import input_bytes, input_text, input_is_file, input_select
 from utils.aws_mappings import definition_root, mappings_for, mapping_alias
 
@@ -43,8 +43,8 @@ def baseline_scope():
             _baselines.reset(token)
 
 
-def workflow(root):
-    path = task_path(root)
+def workflow(root, *, contract_file=None):
+    path = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root))
     text = input_text(path, encoding='utf-8')
     contract = section(text, '## Task contract')
     if '- Task type: `design`' not in contract or contract.count('- Workflow: `import`') != 1:
@@ -52,11 +52,11 @@ def workflow(root):
     return path.relative_to(root).as_posix()
 
 
-def proof_path(root):
-    return evidence_store(root) / (task_path(root).stem + '.json')
+def proof_path(root, *, contract_file=None):
+    return evidence_store(root) / ((contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
 
 
-def base_revision(root):
+def base_revision(root, *, contract_file=None):
     result = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
         valid = subprocess.run(['git', 'rev-parse', '--git-dir'], cwd=root, capture_output=True)
@@ -65,19 +65,19 @@ def base_revision(root):
         return None  # Initial registration has no previous versioned configuration.
     if contracts(root):
         from worktree_task import task_start_commit
-        name = task_path(root).relative_to(root).as_posix()
+        name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
         start = task_start_commit(root, name)
         if start is not None:
             return start
     return result.stdout.strip()
 
 
-def changed_sources(root, supplied=None):
+def changed_sources(root, supplied=None, *, contract_file=None):
     if supplied is None:
         from worktree_task import changed_paths, committed_task_paths
         supplied = changed_paths(root)
         if contracts(root):
-            name = task_path(root).relative_to(root).as_posix()
+            name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
             supplied |= committed_task_paths(root, name) or set()
     return {str(p) for p in supplied if str(p).startswith(('model/templates/', 'model/parameters/')) or str(p) == 'project.json'}
 
@@ -158,7 +158,7 @@ def archive_sources(root, base, paths, destination):
 
 
 @contextmanager
-def snapshots(root, base, output, definitions_root=None):
+def snapshots(root, base, output, definitions_root=None, *, detached=False):
     definitions_root = definitions_root or definition_root(root)
     for path in output:
         if not path.resolve().is_relative_to(root) or '..' in path.relative_to(root).parts:
@@ -181,12 +181,13 @@ def snapshots(root, base, output, definitions_root=None):
                 cache[1][key] = before
         lifetime.enter_context(mapping_alias(definitions_root, before))
         after = root
-        if output:
+        if output or detached:
             after = Path(directory).resolve() / 'after'
             after.mkdir()
             lifetime.enter_context(mapping_alias(definitions_root, after))
             for path in (*input_select(root / 'model', '*', recursive=True, kinds=('file',)), root / 'project.json'):
                 if input_is_file(path):
+                    safe(root, path)
                     destination = after / path.relative_to(root)
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(input_bytes(path))
@@ -197,14 +198,14 @@ def snapshots(root, base, output, definitions_root=None):
         yield before, after
 
 
-def changes(root, sources, output=None, include_create=False):
+def changes(root, sources, output=None, include_create=False, *, contract_file=None):
     root = root.resolve()
     from import_scope import selected
-    identity = selected(root)
-    base = base_revision(root)
+    identity = selected(root, contract_file=contract_file)
+    base = base_revision(root, contract_file=contract_file)
     if not sources or base is None:
         return base, {}
-    with snapshots(root, base, output or {}) as (before, after):
+    with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
         scope = affected(after, sources, before=before)
         # Include deleted consumers, which cannot authorize removal of IMPORT resources.
         scope |= {tuple(Path(p).parts[2:5]) for p in sources if p.startswith('model/parameters/') and len(Path(p).parts) == 6}
@@ -230,15 +231,17 @@ def changes(root, sources, output=None, include_create=False):
         return base, found
 
 
-def require_import_changes(root, supplied=None, output=None, generation=False, *, final_candidate=None):
+def require_import_changes(root, supplied=None, output=None, generation=False, *, final_candidate=None, contract_file=None):
+    if contract_file is not None and (output is not None or generation or final_candidate is not None):
+        raise ValueError('contract reference is limited to read-only integration checks')
     root = root.resolve()
     if not (root / '.git').exists():
         return  # Disposable generator stages have no Git baseline; the calling boundary is guarded.
     sources = ({p for p in final_candidate.changed_paths if p.startswith(('model/', 'project.json'))}
-               if final_candidate is not None else changed_sources(root, supplied))
+               if final_candidate is not None else changed_sources(root, supplied, contract_file=contract_file))
     if output:
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
-    selected = task_path(root).relative_to(root).as_posix()
+    selected = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
     text = contracts(root).get(selected, '')
     from task_contract import model_operation, model_refactor
     operation = model_operation(text)
@@ -246,11 +249,11 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
     if operation is not None:
         if generation:
             return  # Source/view generation does not decide final Model operation meaning.
-        base = final_candidate.base_commit if final_candidate is not None else base_revision(root)
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
         if base is None:
             raise ValueError('IMPORT Model-only operation requires a versioned baseline')
         from model_operation_checks import verify_model_operation
-        with snapshots(root, base, output or {}) as (before, after):
+        with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
             verify_model_operation(before, after, operation, sources)
         return
     if refactor is not None:
@@ -262,18 +265,18 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
             safe_path(root, relative)
             if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
                 raise ValueError('Model refactor source outside Modified files/Allowed paths: ' + relative)
-        base = final_candidate.base_commit if final_candidate is not None else base_revision(root)
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
         if base is None:
             raise ValueError('Model refactor requires a versioned baseline')
-        scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root)
-        with snapshots(root, base, output or {}) as (before, after):
+        scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
+        with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
             verify_model_refactor(before, after, refactor, sources, scope)
         return
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:
         if not sources and generation:
             return
-        proof = read_proof(root)
+        proof = read_proof(root, contract_file=contract_file) if contract_file is not None else read_proof(root)
         expected = proof['sources']
         if sources - expected.keys():
             raise ValueError('IMPORT source change has no acquired change plan')
@@ -286,16 +289,17 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         if output is None and not generation and (proof['model'] not in {'reflected', 'unchanged'} or not proof['complete']):
             raise ValueError('IMPORT retrieval/reflection is incomplete; task remains unfinished')
         return
-    base, differences = changes(root, sources, output)
+    base, differences = changes(root, sources, output, contract_file=contract_file)
     if differences:
         raise ValueError('IMPORT configuration changes require the registered design /import workflow')
 
 
-def read_proof(root):
+def read_proof(root, *, contract_file=None):
     from import_scope import selected
     from task_contract import safe_path
-    file = proof_path(root)
-    legacy = safe_path(root, '.blueprint/import/' + task_path(root).stem + '.json')
+    reference = {} if contract_file is None else {'contract_file': contract_file}
+    file = proof_path(root, **reference)
+    legacy = safe_path(root, '.blueprint/import/' + (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
     try:
         source = file if file.exists() else legacy
         if file.is_symlink() or source.is_symlink():
@@ -303,8 +307,8 @@ def read_proof(root):
         proof = read_sealed(root, source)
         require_fresh_acquisition(proof)
         if (proof['version'] != 3
-                or proof['task'] != workflow(root) or proof['base'] != base_revision(root)
-                or proof['scope'] != list(selected(root)) or not proof['acquisition']
+                or proof['task'] != workflow(root, **reference) or proof['base'] != base_revision(root, **reference)
+                or proof['scope'] != list(selected(root, **reference)) or not proof['acquisition']
                 or not isinstance(proof['sources'], dict) or not proof['plan']
                 or type(proof['complete']) is not bool
                 or proof['model'] not in {'pending', 'reflected', 'unchanged'}

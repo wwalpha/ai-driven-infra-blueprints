@@ -89,6 +89,19 @@ def check_suspend_and_resume(tmp_path):
         assert active_scope(root) == set()
         with patch.dict(os.environ, {tasks.SELECTOR: first}):
             blocked(lambda: tasks.task_path(root), "suspend task cannot execute")
+        assert tasks.contract_path(root, first) == root / first
+        assert active_scope(root, contract_file=first) == set()
+        blocked(lambda: active_scope(root, task_file=first), "suspend task cannot execute")
+        blocked(lambda: tasks.task_revision(root, first), "suspend task cannot execute")
+        blocked(lambda: tasks.contract_path(root, '../first.md'), "invalid task selector")
+        blocked(lambda: tasks.contract_path(root, 'tasks/missing.md'), "missing")
+        saved = (root / first).read_bytes()
+        (root / 'shared.md').symlink_to(root / 'elsewhere')
+        blocked(lambda: tasks.contract_path(root, first), "symlinks")
+        (root / 'shared.md').unlink()
+        (root / first).write_text(saved.decode().replace('## Modified files', '## Missing files'))
+        blocked(lambda: tasks.contract_path(root, first), "missing or duplicate paths")
+        (root / first).write_bytes(saved)
         tasks.start(root, second, contract(second, ["shared.md"]))
         assert tasks.task_path(root) == root / second
         tasks.resume(root, first)

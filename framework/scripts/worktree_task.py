@@ -235,9 +235,13 @@ def task_worktree(root, state):
 
 def integration_task(target, state, approval=None):
     # A human-approved Git integration does not turn failed validation into completion.
-    text = tasks.safe_path(target, state["task_file"]).read_text(encoding="utf-8")
+    selected = tasks.contract_path(target, selected=state["task_file"])
+    task_start_commit(target, state["task_file"])
+    text = selected.read_text(encoding="utf-8")
     current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
+    if approval is not None and (not isinstance(approval, str) or not approval.strip()):
+        raise Blocked("human approval must identify the accepted validation failures")
     expected = "suspend" if approval else "completed"
     if current != expected:
         raise Blocked(f"task must be {expected} for integration; current status: {current}")
@@ -315,17 +319,12 @@ def _prepare_commit(root, path, state, target, approval):
     operation = tasks.final_model_task(contract)
     if approval and tasks.model_refactor(contract) is not None:
         raise Blocked('Model refactor integration requires successful final candidate validation')
-    if not operation and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
+    if (not operation or approval) and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
         from import_guard import require_import_changes
-        previous = os.environ.get(tasks.SELECTOR)
-        try:
-            os.environ[tasks.SELECTOR] = state['task_file']
-            require_import_changes(target)
-        finally:
-            if previous is None:
-                os.environ.pop(tasks.SELECTOR, None)
-            else:
-                os.environ[tasks.SELECTOR] = previous
+        if approval:
+            integration_task(target, state, approval)
+        with tasks.selected_task(target, state['task_file']):
+            require_import_changes(target, contract_file=state['task_file'] if approval else None)
         changed = changed_paths(target)  # Valid legacy receipts may have migrated.
     if any(p.startswith("tasks/") for p in changed):
         raise Blocked("contracts must remain ignored; nothing committed")

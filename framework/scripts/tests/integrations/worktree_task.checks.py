@@ -524,13 +524,87 @@ def check_final_candidate_staleness():
                     assert wt.cleanup(root, 'example')['cleaned']
 
 
+@it_case
+def check_approved_model_reads():
+    from datetime import datetime, timezone, timedelta
+    import import_guard as guard
+    from support.import_model_fixtures import operation_fixture
+    from utils.aws_mappings import mapping_alias
+    from validation_scope import active_scope
+    import pytest
+    approval = 'Human accepts fixture validation failure for Git integration'
+    relative = 'model/parameters/stg/cde/vpc/parameters.yaml'
+    for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
+                 'wrong-task', 'wrong-base', 'wrong-scope', 'incomplete', 'wrong-sources'):
+        with fixture() as root:
+            operation_fixture(root)
+            git(root, 'add', 'model', 'project.json')
+            git(root, 'commit', '-qm', 'synthetic Model baseline')
+            target, state = start(root, files=(relative,))
+            source = target / relative
+            source.write_text(source.read_text() + '\n# integration fixture\n')
+            if mode == 'changed-import':
+                source.write_text(source.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
+            importing = mode not in ('preserved', 'changed-import')
+            if importing:
+                contract = target / state['task_file']
+                text = contract.read_text().replace('- Task type: `governance`', '- Task type: `design`\n- Workflow: `import`')
+                contract.write_text(text.replace('- `framework`', '- `stg/cde/vpc`'))
+                with tasks.selected_task(target, state['task_file']):
+                    proof = dict(version=3, task=state['task_file'], base=state['start'],
+                                 scope=['stg', 'cde', 'vpc'], acquisition='fixture-receipt',
+                                 sources={relative: guard.file_hash(source)}, plan='fixture-plan',
+                                 complete=mode != 'incomplete', model='reflected', markdown='failed',
+                                 ownedArtifacts=[], acquiredAt=datetime.now(timezone.utc).isoformat())
+                    if mode == 'expired':
+                        proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+                    if mode.startswith('wrong-'):
+                        key = mode.removeprefix('wrong-')
+                        proof[key] = {'task': 'tasks/other.md', 'base': 'wrong',
+                            'scope': ['dev', 'cde', 'vpc'], 'sources': {relative: '0' * 64}}[key]
+                    receipt = guard.proof_path(target)
+                    if mode != 'missing':
+                        guard.write_sealed(target, receipt, proof)
+                    if mode == 'tampered':
+                        receipt.write_text(receipt.read_text().replace('fixture-plan', 'modified-plan'))
+            tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: parameters.yaml')
+            saved = (target / state['task_file']).read_bytes()
+            before = git(root, 'rev-parse', 'HEAD')
+            with tasks.selected_task(target, state['task_file']):
+                for call in (lambda: tasks.task_path(target), lambda: active_scope(target),
+                             lambda: guard.require_import_changes(target)):
+                    with pytest.raises(ValueError, match='suspend task cannot execute'):
+                        call()
+            cli(root, 'finalize', success=False)
+            with mapping_alias(SCRIPT.parents[2], target):
+                if mode in ('preserved', 'proof'):
+                    # Keep the checkout for byte-for-byte status inspection, then exercise cleanup retry.
+                    (target / 'secret.bin').write_text('preserve')
+                    with pytest.raises(wt.Blocked, match='ignored files'):
+                        wt.finalize(root, 'example', approval)
+                    assert (target / state['task_file']).read_bytes() == saved
+                    assert approval in git(root, 'log', '-1', '--format=%b')
+                    assert (root / relative).read_bytes() == source.read_bytes()
+                    (target / 'secret.bin').unlink()
+                    assert wt.cleanup(root, 'example')['cleaned']
+                    assert not target.exists() and not wt.branch_exists(root, state['branch'])
+                else:
+                    with pytest.raises(ValueError) as error:
+                        wt.finalize(root, 'example', approval)
+                    assert 'suspend task cannot execute' not in str(error.value)
+                    retained(root, target, state, before)
+                    assert git(target, 'rev-parse', 'HEAD') == state['start']
+                    assert (target / state['task_file']).read_bytes() == saved
+    print('Approved suspended Model comparison and sealed IMPORT evidence guards: PASS')
+
+
 def main():
     for check in (check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,
                   check_merge_retry_and_commit_failure,
-                  check_human_approved_validation_failure, check_real_loop_integration):
+                  check_human_approved_validation_failure, check_approved_model_reads, check_real_loop_integration):
         check()
     print("worktree-task: PASS (isolated lifecycle and failure retention)")
 
@@ -540,7 +614,9 @@ def check_model_operation_integration():
     import shutil
     from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
     from utils.aws_mappings import mapping_alias
-    for action, corrupt in (("import-merge", False), ("import-delete", False), ("import-merge", True)):
+    for action, corrupt, approved in (("import-merge", False, False), ("import-delete", False, False),
+                                      ("import-merge", True, False), ("import-merge", False, True),
+                                      ("import-delete", False, True), ("import-merge", True, True)):
         with fixture() as root:
             operation_fixture(root)
             git(root, "add", "model", "project.json")
@@ -558,11 +634,23 @@ def check_model_operation_integration():
                 for name in sources:
                     shutil.copyfile(candidate / name, target / name)
                 with mapping_alias(SCRIPT.parents[2], target):
-                    finish_contract(target, state)
+                    if not approved:
+                        finish_contract(target, state)
                     if corrupt:
                         file = target / 'model/parameters/stg/cde/vpc/parameters.yaml'
                         file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
                     base_head = git(root, 'rev-parse', 'HEAD')
+                    if approved:
+                        import pytest
+                        tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL')
+                        if corrupt:
+                            with pytest.raises(ValueError, match='transferred'):
+                                wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
+                            retained(root, target, state, base_head)
+                            assert git(target, 'rev-parse', 'HEAD') == state['start']
+                        else:
+                            assert wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')['cleaned']
+                        continue
                     final = wt.prepare_integration(root, 'example')
                     from import_guard import require_import_changes
                     from validation import loop

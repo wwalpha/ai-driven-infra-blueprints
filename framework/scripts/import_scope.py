@@ -56,20 +56,23 @@ def reference_reader(path):
         _reference.reset(token)
 
 
-def selected(root):
+def selected(root, *, contract_file=None):
     if _scope.get() is not None:
         return _scope.get()
-    from task_contract import contracts, task_path
+    from task_contract import contracts, task_path, contract_path
     records = contracts(root)
     if not records:
         return None
-    name = task_path(root).relative_to(root).as_posix()
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)
+    name = path.relative_to(root).as_posix()
     # Select the current task and its IMPORT scope.
-    return _selection(root, name, records.get(name, ''))
+    if contract_file is None:
+        return _selection(root, name, records.get(name, ''))
+    return _selection(root, name, records.get(name, ''), contract_file)
 
 
 @memoized
-def _selection(root, name, text):
+def _selection(root, name, text, contract_file=None):
     from task_contract import section
     if '- Workflow: `import`' not in section(text, '## Task contract'):
         return None
@@ -83,7 +86,7 @@ def _selection(root, name, text):
             raise ValueError('invalid fixed IMPORT target')
         return parts
     from validation_scope import active_scope
-    scope = active_scope(root)
+    scope = active_scope(root, contract_file=contract_file)
     if scope is None or len(scope) != 1:
         raise ValueError('IMPORT requires exactly one environment/target/service in Validation scope')
     return next(iter(scope))

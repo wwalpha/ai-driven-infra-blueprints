@@ -326,7 +326,7 @@ def selected_task(root: Path, task_file: str | None):
         _selected_tasks.reset(token)
 
 
-def task_path(root, selected=None):
+def _selected_contract(root, selected=None):
     records = contracts(root)
     selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
     if selected:
@@ -340,13 +340,27 @@ def task_path(root, selected=None):
             raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
         selected = running[0] if running else ("tasks/active.md" if "tasks/active.md" in records else None)
     if selected:
-        if states[selected] == "suspend":
-            raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {selected} --resume")
         text = records[selected]
         if selected != "tasks/active.md" or section(text, "## Modified files"):
             validate_contract(root, selected, text, legacy=selected == "tasks/active.md", check_paths=False)
-        return root / selected
-    return root / "tasks/active.md"
+        return root / selected, text
+    return root / "tasks/active.md", None
+
+
+def contract_path(root, selected=None):
+    """Read a valid contract in any status without granting execution permission."""
+    path, text = _selected_contract(root, selected)
+    if text is not None:
+        validate_contract(root, path.relative_to(root).as_posix(), text, legacy=path.name == 'active.md')
+    return path
+
+
+def task_path(root, selected=None):
+    path, text = _selected_contract(root, selected)
+    if text is not None and status(text, path.name == 'active.md') == 'suspend':
+        name = path.relative_to(root).as_posix()
+        raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {name} --resume")
+    return path
 
 
 def task_revision(root, selected=None):
