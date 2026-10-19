@@ -1,6 +1,6 @@
 ---
 name: import
-description: Acquire one AWS service through Python, append explicitly managed new resources to authoritative Model sources while preserving existing resources, then verify/publish those sources before generating selected Markdown/JSON. Never directly edit generated design Markdown/JSON. Follow 08_import for the complete workflow.
+description: Let the LLM confirm targets and choose Human-approved add/refresh/replace per acquired resource, edit ordinary Model candidates sequentially, and reuse Python acquisition and guarded single-service publication before generating Markdown/JSON. Process multiple services sequentially. Never directly edit generated design Markdown/JSON. Follow 08_import for the complete workflow.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute
@@ -16,5 +16,9 @@ Examples:
 /import --environment dev --service config --target cde --dry-run
 /import --environment dev --service config --target cde --no-profile
 ```
+
+Environment and Service are required: ask the Human when either is missing. Multiple
+services use separate single-service Tasks/acquisitions/publications in the LLM-selected
+order; do not introduce a Python batch controller. See 08_import for all decisions.
 
 Run in the worktree selected by the Human, following the Prompt's contract and evidence procedure.

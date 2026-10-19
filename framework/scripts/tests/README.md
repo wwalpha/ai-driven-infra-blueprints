@@ -27,7 +27,7 @@ IT全66スイートは [Framework IT](../../../.github/workflows/framework-it.ym
 
 runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy`・`import_sources` の5 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` は321実行入口・434条件を登録する（pytest 190関数、direct 112関数、direct_group 13入口、module 6末尾）。対象2 ITスイートの実collectionはsync-model 68条件、model_templates 9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行112関数と12のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+`CASES.md` は337実行入口・471条件を登録する（pytest 203関数、direct 115関数、direct_group 13入口、module 6末尾）。対象2 ITスイートの実collectionはsync-model 68条件、model_templates 9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行115関数と12のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
 
 全関数・全行の監視は使用しない。ファイルコピー・子プロセス・fixture生成のauditイベントと、スイート別の時間・終了コード・receiptを維持する。FAIL後も残りのスイートを実行し、結果をActionsログとSummaryに記録する。追加のFull IT実行入口は設けず、`blueprint-loop.py` の回帰はUTのみとする。
 

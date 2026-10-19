@@ -1,19 +1,21 @@
-# Append acquired AWS resources with agent-edited Model sources
+# User-selected acquired AWS additions and overwrites
 
 `/import --environment dev --target cde --service vpc`
 
-Python acquisition → agent judgement and ordinary source edits → Python publication →
-existing selected-service Markdown/JSON generation. The agent executing this Skill is
-the LLM; never invoke another LLM API, another reflection Skill or the whole `/update`.
-This is a design task with `Workflow: import`, not an IaC/deploy operation.
+Python acquisition → LLM matching and Human selection → ordinary candidate edits →
+Python verification/publication → selected-service Markdown/JSON generation.
+The LLM owns target confirmation, matching, Resource ID selection, confirmations,
+Definition/input edits, execution order and reporting. Python owns read-only AWS
+acquisition/normalization, evidence, strict correspondence/value/consumer checks,
+atomic source saving/rollback and generated views. Do not implement a Python decision
+engine, mutation DSL, batch orchestrator or another Model editing/publication API.
+Do not invoke another LLM API or the whole `/update` to perform reflection.
 
-A normal `/import` request authorizes append-only Model source changes for explicitly
-managed new resources under this workflow. For each selected addition, edit source
-candidates and publish the authoritative Model sources before generating Markdown/JSON.
-Preserve existing resources under the append-only rules below. Generated design
-Markdown/JSON must never be edited directly, including for display-only recovery.
-If source publication fails or an addition remains unreflected, report it explicitly;
-do not substitute a Markdown/JSON edit or report that addition as reflected.
+This is a design Task with `Workflow: import`, never IaC/deploy. A normal request
+permits explicitly managed additions; refresh/replace requires the Human's decision
+for the specific record and existing Resource ID. Confirmed decisions persist; do not
+ask again for the same choice. Candidate source edits never authorize AWS mutations.
+Generated Markdown/JSON is never edited directly, including display-only recovery.
 
 ## Read first
 
@@ -41,9 +43,21 @@ retains its separately authorized development tests.
 
 ## Task and acquisition
 
-1. Require one explicit Environment and Service. Resolve exactly one project.json
-   Target by Alias, or Account ID without an Alias. Omission is allowed only when
-   unambiguous. Use the worktree selected by the Human.
+1. Ask the Human if Environment or Service is missing. Accept one or multiple
+   explicitly named services; the LLM repeats this single-service workflow sequentially,
+   using an independent Task/acquisition/publication for each. Resolve exactly one
+   project.json Target through the existing Target Resolver, by Alias or Account ID
+   without an Alias; omit Target only when unambiguous. Confirm AWS resource scope
+   when needed. Use the worktree selected by the Human.
+   Before acquisition, read the service with `model_templates.load_for_edit()` and
+   inspect fixed Resource ID/type/mode/physical IDs, Instance, Definition, Properties,
+   observations and references. Distinguish an absent service (`None`) from an existing
+   service with zero Resources. Missing/broken required files are errors, not absence.
+   For an absent service, reuse the explicit template/YAML/bindings format and loader
+   described in Model templates / New service creation: prepare these as candidate
+   files after acquisition, using `load_for_edit(path, candidates)` to check them.
+   Do not call a direct writer or create empty authoritative files before acquisition;
+   the existing guarded publication creates them together. No initialization engine.
 2. For normal import, register a separate `design` Task with `Workflow: import`, an
    exact `IMPORT target: environment/target/service`, and source/view paths. Preserve
    other contracts and uncommitted changes. For `--dry-run`, do not register, refresh,
@@ -74,46 +88,73 @@ retains its separately authorized development tests.
    Use only normalized non-secret captured Properties. Do not save raw responses,
    credentials, secret Properties or new snapshot files in the repository.
 
-## Agent selection and append-only source edits
+## Agent selection and source edits
 
-The agent decides managed new addition, already registered exclusion, out-of-scope or
-unresolved. Read the existing sources together; a parameters-only view is insufficient.
+The LLM compares confirmed physical IDs, including Mapping identity aliases and
+composite identifier components. Name, CIDR, similar settings, parent, order and
+account/Region singleton scope never identify an existing Resource.
 
-- Compare acquired physical IDs with confirmed physical IDs in existing CREATE and
-  IMPORT resources, including observations and Mapping identity aliases. If already
-  registered, put the record in `excluded` with the existing Resource ID and reason.
-  Do not reflect AWS configuration changes into that resource. Never infer an update
-  target from Name, CIDR, parent, inventory order or account/Region singleton scope.
-- Add a resource absent from the confirmed identity set only when the current project
-  scope explicitly establishes management. Record the concrete ownership reason;
-  appearance in AWS or a plausible name alone is insufficient. Unknown management
-  remains `unreflected`. An existing resource with unknown physical ID does not block
-  an explicitly managed addition; report the possible duplication and keep it independent.
-- Allocate a new fixed Resource ID, Row IDs and unique anchor for each added resource,
-  with `resourceMode=IMPORT`. Select its Definition in the order below and add only
-  the new instance's inputs, fixed bindings and required new-row observations.
-  Existing resources, rows, observations, bindings, inputs, settings,
-  references and expanded values must remain unchanged, including CREATE resources.
-  Adding rows or observations to an existing resource is prohibited. Missing inventory
-  never authorizes deletion. Old-resource deletion is a separate task.
-- Retain existing common/AZ parameters and logical references. Follow
-  [New-resource references](#new-resource-references) for acquired reference values.
+- **Same physical ID, IMPORT:** identify the existing fixed Resource ID; ask whether
+  to refresh from acquired current information or leave unchanged (`excluded`). Never
+  add the same physical resource again.
+- **Different physical ID, same IMPORT type:** offer add, replace, or excluded.
+  Replacement requires an explicitly selected existing Resource ID. If several exist,
+  list their concrete IDs and require the Human to select one; never choose by similarity.
+- **No existing Resources:** add the specified managed AWS resources without an
+  unnecessary overwrite question. If multiple AWS candidates have unclear scope,
+  confirm which to add first. An empty inventory and failed/unsupported acquisition
+  are different; preserve their returned statuses.
+- **Same physical ID, CREATE:** neither overwrite nor duplicate-add; report the
+  management boundary. Never convert CREATE to IMPORT implicitly.
+- **Unknown or multiple matching physical IDs:** request missing facts; unresolved
+  correspondence stays pending. Do not guess an overwrite target. An independently
+  explicit managed addition retains the existing unknown-ID duplicate-risk warning;
+  that warning is not evidence that an ambiguous resource is new.
 
-Choose Definitions for candidate additions in this order:
+The LLM processes each selected resource in order: read the confirmed decision,
+select the ordinary source edit, edit the external candidate files, retain that result,
+and continue to the next resource. Acquire once per service, reuse records/evidence,
+Mapping/Schema/identity caches, and publish the combined service candidate once.
+Never reacquire for each resource or call Python to decide the next action.
+
+For **add**, allocate new fixed Resource/Row IDs and a unique anchor, use IMPORT mode,
+and reuse the existing addition procedure below. Preserve existing resources.
+For **refresh**, retain Resource ID, anchor, mode, type, placement and existing Row IDs;
+update only captured Properties/observations, add necessary captured rows, and retain
+native types and arrays. Preserve Properties not acquired; report them as unreflected.
+For **replace**, retain the explicitly selected fixed identity and use the acquired
+resource's values. Record the previous physical identity and Model digest below.
+Reject a replacement physical ID already registered to another Resource, including
+CREATE. Read incoming usages with `model_reference_usage.incoming_references()`.
+The publication guard reuses that analysis across registered services of the same
+Environment/Target. Non-self incoming references or unresolved analysis block replace;
+never change their meaning or edit unrelated references. This read-only check is the
+necessary exception to the usual single-service read boundary, not a write permission.
+If transfer/retarget/delete or dependency detach is necessary, use its existing separate
+Model-only contract/permission procedure only when authorized; no implicit deletion.
+
+All nonselected resources, service metadata, common inputs and other-environment
+consumers retain their values, references, bindings and observations. The selected
+Instance alone may switch Definition or add fixed row mappings; keep existing maps.
+Use a new reusable Definition when a change would affect another consumer. Do not
+silently trim a rejected candidate or turn a failed correspondence into an automatic add.
+
+Choose Definitions for selected additions/overwrites in this order:
 
 1. Reuse an existing Definition only if the acquired settings and composition can be
-   expressed with new-instance inputs without changing declarations, fixed values,
-   expressions, Property composition, existing inputs or existing bindings. Matching
+   expressed with selected-instance inputs without changing declarations, fixed values,
+   expressions, Property composition or nonselected inputs/bindings. Matching
    AWS Resource Type or role alone does not require reuse.
 2. Otherwise, preserve the existing Definition and add a reusable new Definition.
    Required input additions, parameterizing fixed values, adding rows or changing
    defaults belong in the new Definition. Inability to fit an existing Definition
    alone is not an unresolved addition.
 3. Keep newly required independent inputs in the new Definition's `# parameter`
-   declarations and the selected environment's `instances.<new-instance>.parameters`.
+   declarations and the selected environment's `instances.<selected-instance>.parameters`.
    Reuse existing common `# input` declarations as-is; do not add or change common
-   declarations for this addition. Add the new instance's Definition and fixed-ID
-   maps to the selected bindings, and acquired observations only for its new rows.
+   declarations for this operation. Add the new instance's fixed maps, or switch only
+   the selected overwrite Instance's Definition retaining existing Resource/Row maps.
+   Add/update acquired observations only for selected captured rows.
    Unused Definitions require no inputs in other environments.
 4. Report concrete missing acquisition facts or management evidence if even a new
    Definition cannot express the addition. Handle independently confirmed additions;
@@ -127,8 +168,9 @@ with the same composition and input meanings share one Definition with differing
 instance inputs. Do not duplicate identical shapes per environment, Resource ID,
 physical ID or acquisition count, or introduce environment switches. A new Definition
 with necessary inputs/composition may coexist with an existing same-role Definition.
-Do not migrate existing instances, align dev/cde or other-environment inputs/bindings,
-or reorganize common Definitions as import work or completion prerequisites.
+Only a selected overwrite Instance may switch Definition; do not migrate other
+instances, align other-environment inputs/bindings, or reorganize common Definitions
+as import work or completion prerequisites.
 
 For example, an existing `LogGroup` Definition fixes `LogGroupClass=STANDARD` and is
 used by existing dev and stg instances. An acquired stg addition has
@@ -165,16 +207,30 @@ record identifier with the actual returned identifier):
 }
 ```
 
-Only `action: add` with a new Resource ID is accepted. State management evidence in
-`reason`; retain `basis` as a list of acquired Property names supporting that evidence
-(or an empty list), never as an existing-resource matching rule. Each acquired record
-requires one disposition. Excluded entries have `record` and a concrete `reason`;
-unresolved entries have `record` and `reason`, optionally a `property` when only that
-Property is pending. Do not use a mutation DSL or ask Python to generate source names.
+`action` is `add`, `refresh` or `replace`. `resource` always names the fixed Resource
+ID: new for add, existing IMPORT for refresh/replace. `reason` records the management
+basis and the Human's confirmed action/target; `basis` remains a list of acquired
+Property names (or empty), never a name/CIDR matching rule. Each acquired record needs
+one disposition and each Resource may receive at most one operation. Excluded entries
+retain `record` and `reason`; `unreflected` retains `record`, `reason` and optional
+`property`. Selection declares the LLM's decision, not instructions for Python edits.
 
-## New-resource references
+For replace only, add a required `before` object:
 
-Related services do not need to be imported. For each selected new IMPORT resource,
+```json
+{"identity": "<previous-physical-id>", "model": "<previous-resource-digest>"}
+```
+
+Read the previous confirmed physical ID from Model identity rows/observations. For a
+composite primary identity, `identity` is the ordered list of `{property, value}`
+components returned by the existing acquisition identity contract. Calculate `model`
+with existing `import_guard.digest(model_operation_checks.operation_values(before.values,
+resource_id))`. Source/evidence hashes still pin the whole acquisition snapshot.
+Missing, ambiguous, stale or mismatched before information rejects replace.
+
+## Selected-resource references
+
+Related services do not need to be imported. For each selected IMPORT resource and its captured Properties,
 use the shared `reference_contracts.contract` and `import_references.Resolver` with the
 same Environment/Target and the repository's existing Framework definitions. The
 resolver reads only declared producer types through `model_templates.reference_values`;
@@ -195,7 +251,7 @@ in Id/Arn is not a contract.
   label, across Environments/Targets, or by constructing an ARN. ARN parsing is limited
   to declared identity forms, checking account, Region and partition when applicable.
 - Other-service templates, parameters, bindings and observations are read-only input
-  dependencies. They are never generated or republished. Existing IMPORT resources
+  dependencies. They are never generated or republished. Nonselected IMPORT resources
   remain unchanged; importing a producer later does not automatically link old literals.
 
 The LLM edits ordinary source candidates. Python checks choices; it does not generate
@@ -205,8 +261,8 @@ Definition per resource or environment; do not change an existing Definition's c
 or declarations to accommodate a new addition.
 
 Publication reuses `selection_records`, `verify_values`, the source hash comparison,
-publication lock and rollback transaction. Only selected fixed IDs absent from the before
-Model may resolve new external source references. Acquired values and explicit producer
+publication lock and rollback transaction. New fixed IDs and captured Properties of validated refresh/replace targets may
+resolve external source references. Unacquired Properties gain no resolver permission. Acquired values and explicit producer
 identities are checked together, including literal leaves beside links in arrays/objects.
 Unchanged old selectors may be read for selected-service display generation after source
 publication; this grants no source editing permission. Ordinary CREATE, internal
@@ -246,8 +302,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py 
 ```
 
 Publish does not access AWS. It verifies the sealed external acquisition, Task/Worktree,
-scope, source hashes, syntax/native types, new record-to-resource correspondence,
-acquired addition values, unchanged existing expanded values/identities/references, and direct-consumer preservation.
+scope, source hashes, syntax/native types, declared add/refresh/replace correspondence,
+captured changed values, preserved fixed identities and nonselected values/references,
+and direct-consumer preservation. Replace additionally verifies incoming references.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
 whole publication; no old plan is applied over concurrent changes.
@@ -287,7 +344,7 @@ the same inventory twice as a preview/apply procedure.
 
 Report Model (`reflected` / `unchanged` / `failed`), Markdown/JSON (`generated` /
 `unchanged` / `failed` / `not-run`) and `Design validation: not-run` separately. Include
-scope/connection/STS, selected additions/exclusions, possible duplicate warnings for unknown existing IDs, pending resource/Property
+scope/connection/STS, selected additions/refreshes/replacements/exclusions with fixed IDs and Human decisions, possible duplicate warnings for unknown existing IDs, pending resource/Property
 counts and reasons, changed sources, consumer preservation and display status. Acquired
 but unreflected Properties are reported, never silently treated as fully reflected.
 

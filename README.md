@@ -120,7 +120,7 @@ with Workflow `import` in the Human-selected worktree. Reuse an existing Definit
 unchanged, or add a reusable new Definition with new-instance inputs/bindings only in
 the selected environment. Preserve existing Definitions and consumers; do not require
 other-environment input edits or existing-instance migration. Acquisition/hash and
-consumer-preservation checks still apply. See [08_import](framework/prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
+consumer-preservation checks still apply. See [08_import](framework/prompts/codex/08_import.md#agent-selection-and-source-edits)
 for candidate selection. Only the selected service's displays are generated in a second
 transaction.
 

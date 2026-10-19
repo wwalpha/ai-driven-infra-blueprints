@@ -11,20 +11,27 @@ _consumers = ContextVar('import_local_consumers', default=None)
 _reference = ContextVar('import_create_reference', default=None)
 _views = ContextVar('import_generated_views', default=None)
 _additions = ContextVar('import_new_reference_resources', default=frozenset())
+_updates = ContextVar('import_updated_reference_properties', default=None)
 _display_resources = ContextVar('import_preserved_reference_view', default=frozenset())
 
 
 @contextmanager
 def new_references(before, selected):
-    """Only acquisition-selected fixed IDs absent from the before Model may resolve."""
+    """Resolve new resources and captured Properties of explicitly selected updates."""
     from model_core import entries
-    if set(selected) & dict(entries(before.values, 'desired.resource.')).keys():
+    resources = dict(entries(before.values, 'desired.resource.'))
+    existing = set(selected) & resources.keys()
+    if any(selected[rid].get('_action') not in {'refresh', 'replace'} or
+           resources[rid].get('resourceMode') != 'IMPORT' for rid in existing):
         raise ValueError('IMPORT references require selected new Resource IDs')
-    token = _additions.set(frozenset(selected))
+    token = _additions.set(frozenset(set(selected) - existing))
+    updates = _updates.set({rid: {prop for prop, capture in selected[rid]['properties'].items()
+                                if capture.get('status') == 'captured'} for rid in existing})
     try:
         yield
     finally:
         _additions.reset(token)
+        _updates.reset(updates)
 
 
 @contextmanager
@@ -38,8 +45,20 @@ def preserved_reference_view(before):
         _display_resources.reset(token)
 
 
-def resolves_reference(item):
-    return bool(set(item.get('resources', {}).values()) & (_additions.get() | _display_resources.get()))
+def resolves_reference(item, definition=None, name=None):
+    if definition is None:
+        return bool(set(item.get('resources', {}).values()) & (_additions.get() | _display_resources.get()))
+    from model_templates import bound_definition, resolve, variables
+    definition = bound_definition(definition, item['parameters'])
+    uses = [key for key, raw in definition.values.items() if name in variables(raw)]
+    for key in uses:
+        if not key.startswith('desired.row.') or key.rsplit('.', 1)[1] not in {'value', 'document'}:
+            return False
+        rid = item['resources'].get(definition.rows[key.split('.')[2]])
+        prop = resolve(definition.values[key.rsplit('.', 1)[0] + '.property'], item['parameters'])
+        if rid not in (_additions.get() | _display_resources.get()) and prop not in (_updates.get() or {}).get(rid, set()):
+            return False
+    return bool(uses)
 
 
 @contextmanager
@@ -284,9 +303,7 @@ def create_reference(template, item, name, definitions, environment):
         raise ValueError('IMPORT reference is outside selected environment/target/service')
     definition = bound_definition(definitions[item['definition']], item['parameters'])
     uses = [(key, raw) for key, raw in definition.values.items() if name in variables(raw)]
-    if uses and all(key.startswith('desired.row.') and key.rsplit('.', 1)[1] in {'value', 'document'}
-                    and item.get('resources', {}).get(definition.rows[key.split('.')[2]]) in (_additions.get() | _display_resources.get())
-                    for key, _ in uses):
+    if resolves_reference(item, definition, name):
         with reference_reader(root / 'model' / environment / template.parent.name / (spec['service'] + '.properties')):
             yield
         return

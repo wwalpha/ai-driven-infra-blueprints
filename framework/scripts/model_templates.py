@@ -88,7 +88,7 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
         _publish_transaction(root, output, obsolete, journal, finish=finish)
 
 
-def service_source(path):
+def service_source(path, source_files=None):
     """Resolve a logical Model handle to its actual authoritative inputs."""
     paths = source_paths(path)
     if paths is None:
@@ -98,13 +98,13 @@ def service_source(path):
     require_readable(root, path)
     with publication_lock(root):
         safe(root, directory)
-        if not input_exists(directory):
+        if not input_exists(directory) and not source_files:
             return None
-        if not input_is_dir(directory):
+        if input_exists(directory) and not input_is_dir(directory):
             raise ValueError(f'Model source must be a service directory: {directory}')
         for file in (template, *parameter_files(directory)):
             safe(root, file)
-            if not input_is_file(file):
+            if not input_is_file(file) and file not in (source_files or {}):
                 raise ValueError(f'required YAML Model input missing: {file}')
         safe(root, directory/'observed.json')
         return paths
@@ -991,7 +991,7 @@ def load_for_edit(path, source_files=None, *, display=False):
 
 def load_sources(path, expander, source_files=None):
     source_files = source_files or {}
-    registered = service_source(path)
+    registered = service_source(path, source_files)
     if registered is None:
         return None
     root, template, directory = registered

@@ -191,7 +191,7 @@ class Resolver:
         else:
             self.verify(prop, desired, actual, context, require_links=require_links)
 
-    def verify_resource(self, values, rid, *, require_links=True, identity_properties=None):
+    def verify_resource(self, values, rid, *, require_links=True, identity_properties=None, properties=None):
         from model_files import resource_row_index
         from model_references import catalog_outputs
         if identity_properties is None:
@@ -207,6 +207,8 @@ class Resolver:
                     context[prop] = json.loads(literal(raw))
                 except ValueError:
                     context[prop] = literal(raw)
+            if properties is not None and prop not in properties:
+                continue
             if prop in CONFIGURATION_PROPERTIES:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]
                 desired = json.loads(row.get('document', literal(raw)))

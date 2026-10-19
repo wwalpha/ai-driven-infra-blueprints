@@ -63,8 +63,10 @@ parameters.yaml values stay unchanged.
 ## IMPORT configuration authority
 
 AWS actual configuration is authoritative for IMPORT. The dedicated [import
-workflow](../prompts/codex/08_import.md) adds newly acquired resources only. Existing
-IMPORT configuration updates remain forbidden except explicit Model-only merge/delete
+workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace from
+captured AWS facts. The LLM confirms the action and existing Resource ID; Python
+verifies identity, values, nonselected preservation and atomic publication. Other
+IMPORT configuration changes remain forbidden except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
 That design branch requires exact source/destination IDs and verifies the actual diff:
 complete source transfer/removal, stable destination identities, unchanged CREATE and
@@ -86,7 +88,7 @@ Import verifies target/profile/account/Region, acquisition success and scope, re
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
 not decide design correctness or run issue gates, naming/schema constraints, whole-service
 design reference validation, whole-repository candidate copies, generated equality or
-local loops. New-resource physical references are acquisition consistency checks under [New-resource references](../prompts/codex/08_import.md#new-resource-references),
+local loops. Selected-resource physical references are acquisition consistency checks under [Selected-resource references](../prompts/codex/08_import.md#selected-resource-references),
 using declared receiving contracts and exact same-target producer identities.
 The agent edits only changed source candidates outside the repository; publication
 checks their syntax and native types without applying unrelated design constraints.
@@ -112,43 +114,42 @@ private root and removed in finally; source evidence remains retryable. Worktree
 is removed only after verified integration and successful checkout/branch cleanup.
 See 08_import for failure/cancellation cleanup.
 
-Import reflection is append-only: add explicitly managed acquired resources with new
-fixed Resource/Row IDs, unique anchors and IMPORT mode. Reuse existing Definitions
-only when new-instance inputs express the acquired settings/composition without
-changing declarations, fixed values, expressions, Properties, existing inputs or
-bindings. Otherwise preserve them and add a reusable Definition; matching AWS Resource
-Type or role alone does not require reuse. Keep newly required independent inputs in
-its `# parameter` declarations and selected `instances.<new-instance>.parameters`,
-with new-instance fixed bindings and necessary new-row observations. Existing common
-`# input` declarations remain unchanged; do not add common declarations for this
-addition. Unused Definitions need no environment inputs. Same-composition additions
-with the same input meanings share one Definition; do not clone identical shapes per
-environment, Resource ID, physical ID or acquisition count. Do not migrate existing
-instances or require other-environment input/binding supplementation for commonality.
-Skip confirmed physical IDs already registered in CREATE or IMPORT. Unknown existing
-physical IDs permit explicitly managed additions with a duplicate-risk report; unknown
-management remains unresolved. No Name/CIDR/order matching or existing-resource update.
-Preserve every existing resource, row, observation, binding, expanded value and reference;
-never add rows to an existing resource. Retain unrelated parameters. New acquired
-reference values may be saved as observations; never replace another service's links.
-Non-secret acquired IDs/ARNs may persist; inferred/generated ARNs and secrets may not.
-Keep ordinary settings in desired/parameters, never move all settings to observed.
-Candidate preparation uses unchanged existing Definitions or reusable new Definitions;
-existing acquisition/hash, direct-consumer preservation and publication guards still
-apply. Direct consumers retain their unchanged local inputs. Only the selected service
-Template/Definition and selected environment/target/service parameters.yaml,
-bindings.json and observed.json are writable. Other environments remain read-only
-preservation evidence. Inability to reuse an existing Definition does not itself make
-an addition unresolved: consider a new Definition first. Report concrete missing
-acquisition facts or management evidence remaining with that option, and handle
-independently confirmed additions. Do not traverse recursive consumers or expand
-whole foreign Models for comparison. Declared reference producers permit only the
-attribute reads required by the shared physical reference resolver. Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
-and [08_import](../prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
-for fixed/input/derived values and the ordered candidate procedure.
+Import reflection uses explicit `add`, `refresh` and `replace` correspondence in the
+existing selection.json. Add requires new fixed IDs and IMPORT mode. Refresh requires
+one matching physical ID. Replace requires the Human-selected existing IMPORT ID,
+verified previous identity/Model digest and no duplicate destination physical ID.
+Both overwrite actions preserve Resource ID/type/mode/anchor and existing Row IDs;
+only captured Properties and their observations may change or gain rows. Unacquired
+Properties, nonselected resources and CREATE remain protected. Unknown or ambiguous
+matching never authorizes guessing. No implicit deletion, mode conversion or retargeting.
 
-Normal `/import` authorizes append-only Model source changes for explicitly managed
-new resources through source candidates and guarded publication. Save Model sources
+The LLM reads sources through `load_for_edit`, handles confirmations and executes
+ordinary candidate edits one resource at a time. Reuse unchanged Definitions or add
+reusable Definitions with necessary inputs/composition; only a selected overwrite
+Instance may switch binding Definition. Other consumers, common inputs and other
+Environment inputs stay unchanged. Preserve native value types, arrays and formal
+references. Use the existing physical Reference Resolver only for captured Properties
+of selected resources. Do not infer/generated ARNs or persist secrets.
+
+For replace, existing incoming-reference analysis reads registered same-target services
+as preservation evidence and rejects non-self incoming references or unresolved analysis.
+It does not edit them or authorize a Model-only operation; transfer/retarget/delete and
+value-preserving detach retain their separate contracts. No other Environment is edited.
+Acquisition/normalization, Singleton/cache, STS/Region checks, source/evidence hashes,
+publication lock, journal and rollback remain the existing mechanisms. Do not add a
+batch Python controller or Model update engine. For multiple services, the LLM repeats
+independent single-service Tasks/acquisitions/publications sequentially. Acquire once
+and publish once per service; no per-resource retrieval/publication loop in Python.
+
+Distinguish an absent service from a zero-resource existing Model. Missing/broken
+inputs are errors; an absent service uses the existing explicit template/YAML/bindings
+format and candidate loader, then the same guarded source creation transaction.
+Dry-run writes no authoritative Model, contract, display or completion receipt.
+Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
+and [08_import](../prompts/codex/08_import.md#agent-selection-and-source-edits).
+
+Normal `/import` permits explicitly managed additions and confirmed refresh/replace.
+Save Model sources
 atomically first. Then generate and atomically save only the selected service's
 Markdown/JSON. Never directly edit generated design Markdown/JSON or use display edits
 as a substitute for Model reflection, including during display-only recovery.

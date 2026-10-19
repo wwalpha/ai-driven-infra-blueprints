@@ -928,6 +928,181 @@ def check_reference_publication(tmp_path, present, race):
         assert document.read_text() == markdown
 
 
+@pytest.mark.parametrize('action', ['refresh', 'replace'])
+@pytest.mark.parametrize('dry_run', [False, True])
+def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
+    from import_guard import digest
+    from model_operation_checks import operation_values
+    root, acquired, cli = prepare(tmp_path, dry_run=dry_run)
+    path = root / 'model/dev/cde/cloudwatch-logs.properties'
+    before = load_for_edit(path)
+    original = snapshot(root)
+    file = input_file(root)
+    parameters = yaml_read(file.read_text())
+    identity = 'fixture-001' if action == 'refresh' else 'managed-new'
+    parameters['instances']['application-log']['parameters'].update(LogGroupName=identity, RetentionDays=90)
+    selected = [correspondence(acquired, identity, '001', action)]
+    if action == 'replace':
+        selected[0]['before'] = {'identity': 'fixture-001', 'model': digest(operation_values(before.values, '001'))}
+    stage(acquired, {file.relative_to(root).as_posix(): parameter_edit(file.read_text(), parameters)},
+          selected, exclusions(acquired, selected))
+    result = publish_fixture(root, acquired, dry_run=dry_run)
+    assert result['status'] == ('dry-run' if dry_run else 'complete')
+    assert result['resources']['refreshed' if action == 'refresh' else 'replaced'] == 1
+    assert result['resources']['added'] == 0
+    assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
+    assert not Path(acquired['evidence']).parent.exists()
+    if dry_run:
+        assert snapshot(root) == original
+        assert not (import_guard.evidence_store(root) / 'import-fixture.json').exists()
+    else:
+        after = load_for_edit(path)
+        assert after.values['desired.row.001-002.value'] == '90'
+        assert after.values['desired.row.001-001.value'] == identity
+        assert operation_values(before.values, '002') == operation_values(after.values, '002')
+        assert len(entries(after.values, 'desired.resource.')) == 2
+        assert all(file.read_bytes() == data for file, data in
+                   ((root / rel, data) for rel, data in original.items() if 'stg' in rel.parts))
+        import_guard.require_import_changes(root)
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def check_mixed_add_refresh_single_publication(tmp_path, fail):
+    root, acquired, cli = prepare(tmp_path)
+    files = logs_edit(root, acquired)
+    file = input_file(root)
+    relative = file.relative_to(root).as_posix()
+    parameters = yaml_read(files[relative])
+    parameters['instances']['application-log']['parameters']['RetentionDays'] = 90
+    files[relative] = parameter_edit(files[relative], parameters)
+    selected = [correspondence(acquired, 'managed-new'), correspondence(acquired, 'fixture-001', '001', 'refresh')]
+    stage(acquired, files, selected, exclusions(acquired, selected))
+    before = source_files(root)
+    calls = []
+    original_save = sync_files.save_files
+    def save(output):
+        calls.append(set(output))
+        if fail:
+            file, text = next(iter(output.items()))
+            file.write_text(text, encoding='utf-8')
+            raise OSError('injected source publication failure')
+        return original_save(output)
+    with patch.object(sync_files, 'save_files', side_effect=save):
+        if fail:
+            with pytest.raises(OSError, match='injected'):
+                publish_fixture(root, acquired)
+            assert source_files(root) == before
+            import_guard.discard_acquisition(root, acquired['evidence'])
+        else:
+            result = publish_fixture(root, acquired)
+            assert result['resources']['added'] == result['resources']['refreshed'] == 1
+            values = load_for_edit(root / 'model/dev/cde/cloudwatch-logs.properties').values
+            assert values['desired.row.001-002.value'] == values['desired.row.003-002.value'] == '90'
+    assert sum(file in output for output in calls) == 1
+    assert len(cli.calls) == 2
+
+
+def check_replace_rejects_incoming_references(tmp_path):
+    from import_guard import digest
+    from model_operation_checks import operation_values
+    root = tmp_path / 'case'
+    path = fixture(root, 'vpc')
+    before = load_for_edit(path)
+    cli = aws('vpc', changed=True, noise=True)
+    acquired = m.acquire(root, 'dev', 'vpc', TARGET, cli_runner=cli)
+    file = input_file(root, 'vpc')
+    parameters = yaml_read(file.read_text())
+    parameters['instances']['main-vpc']['parameters']['CidrBlock'] = '172.16.0.0/16'
+    observed_file = file.with_name('observed.json')
+    observed = json.loads(observed_file.read_text())
+    observed['values']['observed.row.001-001.value'] = 'vpc-00000000000000000'
+    selected = [correspondence(acquired, 'vpc-00000000000000000', '001', 'replace')]
+    selected[0]['before'] = {'identity': VPC_ID, 'model': digest(operation_values(before.values, '001'))}
+    stage(acquired, {file.relative_to(root).as_posix(): parameter_edit(file.read_text(), parameters),
+                    observed_file.relative_to(root).as_posix(): json_text(observed)}, selected, exclusions(acquired, selected))
+    original = snapshot(root)
+    with pytest.raises(ValueError, match='incoming references'):
+        publish_fixture(root, acquired, 'vpc')
+    assert snapshot(root) == original
+    import_guard.discard_acquisition(root, acquired['evidence'])
+
+
+@pytest.mark.parametrize('missing', [False, True])
+@pytest.mark.parametrize('shared_template', [False, True])
+def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_template):
+    import shutil
+    root = tmp_path / 'case'
+    path = fixture(root)
+    file = input_file(root)
+    template = root / 'model/templates/cde/cloudwatch-logs.properties.tpl'
+    template_text = template.read_text()
+    bindings = json.loads(file.with_name('bindings.json').read_text())
+    parameters = yaml_read(file.read_text())
+    empty_binding = bindings['instances']['service']
+    if not shared_template:
+        shutil.rmtree(input_file(root, env='stg').parent)
+    if missing:
+        shutil.rmtree(file.parent)
+        if not shared_template:
+            template.unlink()
+        assert load_for_edit(path) is None
+    else:
+        file.write_text('instances: {}\n')
+        file.with_name('bindings.json').write_text(json_text({'instances': {'service': empty_binding}}))
+        assert not entries(load_for_edit(path).values, 'desired.resource.')
+    subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'synthetic absent or empty service'], cwd=root, check=True)
+    cli = aws(changed=True)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    parameters['instances'] = {'application-log': parameters['instances']['application-log']}
+    parameters['instances']['application-log']['parameters']['RetentionDays'] = 90
+    bindings['instances'] = {'service': empty_binding, 'application-log': bindings['instances']['application-log']}
+    files = {file.relative_to(root).as_posix(): parameter_edit('instances: {}\n', parameters),
+             file.with_name('bindings.json').relative_to(root).as_posix(): json_text(bindings)}
+    if not template.exists():
+        files[template.relative_to(root).as_posix()] = template_text
+    selected = [correspondence(acquired, 'fixture-001', '001')]
+    stage(acquired, files, selected, exclusions(acquired, selected))
+    result = publish_fixture(root, acquired)
+    assert result['status'] == 'complete' and result['resources']['added'] == 1
+    assert len(entries(load_for_edit(path).values, 'desired.resource.')) == 1
+    assert len(cli.calls) == 2
+
+
+def check_refresh_switches_definition_without_foreign_changes(tmp_path):
+    root = tmp_path / 'case'
+    fixture(root)
+    before = source_files(root)
+    template = root / 'model/templates/cde/cloudwatch-logs.properties.tpl'
+    text = template.read_text()
+    definition = text[text.index('# definition: LogGroup\n'):]
+    definition = definition.replace('# definition: LogGroup\n', '# definition: AcquiredLogGroup\n')
+    definition = definition.replace('desired.row.class.value=`STANDARD`', 'desired.row.class.value=`INFREQUENT_ACCESS`')
+    file = input_file(root)
+    parameters = yaml_read(file.read_text())
+    parameters['instances']['application-log']['parameters']['RetentionDays'] = 90
+    bindings_file = file.with_name('bindings.json')
+    bindings = json.loads(bindings_file.read_text())
+    bindings['instances']['application-log']['definition'] = 'AcquiredLogGroup'
+    cli = aws(changed=True)
+    cli.logs[0]['logGroupClass'] = 'INFREQUENT_ACCESS'
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    selected = [correspondence(acquired, 'fixture-001', '001', 'refresh')]
+    stage(acquired, {template.relative_to(root).as_posix(): text + '\n' + definition,
+                    file.relative_to(root).as_posix(): parameter_edit(file.read_text(), parameters),
+                    bindings_file.relative_to(root).as_posix(): json_text(bindings)}, selected, exclusions(acquired, selected))
+    result = publish_fixture(root, acquired)
+    assert result['status'] == 'complete'
+    values = load_for_edit(root / 'model/dev/cde/cloudwatch-logs.properties').values
+    assert values['desired.row.001-004.value'] == '`INFREQUENT_ACCESS`'
+    assert values['desired.row.002-004.value'] == '`STANDARD`'
+    assert all((root / rel).read_bytes() == data for rel, data in before.items() if 'stg' in rel.parts)
+    from import_scope import read_consumers
+    with read_consumers({('stg', TARGET, 'cloudwatch-logs')}):
+        assert load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values['desired.row.001-004.value'] == '`STANDARD`'
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

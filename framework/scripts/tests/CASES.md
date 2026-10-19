@@ -1798,3 +1798,20 @@ partial-cache validation spies on compare_generation with the full consumer scop
 既存 `check_suspend_and_resume` に状態非依存の契約参照、通常実行拒否、selector・構造・symlink拒否を追加。
 
 既存 `check_model_operation_integration` の3シナリオに、承認済みsuspendのmerge/delete成功と不正な値変更拒否の3シナリオを追加。
+## User-selected IMPORT add / refresh / replace
+
+| Origin | Case | Class | Location | Entry / conditions | Responsibility | Scope |
+|---|---|---|---|---|---|---|
+| `import-selected::check_selected_overwrite` | `check_selected_overwrite` | UT | [units/import-model-unit.checks.py:1547](units/import-model-unit.checks.py#L1547) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_identity_and_mode_boundary` | `check_overwrite_identity_and_mode_boundary` | UT | [units/import-model-unit.checks.py:1568](units/import-model-unit.checks.py#L1568) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_does_not_grant_unrelated_edits` | `check_overwrite_does_not_grant_unrelated_edits` | UT | [units/import-model-unit.checks.py:1578](units/import-model-unit.checks.py#L1578) | pytest / 8 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_refresh_new_rows_and_missing_properties` | `check_refresh_new_rows_and_missing_properties` | UT | [units/import-model-unit.checks.py:1601](units/import-model-unit.checks.py#L1601) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_duplicate_selection_and_destination_identity` | `check_overwrite_duplicate_selection_and_destination_identity` | UT | [units/import-model-unit.checks.py:1616](units/import-model-unit.checks.py#L1616) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_selected_binding_switch_preserves_fixed_maps` | `check_selected_binding_switch_preserves_fixed_maps` | UT | [units/import-model-unit.checks.py:1630](units/import-model-unit.checks.py#L1630) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_reference_permission_is_property_scoped` | `check_overwrite_reference_permission_is_property_scoped` | UT | [units/import-model-unit.checks.py:1642](units/import-model-unit.checks.py#L1642) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_import_llm_choice_contract` | `check_import_llm_choice_contract` | UT | [units/import-model-unit.checks.py:1660](units/import-model-unit.checks.py#L1660) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py:933](integrations/import-model.checks.py#L933) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_mixed_add_refresh_single_publication` | `check_mixed_add_refresh_single_publication` | IT | [integrations/import-model.checks.py:970](integrations/import-model.checks.py#L970) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_replace_rejects_incoming_references` | `check_replace_rejects_incoming_references` | IT | [integrations/import-model.checks.py:1005](integrations/import-model.checks.py#L1005) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_first_resource_uses_existing_source_format` | `check_first_resource_uses_existing_source_format` | IT | [integrations/import-model.checks.py:1032](integrations/import-model.checks.py#L1032) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_refresh_switches_definition_without_foreign_changes` | `check_refresh_switches_definition_without_foreign_changes` | IT | [integrations/import-model.checks.py:1073](integrations/import-model.checks.py#L1073) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |

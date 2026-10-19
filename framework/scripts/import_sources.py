@@ -108,11 +108,20 @@ def candidate_sources(root, directory, identity, *, preservation_consumers=()):
     return output
 
 
-def preserve_bindings(before, after):
-    """Append instances without changing any existing fixed binding."""
+def preserve_bindings(before, after, updated=()):
+    """Preserve fixed maps; only selected instances may switch Definition/add rows."""
     if before.keys() != after.keys() or any(not typed_equal(before[k], after[k]) for k in before if k != 'instances'):
         raise ValueError('IMPORT fixed bindings must be preserved')
     for name, binding in before['instances'].items():
+        current = after['instances'].get(name)
+        if current is not None and set(binding['resources'].values()) & set(updated):
+            if current['resources'] != binding['resources'] or any(
+                    current['rows'].get(key) != value for key, value in binding['rows'].items()):
+                raise ValueError('IMPORT existing fixed bindings must be preserved: ' + name)
+            if any(row.rpartition('-')[0] not in updated for key, row in current['rows'].items()
+                   if key not in binding['rows']):
+                raise ValueError('IMPORT new row binding requires a selected Resource: ' + name)
+            continue
         if not typed_equal(after['instances'].get(name), binding):
             raise ValueError('IMPORT existing bindings must be preserved: ' + name)
 
@@ -231,7 +240,8 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
             unknown.setdefault(resource['resourceType'], []).append(rid)
     selected, used, selected_identities = {}, set(), set()
     for item in selection['resources']:
-        if set(item) != {'record', 'resource', 'action', 'reason', 'basis'} or not isinstance(item['reason'], str) or not item['reason'].strip():
+        required = {'record', 'resource', 'action', 'reason', 'basis'} | ({'before'} if item.get('action') == 'replace' else set())
+        if set(item) != required or not isinstance(item['reason'], str) or not item['reason'].strip():
             raise ValueError('IMPORT correspondence requires an action, reason and basis')
         record = acquired.get(item['record'])
         rid = item['resource']
@@ -239,8 +249,12 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
             raise ValueError('IMPORT duplicate or unknown resource correspondence')
         if new_resources[rid].get('resourceMode') != 'IMPORT' or record['kind'] != new_resources[rid]['resourceType']:
             raise ValueError('IMPORT correspondence cannot change CREATE or resource type')
-        if item['action'] != 'add' or rid in old_resources:
-            raise ValueError('IMPORT accepts add only with a new Resource ID; existing resources cannot be updated')
+        action = item['action']
+        if action not in {'add', 'refresh', 'replace'} or action == 'add' and rid in old_resources:
+            raise ValueError('IMPORT accepts add only with a new Resource ID; use explicit refresh/replace for existing resources')
+        if action != 'add' and (rid not in old_resources or old_resources[rid].get('resourceMode') != 'IMPORT'
+                                or old_resources[rid]['resourceType'] != record['kind']):
+            raise ValueError('IMPORT refresh/replace requires an existing IMPORT Resource of the acquired type; CREATE is protected')
         basis = item['basis']
         if not isinstance(basis, list) or any(not isinstance(p, str) for p in basis) or len(basis) != len(set(basis)):
             raise ValueError('IMPORT correspondence basis must name distinct acquired Properties')
@@ -251,14 +265,28 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         else:
             identity_key = record['kind'], record['identity']
         collisions = owners.get(identity_key, set())
-        if identity_key in selected_identities or collisions:
+        if action == 'refresh' and collisions != {rid}:
+            raise ValueError('IMPORT refresh requires one matching physical identity')
+        if action == 'replace':
+            from import_guard import digest
+            from model_operation_checks import operation_values
+            prior = [value for (kind, value), ids in owners.items() if kind == record['kind'] and rid in ids]
+            if len(prior) != 1 or owners.get((record['kind'], prior[0])) != {rid}:
+                raise ValueError('IMPORT replace requires an unambiguous previous physical identity')
+            expected = {'identity': json_read(prior[0]) if record['kind'] in component_properties else prior[0],
+                        'model': digest(operation_values(old, rid))}
+            if not typed_equal(item['before'], expected):
+                raise ValueError('IMPORT replace previous identity/Model state differs from the explicit selection')
+            if collisions == {rid}:
+                raise ValueError('IMPORT same physical identity requires refresh, not replace')
+        if identity_key in selected_identities or collisions - ({rid} if action == 'refresh' else set()):
             raise ValueError('IMPORT acquired record ' + record['record'] + ' for Resource ' + rid
                              + ' has ambiguous or duplicate identity with existing Resource IDs: ' + ','.join(sorted(collisions)))
-        if warnings is not None and unknown.get(record['kind']):
+        if warnings is not None and action == 'add' and unknown.get(record['kind']):
             warnings.append({'record': record['record'], 'resource': rid,
                              'existingResources': unknown[record['kind']],
                              'reason': 'Existing physical IDs are unknown; explicitly managed addition may duplicate an existing resource'})
-        selected[rid] = record
+        selected[rid] = record if action == 'add' else {**record, '_action': action}
         selected_identities.add(identity_key)
         used.add(record['record'])
     for item in selection['excluded']:
@@ -282,42 +310,71 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
 def verify_values(before, after, selected, property_schema, references=None):
     """Prove every changed real value against its selected acquired Property."""
     old, new = before.values, after.values
+    from model_core import validate_model_keys
+    validate_model_keys({key: value for key, value in new.items() if old.get(key) != value})
     old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
     if old_resources.keys() - new_resources.keys():
         raise ValueError('IMPORT missing inventory never authorizes deleting an existing resource')
     old_rows, new_rows = dict(entries(old, 'desired.row.')), dict(entries(new, 'desired.row.'))
+    updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace'}}
+    if any(old_resources.get(rid, {}).get('resourceMode') != 'IMPORT' for rid in updated):
+        raise ValueError('IMPORT updates require existing IMPORT resources; CREATE is protected')
+    changed_properties = {rid: set() for rid in updated}
+
+    def acquired_key(key):
+        parts = key.split('.')
+        if len(parts) != 4 or parts[0] not in {'desired', 'observed'} or parts[1] != 'row':
+            return False
+        row_id, field = parts[2:]
+        rid = row_id.rpartition('-')[0]
+        row = new_rows.get(row_id, {})
+        prop = row.get('property')
+        if rid not in updated or selected[rid]['properties'].get(prop, {}).get('status') != 'captured':
+            return False
+        if row_id in old_rows and (row['property'] != old_rows[row_id]['property'] or
+                field not in ({'value', 'document', 'artifactSha256'} if parts[0] == 'desired' else {'value', 'property', 'comment'})):
+            return False
+        if parts[0] == 'observed' and field in {'property', 'comment'} and new.get(key) != row.get(field):
+            return False
+        changed_properties[rid].add(prop)
+        return True
     if old_rows.keys() - new_rows.keys():
         raise ValueError('IMPORT existing Row IDs must be preserved')
     for rid, resource in old_resources.items():
         if resource != new_resources[rid]:
             raise ValueError('IMPORT existing identity, placement, mode and parent references must be preserved: ' + rid)
     for key, value in old.items():
-        if new.get(key) != value:
+        if new.get(key) != value and not (key in new and acquired_key(key)):
             raise ValueError('IMPORT existing expanded value must be preserved: ' + key)
     for key in new.keys() - old.keys():
+        if acquired_key(key):
+            continue
         parts = key.split('.')
         if len(parts) >= 3 and parts[1] in {'resource', 'row'}:
             owner = parts[2].rpartition('-')[0] if parts[1] == 'row' else parts[2]
             if owner in old_resources:
                 raise ValueError('IMPORT cannot add fields, Rows or observations to an existing resource: ' + key)
-        else:
+        elif old or not key.startswith(('desired.service.', 'display.service.')):
             raise ValueError('IMPORT additions must belong to a new resource: ' + key)
     for key, previous in before.provenance.items():
         current = after.provenance.get(key, {})
         reference_state = lambda trace: (trace.get('references', {}), {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'})
-        if reference_state(previous) != reference_state(current):
+        if reference_state(previous) != reference_state(current) and not acquired_key(key):
             raise ValueError('IMPORT reference declaration or selector changed: ' + key)
-    indexed_new = resource_row_index(new)
+    indexed_old, indexed_new = resource_row_index(old), resource_row_index(new)
     changes = []
-    for rid in new_resources.keys() - old_resources.keys():
+    for rid in (new_resources.keys() - old_resources.keys()) | updated:
         if rid not in selected:
             raise ValueError('IMPORT new resource has no selected acquisition: ' + rid)
         record = selected[rid]
         if references is not None:
             identities = record.get('identityProperties', [record['identityProperty']])
-            references.verify_resource(new, rid, identity_properties=identities)
+            references.verify_resource(new, rid, identity_properties=identities,
+                                       **({'properties': changed_properties[rid]} if rid in updated else {}))
         for row_id, row in indexed_new.get(rid, []):
             prop = row['property']
+            if rid in updated and prop not in changed_properties[rid]:
+                continue
             capture = record['properties'].get(prop, {})
             if capture.get('status') != 'captured':
                 raise ValueError('IMPORT candidate uses an unacquired Property: ' + prop)
@@ -325,6 +382,10 @@ def verify_values(before, after, selected, property_schema, references=None):
             actual = property_values(new, rid, prop, schema, rows=indexed_new)
             if not typed_equal(actual, capture['value']):
                 raise ValueError('IMPORT candidate value differs from the acquired Property: ' + prop)
+            if rid in updated and any(r['property'] == prop for _, r in indexed_old.get(rid, [])):
+                previous = property_values(old, rid, prop, schema, rows=indexed_old)
+                if previous is not None and type(previous) is not type(actual):
+                    raise ValueError('IMPORT existing Property native type/array structure must be preserved: ' + prop)
             if 'observed.row.' + row_id + '.value' in new and not typed_equal(
                     property_values(new, rid, prop, schema, observed=True, rows=indexed_new), capture['value']):
                 raise ValueError('IMPORT observation differs from the acquired Property: ' + prop)
@@ -335,6 +396,7 @@ def verify_values(before, after, selected, property_schema, references=None):
         if not anchor or anchor in anchors:
             raise ValueError('IMPORT new resource requires a new fixed anchor: ' + rid)
         anchors.add(anchor)
+    for rid in (new_resources.keys() - old_resources.keys()) | updated:
         record = selected[rid]
         identity_values = (record['identityComponents'] if 'identityComponents' in record else
                            [{'property': record['identityProperty'], 'value': record['identity']}])

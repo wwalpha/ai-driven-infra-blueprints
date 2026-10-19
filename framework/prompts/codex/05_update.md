@@ -1,5 +1,5 @@
 # Manual Design Update and Deployment Prompt
-IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 [Service Model sources](../../rules/model-templates.md) define the YAML-only input
@@ -101,7 +101,7 @@ Standalone validation/complete retain their own final checking responsibility. O
 non-managed completed-candidate publication retains its previous IMPORT guard. A failed
 final check retains the private commit/worktree without merge, automatic regeneration,
 amend or loop retry. Report leaf saves and final validation/integration separately.
-Do not enter the infrastructure branch below. /import remains append-only and unchanged.
+Do not enter the infrastructure branch below. /import separately permits acquired add/refresh/replace after its own Human selection; it does not authorize these Model-only operations.
 
 ## Check applicability and finish point first
 

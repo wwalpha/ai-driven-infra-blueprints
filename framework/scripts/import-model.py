@@ -24,7 +24,7 @@ from script_loader import module as load_script
 from sync_files import atomic_files
 from aws_mapping_compare import MODEL_ONLY, value as mapping_value
 from import_sources import candidate_sources, selection_records, verify_values, typed_equal
-from import_promotion import preserve_consumers
+from import_promotion import preserve_consumers, replacement_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -257,9 +257,12 @@ def _normalize_records(ctx, service, records):
 
 def source_snapshot(root, path, expansion, identities):
     """Hash direct inputs once; never expand another environment or a Git Model."""
-    from model_templates import safe
+    from model_templates import safe, source_paths, parse_template
+    _, template, directory = source_paths(path)
     files = set(expansion.files) | {root / 'project.json', root / 'framework/mappings/aws' / (path.stem + '.yaml'),
-                                   service_source(path)[2] / 'observed.json'}
+                                   template, directory / 'parameters.yaml', directory / 'bindings.json', directory / 'observed.json'}
+    if not expansion.values and template.is_file():
+        files.update(parse_template(template)[1])
     for identity in identities:
         directory = root / 'model/parameters' / '/'.join(identity)
         files.update(directory / name for name in ('parameters.yaml', 'bindings.json'))
@@ -293,7 +296,8 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
             contract_scope(root, {identity})
             require_import_changes(root, generation=True)
         path = root / 'model' / identity[0] / identity[1] / (service + '.properties')
-        expansion = load_for_edit(path)
+        from model_templates import Expansion
+        expansion = load_for_edit(path) or Expansion({}, {}, {})
         direct = consumers(root, identity[1], service)
         snapshots = source_snapshot(root, path, expansion, direct)
         contract = None if dry_run else task_path(root)
@@ -366,9 +370,18 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         relative = file.relative_to(root).as_posix()
         checksums.setdefault(relative, acquisition['sources'].get(relative))
     unchanged(root, checksums)
-    before = load_for_edit(path)
+    from model_templates import Expansion
+    before = load_for_edit(path) or Expansion({}, {}, {})
     after = load_for_edit(path, output)
-    consumer_inputs, preserved, shared = preserve_consumers(path, before, output, direct)
+    if after is None:
+        raise ValueError('IMPORT missing service requires explicit template, parameters and bindings candidates')
+    if not before.values and (set(dict(entries(after.values, 'desired.service.'))) != {identity[2]} or
+                             after.values.get('desired.service.' + identity[2] + '.serviceId') != identity[2]):
+        raise ValueError('IMPORT new service metadata must match the selected service')
+    selection = json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8'))
+    warnings = []
+    selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
+    consumer_inputs, preserved, shared = preserve_consumers(path, before, output, direct, selected)
     for file in consumer_inputs:
         relative = file.relative_to(root).as_posix()
         checksums[relative] = acquisition['sources'].get(relative)
@@ -377,9 +390,6 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     unchanged(root, checksums)
     if shared and consumers(root, identity[1], identity[2]) != direct:
         raise ValueError('IMPORT registered direct consumers changed after acquisition')
-    selection = json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8'))
-    warnings = []
-    selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
     from import_scope import new_references, preserved_reference_view
     from import_references import Resolver
     if any(key.startswith('desired.row.') and key.split('.')[2].rpartition('-')[0] in selected
@@ -387,9 +397,13 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
                 any(item.get('type') == 'reference' for item in trace.get('inputs', {}).values()))
            for key, trace in after.provenance.items()):
         with new_references(before, selected):
+            before = load_for_edit(path) or before
             after = load_for_edit(path, after.files)
     references = Resolver(root, identity[0], identity[1], local={identity[2]: after})
     changes = verify_values(before, after, selected, property_schema, references)
+    incoming_inputs, incoming_services = replacement_inputs(root, identity, selected)
+    for file, text in incoming_inputs.items():
+        checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     # Producers are read dependencies, never candidate writes or display targets.
     for file, text in {**after.files, **references.files}.items():
         if file not in output:
@@ -400,6 +414,8 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
               'scope': ['/'.join(identity)], 'model': 'unchanged', 'markdown': 'not-run',
               'designValidation': 'not-run', 'dryRun': dry_run,
               'resources': {'added': sum(item['action'] == 'add' for item in selection['resources']),
+                            'refreshed': sum(item['action'] == 'refresh' for item in selection['resources']),
+                            'replaced': sum(item['action'] == 'replace' for item in selection['resources']),
                             'excluded': len(selection['excluded']), 'unresolved': sum('property' not in item for item in pending)},
               'unreflected': pending, 'inventory': acquisition.get('inventory', {}), 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
@@ -431,6 +447,8 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     with publication_lock(root):
         contract_scope(root, {identity})
         unchanged(root, checksums)
+        if incoming_services and tuple(sorted((root / 'model/parameters' / identity[0] / identity[1]).glob('*'))) != incoming_services:
+            raise ValueError('IMPORT reference consumer services changed before publication')
         if shared and consumers(root, identity[1], identity[2]) != direct:
             raise ValueError('IMPORT registered direct consumers changed before publication')
         from import_guard import proof_path

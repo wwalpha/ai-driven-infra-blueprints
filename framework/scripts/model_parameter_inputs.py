@@ -241,7 +241,7 @@ def edit_instances(template, parameters, bindings, definitions, environment=None
                     item['parameters'][name] = parameter_value(template, item, name, result['instances'], bindings, definitions, environment, files)
                 continue
             from import_scope import resolves_reference
-            if 'service' in spec and not resolves_reference(item):
+            if 'service' in spec and not resolves_reference(item, definitions[item['definition']], name):
                 item['parameters'][name] = '<<' + name + '>>'
             else:
                 item['parameters'][name] = parameter_value(template, item, name, result['instances'], bindings, definitions, environment, files)

@@ -1,5 +1,5 @@
 # Service Model templates
-IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 ## Dedicated import boundary
@@ -86,8 +86,8 @@ There is no overlay or whole-definition override.
 Use one definition for the same resource role across environments within an alias.
 For IMPORT, reuse requires an unchanged existing Definition and unchanged existing
 consumers; otherwise a reusable new Definition with the necessary inputs/composition
-may coexist for the same role. Do not migrate existing instances or supplement other
-environments' inputs/bindings as an import prerequisite. See
+may coexist for the same role. Only explicitly selected refresh/replace Instances may switch Definition; do not migrate
+nonselected instances or supplement other environments' inputs/bindings as an import prerequisite. See
 [IMPORT Property source edits](#import-property-source-edits).
 Values and selectable relationships belong in declared inputs; an environment name
 does not select a definition or execute template code. Different aliases may retain
@@ -357,54 +357,53 @@ with the necessary inputs/composition, even for the same role. New resources wit
 same composition and input meanings share one Definition and differ by instance inputs.
 Do not clone identical shapes solely for environment names, Resource IDs, physical IDs
 or acquisition count. This restriction does not forbid structurally necessary new
-Definitions. Do not migrate existing instances or align other environments for reuse.
+Definitions. Only selected overwrite Instances may switch Definition; do not align other environments for reuse.
 Keep distinct definitions for different roles even if expanded values happen to match.
 Add only inputs needed to preserve real differences; do not split service sources by CFn stacks.
 
 
 ## IMPORT Property source edits
 
-The agent executing [08_import](../prompts/codex/08_import.md) chooses managed new
-additions and parameter names. Python acquires/normalizes facts and verifies ordinary
-edited sources; it never reconstructs composition or infers existing update targets.
-Reuse an existing Definition only when new-instance inputs express the acquired
-settings/composition without changes to declarations, fixed values, expressions,
-Property composition, existing inputs or bindings. AWS Resource Type or role alone
-does not require reuse. If reuse needs required inputs, parameterized fixed values,
-new rows or changed defaults, keep the existing Definition and add a reusable one.
-Keep newly required independent inputs in its `# parameter` declarations and selected
-`instances.<new-instance>.parameters`; reuse common `# input` declarations unchanged,
-without adding common declarations for this addition. Unused Definitions need no
-other-environment inputs. Follow existing fixed/input/derived-expression rules; one
-acquired value alone is not a common fixed setting.
+The LLM executing [08_import](../prompts/codex/08_import.md) chooses managed additions,
+confirms refresh/replace and the existing Resource ID with the Human, then edits ordinary
+candidate template/YAML/bindings/observed sources one resource at a time. Python
+acquires/normalizes, verifies declared correspondence/captured values and preserves
+consumers; it never selects an overwrite target or reconstructs Model composition.
 
-New instances get new fixed Resource/Row IDs, unique anchors and IMPORT mode. Add only
-their selected-environment bindings and necessary new-row observations. Preserve all
-existing resources, inputs, expanded values, rows, observations, bindings and logical
-references; no existing-resource updates or row additions. Preserve unchanged YAML
-comments/order/spacing through local edits. Do not reorganize Definitions or migrate
-existing consumers as import work or completion conditions.
+Reuse unchanged Definitions when selected-instance inputs express acquired values.
+Otherwise preserve the Definition and add a reusable one with necessary composition
+and inputs. Same-composition additions share one Definition; no cloning solely for
+physical IDs, environments or acquisition counts. A selected existing Instance may
+switch Definition while retaining Resource and existing Row maps. Add only captured
+rows owned by the selected Resource. Other Instances and common inputs remain intact.
 
-Candidate selection is unchanged reuse or new Definition addition; existing Python
-acquisition/hash and save-time consumer-preservation checks remain mandatory. Inspect
-registered direct consumers and preserve complete values/expressions/references using
-unchanged inputs. Write only the selected service Template/Definition and selected
-environment/target/service parameters.yaml, bindings.json and observed.json. Other
-environments remain read-only; never supplement their inputs for import. Do not
-traverse recursive consumers or expand whole foreign Models for comparison. For declared
-producer attribute reads, follow [New-resource references](../prompts/codex/08_import.md#new-resource-references).
-Do not mark an
-addition unresolved solely because reuse would change existing consumers; use a new
-Definition. Report concrete acquisition/management gaps remaining even with a new
-Definition and handle independently confirmed additions. Publication rejects an invalid
-candidate as a whole without silently filtering it. See [08_import](../prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
-for the ordered procedure and LogGroup class example.
+Add allocates new fixed Resource/Row IDs, unique anchors and IMPORT mode. Refresh
+requires the same physical identity; replace requires a different identity and explicit
+existing IMPORT target with validated before identity/Model state. Preserve existing
+Resource type/mode/anchor/placement, row ownership and metadata. Update only captured
+Property values/observations; preserve native types/arrays and unacquired Properties.
+Nonselected Resources, inputs, bindings, references and observations remain unchanged.
+Keep unchanged YAML comments/order/spacing. No implicit deletion or CREATE conversion.
 
-The acquisition scope remains one environment/target/service. Source publication checks
-types, syntax, evidence, identities, references, scope, preservation and concurrent
-changes under the existing journal transaction. Only selected-service Markdown/JSON is
-then published separately. Display failure retains saved Model. Explicit issues remains
-responsible for design constraints and generated consistency checks.
+Only the selected service templates and selected Environment/Target/service inputs
+are writable. Shared-Definition consumers in other environments are read-only;
+reuse existing consumer-preservation checks and add a Definition rather than changing
+those consumers. For selected captured references, reuse the existing resolver and
+[Selected-resource references](../prompts/codex/08_import.md#selected-resource-references).
+Replace additionally reuses incoming-reference analysis over registered same-target
+services; non-self usages or unresolved analysis reject publication. No unrelated
+reference edits or automatic Model-only operations are authorized.
+
+An absent service is distinct from zero Resources. Reuse the New service creation
+format and `load_for_edit(path, source_files)` to check explicit candidate sources;
+normal Import publishes their creation atomically, without writing initial authority
+files first. Existing incomplete/malformed sources remain errors.
+
+Acquisition/publication scope remains one environment/target/service. The LLM sequences
+multiple services with separate Tasks and sessions, not a Python batch API. Publish
+one completed service candidate with existing type/syntax/evidence/hash/identity/scope
+checks, lock and journal/rollback. Then publish only its Markdown/JSON separately.
+Display failure retains saved Model. Explicit issues owns design constraint checks.
 
 ## Model-only intermediate sources
 

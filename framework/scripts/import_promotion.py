@@ -126,19 +126,29 @@ def verify_input_types(definitions, parameters, bindings, previous=None):
                 check_type(spec, supplied[name], name)
 
 
-def preserve_consumers(path, expansion, output, identities):
+def preserve_consumers(path, expansion, output, identities, selected=None):
     """Check changed Properties and direct input users without expanding other Models."""
     from import_scope import read_consumers
-    root, template, directory = service_source(path)
+    from model_sources import source_paths
+    from validation_cache import input_is_file
+    root, template, directory = service_source(path) or source_paths(path)
     identity = (path.parent.parent.name, path.parent.name, path.stem)
-    before, _ = parse_template(template)
+    before, _ = parse_template(template) if expansion.files or input_is_file(template) else ({}, {})
     after, _ = parse_template(template, output)
     changed = changed_properties(before, after)
-    selected_bindings = json_read(expansion.files[directory / 'bindings.json'])
-    candidate_bindings = json_read(output.get(directory / 'bindings.json', expansion.files[directory / 'bindings.json']))
-    preserve_bindings(selected_bindings, candidate_bindings)
-    verify_input_types(after, yaml_read(output.get(directory / 'parameters.yaml', expansion.files[directory / 'parameters.yaml'])), candidate_bindings,
-                       (before, yaml_read(expansion.files[directory / 'parameters.yaml']), selected_bindings))
+    selected_bindings = json_read(expansion.files.get(directory / 'bindings.json', '{"instances":{}}'))
+    candidate_bindings = json_read(output.get(directory / 'bindings.json', expansion.files.get(directory / 'bindings.json', '{"instances":{}}')))
+    updated = {rid for rid, record in (selected or {}).items() if record.get('_action') in {'refresh', 'replace'}}
+    preserve_bindings(selected_bindings, candidate_bindings, updated)
+    old_parameters = yaml_read(expansion.files.get(directory / 'parameters.yaml', 'instances: {}'))
+    parameters = yaml_read(output.get(directory / 'parameters.yaml', expansion.files.get(directory / 'parameters.yaml', 'instances: {}')))
+    if directory / 'parameters.yaml' in expansion.files and not typed_equal(old_parameters.get('parameters', {}), parameters.get('parameters', {})):
+        raise ValueError('IMPORT existing common inputs must be preserved')
+    for name, binding in selected_bindings['instances'].items():
+        if not set(binding['resources'].values()) & updated and not typed_equal(
+                old_parameters.get('instances', {}).get(name), parameters.get('instances', {}).get(name)):
+            raise ValueError('IMPORT nonselected Instance inputs must be preserved: ' + name)
+    verify_input_types(after, parameters, candidate_bindings, (before, old_parameters, selected_bindings))
     snapshots, used = {}, set()
     with read_consumers(identities):
         for consumer in sorted(set(identities) - {identity}):
@@ -165,6 +175,30 @@ def preserve_consumers(path, expansion, output, identities):
                     if left != right:
                         raise ValueError('IMPORT direct consumer Property meaning changed: ' + '/'.join(consumer) + '/' + instance + '/' + name + '/' + key)
     return snapshots, used, changed
+
+
+def replacement_inputs(root, identity, selected):
+    """Reuse incoming-reference analysis and its input snapshot; never retarget here."""
+    replacements = {rid for rid, record in selected.items() if record.get('_action') == 'replace'}
+    if not replacements:
+        return {}, ()
+    from import_scope import read_consumers
+    from model_reference_usage import incoming_references
+    from model_sources import read_sources
+    from validation_cache import input_select
+    directories = input_select(root / 'model/parameters' / identity[0] / identity[1], '*')
+    scopes = {(*identity[:2], directory.name) for directory in directories}
+    inputs = {}
+    with read_consumers(scopes):
+        for scope in sorted(scopes):
+            inputs.update(read_sources(root / 'model' / scope[0] / scope[1] / (scope[2] + '.properties')))
+        for rid in sorted(replacements):
+            address = '/'.join((*identity, rid))
+            references = [item for item in incoming_references(root, address) if item['consumer'] != address]
+            if references:
+                raise ValueError('IMPORT replace has incoming references; use a separately authorized Model-only operation: '
+                                 + address + ': ' + ', '.join(item['scope'] + '/' + item['key'] for item in references))
+    return inputs, directories
 
 
 # Compatibility for existing import callers; implementation lives at its final-check boundary.

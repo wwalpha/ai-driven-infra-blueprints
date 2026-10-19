@@ -1543,6 +1543,131 @@ def check_existing_hyphenated_fixed_id_cannot_receive_rows():
         verify_values(expansion(original), expansion({**original, **addition}), {}, schema_for)
 
 
+@pytest.mark.parametrize('action', ['refresh', 'replace'])
+def check_selected_overwrite(action):
+    from import_guard import digest
+    from model_operation_checks import operation_values
+    old = {**resource(), **resource('002', identity='vpc-other')}
+    physical = 'vpc-confirmed' if action == 'refresh' else 'vpc-replacement'
+    captured = record(physical)
+    new = {**old, 'desired.row.001-002.value': '`10.11.0.0/23`', 'observed.row.001-001.value': '`' + physical + '`'}
+    picked = selection(action=action)
+    if action == 'replace':
+        picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': digest(operation_values(old, '001'))}
+    chosen = selection_records(picked, [captured], old, new, schema_for)
+    assert {item['resource'] for item in verify_values(expansion(old), expansion(new), chosen, schema_for)} == {'001'}
+    assert operation_values(old, '002') == operation_values(new, '002')
+    if action == 'replace':
+        picked['resources'][0]['before']['model'] = 'stale'
+        with pytest.raises(ValueError, match='previous identity/Model state'):
+            selection_records(picked, [captured], old, new, schema_for)
+
+
+@pytest.mark.parametrize('action', ['refresh', 'replace'])
+@pytest.mark.parametrize('mode', ['CREATE', 'IMPORT'])
+def check_overwrite_identity_and_mode_boundary(action, mode):
+    old = resource(mode=mode)
+    picked = selection(action=action)
+    if action == 'replace':
+        picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': 'invalid'}
+    with pytest.raises(ValueError, match='CREATE|physical identity|previous identity/Model state'):
+        selection_records(picked, [record('vpc-different')], old, old, schema_for)
+
+
+@pytest.mark.parametrize('mutation', ['unacquired', 'other', 'property', 'comment', 'anchor', 'observed', 'delete', 'row-owner'])
+def check_overwrite_does_not_grant_unrelated_edits(mutation):
+    old = {**resource(), **resource('002', identity='vpc-other')}
+    captured = record()
+    captured['properties']['EC2.VPC.Name'] = {'status': 'unavailable', 'reason': 'AccessDenied'}
+    new = {**old, 'desired.row.001-002.value': '`10.11.0.0/23`'}
+    chosen = selection_records(selection(action='refresh'), [captured], old, new, schema_for)
+    if mutation == 'delete':
+        del new['desired.row.001-003.value']
+    else:
+        key, value = {
+            'unacquired': ('desired.row.001-003.value', '`changed`'),
+            'other': ('desired.row.002-002.value', '`10.11.0.0/23`'),
+            'property': ('desired.row.001-003.property', 'EC2.VPC.CidrBlock'),
+            'comment': ('desired.row.001-002.comment', 'changed'),
+            'anchor': ('desired.resource.001.anchor', 'changed'),
+            'observed': ('observed.row.001-002.value', '`invented`'),
+            'row-owner': ('desired.row.002-004.property', 'EC2.VPC.CidrBlock'),
+        }[mutation]
+        new[key] = value
+    with pytest.raises(ValueError):
+        verify_values(expansion(old), expansion(new), chosen, schema_for)
+
+
+def check_refresh_new_rows_and_missing_properties():
+    old = resource()
+    captured = record()
+    captured['properties']['EC2.VPC.Name'] = {'status': 'unavailable'}
+    captured['properties']['EC2.VPC.EnableDnsSupport'] = {'status': 'captured', 'value': True}
+    new = {**old, 'desired.row.001-002.value': '`10.11.0.0/23`',
+           'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport',
+           'desired.row.001-004.value': '`true`', 'desired.row.001-004.comment': '取得値',
+           'observed.row.001-004.value': '`true`'}
+    chosen = selection_records(selection(action='refresh'), [captured], old, new, schema_for)
+    changed = verify_values(expansion(old), expansion(new), chosen, schema_for)
+    assert {item['property'] for item in changed} == {'EC2.VPC.CidrBlock', 'EC2.VPC.EnableDnsSupport'}
+    assert new['desired.row.001-003.value'] == old['desired.row.001-003.value']
+
+
+def check_overwrite_duplicate_selection_and_destination_identity():
+    from import_guard import digest
+    from model_operation_checks import operation_values
+    old = {**resource(), **resource('002', identity='vpc-other')}
+    picked = selection(action='refresh')
+    picked['resources'] *= 2
+    with pytest.raises(ValueError, match='duplicate'):
+        selection_records(picked, [record()], old, old, schema_for)
+    picked = selection(action='replace')
+    picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': digest(operation_values(old, '001'))}
+    with pytest.raises(ValueError, match='duplicate identity'):
+        selection_records(picked, [record('vpc-other')], old, old, schema_for)
+
+
+def check_selected_binding_switch_preserves_fixed_maps():
+    original = {'instances': {'main': {'definition': 'Vpc', 'resources': {'vpc': '001'},
+                                      'rows': {'cidr': '001-001'}, 'parameters': {'Anchor': 'main'}}}}
+    new = copy.deepcopy(original)
+    new['instances']['main']['definition'] = 'CapturedVpc'
+    new['instances']['main']['rows']['dns'] = '001-002'
+    preserve_bindings(original, new, {'001'})
+    new['instances']['main']['rows']['dns'] = '002-001'
+    with pytest.raises(ValueError, match='selected Resource'):
+        preserve_bindings(original, new, {'001'})
+
+
+def check_overwrite_reference_permission_is_property_scoped():
+    from import_scope import new_references, resolves_reference
+    values = resource()
+    captured = {**record(), '_action': 'refresh'}
+    captured['properties']['EC2.VPC.Name'] = {'status': 'unavailable'}
+    declarations = {'Captured': {'type': 'reference'}, 'Missing': {'type': 'reference'}}
+    defined = Definition(declarations, {'vpc'}, {'id': 'vpc', 'name': 'vpc'},
+                         {'desired.row.id.property': 'EC2.VPC.VpcId', 'desired.row.id.value': '<<Captured>>',
+                          'desired.row.name.property': 'EC2.VPC.Name', 'desired.row.name.value': '<<Missing>>'},
+                         {}, set(), {}, {}, {})
+    item = {'resources': {'vpc': '001'}, 'parameters': {'Captured': '001', 'Missing': '002'}}
+    with new_references(expansion(values), {'001': captured}):
+        assert resolves_reference(item, defined, 'Captured')
+        assert not resolves_reference(item, defined, 'Missing')
+        assert not resolves_reference({**item, 'resources': {'vpc': '002'}}, defined, 'Captured')
+    assert not resolves_reference(item, defined, 'Captured')
+
+
+def check_import_llm_choice_contract():
+    prompt = (m.ROOT / 'framework/prompts/codex/08_import.md').read_text(encoding='utf-8')
+    assert 'Ask the Human if Environment or Service is missing' in prompt
+    assert 'Same physical ID, IMPORT' in prompt and 'Different physical ID, same IMPORT type' in prompt
+    assert 'No existing Resources' in prompt and 'Same physical ID, CREATE' in prompt
+    assert 'Unknown or multiple matching physical IDs' in prompt
+    assert 'explicitly selected existing Resource ID' in prompt
+    assert 'publish the combined service candidate once' in prompt
+    assert 'sequentially' in prompt and 'independent Task/acquisition/publication' in prompt
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))
