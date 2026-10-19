@@ -8,6 +8,9 @@ from reference_contracts import (ARN_FORMS, VALUE_IDENTITIES, CONFIGURATION_PROP
                                  attributes_for, contract)
 
 
+_UNOBSERVED = object()
+
+
 def known(value):
     return (isinstance(value, str) and bool(value) and value not in
             {'UNSET', 'PENDING_DEPLOY', 'Pending', 'TBD', 'TODO', '未確定'} and
@@ -31,7 +34,7 @@ class Resolver:
         self.root, self.environment, self.target = Path(root), environment, target
         self.definitions_root = definitions_root or root
         self.local = local or {}
-        self.files, self.indexes = {}, {}
+        self.files, self.indexes, self.targets = {}, {}, {}
         self.metrics = {'referenceModelReads': 0, 'referenceResources': 0}
         self.context = None
         self.partition = None
@@ -46,6 +49,7 @@ class Resolver:
         service = owners(self.definitions_root).get(kind)
         result = {}
         self.indexes[kind] = result
+        self.targets[kind] = {}
         if service is None:
             return result
         properties = attributes_for(kind)
@@ -100,6 +104,7 @@ class Resolver:
                             if row['property'] in group:
                                 physical.setdefault(prop.removeprefix(kind + '.'), set()).add(value)
                 candidate = {'service': service, 'id': rid, 'anchor': resource['anchor'], 'kind': kind}
+                self.targets[kind][service, rid] = candidate
                 for form, candidates in physical.items():
                     if len(candidates) != 1:
                         raise ValueError('IMPORT ambiguous producer physical identifier: ' + kind + '.' + form)
@@ -154,6 +159,20 @@ class Resolver:
         if not require_links and reference is None:
             return
         declared = contract(prop, context) if contracts is None else contracts
+        if physical is _UNOBSERVED:
+            if reference:
+                if not declared:
+                    raise ValueError('IMPORT explicit reference has no physical identification contract: ' + prop)
+                candidates = []
+                for kind in declared:
+                    self.index(kind)
+                    candidates.extend(candidate for candidate in self.targets[kind].values()
+                                      if (reference[2], reference[3]) in {
+                                          (candidate['service'] + '.md', candidate['anchor']),
+                                          ('', candidate['anchor']) if candidate['service'] in self.local else (None, None)})
+                if len(candidates) != 1:
+                    raise ValueError('IMPORT explicit link has no unique design target: ' + prop)
+            return
         if reference and not declared and raw == physical:
             return  # An identical acquired string is data, not an inferred reference.
         if reference is None:
@@ -182,16 +201,17 @@ class Resolver:
 
     def verify_tree(self, prop, desired, actual, context, *, require_links=True):
         if isinstance(desired, (list, dict)):
-            if type(desired) is not type(actual) or (desired.keys() != actual.keys() if isinstance(desired, dict) else len(desired) != len(actual)):
+            if actual is not _UNOBSERVED and (type(desired) is not type(actual) or (desired.keys() != actual.keys() if isinstance(desired, dict) else len(desired) != len(actual))):
                 raise ValueError('IMPORT reference/observation structure differs: ' + prop)
             for key in desired if isinstance(desired, dict) else range(len(desired)):
                 child_context = {prop: value[key] if isinstance(value, list) and isinstance(key, int) and key < len(value) else value
                                  for prop, value in context.items()}
-                self.verify_tree(prop + '.' + key if isinstance(desired, dict) else prop, desired[key], actual[key], child_context, require_links=require_links)
+                self.verify_tree(prop + '.' + key if isinstance(desired, dict) else prop, desired[key],
+                                 _UNOBSERVED if actual is _UNOBSERVED else actual[key], child_context, require_links=require_links)
         else:
             self.verify(prop, desired, actual, context, require_links=require_links)
 
-    def verify_resource(self, values, rid, *, require_links=True, identity_properties=None, properties=None):
+    def verify_resource(self, values, rid, *, require_links=True, identity_properties=None, properties=None, observed_only=False):
         from model_files import resource_row_index
         from model_references import catalog_outputs
         if identity_properties is None:
@@ -212,31 +232,36 @@ class Resolver:
             if prop in CONFIGURATION_PROPERTIES:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]
                 desired = json.loads(row.get('document', literal(raw)))
-                actual = json.loads(literal(observed)) if observed is not None else desired
+                actual = json.loads(literal(observed)) if observed is not None else _UNOBSERVED if observed_only else desired
                 def verify_config(desired, actual, provider):
                     if isinstance(desired, list):
-                        if not isinstance(actual, list) or len(desired) != len(actual):
+                        if actual is not _UNOBSERVED and (not isinstance(actual, list) or len(desired) != len(actual)):
                             raise ValueError('IMPORT Configuration array dimensions differ')
-                        for i, (left, right) in enumerate(zip(desired, actual)):
-                            verify_config(left, right, provider[i] if isinstance(provider, list) and i < len(provider) else provider)
+                        for i, left in enumerate(desired):
+                            verify_config(left, _UNOBSERVED if actual is _UNOBSERVED else actual[i],
+                                          provider[i] if isinstance(provider, list) and i < len(provider) else provider)
                     else:
-                        if not isinstance(desired, dict) or not isinstance(actual, dict) or desired.keys() != actual.keys():
+                        if not isinstance(desired, dict) or (actual is not _UNOBSERVED and
+                                (not isinstance(actual, dict) or desired.keys() != actual.keys())):
                             raise ValueError('IMPORT Configuration requires matching objects')
                         for key, value in desired.items():
                             target = choices.get((provider, key)) if isinstance(provider, str) else None
                             contracts = {target[0]: (target[1],)} if target else {}
-                            self.verify(prop + '.' + key, value, actual[key], context, contracts=contracts, require_links=require_links)
+                            self.verify(prop + '.' + key, value, _UNOBSERVED if actual is _UNOBSERVED else actual[key],
+                                        context, contracts=contracts, require_links=require_links)
                 verify_config(desired, actual, context.get(selector))
                 continue
             from import_sources import has_reference
             if (not LINK.fullmatch(raw) and literal(raw).startswith(('[', '{')) and
                     (has_reference(row.get('document', raw)) or contract(prop, context) or prop in CONTEXT_PROPERTIES)):
                 desired = json.loads(row.get('document', literal(raw)))
-                actual = json.loads(literal(observed)) if observed is not None else desired
+                actual = json.loads(literal(observed)) if observed is not None else _UNOBSERVED if observed_only else desired
                 self.verify_tree(prop, desired, actual, context, require_links=require_links)
                 continue
             # Identity outputs/self links and parentReference keep their own guards.
-            links, physical = elements(raw), elements(observed if observed is not None else raw)
+            links = elements(raw)
+            physical = ([_UNOBSERVED] * len(links) if observed_only and observed is None else
+                        elements(observed if observed is not None else raw))
             if len(links) != len(physical):
                 raise ValueError('IMPORT reference/observation element count differs: ' + prop)
             if not contract(prop, context) and not any(isinstance(value, str) and LINK.fullmatch(value) for value in links):
@@ -245,4 +270,4 @@ class Resolver:
                 link = LINK.fullmatch(value)
                 if link and prop in identity_properties and not link[2] and link[3] == values.get(f'desired.resource.{rid}.anchor'):
                     continue
-                self.verify(prop, value, literal(actual), context, require_links=require_links)
+                self.verify(prop, value, _UNOBSERVED if actual is _UNOBSERVED else literal(actual), context, require_links=require_links)

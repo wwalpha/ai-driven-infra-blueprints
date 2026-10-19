@@ -224,7 +224,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
                                 local={source.stem: Expansion(values, {}, {})})
             for rid in imported[source].values():
-                resolver.verify_resource(candidate, rid, require_links=False)
+                resolver.verify_resource(candidate, rid, require_links=False, observed_only=True)
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
     references = {path.resolve() for path in sources}
@@ -321,7 +321,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             if len(cells) == 4 and source_anchor in imported[source]:
-                continue  # IMPORT table links were checked against physical Model identities.
+                continue  # IMPORT links use typed Model targets, plus physical identities when observed.
             for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()

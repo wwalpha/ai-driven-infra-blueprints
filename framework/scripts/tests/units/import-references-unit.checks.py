@@ -323,7 +323,8 @@ def check_role_arn_requires_account_and_explicit_path(tmp_path):
 
 
 @pytest.mark.parametrize('wrong', [False, True])
-def check_design_link_validation_uses_physical_identity(tmp_path, wrong):
+@pytest.mark.parametrize('observed', [False, True])
+def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observed):
     from types import SimpleNamespace
     from model_design import generate_markdown
     from model_projection import identifier_outputs
@@ -335,6 +336,8 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong):
         'display.service.title': '# Firehose', 'display.resource.009.comment': '合成入力',
         'desired.row.009-002.value': '[audit-bucket](s3.md#producer)',
         'observed.row.009-002.value': '`arn:aws:s3:::audit-bucket`'})
+    if not observed:
+        del source['observed.row.009-002.value']
     bucket = values('S3.Bucket', {'BucketName': 'other-bucket' if wrong else 'audit-bucket'})
     bucket.update({'desired.service.s3.serviceId': 's3', 'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                    'display.service.title': '# S3', 'display.resource.001.comment': '合成入力'})
@@ -350,8 +353,8 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong):
     check_design_links(identifier_outputs(ROOT), [document], design_index=DesignIndex(ROOT), design_sources={document: source},
                        findings=findings, root=tmp_path, scope=None, definitions_root=ROOT)
     physical_errors = [error for error in errors if 'physical reference' in error]
-    assert bool(physical_errors) == wrong, errors
-    if not wrong:
+    assert bool(physical_errors) == (wrong and observed), errors
+    if not (wrong and observed):
         assert not errors, errors
 
 
@@ -443,6 +446,114 @@ def check_native_array_literals_cannot_evade_matching_model(tmp_path):
         resolver.verify_resource(source, '009')
     # Old literals remain untouched when a producer is imported later.
     resolver.verify_resource(source, '009', require_links=False)
+
+
+@pytest.mark.parametrize('reference', [
+    '[group](cloudwatch-logs.md#producer)',
+    '[missing](cloudwatch-logs.md#absent)',
+    '[wrong type](s3.md#producer)',
+    '[missing service](missing.md#producer)',
+    '[foreign](../other/cloudwatch-logs.md#producer)',
+])
+def check_unobserved_link_requires_typed_target(tmp_path, reference):
+    # A producer's logical identity is sufficient even without any physical identifier.
+    producer(tmp_path, 'Logs.LogGroup', {'LogGroupName': '[group](#producer)'})
+    producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
+    source = values('CloudTrail.Trail', {'CloudWatchLogsLogGroupArn': 'unused'}, rid='009')
+    source['desired.row.009-001.value'] = reference
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    if reference == '[group](cloudwatch-logs.md#producer)':
+        with patch.object(resolver, 'match', side_effect=AssertionError('unobserved physical comparison')):
+            resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    else:
+        with pytest.raises(ValueError, match='no unique design target'):
+            resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    source['desired.row.009-001.property'] = 'CloudTrail.Trail.Unknown'
+    with pytest.raises(ValueError, match='no physical identification contract'):
+        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+
+
+@pytest.mark.parametrize('shape', ['scalar', 'array', 'document', 'configuration'])
+def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
+    if shape == 'scalar':
+        producer(tmp_path, 'Logs.LogGroup', {'LogGroupName': 'audit'})
+        source = values('CloudTrail.Trail', {'CloudWatchLogsLogGroupArn': 'unused'}, rid='009')
+        source['desired.row.009-001.value'] = '[group](cloudwatch-logs.md#producer)'
+    elif shape in {'array', 'document'}:
+        producer(tmp_path, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'})
+        raw = ['[subnet](vpc.md#producer)', 'subnet-external']
+        prop = 'VpcConfig.Subnets' if shape == 'array' else 'VpcConfig'
+        source = values('CodeBuild.Project', {prop: json.dumps(raw if shape == 'array' else {'Subnets': raw})}, rid='009')
+        if shape == 'document':
+            source['desired.row.009-001.document'] = json.dumps({'Subnets': raw})
+    else:
+        producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
+        source = values('CodePipeline.Pipeline', {
+            'Stages[].Actions[].ActionTypeId.Provider': '[["CodeBuild"]]',
+            'Stages[].Actions[].Configuration': '[[{"ProjectName":"[build](codebuild.md#producer)"}]]'}, rid='009')
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    snapshot = dict(source)
+    resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    assert source == snapshot
+    invalid = {key: value.replace('#producer)', '#absent)') for key, value in source.items()}
+    with pytest.raises(ValueError, match='no unique design target'):
+        resolver.verify_resource(invalid, '009', require_links=False, observed_only=True)
+    for require_links in (True, False):
+        with pytest.raises(ValueError, match='differs from acquired physical reference'):
+            resolver.verify_resource(source, '009', require_links=require_links)
+    record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic', 'properties': {}}
+    with pytest.raises(ValueError, match='differs from acquired physical reference'):
+        verify_values(Expansion({}, {}, {}), Expansion(source, {}, {}), {'009': record},
+                      lambda _: {'type': 'string'}, resolver)
+    for key in list(source):
+        if key.startswith('desired.row.') and key.endswith('.value') and '[' in source[key]:
+            source['observed.' + key.removeprefix('desired.')] = 'null'
+    with pytest.raises(ValueError, match='structure differs|Configuration array dimensions differ|differs from acquired'):
+        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+
+
+@pytest.mark.parametrize('physical', ['audit-bucket', 'wrong-bucket'])
+def check_observed_comparison_in_design_and_import(tmp_path, physical):
+    producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
+    source = values('CloudTrail.Trail', {'S3BucketName': 'unused'}, rid='009')
+    source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+    source['observed.row.009-001.value'] = physical
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    for kwargs in ({}, {'require_links': False}, {'require_links': False, 'observed_only': True}):
+        if physical == 'audit-bucket':
+            resolver.verify_resource(source, '009', **kwargs)
+        else:
+            with pytest.raises(ValueError, match='differs from acquired physical reference'):
+                resolver.verify_resource(source, '009', **kwargs)
+
+
+def check_unobserved_local_and_identity_self_links(tmp_path):
+    source = values('EC2.VPC', {'VpcId': 'unused'})
+    source['desired.row.001-001.value'] = '[self](#producer)'
+    source.update(values('EC2.Subnet', {'VpcId': 'unused'}, rid='009', anchor='consumer'))
+    source['desired.row.009-001.value'] = '[vpc](#producer)'
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT, local={'vpc': Expansion(source, {}, {})})
+    resolver.verify_resource(source, '001', require_links=False, observed_only=True)
+    resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    source['desired.row.009-001.value'] = '[absent](#missing)'
+    with pytest.raises(ValueError, match='no unique design target'):
+        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+
+
+@pytest.mark.parametrize('physical', ['PENDING_DEPLOY', 'vpc-confirmed', 'UNSET'])
+def check_design_pending_observation_retains_target_guard(tmp_path, physical):
+    producer(tmp_path, 'EC2.VPC', {'VpcId': physical})
+    source = values('EC2.Subnet', {'VpcId': 'unused'}, rid='009')
+    source['desired.row.009-001.value'] = '[vpc](vpc.md#producer)'
+    source['observed.row.009-001.value'] = 'PENDING_DEPLOY'
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    if physical == 'PENDING_DEPLOY':
+        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    else:
+        with pytest.raises(ValueError, match='differs from acquired physical reference'):
+            resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    with pytest.raises(ValueError, match='differs from acquired physical reference'):
+        resolver.verify_resource(source, '009')
 
 
 if __name__ == '__main__':
