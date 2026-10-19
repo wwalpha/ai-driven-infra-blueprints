@@ -376,7 +376,14 @@ def check_external_instances(root):
     producer('dev', '017', 'wrong-type', 'Glue.SecurityConfiguration')
     rejected(lambda: load_model(path), 'zero matching candidates: resourceType mismatch')
     producer('dev', '017', 'duplicate', duplicate=True)
-    rejected(lambda: load_model(path), '"expectedResourceType":"SecretsManager.Secret","candidateIds":["017","099"],"matchingIds":["017","099"]')
+    with pytest.raises(ValueError, match='^unresolved reference target: ') as error:
+        load_model(path)
+    details = json.loads(str(error.value).removeprefix('unresolved reference target: '))
+    assert details['expectedResourceType'] == kind
+    assert sorted(details['candidateIds']) == ['017', '099']
+    assert sorted(details['matchingIds']) == ['017', '099']
+    assert details['effectiveResourceTypes'] == {'017': kind, '099': kind}
+    assert details['reason'] == 'multiple matching candidates'
     from model_parameter_inputs import reference_schema
     rejected(lambda: reference_schema({**selector, 'resource': '017'}), 'template reference requires')
     rejected(lambda: reference_schema({**selector, 'instance': '../escape'}), 'invalid template reference target')
