@@ -1,5 +1,5 @@
 # Manual Design Update and Deployment Prompt
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 [Service Model sources](../../rules/model-templates.md) define the YAML-only input
@@ -64,6 +64,25 @@ cannot succeed as this value-preserving IMPORT detach. A failed guard retains wo
 and detailed before/after diagnostics. Do not disable it or auto-approve failure.
 This branch does not enter infrastructure execution below.
 
+
+## Standalone Model reference retarget
+
+Use this independent branch only for an explicit Human reference-only request under
+[Standalone Model reference retarget](../../rules/task-contract.md#standalone-model-reference-retarget).
+Read that section, Task transition/boundary/Acceptance, issue-gate, Model sources and
+IMPORT authority before execution. Check ordinary issues for every producer and consumer;
+register a running design/update `import-retarget` parent with forbidden AWS/deploy,
+exact reference records, source/view paths and service Validation scope. Inspect
+`model_reference_usage` and raw authoritative sources; never infer identities from names
+or physical/display equality. Call only [model-retarget](../../../.agents/skills/model-retarget/SKILL.md)
+with the exact records. Batch all declared source changes in one guarded save, then
+use existing generation APIs and worktree finalize on the running parent for latest-base
+candidate verification/completion/ff-only integration. Do not invoke transfer/delete,
+edit generated views, relax other operations, or enter infrastructure execution below.
+Preserve both producers, settings, fixed identities, observations, all undeclared
+references/consumers/environments, types/order and reference format/output/label policy.
+Ambiguity, unused/overlapping/mismatched records, undeclared changes or input conflicts
+stop without auto-regeneration or retry; retain the candidate. No IT requirement is added.
 
 ## Model-only IMPORT merge or deletion
 

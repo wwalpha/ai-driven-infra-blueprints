@@ -51,6 +51,13 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
         raise ValueError('completed task cannot write')
     from import_guard import managed_source_write, source_write_context
     raw_paths = set(output) | obsolete
+    if text is not None:
+        from task_contract import model_operation
+        operation = model_operation(text)
+        source_paths_only = {p for p in raw_paths if p.relative_to(root).as_posix().startswith(('model/templates/', 'model/parameters/'))}
+        if operation is not None and operation.action == 'import-retarget' and source_paths_only:
+            if source_paths_only != raw_paths or not managed_source_write(root, name):
+                raise ValueError('retarget sources require a separate owned one-use source save')
     if text is not None and raw_paths and all(p.relative_to(root).as_posix().startswith(('model/templates/', 'model/parameters/')) for p in raw_paths) and managed_source_write(root, name):
         from model_sources import write_sources
         with source_write_context(root, name) as context:

@@ -19,10 +19,22 @@ Read raw source with `model_sources.read_sources`; expansion-based `read_resourc
 for unfinished sources. Use existing YAML editing and resolver helpers. The agent
 chooses source edits; Python does not reconstruct or infer an edit plan.
 
+For an `import-retarget` parent also read
+[Standalone reference contract](../../../framework/rules/task-contract.md#standalone-model-reference-retarget).
+Require its full record set in one source save; no merge pair or comparison-source
+substitution is allowed. Both producers must remain untouched. This standalone branch
+permits value/document configuration references only, including explicit JSON scalar
+pointers and numbered array Properties. No Subnet associations, parentReference,
+D→D reevaluation, bindings/observed edits or new source structure. The ordinary Issue
+Gate applies to every producer and consumer. The save guard resolves and proves the
+full before/candidate meaning before publication; unlike merge leaves, an incomplete
+standalone candidate cannot be saved. It uses the same one-use context and final
+snapshot comparison. Return to the parent for generation/finalize; do not perform them here.
+
 ## Operation
 
 Accept only an exact subset of the parent's reference changes. Change only the
-registered consumer's complete value, non-root scalar JSON pointer or parentReference.
+registered consumer's complete value, non-root scalar JSON pointer or (merge only) parentReference.
 Use bindings and the existing resolver to prove before source and after destination;
 local Instance names resolve to fixed Resources. For destination consumers derive the
 comparison source from the registered pair. Never choose a target from equal strings,

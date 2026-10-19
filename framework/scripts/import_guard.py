@@ -254,6 +254,14 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
             raise ValueError('IMPORT Model-only operation requires a versioned baseline')
         from model_operation_checks import verify_model_operation
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
+            if operation.action == 'import-retarget':
+                from validation_scope import active_scope
+                scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
+                required = {tuple(address.split('/')[:3]) for ref in operation.references
+                            for address in (ref.consumer, ref.source, ref.destination)}
+                required |= affected(after, sources, before=before)
+                if scope is None or not required <= scope:
+                    raise ValueError('retarget requires all producers/consumers in Validation scope')
             verify_model_operation(before, after, operation, sources)
         return
     if refactor is not None:
@@ -586,9 +594,11 @@ def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteCont
             with recording_inputs(snapshot):
                 scope = active_scope(root, task_file=name)
                 selected = {operation.scope} | {tuple(ref.consumer.split('/')[:3]) for ref in operation.references}
+                if operation.action == 'import-retarget':
+                    selected |= {tuple(a.split('/')[:3]) for ref in operation.references for a in (ref.source, ref.destination)}
                 if scope is None or not selected <= scope:
                     raise ValueError('source write requires exact service Validation scope')
-                require_no_issues(root, selected, task_file=name)
+                require_no_issues(root, scope if operation.action == 'import-retarget' else selected, task_file=name)
                 for identity in sorted(selected):
                     env, alias, service = identity
                     model = root / 'model' / env / alias / (service + '.properties')
@@ -609,6 +619,12 @@ def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteCont
                             if path.name == 'parameters.yaml':
                                 writable.add(path)
                                 path_scopes[path] = {consumer}
+                if operation.action == 'import-retarget':
+                    # Freeze all authority files/sets before the caller can prepare its edit.
+                    for path in snapshot.select(root / 'model', '*', recursive=True, kinds=('file',)):
+                        safe(root, path)
+                        snapshot.read(path)
+                    snapshot.read(root / 'project.json')
                 # Incoming sources are read dependencies only, never write authority.
                 for directory in snapshot.select(root / 'model/parameters' / operation.scope[0] / operation.scope[1]):
                     safe(root, directory)

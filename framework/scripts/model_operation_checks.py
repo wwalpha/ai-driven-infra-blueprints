@@ -96,6 +96,8 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
     before accepting any evaluated candidate reference result. Existing expansion
     resolves candidate producers; unresolved, cyclic or ambiguous inputs fail.
     """
+    if operation.action == 'import-retarget':
+        return verify_model_retarget(before, after, operation, sources)
     from import_promotion import changed_properties, property_value
     from import_scope import allowed_source, model_path
     from model_templates import model_paths, validate_local
@@ -415,3 +417,203 @@ def verify_model_refactor(before: Path, after: Path, detaches, sources, validati
                 fail(scope, 'desired.resource.' + rid + '.resourceType', left, right, 'effective configuration changed')
     if used != set(detaches):
         raise ValueError('unused Model dependency detach declaration: ' + repr(set(detaches) - used))
+
+
+@input_scope
+def verify_model_retarget(before: Path, after: Path, operation, sources):
+    """Only declared fixed-identity configuration references may differ; no transfer/delete."""
+    import copy
+    from model_reference_usage import reference_models, resource_address
+    from model_templates import validate_local, template_document
+    from validation_cache import input_select, input_bytes
+
+    def files(root):
+        return {p.relative_to(root): input_bytes(p) for p in input_select(root / 'model', '*', recursive=True, kinds=('file',))}
+    old_files, new_files = files(before), files(after)
+    if old_files.keys() != new_files.keys() or input_bytes(before / 'project.json') != input_bytes(after / 'project.json'):
+        raise ValueError('retarget cannot change authority file sets or project configuration')
+    changed = {p for p in old_files if old_files[p] != new_files[p]}
+    if {p.as_posix() for p in changed} - set(sources):
+        raise ValueError('retarget undeclared source changes')
+    for relative in changed:
+        parts = relative.parts
+        if parts[:2] == ('model', 'templates'):
+            alias, service = parts[2], parts[3].removesuffix('.tpl').removesuffix('.properties')
+            old, new = consumers(before, alias, service), consumers(after, alias, service)
+            if old != new:
+                raise ValueError('retarget shared consumers changed')
+        elif parts[:2] == ('model', 'parameters') and len(parts) == 6 and parts[-1] == 'parameters.yaml':
+            pass
+        else:
+            raise ValueError('retarget cannot change bindings, observations or non-configuration sources: ' + str(relative))
+    scopes = set()
+    for relative in old_files:
+        parts = relative.parts
+        if parts[:2] == ('model', 'parameters') and len(parts) == 6 and parts[-1] == 'bindings.json':
+            scopes.add(tuple(parts[2:5]))
+    old_expanded, old_symbols = reference_models(before, scopes)
+    new_expanded, new_symbols = reference_models(after, scopes)
+    # Producers and consumers must exist independently of their display/name/physical values.
+    for ref in operation.references:
+        for address in (ref.consumer, ref.source, ref.destination):
+            env, target, service, rid = resource_address(address)
+            values = old_expanded.get((env, target, service))
+            if values is None or 'desired.resource.' + rid + '.resourceType' not in values.values:
+                raise ValueError('retarget unknown Resource: ' + address)
+        left = resource_address(ref.source); right = resource_address(ref.destination)
+        a, b = old_expanded[left[:3]].values, old_expanded[right[:3]].values
+        if any(values.get('desired.resource.' + rid + '.resourceMode', 'CREATE') != 'IMPORT'
+               for values, rid in ((a, left[3]), (b, right[3]))):
+            raise ValueError('retarget requires existing IMPORT producers')
+        if a['desired.resource.' + left[3] + '.resourceType'] != b['desired.resource.' + right[3] + '.resourceType']:
+            raise ValueError('retarget producer resource types differ')
+
+    used, editable_fields, editable_inputs = set(), {}, {}
+    for scope in sorted(scopes):
+        old, new = old_expanded[scope], new_expanded[scope]
+        validate_local(new.values)
+        if old.values.keys() != new.values.keys():
+            raise ValueError('retarget cannot change Model structure')
+        expected = copy.deepcopy(old_symbols[scope])
+        current = copy.deepcopy(new_symbols[scope])
+        structured_keys = set()
+        for ref in operation.references:
+            if tuple(ref.consumer.split('/')[:3]) != scope:
+                continue
+            rid = ref.consumer.rsplit('/', 1)[1]
+            kind = old.values['desired.resource.' + rid + '.resourceType']
+            if 'Subnet' in kind or 'Association' in kind or 'Subnet' in ref.property_name:
+                raise ValueError('retarget cannot change Subnet associations')
+            rows = operation_rows(old.values, rid)
+            if ref.property_name not in rows:
+                raise ValueError('retarget missing or ambiguous formal Property: ' + ref.property_name)
+            row_id, _ = rows[ref.property_name]
+            key = 'desired.row.' + row_id + '.' + ref.field
+            if key not in expected:
+                raise ValueError('retarget missing reference field')
+            if ref.field == 'value' and ref.pointer is not None and key not in structured_keys:
+                expected[key], current[key] = _retarget_document(expected[key]), _retarget_document(current[key])
+                structured_keys.add(key)
+            target = expected[key]
+            parent = leaf = None
+            if ref.pointer is not None:
+                parent, leaf = _pointer(target, ref.pointer)
+                target = parent[leaf]
+            if not isinstance(target, tuple) or len(target) != 3 or target[0] != '' or target[2] != '' or not isinstance(target[1], _Reference) or target[1].producer != ref.source:
+                raise ValueError('retarget before reference mismatch, overlap or non-scalar position')
+            updated = _retarget(target, ref.source, ref.destination)
+            if parent is None:
+                expected[key] = updated
+            else:
+                parent[leaf] = updated
+            used.add(ref)
+            trace = old.provenance[key]
+            editable_fields.setdefault((scope[1], scope[2], trace['definition']), set()).add(trace['key'])
+            # Only public reference selectors feeding this exact field may change.
+            path = before / 'model' / scope[0] / scope[1] / (scope[2] + '.properties')
+            _, (_, _, _, _, _, fields) = _reference_inputs(path)
+            item, definition, raw = fields[key]
+            selected_raw = raw
+            if ref.pointer is not None:
+                document = template_document(key, raw) if ref.field == 'document' else json_read(raw.strip('`'))
+                raw_parent, raw_leaf = _pointer(document, ref.pointer)
+                selected_raw = raw_parent[raw_leaf]
+            for name in variables(selected_raw):
+                if name in definition.parameters:
+                    spec = schema(definition.parameters[name])
+                    if spec['type'] == 'reference' and not spec.get('internal'):
+                        location = ('parameters', name) if spec.get('source') == 'service' else ('instances', item['id'], 'parameters', name)
+                        editable_inputs.setdefault(scope, set()).add(location)
+        for key, value in expected.items():
+            if key.endswith('.artifactSha256') or key.endswith('.value') and key.removesuffix('.value') + '.document' in expected:
+                continue  # Generated document link/hash; compare its authoritative document below.
+            if not _retarget_equal(value, current[key]):
+                raise ValueError('retarget undeclared value/type/reference/structure change: ' + '/'.join(scope) + '/' + key)
+        # Preserve raw inputs too, including unused parameters and definition metadata.
+        relative = Path('model/parameters') / '/'.join(scope) / 'parameters.yaml'
+        a, b = yaml_read(old_files[relative].decode()), yaml_read(new_files[relative].decode())
+        for location in editable_inputs.get(scope, ()):
+            x, y = a, b
+            for part in location[:-1]:
+                x, y = x.get(part, {}), y.get(part, {})
+            name = location[-1]
+            if (name in x) != (name in y):
+                raise ValueError('retarget cannot add/remove selector inputs')
+            if name in x:
+                x[name] = y[name]
+        if not _retarget_equal(a, b):
+            raise ValueError('retarget changed unrelated/unused input settings')
+    if used != set(operation.references):
+        raise ValueError('retarget unused declarations')
+    template_files = set()
+    for alias, service in {scope[1:] for scope in scopes}:
+        path = Path('model/templates') / alias / (service + '.properties.tpl')
+        a, raw_files = parse_template(before / path); b, _ = parse_template(after / path)
+        definition_name = None
+        for file, text in raw_files.items():
+            relative = file.relative_to(before)
+            template_files.add(relative)
+            previous, candidate = text.splitlines(), new_files[relative].decode().splitlines()
+            if len(previous) != len(candidate):
+                raise ValueError('retarget cannot change template structure')
+            for left_line, right_line in zip(previous, candidate):
+                if left_line.startswith('# definition: '):
+                    definition_name = left_line.removeprefix('# definition: ')
+                if left_line != right_line:
+                    key = left_line.partition('=')[0]
+                    if (key not in editable_fields.get((alias, service, definition_name), ()) or
+                            right_line.partition('=')[0] != key):
+                        raise ValueError('retarget changed undeclared raw template field')
+        if a.keys() != b.keys():
+            raise ValueError('retarget cannot add/remove Definitions')
+        for name, definition in a.items():
+            other = b[name]
+            left, right = definition._asdict(), other._asdict()
+            left.pop('locations'); right.pop('locations')
+            left['values'] = dict(left['values'])
+            for key in editable_fields.get((alias, service, name), ()):
+                if key in left['values'] and key in right['values']:
+                    left['values'][key] = right['values'][key]
+            if not _retarget_equal(left, right):
+                raise ValueError('retarget changed unrelated Definition or reference schema')
+    if any(p.parts[:2] == ('model', 'templates') and p not in template_files for p in changed):
+        raise ValueError('retarget changed an unused template source')
+
+
+def _retarget_equal(left, right):
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_retarget_equal(value, right[key]) for key, value in left.items())
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(_retarget_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _retarget_document(value):
+    """Parse a JSON value with symbolic tokens, retaining references as typed records."""
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, tuple):
+        raise ValueError('retarget pointer requires a JSON reference container')
+    tokens = {}
+    pieces = []
+    for item in value:
+        if isinstance(item, _Reference):
+            marker = '__retarget_reference_' + str(len(tokens)) + '__'
+            if any(isinstance(part, str) and marker in part for part in value):
+                raise ValueError('reserved retarget reference marker')
+            tokens[marker] = ('', item, '')
+            pieces.append(marker)
+        elif isinstance(item, str):
+            pieces.append(item)
+        else:
+            raise ValueError('retarget unsupported reference expression')
+    document = json_read(''.join(pieces).strip('`'))
+    def restore(item):
+        if isinstance(item, dict):
+            return {key: restore(raw) for key, raw in item.items()}
+        if isinstance(item, list):
+            return [restore(raw) for raw in item]
+        return tokens.get(item, item) if isinstance(item, str) else item
+    return restore(document)

@@ -317,8 +317,9 @@ def _prepare_commit(root, path, state, target, approval):
     model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
     contract = (target / state['task_file']).read_text(encoding='utf-8')
     operation = tasks.final_model_task(contract)
-    if approval and tasks.model_refactor(contract) is not None:
-        raise Blocked('Model refactor integration requires successful final candidate validation')
+    parsed_operation = tasks.model_operation(contract)
+    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action == 'import-retarget'):
+        raise Blocked('Model refactor/retarget integration requires successful final candidate validation')
     if (not operation or approval) and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
         from import_guard import require_import_changes
         if approval:

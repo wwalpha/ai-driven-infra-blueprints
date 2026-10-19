@@ -200,13 +200,16 @@ def model_operation(text: str) -> ModelOperation | None:
     if field('AWS API execution') != 'forbidden' or field('deploy/apply') != 'forbidden':
         raise ValueError('Model-only IMPORT operations forbid AWS and deploy/apply')
     action = field('Model operation')
-    if action not in {'import-merge', 'import-delete'}:
+    if action not in {'import-merge', 'import-delete', 'import-retarget'}:
         raise ValueError('unknown Model-only IMPORT operation')
     if action == 'import-delete':
         if present or field('Destination resource', False) is not None:
             raise ValueError('IMPORT deletion has no destination or reference declarations')
         source = address(field('Source resource'))
         return ModelOperation(action, tuple(source.split('/')[:3]), delete_source=source)
+    standalone = action == 'import-retarget'
+    if standalone and (legacy or headings[0] in present):
+        raise ValueError('standalone retarget has no merge pairs or legacy resources')
     pairs = []
     if legacy:
         pairs.append(MergePair(address(field('Source resource')), address(field('Destination resource'))))
@@ -215,9 +218,9 @@ def model_operation(text: str) -> ModelOperation | None:
             if set(value) != {'source', 'destination'}:
                 raise ValueError('merge pair requires exactly source and destination')
             pairs.append(MergePair(address(value['source']), address(value['destination'])))
-    if not pairs:
+    if not pairs and not standalone:
         raise ValueError('IMPORT merge requires nonempty pairs')
-    scope = tuple(pairs[0].source.split('/')[:3])
+    scope = tuple(pairs[0].source.split('/')[:3]) if pairs else None
     sources, destinations = {p.source for p in pairs}, {p.destination for p in pairs}
     if len(sources) != len(pairs) or len(destinations) != len(pairs) or sources & destinations:
         raise ValueError('IMPORT merge requires disjoint unique source/destination sets')
@@ -229,25 +232,33 @@ def model_operation(text: str) -> ModelOperation | None:
         keys = {'consumer', 'field', 'source', 'destination'}
         if kind in {'value', 'document'}:
             keys.add('property')
-        if kind == 'document':
+        if kind == 'document' or action == 'import-retarget' and kind == 'value' and 'pointer' in value:
             keys.add('pointer')
         if kind not in {'value', 'document', 'parentReference'} or set(value) != keys:
             raise ValueError('invalid reference fields')
         consumer, source, destination = (address(value[k]) for k in ('consumer', 'source', 'destination'))
+        if standalone and scope is None:
+            scope = tuple(consumer.split('/')[:3])
         if tuple(consumer.split('/')[:2]) != scope[:2] or consumer in sources:
             raise ValueError('reference consumer must remain in the same environment/target')
-        if MergePair(source, destination) not in pairs and not (source == destination and source in destinations):
+        if standalone and (kind == 'parentReference' or source == destination or any(tuple(a.split('/')[:2]) != scope[:2] for a in (source, destination))):
+            raise ValueError('standalone retarget requires distinct producers and a configuration Property in the same target')
+        if not standalone and MergePair(source, destination) not in pairs and not (source == destination and source in destinations):
             raise ValueError('reference must match a registered pair or destination reevaluation')
         prop, pointer = value.get('property'), value.get('pointer')
         if kind != 'parentReference' and (not isinstance(prop, str) or not re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+(?:\[[1-9][0-9]*\])?)+', prop)):
             raise ValueError('reference requires a formal Property')
-        if kind == 'document' and (not isinstance(pointer, str) or not pointer.startswith('/') or '*' in pointer or re.search(r'~(?![01])', pointer)):
+        if (kind == 'document' or 'pointer' in value) and (not isinstance(pointer, str) or not pointer.startswith('/') or '*' in pointer or re.search(r'~(?![01])', pointer)):
             raise ValueError('reference requires a non-root RFC 6901 pointer')
         position = (consumer, kind, prop, pointer)
         if position in positions:
             raise ValueError('duplicate reference position')
         positions.add(position)
         references.append(ReferenceChange(consumer, kind, source, destination, prop, pointer))
+    if standalone and any(ref.consumer in {a for r in references for a in (r.source, r.destination)} for ref in references):
+        raise ValueError('retarget producers cannot also be edited consumers')
+    if standalone and not references:
+        raise ValueError('standalone retarget requires nonempty reference declarations')
     return ModelOperation(action, scope, tuple(pairs), tuple(references))
 
 

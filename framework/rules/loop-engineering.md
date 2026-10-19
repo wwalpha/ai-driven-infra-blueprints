@@ -407,3 +407,12 @@ refactor meaning check through require_import_changes on the actual latest-base
 candidate. Generation remains the existing path, and independent complete retains its
 own check. No second pre-finalize final loop or completion is required. Ordinary design
 without this opt-in declaration retains its existing validation/integration behavior.
+
+
+The same Model-only final-candidate composition applies to
+[Standalone Model reference retarget](task-contract.md#standalone-model-reference-retarget).
+Source saves already prove the complete declared retarget and preservation; final
+TaskValidation independently proves latest base→candidate after rebase, without transfer
+or deletion requirements. Generation uses existing APIs and does not decide meaning.
+Retain classified final validation, Issue Gate and exact-HEAD merge checks. Do not add
+IT as a requirement of this operation, or automatically regenerate/retry on failure.

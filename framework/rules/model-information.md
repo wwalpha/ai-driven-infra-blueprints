@@ -62,11 +62,21 @@ parameters.yaml values stay unchanged.
 
 ## IMPORT configuration authority
 
+Explicit standalone reference retarget is a separate narrow `/update` exception under
+[Standalone Model reference retarget](task-contract.md#standalone-model-reference-retarget).
+Only declared existing references may change; both IMPORT producers and every other
+setting/identity/observation remain preserved. It grants no acquisition, configuration
+transfer/deletion, Subnet association, IaC or AWS permission. Its source save guard proves
+the before/candidate comparison as well as final verification after rebase; ordinary
+save routes cannot bypass ownership, one-use context, snapshot or publication checks.
+The following transfer/removal requirements apply to merge/delete only.
+
 AWS actual configuration is authoritative for IMPORT. The dedicated [import
 workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace from
 captured AWS facts. The LLM confirms the action and existing Resource ID; Python
 verifies identity, values, nonselected preservation and atomic publication. Other
-IMPORT configuration changes remain forbidden except explicit Model-only merge/delete
+Apart from the standalone exception above, IMPORT configuration changes remain forbidden
+except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
 That design branch requires exact source/destination IDs and verifies the actual diff:
 complete source transfer/removal, stable destination identities, unchanged CREATE and

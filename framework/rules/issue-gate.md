@@ -16,6 +16,10 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 - Permit read-only issue investigation, issue repair explicitly requested by the human, the Model deletion exception and the save-only tasks below. Do not create new task types; retain existing task boundaries such as design/infrastructure and AWS execution authorization. Framework-only governance/catalog-maintenance are not service-targeted tasks, so consumer issues do not stop them.
 - Issue investigation/saving and parameter environment comparison/diff saving are `migration` tasks; only the explicit service Validation scope targets' `issues/<environment>/<target-directory>/issues.md` / `iac-issues.md` / `diff.md` and this task's `tasks/<task-name>.md` are Allowed paths and change targets. Save-only tasks meeting these conditions do not apply existing-issue stop decisions and continue investigation, comparison, saving, and local validation. Items in iac-issues.md (non-blocking model → IaC comparison results) and diff.md (environment comparison) are not counted as unresolved issues and do not require repairing existing issues.md or adding Issue remediation. Retain issue gates for ordinary migration, design/model/IaC changes, model saving, and AWS mutation. Actual validation errors detected during investigation must still be reported as FAIL. IaC state files are not save-only output or deletion targets.
 
+Standalone `import-retarget` retains the ordinary pre-task/resume/save/generation/final
+Issue Gate for all declared producer and consumer services. It inherits no deletion
+exception and cannot change issue inventories or classify existing issues as fixed.
+
 ## Model deletion exception
 
 For an explicit Human Model deletion request, do not stop at the ordinary pre-contract

@@ -1,5 +1,5 @@
 # Task Contract Rules
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 ## Dedicated import boundary
@@ -88,7 +88,8 @@ IMPORT and other authority writers retain their dedicated publication checks and
 
 The parent uses Task type design, Workflow update, Model operation import-merge or
 import-delete, running status during editing, and forbidden AWS API execution/deploy/apply.
-Transfer/retarget/delete are internal operations, not new Task types or operation names.
+Within merge/delete, transfer/retarget/delete are internal leaves, not new Task types.
+Standalone import-retarget follows its separate contract below.
 Declare exact sources, generated views, permission paths, requirements and Validation scope.
 Do not switch contracts between leaves. The parent alone controls status/completion.
 
@@ -118,6 +119,72 @@ against versioned before. Rebase integration uses latest base→candidate, not c
 The normal Model-only finalize accepts running/completed tasks, validates after private
 commit/rebase, then completes only running tasks and merges the exact validated HEAD.
 No persistent PASS receipt, public skip flag, automatic repair or workflow rollback exists.
+
+## Standalone Model reference retarget
+
+Explicit Human `/update` authorization may use a running design Task with
+`Model operation: import-retarget`, forbidden AWS API execution and deploy/apply.
+This independent operation has no merge pairs, Source resource/Destination resource,
+setting transfer, deletion, producer reevaluation or Subnet association changes.
+Keep the ordinary Issue Gate (including every producer/consumer service), naming,
+Validation scope, exact Modified files/Allowed paths and managed-worktree ownership.
+It grants no permission to acquire/refresh/replace IMPORT values or to change IaC/AWS.
+Do not disguise a retarget as a merge or combine it with value-preserving refactoring.
+
+```markdown
+## Task contract
+- Task type: `design`
+- Task status: `running`
+- Workflow: `update`
+- Model operation: `import-retarget`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
+
+## Model reference changes
+- {"consumer":"stg/cde/vpc-endpoint/001","field":"value","property":"EC2.VPCEndpoint.RouteTableIds[1]","source":"stg/cde/vpc/009","destination":"stg/cde/vpc/022"}
+- {"consumer":"stg/cde/vpc-endpoint/001","field":"value","property":"EC2.VPCEndpoint.RouteTableIds[2]","source":"stg/cde/vpc/010","destination":"stg/cde/vpc/023"}
+```
+
+Addresses include environment/target/service/fixed Resource ID; use numbered formal
+Properties from `operation_rows` for repeated rows, never a bare ambiguous array name.
+`field` is `value` or `document`. Document references require a non-root RFC 6901 scalar
+leaf `pointer`; JSON array/object value containers may also supply `pointer` (zero-based
+JSON array indexes). Complete scalar references only: no partial strings, containers,
+wildcards, structural parentReference or rendered-literal substitutions. Unknown/missing
+keys, duplicate/overlapping/resolver-alias positions, ambiguous/missing resources/Properties,
+before producer mismatch and unused declarations stop. Producers must be distinct existing
+IMPORT Resources of the same type, in the consumer's environment/target. Producers may
+not also be edited consumers. CREATE consumers retain ordinary design validation.
+
+Save all declared changes together through a fresh one-use
+`import_guard.source_write_context` and `model_sources.write_sources`. Ordinary
+`model_templates.publish`, `save_parameters` and `publish_edit` route managed source
+saves to that guard; non-managed or mixed source/view publication stops. Before any
+source publication, compare versioned authoritative before against the full candidate
+with the existing resolver and symbolic fixed producer identities. Equal names, physical
+IDs or renderings never establish identity. Compare every registered environment/service,
+retaining all undeclared values/types/structure, producer settings, names, fixed Resource/
+Row/Instance bindings, observations, array order and JSON siblings. Preserve reference
+kind/format/output Property/label policy. Bindings and observed bytes, authority file sets,
+project configuration, template schemas/structure/unused fields and unrelated/unused
+parameter values remain unchanged; only existing public reference selectors and declared
+raw reference expressions may change. Unsupported source layouts fail closed rather than
+introducing new inputs/Definitions or changing bindings for isolation.
+
+Retain Task revision/ownership, complete input snapshot and file sets, publication lock,
+final input comparison before save and per-write journal rollback. Any success/no-op/failure
+consumes the context. Keep concurrent edits on conflict; do not retry automatically.
+Generate required Markdown/JSON separately with existing generation APIs; direct edits of
+generated views are forbidden. Generation does not prove operation completion.
+
+Finalize the running parent using the existing Model-only composition: private commit,
+rebase onto latest local base, one classified read-only final candidate validation of
+base→candidate, completion and ff-only merge of that exact HEAD, then cleanup. The final
+meaning check proves every declaration was applied and all else preserved; it requires
+neither setting transfer nor source deletion. Independent complete also verifies meaning.
+No failure-approval bypass, automatic regeneration, validation retry, repair or PASS receipt.
+A failed candidate remains retained without merge. IT is governed by the active Human
+scope; this operation does not introduce an IT completion requirement.
 
 ## Value-preserving Model refactor
 

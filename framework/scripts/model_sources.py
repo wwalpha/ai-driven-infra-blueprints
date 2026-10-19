@@ -275,7 +275,7 @@ class SourceWriteContext:
 
 
 def write_sources(context: SourceWriteContext, changes: Mapping[Path, str | None]) -> tuple[Path, ...]:
-    """Save only supplied raw files (None deletes), without expansion or final checks.
+    """Save supplied raw files (None deletes); retarget proves full candidate meaning.
 
     The factory-bound current/scope guard and recorded inputs are checked under the
     existing publication lock. Any outcome consumes the context. I/O errors retain
@@ -309,6 +309,12 @@ def write_sources(context: SourceWriteContext, changes: Mapping[Path, str | None
                                     from model_core import properties
                                     properties(line)
                     actual[path] = text
+            if context.operation.action == 'import-retarget':
+                from import_guard import require_import_changes
+                from task_contract import selected_task
+                from validation_cache import recording_inputs
+                with selected_task(context.root, context.snapshot.expected_task[0]), recording_inputs(context.snapshot):
+                    require_import_changes(context.root, output=actual)
             context.snapshot.verify()
             context._require_current(actual)
             if actual:

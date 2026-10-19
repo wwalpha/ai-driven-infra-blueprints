@@ -71,7 +71,7 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Complete and integrate
 
-For a normal Model-only /update task, finalize is the final validation composition:
+For a normal Model-only /update task (including standalone `import-retarget`), finalize is the final validation composition:
 keep the parent running after leaf/view saves and invoke finalize directly. It prepares
 the private commit/rebase, validates the actual latest-base candidate once in registered
 Python, completes from that result and merges that exact HEAD. Completed Model-only tasks
@@ -124,3 +124,8 @@ resolve the reviewed conflicts; `--finish-recovery` registers the clean exact-ba
 candidate through the helper. Do not hand-edit metadata. Then execute the required
 IT/Full validation before completing and finalizing. This is not a failed-validation
 integration exception and does not apply to Model tasks.
+
+Standalone `import-retarget` uses the existing running-parent final-candidate path.
+Require successful latest-base reference/preservation validation; failed-validation
+approval cannot bypass it. Never demand transfer/deletion for this operation or add
+automatic regeneration, validation retry or an IT requirement.
