@@ -55,7 +55,7 @@ REFERENCE_FORMS = {
 
 # Local policy for the currently failing KMS consumers; other contracts stay unchanged.
 KMS_COMPARISON_FORMS = {
-    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'KeyId', 'KeyArn', 'AliasName'},
+    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'KeyArn'},
     # CloudFormation KmsKeyId accepts key/alias ARNs; their forms remain distinct.
     'Logs.LogGroup.KmsKeyId': {'KeyArn', 'AliasArn'},
     'Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn': {'AliasArn'},

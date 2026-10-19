@@ -889,27 +889,27 @@ def reference_diagnostic_cases():
         publish()
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, records = compare(root, ['athena'])
-            assert next(item for item in records if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'matched'
+            assert next(item for item in records if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'difference'
             encryption = template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']
             encryption['KmsKey'] = 'alias/fixture'
             publish()
-            assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'matched'
+            assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'difference'
             encryption['KmsKey'] = 'alias/other'
             publish()
             assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'difference'
             model['desired.row.001-001.value'] = '[key](kms.md#key)'
-            encryption['KmsKey'] = {'Fn::GetAtt': ['Key', 'Arn']}
+            encryption['KmsKey'] = {'Ref': 'Key'}
             publish()
             comparison, records = compare(root, ['athena'])
             assert any(item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration' for item in records), records
             record = next(item for item in records if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
             diagnostic = record['reference_diagnostics'][0]
             assert record['category'] == 'difference' and diagnostic['path'] == prop
-            assert diagnostic['identity'] == 'same' and diagnostic['allowed_forms'] == ['AliasName', 'KeyArn', 'KeyId']
-            assert diagnostic['format'] == dict(model='allowed', iac='allowed')
-            assert diagnostic['model'] == {'$resource': ['kms', '001'], '$attribute': 'KeyId'}
-            assert diagnostic['iac'] == {'$resource': ['kms', '001'], '$attribute': 'Arn'}
-            assert 'format mismatch' in diagnostic['reason']
+            assert diagnostic['identity'] == 'same' and diagnostic['allowed_forms'] == ['KeyArn']
+            assert diagnostic['format'] == dict(model='allowed', iac='outside allowed forms')
+            assert diagnostic['model'] == {'$resource': ['kms', '001'], '$attribute': 'Arn'}
+            assert diagnostic['iac'] == {'$resource': ['kms', '001'], '$attribute': 'KeyId'}
+            assert 'outside allowed forms' in diagnostic['reason']
             model.update({'desired.row.001-002.property': 'Athena.WorkGroup.WorkGroupConfiguration.EnforceWorkGroupConfiguration',
                           'desired.row.001-002.value': 'true'})
             template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['EnforceWorkGroupConfiguration'] = True
@@ -921,7 +921,7 @@ def reference_diagnostic_cases():
             stats = iac_summary(single, 'dev', 'cde', ['athena'])
             assert stats['issue_count'] == 1 and stats['records']['difference'] == 1
             assert all('KeyId' in group['cause'] and 'KmsKey' in group['cause'] for group in stats['groups'])
-            assert 'format mismatch' in iac_report('dev', 'cde', ['athena'], single)
+            assert 'outside allowed forms' in iac_report('dev', 'cde', ['athena'], single)
             model.update({'desired.row.001-003.property': 'Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole',
                           'desired.row.001-003.value': '[missing](kms.md#missing)',
                           'desired.row.001-004.property': 'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner',
@@ -953,19 +953,22 @@ def reference_diagnostic_cases():
                 del model[f'desired.row.{rid}.property'], model[f'desired.row.{rid}.value']
             alias = ResourceReference({'$resource': ['kms', '002'], '$attribute': 'AliasName'})
             diagnostics = []
-            assert comparison.reference_same(alias, alias, 'Athena.WorkGroup', field, diagnostics) is True
-            assert diagnostics == []
+            assert comparison.reference_same(alias, alias, 'Athena.WorkGroup', field, diagnostics) is False
+            assert diagnostics[0]['allowed_forms'] == ['KeyArn']
+            diagnostics.clear()
             alias_arn = ResourceReference(dict(alias, **{'$attribute': 'AliasArn'}))
             assert comparison.reference_same(alias_arn, alias_arn, 'Athena.WorkGroup', field, diagnostics) is False
             assert diagnostics[0]['identity'] == 'same' and 'outside allowed forms' in diagnostics[0]['reason']
             keyid = ResourceReference({'$resource': ['kms', '001'], '$attribute': 'KeyId'})
             arn = ResourceReference(dict(keyid, **{'$attribute': 'Arn'}))
+            assert comparison.reference_same(arn, arn, 'Athena.WorkGroup', field) is True
+            assert comparison.reference_same(keyid, keyid, 'Athena.WorkGroup', field) is False
             assert comparison.reference_same(keyid, arn, 'Athena.WorkGroup', field) is False
             assert comparison.reference_same(alias, arn, 'Athena.WorkGroup', field) is False
             comparison.sensitive_values = {'confidential'}
             for secret in ['arn:aws:kms:ap-northeast-1:123456789012:key/example', '{{resolve:secretsmanager:example}}', 'confidential']:
                 hidden = []
-                assert comparison.reference_same(keyid, secret, 'Athena.WorkGroup', field, hidden) is (None if '{{resolve:' in secret else False)
+                assert comparison.reference_same(arn, secret, 'Athena.WorkGroup', field, hidden) is (None if '{{resolve:' in secret else False)
                 masked = dict(record, reference_diagnostics=hidden * 3)
                 artifact = dict(environment='dev', target='cde', services=['athena'], iac=[masked])
                 rendered = json.dumps(artifact) + json.dumps(detail_payload(artifact, 'iac')) + iac_report('dev', 'cde', ['athena'], [masked])
@@ -976,7 +979,7 @@ def reference_diagnostic_cases():
             for value in [{'Ref': 'Key'}, {'Fn::GetAtt': ['Key', 'Arn']}]:
                 template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']['KmsKey'] = value
                 publish()
-                assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == ('matched' if 'Ref' in value else 'difference')
+                assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == ('difference' if 'Ref' in value else 'matched')
             template['Parameters']['Name']['NoEcho'] = True
             template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']['KmsKey'] = {'Ref': 'Name'}
             publish()
@@ -984,7 +987,7 @@ def reference_diagnostic_cases():
             record = next(item for item in records if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
             assert record['category'] == 'difference' and record['reference_diagnostics'][0]['identity'] == 'unproven'
             assert 'app-dev-data1' not in json.dumps(record['reference_diagnostics'])
-    print('Reference diagnostics: PASS (Athena AliasName, KeyId/Arn, identity/form separation, masking and bounded detail)')
+    print('Reference diagnostics: PASS (Athena KeyArn only, rejected KeyId/AliasName/AliasArn, identity/form separation, masking and bounded detail)')
 
 
 check_reference_diagnostics = reference_diagnostic_cases
