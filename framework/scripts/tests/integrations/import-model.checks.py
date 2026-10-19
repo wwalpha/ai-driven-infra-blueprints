@@ -78,6 +78,15 @@ def check_logs_roundtrip(tmp_path):
     assert not (root / '.blueprint').exists()
     after = load_for_edit(root / 'model/dev/cde/cloudwatch-logs.properties')
     assert after.values['desired.row.003-002.value'] == '90'
+    from model_templates import load_expansion
+    path = root / 'model/dev/cde/cloudwatch-logs.properties'
+    display = load_for_edit(path, display=True)
+    normal = load_expansion(path)
+    assert after.values['desired.row.003-001.value'] == 'managed-new'
+    assert display.values['desired.row.003-001.value'] == normal.values['desired.row.003-001.value'] == '`managed-new`'
+    assert '| LogGroupName | `managed-new` |' in (root / 'docs/designs/dev/cde/cloudwatch-logs.md').read_text()
+    assert '``managed-new``' not in (root / 'docs/designs/dev/cde/cloudwatch-logs.md').read_text()
+
     assert all(after.values[k] == v for k, v in before.values.items())
     assert {k: v for k, v in before.values.items() if '.002' in k} == {k: v for k, v in after.values.items() if '.002' in k}
     assert len(files) == 2 and not Path(acquired['evidence']).parent.exists()
@@ -91,6 +100,14 @@ def check_config_sources(tmp_path):
     assert result['model'] == 'unchanged'
     assert 'AWSServiceRoleForConfig' in load_for_edit(root / 'model/dev/cde/config.properties').values['desired.row.001-007.value']
     assert result['unreflected'] == []
+    values = load_for_edit(root / 'model/dev/cde/config.properties', display=True).values
+    arn = 'arn:aws:iam::' + ACCOUNT + ':role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig'
+    values = values | {'desired.resource.001.resourceMode': 'IMPORT', 'desired.row.001-007.value': arn}
+    document = root / 'docs/designs/dev/cde/config.md'
+    output = sync_runtime.generate_files(document, values, root)[document]
+    assert '| RoleARN | ' + arn + ' |' in output
+    assert '| RoleName | ' + arn + ' |' not in output
+
 
 
 def check_vpc_eight_instances(tmp_path):
@@ -623,13 +640,14 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
             raise OSError('injected source publication failure')
         monkeypatch.setattr(sync_files, 'save_files', fail_save)
     elif failure == 'race':
-        from sync_runtime import GenerationInputs
-        original = GenerationInputs.verify
-        def race(snapshot):
+        import import_sources
+        original = import_sources.candidate_sources
+        def race(*args, **kwargs):
+            output = original(*args, **kwargs)
             file = root / 'model/parameters/dev/cde/vpc/parameters.yaml'
             file.write_text(file.read_text() + '# concurrent human input\n')
-            original(snapshot)
-        monkeypatch.setattr(GenerationInputs, 'verify', race)
+            return output
+        monkeypatch.setattr(import_sources, 'candidate_sources', race)
     with mapping_alias(m.ROOT, root):
         if failure != 'none':
             with pytest.raises((ValueError, OSError)):

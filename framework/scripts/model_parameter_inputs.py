@@ -229,15 +229,19 @@ def human_instances(template, parameters, bindings, definitions, environment=Non
     return bind_instances(template, parameters, bindings, definitions, environment, check_value, resolve_references)
 
 
-def edit_instances(template, parameters, bindings, definitions, environment=None):
+def edit_instances(template, parameters, bindings, definitions, environment=None, *, display=False):
     from model_templates import json_text
     result, files = bind_instances(template, parameters, bindings, definitions, environment,
                                    lambda _spec, value, _label: json_text(value), False)
     for item in result['instances']:
         for name in list(item['parameters']):
             spec = definitions[item['definition']].parameters[name]
+            if spec.get('type') != 'reference':
+                if display and spec.get('format') == 'literal':
+                    item['parameters'][name] = parameter_value(template, item, name, result['instances'], bindings, definitions, environment, files)
+                continue
             from import_scope import resolves_reference
-            if spec.get('type') == 'reference' and 'service' in spec and not resolves_reference(item):
+            if 'service' in spec and not resolves_reference(item):
                 item['parameters'][name] = '<<' + name + '>>'
             else:
                 item['parameters'][name] = parameter_value(template, item, name, result['instances'], bindings, definitions, environment, files)
@@ -414,5 +418,5 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             raise ValueError('invalid reference label')
         return f'[{label}]({prefix}#{anchor})'
     elif spec.get('format') == 'literal':
-        return '`'+(value if isinstance(value, str) else json_text(value))+'`'
+        return '`'+literal(value if isinstance(value, str) else json_text(value))+'`'
     return value

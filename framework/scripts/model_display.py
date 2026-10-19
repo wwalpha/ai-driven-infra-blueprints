@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from model_core import LINK, literal
 from ec2_display import ec2_display_rows
@@ -45,14 +46,16 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
 
 
 @input_scope
-def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None) -> list[list[str]]:
+def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None) -> list[list[str]]:
     """Apply the existing service displays without changing formal model values."""
     rows = selected_rows(rows, root)
+    processed = []
     formal_properties = {row[1] for row in rows}
     result = []
     index = 0
     counts = {} if _counts is None else _counts
     while index < len(rows):
+        start = index
         identity, prop, value, comment = rows[index]
         packed = packed_compact_rows(rows, index) if mode == 'IMPORT' else None
         if packed is not None:
@@ -63,6 +66,7 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
                 source = source.replace(char, f'\\u{ord(char):04x}')
             rendered[0][3] = '<!-- compact-source: ' + source + ' --> ' + rendered[0][3]
             result.extend(rendered)
+            processed.extend(row[0] for row in block)
             index += len(block)
             continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
@@ -83,6 +87,7 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             for offset, item in enumerate(items):
                 counts[prop] = counts.get(prop, 0) + 1
                 result.append([identity, f"{field}[{counts[prop]}]", item, (source if offset == 0 else "") + comment])
+            processed.extend(row[0] for row in rows[start:index + 1])
             index += 1
             continue
         elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
@@ -107,15 +112,21 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             raise ValueError(f"incomplete compact display group: {prop}")
         # Compact producers own their dynamic names; ordinary rows use Mapping names.
         item = rule(prop, root) if not compact_group(prop) and prop in formal_properties else None
-        prop = display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
+        from design_layout import is_import_role_arn
+        prop = "RoleARN" if is_import_role_arn(prop, value, mode) else display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
         result.append([identity, prop, value, comment])
+        processed.extend(row[0] for row in rows[start:index + 1])
         index += 1
+    if Counter(processed) != Counter(row[0] for row in rows):
+        raise ValueError("selected display rows were omitted or consumed more than once")
     if kind == "CodePipeline.Pipeline":
-        return pipeline_rows(result)
-    if kind in REQUIRED_NAME_TAG_TYPES:
-        return ec2_display_rows(result)
-    if kind == "Glue.Job":
-        return glue_argument_rows(result, kind)
+        result = pipeline_rows(result)
+    elif kind in REQUIRED_NAME_TAG_TYPES:
+        result = ec2_display_rows(result)
+    elif kind == "Glue.Job":
+        result = glue_argument_rows(result, kind)
+    if consumed is not None:
+        consumed.extend(processed)
     return result
 
 
@@ -124,7 +135,7 @@ def row_table(rows: list[list[str]]) -> list[str]:
 
 
 @input_scope
-def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]], root: Path = ROOT) -> list[str]:
+def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]], root: Path = ROOT, *, consumed: list[str] | None = None) -> list[str]:
     basic, tags, rules = [], [], []
     current = None
     for row in rows:
@@ -176,6 +187,9 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
             raise ValueError(f"unsupported SG rule fields: {sorted(unknown)}")
         fields = [field for field in fields if field in {"Direction", "Port"} or any(field in rule for rule in rules)]
         output += ["", *table(fields, [[rule.get(field, "—") for field in fields] for rule in rules])]
+    if consumed is not None:
+        consumed.extend(row[0] for row in rows)
+        consumed.extend(row[0] for _, child_rows in children for row in child_rows)
     return output
 
 

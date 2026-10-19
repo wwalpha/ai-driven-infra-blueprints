@@ -471,7 +471,11 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             if len(cells) == 4:
-                cells[1] = formal_property(cells[1], reference_kind, definitions_root)
+                try:
+                    cells[1] = formal_property(cells[1], reference_kind, definitions_root)
+                except ValueError as error:
+                    findings.check(False, f"invalid design Property: {findings.relative(source)}: {error}")
+                    continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
             if source_anchor in imported[source]:

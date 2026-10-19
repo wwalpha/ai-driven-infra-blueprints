@@ -5,10 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from design_document import DesignIndex
-from model_core import properties
-from model_projection import model_for, identifier_outputs
 from design_layout import STACK_DESIGN
-from aws_mapping_display import projection
 from validation_cache import input_scope
 from utils.aws_mappings import definition_root
 
@@ -41,7 +38,7 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitio
     if not paths:
         return {}
     validator = view_validator(stage, root, definitions_root)
-    validator.check_design_links(identifier_outputs(definitions_root or definition_root(root)), paths, design_index=DesignIndex(root))
+    validator.check_design_links(validator.catalog_design_properties()[2], paths, design_index=DesignIndex(root))
     broken = {}
     for error in validator.errors:
         kind, _, reference = error.partition(": ")
@@ -81,26 +78,6 @@ def validation_context(stage, root, generated, sources, accounts=None, definitio
     return validator
 
 
-def check_projection(stage, root, paths, sources, design_index, definitions_root=None):
-    for path in paths:
-        source = sources[root / path.relative_to(stage)]
-        actual = properties(model_for(path, root, source=source, design_index=design_index, definitions_root=definitions_root))
-        formal = {key: value for key, value in projection(source, definitions_root or definition_root(root)).items() if not key.startswith("display.") and not key.endswith((".document", ".artifactSha256", ".cfn-logicalId"))}
-        actual = {key: value for key, value in actual.items() if not key.endswith(".artifactSha256")}
-        if path.name == STACK_DESIGN:
-            from model_core import stack_model, deployment_settings
-            actual_limit, actual_stacks = stack_model(actual)
-            formal_limit, formal_stacks = stack_model(formal)
-            actual_delivery, actual_artifacts = deployment_settings(actual)
-            formal_delivery, formal_artifacts = deployment_settings(formal)
-            if actual_limit != formal_limit or [s for _, s in actual_stacks] != [s for _, s in formal_stacks] or \
-                    actual_delivery != formal_delivery or [a for _, a in actual_artifacts] != [a for _, a in formal_artifacts]:
-                raise ValueError(f"model/display projection mismatch: {path.name}")
-        elif actual != formal:
-            differences = sorted(key for key in actual.keys() | formal.keys() if actual.get(key) != formal.get(key))
-            raise ValueError(f"model/display projection mismatch: {path.name}: {', '.join(differences)}")
-
-
 @input_scope
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
                    design_index: DesignIndex | None = None, context=None, definitions_root=None):
@@ -120,11 +97,6 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
     else:
         validator.check_project_topology()
     evaluate = lambda name, handler: validator.findings.evaluate(name, validator.scope, handler)
-    def projection_check():
-        check_projection(stage, root, paths, sources, design_index, definitions_root)
-        for path in paths:
-            validator.check(True, f'model/display projection matches: {path.name}')
-    evaluate('design.projection', projection_check)
     for path in paths:
         validator.check_target_file(path, stage / "docs/designs")
         validator.check_target_file((stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties"), stage / "model")

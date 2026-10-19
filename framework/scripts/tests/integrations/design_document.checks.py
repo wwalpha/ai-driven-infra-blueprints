@@ -12,27 +12,46 @@ from support.design_document_fixtures import *
 
 @it_case
 @patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
-def check_projection(sync):
+def check_snapshot(sync):
     with tempfile.TemporaryDirectory() as directory:
         source, target, text, _ = reference_fixture(Path(directory).resolve())
         index = DesignIndex()
         read_text = Path.read_text
         with patch.object(Path, "read_text", autospec=True, side_effect=read_text) as reads, \
              patch.object(documents, "expanded_design", wraps=documents.expanded_design) as expands:
-            projection = model_projection.model_for(source, Path(__file__).resolve().parents[4], design_index=index)
-            assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
-            assert expands.call_count == 3, expands.call_count  # Source and two parents; missing anchors need no expansion.
+            projection = index.get(source).headings.expanded
+            assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 1
+            assert expands.call_count == 1  # The source table is normalized once.
             assert model_projection.linked_resource(source, "[alias/two](kms.md#kms-aliastwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
             assert model_projection.linked_resource(source, "[key](kms.md#kms-keyone)", design_index=index) == ("KMS.Key", "KeyHidden")
             assert model_projection.linked_resource(source, "[missing](kms.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "[missing](absent.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "literal", design_index=index) is None
-            assert expands.call_count == 3, expands.call_count
-        # Captured from the pre-index implementation, including unresolved-link fallbacks.
-        assert hashlib.sha256(projection.encode()).hexdigest() == "4e56a48f9624ff229f0d6821d294924422d8c94cd6dc88d477e2c81c8fb7f1e9"
-        assert index.get(source).headings.expanded is index.get(source).view(projection=True).expanded
+            assert model_projection.linked_resource(source, "[alias/three](kms.md#kms-aliasthree)", design_index=index) == ("KMS.Alias", "AliasThree")
+            assert expands.call_count == 4
+            assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
+        assert projection is index.get(source).headings.expanded
+        assert index.get(source).headings.expanded is index.get(source).raw.expanded
         repository = Path(__file__).resolve().parents[4]
-        values = model_core.properties(projection)
+        values = {'desired.service.s3.serviceId': 's3',
+                  'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
+                  'desired.resource.001.resourceType': 'S3.Bucket',
+                  'desired.resource.001.anchor': 's3-app-data',
+                  'desired.resource.001.logicalId': 'app-data',
+                  'desired.note.001.text': '<!-- [hidden](hidden.md#hidden) -->'}
+        rows = [('S3.Bucket.BucketName', '`app-data`', 'bucketの名前'),
+                ('S3.Bucket.Region', '`us-east-1`', 'bucketを配置するregion')]
+        rows += [('S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID',
+                  f'[alias/{"two" if n % 2 == 0 else "three"}](kms.md#kms-alias{"two" if n % 2 == 0 else "three"})',
+                  '暗号化に使用するKMS alias') for n in range(80)]
+        rows += [('S3.Bucket.SourceKeyId', '[KeyHidden](kms.md#kms-keyone)', '参照ID'),
+                 ('S3.Bucket.SourceKeyId', '[unresolved](absent.md#absent)', '未解決参照'),
+                 ('S3.Bucket.SourceKeyId', '[unresolved](kms.md#absent)', '未解決anchor')]
+        for number, row in enumerate(rows, 1):
+            values.update({f'desired.row.001-{number:03d}.' + field: value for field, value in zip(('property', 'value', 'comment'), row)})
+        values.update({'observed.row.001-083.property': 'S3.Bucket.SourceKeyId',
+                       'observed.row.001-083.value': '1234abcd-12ab-34cd-56ef-1234567890ab',
+                       'observed.row.001-083.comment': '参照ID'})
         values.update({'display.service.title': '# S3 詳細設計',
                        'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
@@ -46,18 +65,23 @@ def check_projection(sync):
                              "observed.row.001-003.value": observed})
         alias_text = text.replace("[alias/two](kms.md#kms-aliastwo)", f"[{observed}](kms.md#kms-aliastwo)", 1)
         source.write_text(alias_text, encoding="utf-8")
-        roundtrip = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
-        assert roundtrip["desired.row.001-003.value"] == values["desired.row.001-003.value"]
-        assert roundtrip["observed.row.001-003.value"] == observed
-        source.write_text(alias_text.replace(observed, "different", 1), encoding="utf-8")
-        tampered = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
-        assert tampered["observed.row.001-003.value"] != observed
-        source.write_text(alias_text.replace("kms-aliastwo", "kms-aliasthree", 1), encoding="utf-8")
-        tampered = model_core.properties(model_projection.model_for(source, repository, source=alias_source))
-        assert tampered["desired.row.001-003.value"] != values["desired.row.001-003.value"]
-        for mode in ("CREATE", "IMPORT"):
-            source.write_text(f"<!-- resource-mode: s3-app-data {mode} -->\n" + text, encoding="utf-8")
-            assert f"desired.resource.001.resourceMode={mode}\n" in model_projection.model_for(source)
+        from model_references import resource_rows
+        shown = resource_rows(alias_source, '001', 'S3.Bucket', repository)
+        assert shown[2][2] == f'[{observed}](kms.md#kms-aliastwo)'
+        assert values['desired.row.001-003.value'] == '[alias/two](kms.md#kms-aliastwo)'
+        from types import SimpleNamespace
+        from sync_runtime import _compare_generation
+        for changed in (alias_text.replace(observed, 'different', 1),
+                        alias_text.replace('kms-aliastwo', 'kms-aliasthree', 1)):
+            source.write_text(changed, encoding='utf-8')
+            plan = SimpleNamespace(root=source.parent, read_inputs={}, expected_outputs={source: {source: alias_text}}, failures=[], saved={})
+            _compare_generation(plan)
+            assert plan.failures == ['generated Markdown is stale or missing: s3.md']
+        from design_layout import resource_modes
+        for mode in ('CREATE', 'IMPORT'):
+            source.write_text(f'<!-- resource-mode: s3-app-data {mode} -->\n' + text, encoding='utf-8')
+            assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['s3-app-data'] == mode
+
 
 
 @it_case
@@ -131,7 +155,7 @@ if __name__ == "__main__":
     from support.model_sources import catalog_display
     from support.validator import load
     with catalog_display():
-        check_projection(load("sync-model"))
+        check_snapshot(load("sync-model"))
         check_links(load("validate-blueprint"))
         print("design-document: PASS (single read/parse, concurrent reuse, selective groups, immutable snapshot, invalidation)")
 

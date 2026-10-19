@@ -18,11 +18,11 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
         group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
-        group_model = model_projection.model_for(group_path, ROOT)
-        assert "resourceType=QuickSight.Group" in group_model
-        assert "QuickSight.Group.PrincipalId" in group_model
-        assert "observed.row." in group_model and "PENDING_DEPLOY" in group_model
-        assert "QuickSight.Group.Arn" not in group_model and "arn:" not in group_model
+        from design_layout import expanded_display_rows
+        group_model = "\n".join(expanded_display_rows(group_path.read_text().splitlines()))
+        assert '### QuickSight.Group: reader-group' in group_model
+        assert '| QuickSight.Group.PrincipalId | `PENDING_DEPLOY` |' in group_model
+        assert 'QuickSight.Group.Arn' not in group_model and 'arn:' not in group_model
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
@@ -54,10 +54,33 @@ def main():
             elif text is None and artifact.is_file():
                 artifact.unlink()
             design.write_text(text if text is not None else markdown(values), encoding="utf-8")
-            try:
-                model_values = model_projection.properties(model_projection.model_for(design))
-            except ValueError as error:
-                return [str(error)]
+            model_values = {
+                'desired.service.macie.serviceId': 'macie',
+                'desired.service.macie.ownedCatalogResourceTypes': 'Macie.Session,Macie.ClassificationJob',
+                'desired.resource.001.resourceType': 'Macie.Session',
+                'desired.resource.001.logicalId': 'Session', 'desired.resource.001.anchor': 'macie-session',
+                'desired.resource.002.resourceType': MACIE_JOB,
+                'desired.resource.002.logicalId': 'Job', 'desired.resource.002.anchor': 'macie-daily-data-scan',
+                'desired.row.001-001.property': 'Macie.Session.AwsAccountId',
+                'desired.row.001-001.value': '`123456789012`',
+                'desired.row.001-001.comment': 'Macieを使用するAWS accountのID',
+                'desired.row.001-002.property': 'Macie.Session.Status',
+                'desired.row.001-002.value': '`ENABLED`',
+                'desired.row.001-002.comment': 'Macieの有効状態',
+            }
+            order = [line.partition('=')[0].removeprefix(MACIE_JOB + '.') for line in
+                     (ROOT / 'framework/materials/api/Macie_ClassificationJob.properties').read_text().splitlines()]
+            for number, key in enumerate(sorted(values, key=lambda key: order.index(key) if key in order else len(order)), 1):
+                value = values[key]
+                raw = value if isinstance(value, str) else json.dumps(value)
+                cell = '[対象条件](macie/job-scope.json)' if key == 's3JobDefinition' and isinstance(value, dict) and value.get('bucketDefinitions') else '`' + raw + '`'
+                prefix = f'desired.row.002-{number:03d}.'
+                model_values.update({prefix + 'property': MACIE_JOB + '.' + key,
+                                     prefix + 'value': '[Job](#macie-daily-data-scan)' if key == 'jobId' else cell,
+                                     prefix + 'comment': f'Jobの{key}を設定する項目'})
+                if key == 'jobId':
+                    model_values.update({prefix.replace('desired.', 'observed.') + field: content for field, content in
+                                         [('property', MACIE_JOB + '.jobId'), ('value', cell), ('comment', f'Jobの{key}を設定する項目')]})
             model_values.update({'display.service.title': '# Macie 詳細設計',
                                  'display.resource.001.comment': '機密データ検出を有効にするsession',
                                  'display.resource.001.label': 'session',
@@ -210,7 +233,7 @@ def main():
         try:
             sync_runtime.sync(root, False, "dev", "123456789012")
         except ValueError as error:
-            assert "model/display projection mismatch: macie.md: desired.extra" in str(error), error
+            assert "unknown Model field: desired.extra" in str(error), error
         else:
             raise AssertionError("stale desired.extra accepted by real sync")
         group_snapshot = root / "framework/materials/api/QuickSight_Group.json"

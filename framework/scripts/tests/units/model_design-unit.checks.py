@@ -229,6 +229,70 @@ def check_cli_result(result, monkeypatch, capsys):
     assert capsys.readouterr().err == ("pytest failure\n" * 2 if result else "")
 
 
+def check_one_way_model_contract():
+    from model_core import validate_model_keys
+    from model_design import validate_required_properties
+    from design_layout import is_import_role_arn
+    from model_parameter_inputs import parameter_value
+    from types import SimpleNamespace
+    import sync_runtime
+    import inspect
+
+    prop = 'Config.ConfigurationRecorder.RoleARN'
+    arn = 'arn:aws:iam::123456789012:role/service-role/path/ConfigRecorderRole'
+    values = {
+        'desired.resource.001.resourceType': 'Config.ConfigurationRecorder',
+        'desired.resource.001.anchor': 'config-configuration-recorder-default',
+        'desired.resource.001.resourceMode': 'IMPORT',
+        'desired.row.001-001.property': prop,
+        'desired.row.001-001.value': '`' + arn + '`',
+        'desired.row.001-001.comment': '記録用IAM Role',
+    }
+    validate_required_properties(values, ROOT)
+    with pytest.raises(ValueError, match='unknown Model field'):
+        validate_required_properties(values | {'desired.extra': 'stale'}, ROOT)
+    with pytest.raises(ValueError, match='resource link'):
+        validate_required_properties(values | {'desired.resource.001.resourceMode': 'CREATE'}, ROOT)
+    for invalid in ('arn:aws:iam::123:role/test', 'arn:aws:iam::123456789012:user/test',
+                    'arn:aws:iam::123456789012:role/', 'arn:aws:iam::123456789012:role/a b', '`' + arn, arn + '`'):
+        assert not is_import_role_arn(prop, invalid, 'IMPORT')
+        with pytest.raises(ValueError, match='resource link'):
+            validate_required_properties(values | {'desired.row.001-001.value': invalid}, ROOT)
+    assert is_import_role_arn(prop, 'arn:aws:iam::123456789012:role/path!special/Role', 'IMPORT')
+    shown = display_rows('Config.ConfigurationRecorder', [['001-001', prop, '`' + arn + '`', '記録用IAM Role']], mode='IMPORT')
+    assert shown == [['001-001', 'RoleARN', '`' + arn + '`', '記録用IAM Role']]
+    for value in ('[role](iam.md#iam-role)', '`AWSServiceRoleForConfig`'):
+        assert display_rows('Config.ConfigurationRecorder', [['001-001', prop, value, '記録用IAM Role']], mode='IMPORT')[0][1] == 'RoleName'
+    validate_model_keys(values | {'observed.row.001-001.value': 'current',
+                                'display.resource.001.label': '表示名',
+                                'desired.resource.001.cfn-logicalId': 'stack-Recorder'})
+    assert 'design.projection' not in inspect.getsource(sync_runtime.validate_generation)
+    for value in ('value', '`value`'):
+        item = {'id': 'fixture', 'definition': 'Fixture', 'parameters': {'Value': value}}
+        definitions = {'Fixture': SimpleNamespace(parameters={'Value': {'type': 'string', 'description': '設定値', 'required': True, 'format': 'literal'}})}
+        assert parameter_value(ROOT / 'fixture.tpl', item, 'Value', [item], {'instances': {'fixture': {}}}, definitions, 'dev', {}) == '`value`'
+
+
+def check_selected_model_row_consumption(monkeypatch):
+    import model_design
+    resource = {'resourceType': 'Config.ConfigurationRecorder', 'resourceMode': 'IMPORT'}
+    rows = [['001-001', 'Config.ConfigurationRecorder.RoleARN', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
+    output = model_design.resource_table_lines(resource, 'default', rows, [], ROOT)
+    assert any('| RoleName | `AWSServiceRoleForConfig` |' in line for line in output)
+    with pytest.raises(ValueError, match='duplicate selected'):
+        model_design.resource_table_lines(resource, 'default', rows * 2, [], ROOT)
+    monkeypatch.setattr(model_design, 'display_rows', lambda *args, **kwargs: [])
+    with pytest.raises(ValueError, match='omitted or consumed more than once'):
+        model_design.resource_table_lines(resource, 'default', rows, [], ROOT)
+    def duplicated(*args, **kwargs):
+        kwargs['consumed'].extend(['001-001', '001-001'])
+        return [['001-001', 'RoleName', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
+    monkeypatch.setattr(model_design, 'display_rows', duplicated)
+    with pytest.raises(ValueError, match='omitted or consumed more than once'):
+        model_design.resource_table_lines(resource, 'default', rows, [], ROOT)
+
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -61,7 +61,36 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
         return validator.errors
 
     assert not errors(text), errors(text)
-    model = model_projection.model_for(path, REPOSITORY)
+    model = """# Synthetic authoritative Model fixture.
+desired.service.secretsmanager.serviceId=secretsmanager
+desired.service.secretsmanager.ownedCatalogResourceTypes=SecretsManager.Secret,SecretsManager.RotationSchedule
+desired.resource.001.resourceType=SecretsManager.Secret
+desired.resource.001.anchor=secretsmanager-app-dev-key
+desired.resource.001.logicalId=AppKey
+desired.row.001-001.property=SecretsManager.Secret.Name
+desired.row.001-001.value=`app-dev-key`
+desired.row.001-001.comment=secretの名前
+desired.resource.002.resourceType=SecretsManager.RotationSchedule
+desired.resource.002.anchor=secretsmanager-app-dev-key_rotate
+desired.resource.002.logicalId=AppKeyRotation
+desired.resource.002.parentProperty=SecretsManager.RotationSchedule.SecretId
+desired.resource.002.parentReference=[AppKey](#secretsmanager-app-dev-key)
+desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate
+desired.row.002-001.value=`false`
+desired.row.002-001.comment=更新直後のrotation実行設定
+desired.row.002-002.property=SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays
+desired.row.002-002.value=`30`
+desired.row.002-002.comment=rotationの間隔日数
+desired.row.002-003.property=SecretsManager.RotationSchedule.SecretId
+desired.row.002-003.value=[AppKey](#secretsmanager-app-dev-key)
+desired.row.002-003.comment=対象secretのID
+desired.resource.003.resourceType=SecretsManager.Secret
+desired.resource.003.anchor=secretsmanager-app-dev-token
+desired.resource.003.logicalId=AppToken
+desired.row.003-001.property=SecretsManager.Secret.Name
+desired.row.003-001.value=`app-dev-token`
+desired.row.003-001.comment=secretの名前
+"""
     assert "desired.resource.004" not in model
     assert "desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
     assert "desired.row.002-002.value=`30`" in model
@@ -75,7 +104,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
     rendered = model_design.markdown_for(path, values, REPOSITORY)
     assert rendered == text
     assert not errors(rendered), errors(rendered)
-    assert model_projection.model_for(path, REPOSITORY) == model
+    assert rendered == text
     csv_values = {}
     for key, value in values.items():
         row = re.fullmatch(r"((?:desired|observed)\.row\.002-)([0-9]{3})(\..+)", key)
@@ -89,9 +118,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
     })
     csv_view = model_design.markdown_for(path, csv_values, REPOSITORY)
     assert not errors(csv_view), errors(csv_view)
-    assert model_core.properties(model_projection.model_for(path, REPOSITORY)) == {
-        key: value for key, value in csv_values.items() if not key.startswith("display.")
-    }
+    assert model_design.markdown_for(path, csv_values, REPOSITORY) == csv_view
     assert "HostedRotationLambda.VpcSubnetIds[1]" in csv_view and "HostedRotationLambda.VpcSubnetIds[2]" in csv_view
     for invalid, message in (
         (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
@@ -128,23 +155,20 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
         return validator.errors
 
     assert not errors(codebuild), errors(codebuild)
-    model = model_projection.model_for(path, REPOSITORY)
-    assert "desired.row.001-005.property=CodeBuild.Project.Environment.EnvironmentVariables[].Name" in model
-    assert "desired.row.001-005.value=`FIRST`" in model
-    assert "desired.row.001-006.property=CodeBuild.Project.Environment.EnvironmentVariables[].Type" in model
-    assert "desired.row.001-007.value=`hello:world`" in model
-    assert "desired.row.001-008.value=`SECOND`" in model
-    assert "desired.row.001-006.value=`PLAINTEXT`" in model
-    assert "desired.row.001-009.value=`SECRETS_MANAGER`" in model
+    model = "\n".join(expanded_display_rows(codebuild.splitlines()))
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Name | `FIRST` |" in model
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `PLAINTEXT` |" in model
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Value | `hello:world` |" in model
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Name | `SECOND` |" in model
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `SECRETS_MANAGER` |" in model
     secret_link = "[venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey)"
-    assert f"desired.row.001-010.value={secret_link}" in model
-    assert "observed.row.001-010" not in model
+    assert f"| CodeBuild.Project.Environment.EnvironmentVariables[].Value | {secret_link} |" in model
     assert "codebuild-variable-type" not in model
     assert "Environment.Variables." not in model
     short = codebuild
     assert "| Artifacts.Type |" in short
     assert not errors(short), errors(short)
-    assert model_projection.model_for(path, REPOSITORY) == model
+    assert "\n".join(expanded_display_rows(path.read_text().splitlines())) == model
     assert any("must omit heading resource type" in error for error in errors(short.replace("| 2 | Id |", "| 2 | CodeBuild.Project.Id |")))
     assert errors(short.replace("Artifacts.Type", "Artifacts.Unknown"))
     assert errors(codebuild.replace("Variables.SECOND", "Variables.FIRST"))
@@ -165,10 +189,10 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
         assert errors(bad), bad
     selector = codebuild.replace("[venus-dev-snowflake-cicd-keypair-cde]", "[venus-dev-snowflake-cicd-keypair-cde:private-key:AWSCURRENT]")
     assert not errors(selector), errors(selector)
-    assert "[venus-dev-snowflake-cicd-keypair-cde:private-key:AWSCURRENT](secretsmanager.md#secretsmanager-snowflakekey)" in model_projection.model_for(path, REPOSITORY)
+    assert "[venus-dev-snowflake-cicd-keypair-cde:private-key:AWSCURRENT](secretsmanager.md#secretsmanager-snowflakekey)" in "\n".join(expanded_display_rows(path.read_text().splitlines()))
     literal_link = codebuild.replace("SECRETS_MANAGER -->", "PLAINTEXT -->")
     assert not errors(literal_link), errors(literal_link)
-    assert "desired.row.001-009.value=`PLAINTEXT`" in model_projection.model_for(path, REPOSITORY)
+    assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `PLAINTEXT` |" in "\n".join(expanded_display_rows(path.read_text().splitlines()))
     parameter_link = codebuild.replace("SECRETS_MANAGER -->", "PARAMETER_STORE -->")
     expanded = "\n".join(expanded_display_rows(parameter_link.splitlines()))
     assert "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `PARAMETER_STORE` |" in expanded
@@ -244,14 +268,12 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
         return validator.errors
 
     assert not errors(design_text), errors(design_text)
-    model = model_projection.model_for(path, REPOSITORY)
-    assert model.count("property=CodeBuild.Project.VpcConfig.Subnets") == 4  # desired and observed, twice each
-    assert "desired.row.001-015.property=CodeBuild.Project.VpcConfig.Subnets" in model
-    assert "desired.row.001-015.value=[sbnt-one](vpc.md#vpc-sbnt-one)" in model
-    assert "observed.row.001-015.value=subnet-00000000000000001" in model
-    assert "desired.row.001-017.property=CodeBuild.Project.VpcConfig.SecurityGroupIds" in model
-    assert "desired.row.001-017.value=[CodeBuildSG](security-group.md#security-group-codebuild-sg)" in model
-    assert "observed.row.001-017.value=PENDING_DEPLOY" in model
+    model = "\n".join(expanded_display_rows(design_text.splitlines()))
+    assert model.count("| CodeBuild.Project.VpcConfig.Subnets |") == 2
+    assert "[subnet-00000000000000001](vpc.md#vpc-sbnt-one)" in model
+    assert "[subnet-00000000000000002](vpc.md#vpc-sbnt-two)" in model
+    assert "| CodeBuild.Project.VpcConfig.SecurityGroupIds |" in model
+    assert "[PENDING_DEPLOY](security-group.md#security-group-codebuild-sg)" in model
     assert "VpcConfig.Subnets[1]" not in model
     for bad in (
         design_text.replace("Subnets[1]", "Subnets[0]"),
@@ -332,16 +354,14 @@ def check_guardduty_feature_display(tmp_path, catalog) -> None:
         return validator.errors
 
     assert not errors(GUARDDUTY), errors(GUARDDUTY)
-    model = model_projection.model_for(path, REPOSITORY)
-    assert "desired.row.001-003.property=GuardDuty.Detector.Features[].Name" in model
-    assert "desired.row.001-003.value=`S3_DATA_EVENTS`" in model
-    assert "desired.row.001-004.property=GuardDuty.Detector.Features[].Status" in model
-    assert "desired.row.001-004.value=`ENABLED`" in model
-    assert "desired.row.001-005.value=`EKS_AUDIT_LOGS`" in model
+    model = "\n".join(expanded_display_rows(GUARDDUTY.splitlines()))
+    assert "| GuardDuty.Detector.Features[].Name | `S3_DATA_EVENTS` |" in model
+    assert "| GuardDuty.Detector.Features[].Status | `ENABLED` |" in model
+    assert "| GuardDuty.Detector.Features[].Name | `EKS_AUDIT_LOGS` |" in model
     assert "Features.S3_DATA_EVENTS" not in model
     short = GUARDDUTY.replace("| GuardDuty.Detector.", "| ")
     assert not errors(short), errors(short)
-    assert model_projection.model_for(path, REPOSITORY) == model
+    assert "\n".join(expanded_display_rows(path.read_text().splitlines())) == model
     assert errors(GUARDDUTY.replace("Features.EKS_AUDIT_LOGS", "Features.S3_DATA_EVENTS"))
     assert errors(GUARDDUTY.replace("`ENABLED`", "`INVALID`"))
     assert errors(GUARDDUTY.replace("Features.S3_DATA_EVENTS | `ENABLED`", "Features[].Name | `S3_DATA_EVENTS`"))
@@ -396,10 +416,10 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
     path.write_text(trail, encoding="utf-8")
     (design / "s3.md").write_text(s3, encoding="utf-8")
     (design / "lambda.md").write_text(lambda_design, encoding="utf-8")
-    model = model_projection.model_for(path, REPOSITORY)
-    assert "desired.row.001-002.property=CloudTrail.Trail.EventSelectors[].DataResources[].Type" in model
-    assert "desired.row.001-003.value=[data-bucket](s3.md#s3-data-bucket)" in model
-    assert "desired.row.001-004.value=`AWS::Lambda::Function`" in model
+    model = "\n".join(expanded_display_rows(trail.splitlines()))
+    assert "| CloudTrail.Trail.EventSelectors[].DataResources[].Type | `AWS::S3::Object` |" in model
+    assert "| CloudTrail.Trail.EventSelectors[].DataResources[].Values | [data-bucket](s3.md#s3-data-bucket) |" in model
+    assert "| CloudTrail.Trail.EventSelectors[].DataResources[].Type | `AWS::Lambda::Function` |" in model
     assert "DataResources[1]" not in model
 
     def errors(content: str) -> list[str]:
@@ -417,11 +437,11 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
     )
     assert not errors(all_buckets), errors(all_buckets)
     original = path.read_bytes()
-    all_model = model_projection.model_for(path, REPOSITORY)
+    all_model = "\n".join(expanded_display_rows(path.read_text().splitlines()))
     assert path.read_bytes() == original
     assert all_model == model.replace(
-        "desired.row.001-003.value=[data-bucket](s3.md#s3-data-bucket)",
-        'desired.row.001-003.value=`["arn:aws:s3"]`',
+        "[data-bucket](s3.md#s3-data-bucket)",
+        '`["arn:aws:s3"]`', 1,
     )
     assert "All current and future S3 buckets" not in all_model
     for bad_value in (
@@ -502,13 +522,13 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
 
     assert not errors(pipeline), errors(pipeline)
     original = path.read_bytes()
-    model = model_projection.model_for(path, REPOSITORY)
+    model = "\n".join(expanded_display_rows(path.read_text().splitlines()))
     assert path.read_bytes() == original
     assert '"PollForSourceChanges":"false"' in model
     assert '"ProjectName":"[build](codebuild.md#codebuild-build)"' in model
-    assert model.count(".property=CodePipeline.Pipeline.Stages[].Actions[].Configuration") == 3
+    assert model.count("| CodePipeline.Pipeline.Stages[].Actions[].Configuration |") == 3
     assert "Stages[1]" not in model and "Actions[2]" not in model
-    assert "RepositoryId" not in model_projection.model_for(repo_path, REPOSITORY)
+    assert "RepositoryId" not in "\n".join(expanded_display_rows(repo_path.read_text().splitlines()))
     assert "observed." not in model
     for bad in (
         pipeline.replace("Stages[1]", "Stages[]"),
@@ -544,7 +564,7 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
     repo_path.write_text(repository.replace("| 1 | RepositoryName", "| 1 | RepositoryId | `PENDING_DEPLOY` | 一意に識別するID |\n| 2 | RepositoryName"), encoding="utf-8")
     assert errors(pipeline)
     with pytest.raises(ValueError) as error:
-        model_projection.model_for(repo_path, REPOSITORY)
+        "\n".join(expanded_display_rows(repo_path.read_text().splitlines()))
     assert "must not be displayed" in str(error.value)
 
 
@@ -601,16 +621,13 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         return validator.errors
 
     assert not errors(), errors()
-    model = model_projection.model_for(config_path, REPOSITORY)
-    assert "desired.row.001-003.property=Config.ConfigurationRecorder.RoleARN" in model
-    assert f"desired.row.001-003.value={role_link}" in model
+    model = "\n".join(expanded_display_rows(config.splitlines()))
+    assert f"| Config.ConfigurationRecorder.RoleARN | {role_link} |" in model
     assert "Config.ConfigurationRecorder.RoleName" not in model
-    assert "observed.row.001-003" not in model
-    kdf_model = model_projection.model_for(kdf_path, REPOSITORY)
-    assert "desired.row.001-002.value=[KeyOne](kms.md#kms-keyone)" in kdf_model
-    assert "observed.row.001-002.value=1234abcd-12ab-34cd-56ef-1234567890ab" in kdf_model
-    assert "desired.row.001-004.value=[app-data](s3.md#s3-app-data)" in kdf_model
-    assert f"desired.row.001-005.value={role_link}" in kdf_model
+    kdf_model = "\n".join(expanded_display_rows(firehose.splitlines()))
+    assert "[1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone)" in kdf_model
+    assert "[app-data](s3.md#s3-app-data)" in kdf_model
+    assert role_link in kdf_model
     assert "arn:aws" not in model + kdf_model
     for bad in (
         config.replace("RoleName |", "RoleARN |"),
@@ -632,17 +649,16 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     assert errors(kdf_text=firehose.replace("(kms.md#kms-keyone)", "(../987654321098/kms.md#kms-keyone)"))
     pending = firehose.replace("1234abcd-12ab-34cd-56ef-1234567890ab", "PENDING_DEPLOY").replace("kms-keyone", "kms-keytwo")
     assert not errors(kdf_text=pending), errors(kdf_text=pending)
-    assert "observed.row.001-002.value=PENDING_DEPLOY" in model_projection.model_for(kdf_path, REPOSITORY)
+    assert "[PENDING_DEPLOY](kms.md#kms-keytwo)" in "\n".join(expanded_display_rows(pending.splitlines()))
 
     (target / "iam.md").unlink()
     for role in ("AWSServiceRoleForConfig", "`AWSServiceRoleForConfig`", "`AWSServiceCustom`"):
         service_config = config.replace(role_link, role)
         service_firehose = firehose.replace(role_link, role)
         assert not errors(service_config, service_firehose), errors(service_config, service_firehose)
-        service_model = model_projection.model_for(config_path, REPOSITORY)
-        assert f"desired.row.001-003.value={role}" in service_model
-        assert "desired.row.001-003.property=Config.ConfigurationRecorder.RoleARN" in service_model
-        assert "observed.row.001-003" not in service_model
+        service_model = "\n".join(expanded_display_rows(service_config.splitlines()))
+        assert f"| Config.ConfigurationRecorder.RoleARN | {role} |" in service_model
+        assert "Config.ConfigurationRecorder.RoleName" not in service_model
     for role in (
         "`config-role`", "`AWSService`", "`AWSServiceRoleForConfig/path`",
         "`arn:aws:iam::123456789012:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig`",
@@ -670,7 +686,22 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         ("Id", "`PENDING_DEPLOY`"), ("RoleName", "`AWSServiceRoleForConfig`"),
     ]).replace('<a id="config-resource">', '<!-- resource-logical-id: ConfigRecorder -->\n<a id="config-configuration-recorder-recorder">').replace("ConfigurationRecorder: Resource", "ConfigurationRecorder: recorder")
     path.write_text(source, encoding="utf-8")
-    values = model_core.properties(model_projection.model_for(path, REPOSITORY))
+    values = model_core.properties("""# Synthetic authoritative Model fixture.
+desired.service.config.serviceId=config
+desired.service.config.ownedCatalogResourceTypes=Config.ConfigurationRecorder
+desired.resource.001.resourceType=Config.ConfigurationRecorder
+desired.resource.001.anchor=config-configuration-recorder-recorder
+desired.resource.001.logicalId=ConfigRecorder
+desired.row.001-001.property=Config.ConfigurationRecorder.Id
+desired.row.001-001.value=[ConfigRecorder](#config-configuration-recorder-recorder)
+desired.row.001-001.comment=設定する属性
+observed.row.001-001.property=Config.ConfigurationRecorder.Id
+observed.row.001-001.value=`PENDING_DEPLOY`
+observed.row.001-001.comment=設定する属性
+desired.row.001-002.property=Config.ConfigurationRecorder.RoleARN
+desired.row.001-002.value=`AWSServiceRoleForConfig`
+desired.row.001-002.comment=設定する属性
+""")
     values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})
     model_path = root / "model/dev/123456789012/config.properties"
     model_path.parent.mkdir(parents=True)
@@ -727,10 +758,10 @@ def check_resource_name_headings(tmp_path) -> None:
         return validator.errors
 
     assert not errors(text), errors(text)
-    model = model_projection.model_for(path, REPOSITORY)
-    assert f"desired.resource.001.logicalId={logical_id}" in model
-    assert f"desired.resource.001.anchor={anchor}" in model
-    assert "resource-logical-id" not in model and "desired.note" not in model
+    identities = resource_logical_ids(text.splitlines())
+    assert identities == {("Scheduler.Schedule", name): logical_id}
+    assert f'<a id="{anchor}"></a>' in text
+    assert len(expanded_design(text.splitlines())[1]) == 0
     assert model_projection.linked_resource(path, f"[{name}](#{anchor})") == ("Scheduler.Schedule", logical_id)
     for invalid, message in (
         (text.replace(f"### Scheduler.Schedule: {name}", f"### Scheduler.Schedule: {logical_id}"), "heading must display resource name"),
@@ -751,10 +782,10 @@ def check_resource_name_headings(tmp_path) -> None:
         named_kms = named_kms.replace("kms-alias" + word, "kms-alias-" + word)
     kms = path.with_name("kms.md")
     kms.write_text(named_kms, encoding="utf-8")
-    model = model_projection.model_for(kms, REPOSITORY)
-    assert "desired.resource.001.logicalId=KeyOne" in model
-    assert "parentReference=[KeyOne](#kms-one)" in model
-    assert "desired.row.001-001.value=[KeyOne](#kms-one)" in model
+    children = expanded_design(named_kms.splitlines())[1]
+    assert resource_logical_ids(named_kms.splitlines())[('KMS.Key', 'one')] == 'KeyOne'
+    assert children['kms-alias-one']['parentLogicalId'] == 'KeyOne'
+    assert children['kms-alias-one']['parentAnchor'] == 'kms-one'
     assert model_projection.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-one)") == ("KMS.Key", "KeyOne")
 
     group_name = "transfer service access"
@@ -767,7 +798,7 @@ def check_resource_name_headings(tmp_path) -> None:
     validator = VALIDATOR.Validator(root)
     validator.check_resource_names({sg: ("security-group", ("EC2.SecurityGroup",)), kms: ("kms", ("KMS.Key", "KMS.Alias")), **metadata})
     assert not validator.errors, validator.errors
-    assert "desired.resource.001.logicalId=TransferSecurityGroup" in model_projection.model_for(sg, REPOSITORY)
+    assert resource_logical_ids(sg_text.splitlines())[("EC2.SecurityGroup", group_name)] == "TransferSecurityGroup"
 
     assert resource_logical_ids(text.splitlines()) == {("Scheduler.Schedule", name): logical_id}
 
@@ -852,30 +883,25 @@ def check_workflow(tmp_path, catalog) -> None:
 
     assert not errors(), errors()
     original = kms.read_bytes()
-    model = model_projection.model_for(kms, REPOSITORY)
+    lines, children = expanded_design(KMS.splitlines())
     assert kms.read_bytes() == original
-    assert "desired.resource.002.resourceType=KMS.Alias" in model
-    assert "desired.resource.002.logicalId=AliasOne" in model
-    assert "desired.resource.003.logicalId=AliasTwo" in model
-    assert "desired.resource.003.anchor=kms-aliastwo" in model
-    assert "desired.resource.003.parentProperty=KMS.Alias.TargetKeyId" in model
-    assert "desired.resource.003.parentReference=[KeyOne](#kms-keyone)" in model
-    assert "desired.resource.005.parentReference=[KeyTwo](#kms-keytwo)" in model
-    assert "desired.row.003-001.value=`alias/two`" in model
-    assert "observed.row.001-001.value=`1234abcd-12ab-34cd-56ef-1234567890ab`" in model
-    assert "observed.row.004-001.value=`PENDING_DEPLOY`" in model
-    assert "<!--" not in model and "<a " not in model
-    assert "observed.row.003" not in model
+    assert children['kms-aliasone']['resourceType'] == 'KMS.Alias'
+    assert children['kms-aliasone']['logicalId'] == 'AliasOne'
+    assert children['kms-aliastwo']['logicalId'] == 'AliasTwo'
+    assert children['kms-aliastwo']['parentProperty'] == 'KMS.Alias.TargetKeyId'
+    assert children['kms-aliastwo']['parentLogicalId'] == 'KeyOne'
+    assert children['kms-aliasthree']['parentLogicalId'] == 'KeyTwo'
+    model = "\n".join(lines)
+    assert '| KMS.Alias.AliasName | `alias/two` |' in model
+    assert '| KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` |' in model
+    assert '| KMS.Key.KeyId | `PENDING_DEPLOY` |' in model
     assert model_projection.linked_resource(s3, "[alias/two](kms.md#kms-aliastwo)") == ("KMS.Alias", "AliasTwo")
-    s3_model = model_projection.model_for(s3, REPOSITORY)
-    assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID" in s3_model
-    assert "desired.row.001-003.value=[alias/two](kms.md#kms-aliastwo)" in s3_model
-    assert "desired.row.001-004.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm" in s3_model
-    assert "desired.row.001-004.value=`aws:kms`" in s3_model
-    assert "observed.row.001-003" not in s3_model
+    s3_model = "\n".join(expanded_display_rows(S3.splitlines()))
+    assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) |" in s3_model
+    assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm | `aws:kms` |" in s3_model
     short_s3 = S3.replace("| S3.Bucket.", "| ")
     assert not errors(KMS, short_s3), errors(KMS, short_s3)
-    assert model_projection.model_for(s3, REPOSITORY) == s3_model
+    assert "\n".join(expanded_display_rows(s3.read_text().splitlines())) == s3_model
     s3_with_shortened_properties = (
         S3.replace(
             "| 3 | BucketEncryption[].KMSMasterKeyID",
@@ -887,9 +913,9 @@ def check_workflow(tmp_path, catalog) -> None:
         + "\n| 6 | LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays | `30` | 旧versionの保存日数 |\n"
     )
     assert not errors(KMS, s3_with_shortened_properties), errors(KMS, s3_with_shortened_properties)
-    shortened_model = model_projection.model_for(s3, REPOSITORY)
-    assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled" in shortened_model
-    assert "desired.row.001-006.property=S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays" in shortened_model
+    shortened_model = "\n".join(expanded_display_rows(s3.read_text().splitlines()))
+    assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled | `true` |" in shortened_model
+    assert "| S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays | `30` |" in shortened_model
     for display, formal in (
         ("BucketEncryption.BucketKeyEnabled", "BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled"),
         ("LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays", "LifecycleConfiguration.Rules[].NoncurrentVersionExpiration.NoncurrentDays"),
@@ -926,9 +952,10 @@ def check_workflow(tmp_path, catalog) -> None:
     _, children = expanded_design(moved.splitlines())
     assert children["kms-aliastwo"]["parentLogicalId"] == "KeyTwo"
     assert children["kms-aliastwo"]["logicalId"] == "AliasTwo"
-    moved_model = model_projection.model_for(kms, REPOSITORY)
-    assert "desired.resource.005.logicalId=AliasTwo" in moved_model
-    assert "desired.resource.005.parentReference=[KeyTwo](#kms-keytwo)" in moved_model
+    moved_children = expanded_design(kms.read_text().splitlines())[1]
+    assert moved_children['kms-aliastwo']['logicalId'] == 'AliasTwo'
+    assert moved_children['kms-aliastwo']['parentLogicalId'] == 'KeyTwo'
+    assert moved_children['kms-aliastwo']['parentAnchor'] == 'kms-keytwo'
 
     # A new catalog type cannot silently inherit an independent display decision.
     copy_framework(root / 'framework/materials/aws', relative='materials/aws')

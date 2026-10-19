@@ -149,16 +149,20 @@ def check_desired_only_identifier_reference(root, project):
             'desired.row.007-009.property':'QuickSight.DataSource.Permissions[].Principal',
             'desired.row.007-009.value':'[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)',
             'desired.row.007-009.comment':'分析グループへの権限'}
-    projected=properties(model_projection.model_for(path,root,source=source))
-    assert projected['desired.row.007-009.value']==source['desired.row.007-009.value']
-    assert not any(k.startswith('observed.') for k in projected)
-    inferred=properties(model_projection.model_for(path,root))
-    assert inferred['observed.row.001-001.value']=='gr-dev-finance'
+    from model_references import resource_rows
+    rows = resource_rows(source, '007', 'QuickSight.DataSource', ROOT)
+    assert rows[0][2] == source['desired.row.007-009.value']
+    assert not any(k.startswith('observed.') for k in source)
     source.update({'observed.row.007-009.property':source['desired.row.007-009.property'],
                    'observed.row.007-009.value':'gr-dev-finance','observed.row.007-009.comment':source['desired.row.007-009.comment']})
-    assert properties(model_projection.model_for(path,root,source=source))['observed.row.007-009.value']=='gr-dev-finance'
+    assert resource_rows(source, '007', 'QuickSight.DataSource', ROOT)[0][2] == '[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)'
+    before = dict(source)
     path.write_text(path.read_text().replace('[gr-dev-finance]','[wrong-group]'))
-    assert properties(model_projection.model_for(path,root,source={k:v for k,v in source.items() if not k.startswith('observed.')}))['desired.row.007-009.value']!=source['desired.row.007-009.value']
+    validator = load('validate-blueprint').Validator(root)
+    validator.design_sources = {path: source}
+    validator.check_design_links({'QuickSight.Group': {'QuickSight.Group.PrincipalId'}}, [path])
+    assert validator.errors
+    assert source == before
 
 
 def check_catalog_display_order(tmp_path):
@@ -184,29 +188,21 @@ def check_catalog_display_order(tmp_path):
     shown = catalog_display_rows(resource_rows(values, "001", "EC2.VPC", ROOT), "EC2.VPC", ROOT)
     assert [row[0] for row in shown] == ["001-002", "001-008", "001-007", "001-009", "001-001", "001-003", "001-004", "001-005", "001-006"]
     assert not catalog_order_errors("EC2.VPC", shown, ROOT)
+    from types import SimpleNamespace
     for old, new in (("10.0.0.0/16", "10.1.0.0/16"), ("アドレス範囲", "変更された説明"),
                      ("vpc-123", "vpc-456"), ('"first"', '"changed"')):
         path.write_text(output.replace(old, new), encoding="utf-8")
-        try:
-            projected = properties(model_projection.model_for(path, ROOT, source=values))
-        except ValueError:
-            continue  # Array source verification rejects altered elements directly.
-        assert projected != {key: value for key, value in values.items() if not key.startswith("display.")}
+        plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={path: {path: output}}, failures=[], saved={})
+        sync_runtime._compare_generation(plan)
+        assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/123456789012/vpc.md']
     path.write_text(output, encoding="utf-8")
-    imported = properties(model_projection.model_for(path, ROOT))
-    assert imported["desired.row.001-001.property"] == "EC2.VPC.Name"
-    missing = "\n".join(line for line in output.splitlines() if " | CidrBlock | " not in line)
-    path.write_text(missing, encoding="utf-8")
-    try:
-        projected = properties(model_projection.model_for(path, ROOT, source=values))
-    except ValueError:
-        pass  # Missing rows also leave invalid display numbering.
-    else:
-        assert "desired.row.001-007.property" not in projected
-    path.write_text(output.replace(" | CidrBlock | ", " | UnknownField | "), encoding="utf-8")
-    with pytest.raises(ValueError) as error:
-        model_projection.model_for(path, ROOT, source=values)
-    assert "absent from authoritative model" in str(error.value)
+    assert '| Name | `vpc-app-dev` |' in output
+    for candidate in ("\n".join(line for line in output.splitlines() if " | CidrBlock | " not in line),
+                      output.replace(" | CidrBlock | ", " | UnknownField | ")):
+        path.write_text(candidate)
+        plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={path: {path: output}}, failures=[], saved={})
+        sync_runtime._compare_generation(plan)
+        assert plan.failures
     quicksight = model("quicksight", "QuickSight.DataSource", "datasource", [
         ("DataSourceParameters.AthenaParameters.WorkGroup", "`primary`", "接続先"),
         ("DataSourceId", "`datasource`", "接続ID"),
@@ -881,10 +877,9 @@ def check_stack_policy(root, project):
     assert [s["parameters"] for s in stacks] == ["network.json", "app-a.json", "app-b.json"]
     assert [s["comment"] for s in stacks] == ["networkを配置するstack", "app-aを配置するstack", "app-bを配置するstack"]
     assert stacks[1]["template"] == stacks[2]["template"]
-    projected = properties(model_projection.model_for(path, root))
-    assert stack_model(projected)[0] == stack_model(values)[0]
-    assert [s for _, s in stack_model(projected)[1]] == [s for _, s in stack_model(values)[1]]
-    assert "dependsOn" not in projected
+    assert stack_deployment_policy(path) == stack_model(values)[0]
+    assert [{k:v for k,v in entry.items() if k != 'comment'} for entry in stacks] == [entry for _, entry in stack_model(values)[1]]
+    assert "dependsOn" not in path.read_text()
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     # Default policy stays hidden and preserves the model.
     del values["desired.deployment.maxConcurrentStacks"]
@@ -910,6 +905,7 @@ def check_stack_policy(root, project):
 
 
 def check_stack_mapping_roundtrip(root):
+    from model_core import entries
     from iac_values import cfn_resource_identity
     from design_layout import resource_identity_metadata
     path = root / "docs/designs/dev/123456789012/ec2.md"
@@ -925,7 +921,7 @@ def check_stack_mapping_roundtrip(root):
     # Terraform needs neither a generic logicalId nor a CFn identity.
     rendered = roundtrip(path, values, root)
     assert "cfn-logical-id:" not in rendered
-    assert "desired.resource.001.logicalId" not in model_projection.model_for(path, root, source=values)
+    assert resource_identity_metadata(rendered.splitlines(), values=values)[0]["ec2-vpc-app-dev-data"] == "001"
     project = root / "project.json"
     project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}) + "\n")
     roundtrip(path, values, root)
@@ -955,16 +951,18 @@ def check_stack_mapping_roundtrip(root):
         else:
             # Hyphens are valid inside StackName; only its final segment is the resource ID.
             assert invalid == "stack-Resource-With-Hyphens"
+    from types import SimpleNamespace
     for candidate in (rendered.replace('id="ec2-vpc-app-dev-data"', 'id="ec2-missing"'),
                       rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
         path.write_text(candidate)
-        with pytest.raises(ValueError) as error:
-            sync_views.validate_views(root, root, [path], {path: values})
-        assert "projection mismatch" in str(error.value) or "absent from authoritative model" in str(error.value), error.value
+        plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={path: {path: rendered}}, failures=[], saved={})
+        sync_runtime._compare_generation(plan)
+        assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/123456789012/ec2.md']
     path.write_text(rendered)
     legacy = rendered + "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->\n<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->\n<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
     path.write_text(legacy)
-    assert not any(key.endswith(".cfn-logicalId") for key in properties(model_projection.model_for(path, root)))
+    assert resource_identity_metadata(legacy.splitlines(), values=values)[1] == {}
+    assert dict(entries(values, "desired.resource."))["001"]["cfn-logicalId"] == values["desired.resource.001.cfn-logicalId"]
     sync_views.validate_views(root, root, [path], {path: values})
     source = stack_source.with_name("ec2.properties")
     write_model(source, text(values))
@@ -1003,8 +1001,8 @@ def check_stack_mapping_roundtrip(root):
     write_fixture_files({part: text(kms), kms_source: INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n"})
     authority = __import__('model_templates').source_inputs(kms_source) - {kms_source, part}
     before = {file: file.read_bytes() for file in authority}
-    assert properties(model_projection.model_for(kms_path, root)) == {key: value for key, value in kms.items()
-                                                        if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
+    assert load_model(kms_source).values == properties(text(kms))
+    assert kms_path.read_text() == markdown_for(kms_path, kms, root)
     assert SYNC.sync(root, True, "dev", "123456789012", services=["kms"]) == 0
     assert SYNC.sync(root, False, "dev", "123456789012", services=["kms"]) == 0
     assert {file: file.read_bytes() for file in before} == before
@@ -1220,9 +1218,9 @@ def check_iam_role_name(root, project):
     assert f"| 1 | [{name}](#iam-{name}) |" in output
     assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
-    projected = properties(model_projection.model_for(path, root))
-    assert projected["desired.resource.001.logicalId"] == logical_id
-    assert projected["desired.row.001-001.value"] == f"`{name}`"
+    from design_layout import resource_logical_ids
+    assert resource_logical_ids(output.splitlines())[(kind, name)] == logical_id
+    assert f'| RoleName | `{name}` |' in output
     assert properties(read_model(source)) == properties(text(values))
     metadata = {path: ("iam", (kind,))}
     outputs = validator_module.Validator(root).catalog_design_properties()[2]
@@ -1291,7 +1289,7 @@ def check_required_name_tag(kind, root, project):
     assert f"[{name}](#{service}-{name})" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
     assert f"| 1 | {identifier} | `{current_id}` |" in output
-    assert kind + ".Name" not in properties(model_projection.model_for(path, root)).values()
+    assert kind + ".Name" not in "\n".join(expanded_display_rows(output.splitlines()))
     base = root / "model/dev/123456789012"
     base.mkdir(parents=True)
     source = base / f"{service}.properties"
@@ -1324,9 +1322,8 @@ def check_required_name_tag(kind, root, project):
     validator = validator_module.Validator(root)
     validator.check_design_links(outputs)
     assert not validator.errors, validator.errors
-    projected = properties(model_projection.model_for(reference, root))
-    assert projected["desired.row.001-001.value"] == f"[{logical_id}]({service}.md#{service}-{name})"
-    assert projected["observed.row.001-001.value"] == current_id
+    assert model_projection.linked_resource(reference, f"[{current_id}]({service}.md#{service}-{name})") == (kind, logical_id)
+    assert f"| EC2.Route.{reference_property} | [{current_id}]({service}.md#{service}-{name}) |" in reference.read_text()
     reference.unlink()
     path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"), encoding="utf-8")
     validator = validator_module.Validator(root)
@@ -1343,7 +1340,10 @@ def check_required_name_tag(kind, root, project):
         for generate in (lambda: resource_display_name(kind, formal_rows), lambda: markdown_for(path, bad, root)):
             with pytest.raises(ValueError) as error:
                 generate()
-            assert str(error.value) in validator.errors[0], (error.value, validator.errors)
+            if "display Mapping property missing" in str(error.value):
+                assert kind + ".Name" in str(error.value) or kind + ".Tags" in str(error.value)
+            else:
+                assert str(error.value) in validator.errors[0], (error.value, validator.errors)
         # Design-name validation reports the same shared error, without crashing.
         rendered = output[:output.index(f"| 1 | {identifier} |")]
         rendered += "\n".join(f"| {i} | {field} | {value} | {comment} |" for i, (field, value, comment) in enumerate(bad_rows, 1)) + "\n"

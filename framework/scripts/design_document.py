@@ -14,7 +14,6 @@ from threading import RLock
 
 from design_layout import (ANCHOR, expanded_design, expanded_display_rows, resource_heading_lines,
                            resource_logical_ids, resource_modes)
-from policy_tables import without_policy_tables
 from security_group_tables import security_group_table_lines
 from validation_scope import reference_lines
 
@@ -63,7 +62,7 @@ class DesignDocument:
     path: Path
     text: str
     root: Path | None = None
-    _views: dict[tuple[frozenset[str] | None, bool], DesignView] = field(default_factory=dict, repr=False, compare=False)
+    _views: dict[frozenset[str] | None, DesignView] = field(default_factory=dict, repr=False, compare=False)
     _parses: dict[tuple[str, ...], DesignView] = field(default_factory=dict, repr=False, compare=False)
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
@@ -78,12 +77,6 @@ class DesignDocument:
     @cached_property
     def visible_text(self) -> str:
         return re.sub(r"<!--.*?-->", "", self.text, flags=re.DOTALL)
-
-    @cached_property
-    def projection_source(self) -> DesignView:
-        # Identity metadata is checked before stripping policy tables, as in model_for.
-        return self._view([line for line in self.lines if not line.startswith(
-            ("<!-- resource-mode:", "<!-- resource-entry:", "<!-- cfn-logical-id:"))])
 
     def _view(self, lines: list[str] | tuple[str, ...]) -> DesignView:
         lines = tuple(lines)
@@ -109,15 +102,13 @@ class DesignDocument:
     def raw(self) -> DesignView:
         return self._view(self.lines)
 
-    def view(self, fragments: frozenset[str] | None = None, *, projection: bool = False) -> DesignView:
+    def view(self, fragments: frozenset[str] | None = None) -> DesignView:
         # Serialize lazy construction only; existing validation workers remain unchanged.
         with self._lock:
-            key = fragments, projection
+            key = fragments
             if key not in self._views:
                 if fragments is not None:
                     lines = reference_lines(self.path, fragments, lines=list(self.headings.lines))
-                elif projection:
-                    lines = without_policy_tables(list(self.projection_source.lines))
                 else:
                     lines = resource_heading_lines(list(self.lines))
                 self._views[key] = self._view(lines)

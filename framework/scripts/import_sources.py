@@ -6,6 +6,7 @@ from model_core import LINK, entries, literal
 from model_files import resource_row_index
 from model_parameter_inputs import yaml_read
 from model_templates import json_read
+from validation_cache import input_is_file, input_bytes
 
 
 def parameter_edit(original, wanted):
@@ -97,7 +98,7 @@ def candidate_sources(root, directory, identity, *, preservation_consumers=()):
         if not path.is_file() or not (allowed_source(root, destination, identity) or preservation_input):
             raise ValueError('IMPORT candidate source is outside the selected environment/target/service: ' + relative)
         text = path.read_bytes().decode('utf-8')
-        if destination.is_file() and destination.read_bytes() == text.encode('utf-8'):
+        if input_is_file(destination) and input_bytes(destination) == text.encode('utf-8'):
             raise ValueError('IMPORT candidate directory must contain changed sources only: ' + relative)
         if path.name == 'parameters.yaml':
             yaml_read(text)

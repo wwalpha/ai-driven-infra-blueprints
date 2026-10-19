@@ -69,6 +69,8 @@ def reverse_names(root, heading):
 
 
 def formal_name(display, heading, root=ROOT):
+    if heading == 'Config.ConfigurationRecorder' and display == 'RoleARN':
+        return heading + '.RoleARN'
     return reverse_names(root, heading).get(display)
 
 

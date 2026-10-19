@@ -1,5 +1,12 @@
 # Detailed Design Rules
 
+Model is the single source of truth; Markdown and JSON are generated views.
+Validate Model contracts, Mapping, Catalog and Schema before generation. Validate
+view structure, links, artifacts and consistency using existing validators, and
+compare saved files with generated candidates. Whole-model reverse projection from
+Markdown must not be a publication gate. Retain local table normalization and
+selected-row consumption checks, including intentional aggregation and hidden rows.
+
 - Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
 Follow [issue-gate](issue-gate.md) for target-service stops and exceptions.
@@ -374,7 +381,7 @@ Local loops calculate expected listings/tables with the same generation processi
 
 ## CloudFormation S3 placement display
 
-Do not generate TemplateBucket/TemplateKeyPrefix `Property | Value` tables. If model configurations exist, output hidden `<!-- templateBucket: <value> -->`/`<!-- templateKeyPrefix: <value> -->` comments, retaining reparsing and model-equality validation. Only if artifact mappings exist, generate `## S3配置` and `### 配置ファイル` (`No. | StackName | Resource | Property | Source | Bucket | KeyPrefix`) after Stack listings. No. is sequential display order, Resource is CFn logical ID, and Bucket is a BucketName-displaying same-target S3 design link. This displays deployment inputs, not AWS property tables. Continue omitting Deployment configuration tables displaying MaxConcurrentStacks. Retain existing stack displays without placement specifications. Follow CloudFormation S3配置 in `model-information.md` for authoritative fields/examples.
+Do not generate TemplateBucket/TemplateKeyPrefix `Property | Value` tables. If model configurations exist, output hidden `<!-- templateBucket: <value> -->`/`<!-- templateKeyPrefix: <value> -->` comments, retaining structural checks and saved-output comparison. Only if artifact mappings exist, generate `## S3配置` and `### 配置ファイル` (`No. | StackName | Resource | Property | Source | Bucket | KeyPrefix`) after Stack listings. No. is sequential display order, Resource is CFn logical ID, and Bucket is a BucketName-displaying same-target S3 design link. This displays deployment inputs, not AWS property tables. Continue omitting Deployment configuration tables displaying MaxConcurrentStacks. Retain existing stack displays without placement specifications. Follow CloudFormation S3配置 in `model-information.md` for authoritative fields/examples.
 
 ## Narrow DNS and IMPORT preparation references
 
@@ -387,3 +394,8 @@ For IMPORT preparation only, Config.ConfigurationRecorder.RoleARN and Firehose
 S3DestinationConfiguration BucketARN and RoleARN may use the exact literal `Pending` for unconfirmed references. Do not save dummy ARNs
 as observed. CREATE requires normal references; confirmed references, arbitrary ARN
 literals and broken links retain normal validation. AWS_OWNED_CMK requires no KeyARN.
+
+For Config IMPORT, a valid acquired IAM Role ARN remains complete in formal
+`Config.ConfigurationRecorder.RoleARN` and is displayed under `RoleARN`.
+IAM Role links and permitted service-role names retain `RoleName`; CREATE direct
+ARN literals are forbidden. Validate ResourceMode from the authoritative Model.

@@ -538,14 +538,16 @@ def check_delivery(tmp_path):
         assert sync.sync(root, True, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
         assert sync.sync(root, False, "dev", "123456789012", services=["cloudformation-stacks"]) == 0
     assert snapshot_model(model) == saved_model
-    assert deployment_settings(properties(model_projection.model_for(design, root)))[0] == deployment_settings(values)[0]
+    assert {k.removeprefix('desired.deployment.'):v for k,v in stack_delivery(design).items() if k.startswith('desired.deployment.')} == deployment_settings(values)[0]
     only_templates = {key: value for key, value in values.items() if not key.startswith("desired.artifact.")}
     template_view = markdown_for(design, only_templates, root)
     assert "## S3配置" not in template_view and "| Property | Value |" not in template_view
     design.write_text(template_view)
-    assert deployment_settings(properties(model_projection.model_for(design, root)))[0] == deployment_settings(values)[0]
+    assert {k.removeprefix('desired.deployment.'):v for k,v in stack_delivery(design).items() if k.startswith('desired.deployment.')} == deployment_settings(values)[0]
     design.write_text(template_view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: changed/ -->"))
-    rejects(lambda: sync_views.validate_views(root, root, [design], {design: only_templates}), "model/display projection mismatch")
+    plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={design: {design: template_view}}, failures=[], saved={})
+    __import__('sync_runtime')._compare_generation(plan)
+    assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/123456789012/cloudformation-stacks.md']
     only_artifacts = {key: value for key, value in values.items() if not key.startswith("desired.deployment.template")}
     design.write_text(markdown_for(design, only_artifacts, root))
     assert "| Property | Value |" not in design.read_text()
@@ -567,8 +569,8 @@ def check_delivery(tmp_path):
         approved[f'desired.row.{identity}.comment'] = '承認済み設定'
     bucket_view = design.with_name('s3.md')
     bucket_view.write_text(markdown_for(bucket_view, approved, root))
-    reparsed = properties(model_projection.model_for(bucket_view, root, source=approved))
-    assert reparsed['desired.resource.001.deploymentEncryption'] == 'default'
+    assert bucket_view.read_text() == markdown_for(bucket_view, approved, root)
+    assert dict(entries(approved, 'desired.resource.'))['001']['deploymentEncryption'] == 'default'
     rejects(lambda: entries(approved | {'desired.resource.001.deploymentEncryption': 'guessed'}, 'desired.resource.'), 'only default')
     # A producer Export changing after packaging cannot redirect the preserved bucket expression.
     template.write_text(json.dumps(document))

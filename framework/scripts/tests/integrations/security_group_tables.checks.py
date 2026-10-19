@@ -34,7 +34,192 @@ def main():
 
         assert not errors(DESIGN), errors(DESIGN)
         original = path.read_bytes()
-        generated = model_projection.model_for(path, REPOSITORY)
+        generated = """# Synthetic authoritative Model fixture.
+desired.service.security-group.serviceId=security-group
+desired.service.security-group.ownedCatalogResourceTypes=EC2.SecurityGroup,EC2.SecurityGroupIngress,EC2.SecurityGroupEgress
+desired.resource.001.resourceType=EC2.SecurityGroup
+desired.resource.001.anchor=security-group-groupone
+desired.resource.001.logicalId=GroupOne
+desired.row.001-001.property=EC2.SecurityGroup.Id
+desired.row.001-001.value=[GroupOne](#security-group-groupone)
+desired.row.001-001.comment=一意に識別するID
+observed.row.001-001.property=EC2.SecurityGroup.Id
+observed.row.001-001.value=`sg-00000001`
+observed.row.001-001.comment=一意に識別するID
+desired.row.001-002.property=EC2.SecurityGroup.GroupDescription
+desired.row.001-002.value=`Application access`
+desired.row.001-002.comment=用途の説明
+desired.row.001-003.property=EC2.SecurityGroup.GroupName
+desired.row.001-003.value=`group-one`
+desired.row.001-003.comment=名前
+desired.row.001-004.property=EC2.SecurityGroup.VpcId
+desired.row.001-004.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)
+desired.row.001-004.comment=所属するVPCのID
+observed.row.001-004.property=EC2.SecurityGroup.VpcId
+observed.row.001-004.value=vpc-00000001
+observed.row.001-004.comment=所属するVPCのID
+desired.row.001-005.property=EC2.SecurityGroup.SecurityGroupIngress[].IpProtocol
+desired.row.001-005.value=`icmp`
+desired.row.001-005.comment=通信を許可するIP protocol
+desired.row.001-006.property=EC2.SecurityGroup.SecurityGroupIngress[].FromPort
+desired.row.001-006.value=`8`
+desired.row.001-006.comment=許可するport範囲の開始値、またはICMP type
+desired.row.001-007.property=EC2.SecurityGroup.SecurityGroupIngress[].ToPort
+desired.row.001-007.value=`0`
+desired.row.001-007.comment=許可するport範囲の終了値、またはICMP code
+desired.row.001-008.property=EC2.SecurityGroup.SecurityGroupIngress[].CidrIp
+desired.row.001-008.value=`10.0.0.0/24`
+desired.row.001-008.comment=通信を許可するIPv4アドレス範囲
+desired.row.001-009.property=EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol
+desired.row.001-009.value=`-1`
+desired.row.001-009.comment=通信を許可するIP protocol
+desired.row.001-010.property=EC2.SecurityGroup.SecurityGroupEgress[].CidrIp
+desired.row.001-010.value=`0.0.0.0/0`
+desired.row.001-010.comment=通信を許可するIPv4アドレス範囲
+desired.row.001-011.property=EC2.SecurityGroup.SecurityGroupEgress[].Description
+desired.row.001-011.value=`IPv4 outbound`
+desired.row.001-011.comment=用途の説明
+desired.row.001-012.property=EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol
+desired.row.001-012.value=`-1`
+desired.row.001-012.comment=通信を許可するIP protocol
+desired.row.001-013.property=EC2.SecurityGroup.SecurityGroupEgress[].CidrIp
+desired.row.001-013.value=`10.1.0.0/16`
+desired.row.001-013.comment=通信を許可するIPv4アドレス範囲
+desired.resource.002.resourceType=EC2.SecurityGroupIngress
+desired.resource.002.anchor=security-group-ingressone
+desired.resource.002.logicalId=IngressOne
+desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId
+desired.resource.002.parentReference=[GroupOne](#security-group-groupone)
+desired.row.002-001.property=EC2.SecurityGroupIngress.Id
+desired.row.002-001.value=[IngressOne](#security-group-ingressone)
+desired.row.002-001.comment=一意に識別するID
+observed.row.002-001.property=EC2.SecurityGroupIngress.Id
+observed.row.002-001.value=`sgr-00000001`
+observed.row.002-001.comment=一意に識別するID
+desired.row.002-002.property=EC2.SecurityGroupIngress.IpProtocol
+desired.row.002-002.value=`tcp`
+desired.row.002-002.comment=通信を許可するIP protocol
+desired.row.002-003.property=EC2.SecurityGroupIngress.FromPort
+desired.row.002-003.value=`443`
+desired.row.002-003.comment=許可するport範囲の開始値、またはICMP type
+desired.row.002-004.property=EC2.SecurityGroupIngress.ToPort
+desired.row.002-004.value=`443`
+desired.row.002-004.comment=許可するport範囲の終了値、またはICMP code
+desired.row.002-005.property=EC2.SecurityGroupIngress.SourceSecurityGroupId
+desired.row.002-005.value=[GroupTwo](#security-group-grouptwo)
+desired.row.002-005.comment=通信元として許可するSecurity GroupのID
+observed.row.002-005.property=EC2.SecurityGroupIngress.SourceSecurityGroupId
+observed.row.002-005.value=PENDING_DEPLOY
+observed.row.002-005.comment=通信元として許可するSecurity GroupのID
+desired.row.002-006.property=EC2.SecurityGroupIngress.SourceSecurityGroupOwnerId
+desired.row.002-006.value=`123456789012`
+desired.row.002-006.comment=通信元Security Groupを所有するAWS account ID
+desired.row.002-007.property=EC2.SecurityGroupIngress.Description
+desired.row.002-007.value=`Application access`
+desired.row.002-007.comment=用途の説明
+desired.resource.003.resourceType=EC2.SecurityGroupIngress
+desired.resource.003.anchor=security-group-ingresstwo
+desired.resource.003.logicalId=IngressTwo
+desired.resource.003.parentProperty=EC2.SecurityGroupIngress.GroupId
+desired.resource.003.parentReference=[GroupOne](#security-group-groupone)
+desired.row.003-001.property=EC2.SecurityGroupIngress.Id
+desired.row.003-001.value=[IngressTwo](#security-group-ingresstwo)
+desired.row.003-001.comment=一意に識別するID
+observed.row.003-001.property=EC2.SecurityGroupIngress.Id
+observed.row.003-001.value=`PENDING_DEPLOY`
+observed.row.003-001.comment=一意に識別するID
+desired.row.003-002.property=EC2.SecurityGroupIngress.IpProtocol
+desired.row.003-002.value=`icmpv6`
+desired.row.003-002.comment=通信を許可するIP protocol
+desired.row.003-003.property=EC2.SecurityGroupIngress.FromPort
+desired.row.003-003.value=`128`
+desired.row.003-003.comment=許可するport範囲の開始値、またはICMP type
+desired.row.003-004.property=EC2.SecurityGroupIngress.ToPort
+desired.row.003-004.value=`0`
+desired.row.003-004.comment=許可するport範囲の終了値、またはICMP code
+desired.row.003-005.property=EC2.SecurityGroupIngress.CidrIpv6
+desired.row.003-005.value=`2001:db8::/64`
+desired.row.003-005.comment=通信を許可するIPv6アドレス範囲
+desired.resource.004.resourceType=EC2.SecurityGroupIngress
+desired.resource.004.anchor=security-group-ingressthree
+desired.resource.004.logicalId=IngressThree
+desired.resource.004.parentProperty=EC2.SecurityGroupIngress.GroupId
+desired.resource.004.parentReference=[GroupOne](#security-group-groupone)
+desired.row.004-001.property=EC2.SecurityGroupIngress.Id
+desired.row.004-001.value=[IngressThree](#security-group-ingressthree)
+desired.row.004-001.comment=一意に識別するID
+observed.row.004-001.property=EC2.SecurityGroupIngress.Id
+observed.row.004-001.value=`PENDING_DEPLOY`
+observed.row.004-001.comment=一意に識別するID
+desired.row.004-002.property=EC2.SecurityGroupIngress.IpProtocol
+desired.row.004-002.value=`udp`
+desired.row.004-002.comment=通信を許可するIP protocol
+desired.row.004-003.property=EC2.SecurityGroupIngress.FromPort
+desired.row.004-003.value=`1000`
+desired.row.004-003.comment=許可するport範囲の開始値、またはICMP type
+desired.row.004-004.property=EC2.SecurityGroupIngress.ToPort
+desired.row.004-004.value=`2000`
+desired.row.004-004.comment=許可するport範囲の終了値、またはICMP code
+desired.row.004-005.property=EC2.SecurityGroupIngress.SourcePrefixListId
+desired.row.004-005.value=`pl-00000001`
+desired.row.004-005.comment=通信元として許可するPrefix ListのID
+desired.row.004-006.property=EC2.SecurityGroupIngress.Description
+desired.row.004-006.value=`Prefix Listからの通信`
+desired.row.004-006.comment=用途の説明
+desired.resource.005.resourceType=EC2.SecurityGroupEgress
+desired.resource.005.anchor=security-group-egressone
+desired.resource.005.logicalId=EgressOne
+desired.resource.005.parentProperty=EC2.SecurityGroupEgress.GroupId
+desired.resource.005.parentReference=[GroupOne](#security-group-groupone)
+desired.row.005-001.property=EC2.SecurityGroupEgress.Id
+desired.row.005-001.value=[EgressOne](#security-group-egressone)
+desired.row.005-001.comment=一意に識別するID
+observed.row.005-001.property=EC2.SecurityGroupEgress.Id
+observed.row.005-001.value=`PENDING_DEPLOY`
+observed.row.005-001.comment=一意に識別するID
+desired.row.005-002.property=EC2.SecurityGroupEgress.IpProtocol
+desired.row.005-002.value=`-1`
+desired.row.005-002.comment=通信を許可するIP protocol
+desired.row.005-003.property=EC2.SecurityGroupEgress.DestinationSecurityGroupId
+desired.row.005-003.value=[GroupOne](#security-group-groupone)
+desired.row.005-003.comment=通信先として許可するSecurity GroupのID
+observed.row.005-003.property=EC2.SecurityGroupEgress.DestinationSecurityGroupId
+observed.row.005-003.value=sg-00000001
+observed.row.005-003.comment=通信先として許可するSecurity GroupのID
+desired.row.005-004.property=EC2.SecurityGroupEgress.Description
+desired.row.005-004.value=`Security Group内の通信`
+desired.row.005-004.comment=用途の説明
+desired.resource.006.resourceType=EC2.SecurityGroup
+desired.resource.006.anchor=security-group-grouptwo
+desired.resource.006.logicalId=GroupTwo
+desired.row.006-001.property=EC2.SecurityGroup.Id
+desired.row.006-001.value=[GroupTwo](#security-group-grouptwo)
+desired.row.006-001.comment=一意に識別するID
+observed.row.006-001.property=EC2.SecurityGroup.Id
+observed.row.006-001.value=`PENDING_DEPLOY`
+observed.row.006-001.comment=一意に識別するID
+desired.row.006-002.property=EC2.SecurityGroup.GroupDescription
+desired.row.006-002.value=`No selected rules`
+desired.row.006-002.comment=用途の説明
+desired.row.006-003.property=EC2.SecurityGroup.VpcId
+desired.row.006-003.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)
+desired.row.006-003.comment=所属するVPCのID
+observed.row.006-003.property=EC2.SecurityGroup.VpcId
+observed.row.006-003.value=vpc-00000001
+observed.row.006-003.comment=所属するVPCのID
+desired.row.006-004.property=EC2.SecurityGroup.Tags[].Key
+desired.row.006-004.value="Project"
+desired.row.006-004.comment=付与するタグのキー
+desired.row.006-005.property=EC2.SecurityGroup.Tags[].Value
+desired.row.006-005.value="app"
+desired.row.006-005.comment=付与するタグの値
+desired.row.006-006.property=EC2.SecurityGroup.Tags[].Key
+desired.row.006-006.value="Environment"
+desired.row.006-006.comment=付与するタグのキー
+desired.row.006-007.property=EC2.SecurityGroup.Tags[].Value
+desired.row.006-007.value="dev"
+desired.row.006-007.comment=付与するタグの値
+"""
         assert path.read_bytes() == original
         validator = VALIDATOR.Validator(root)
         model_path = root / "model/dev/123456789012/security-group.properties"
@@ -44,7 +229,7 @@ def main():
         assert not validator.errors, validator.errors
         short_design = DESIGN.replace("| EC2.SecurityGroup.", "| ")
         assert not errors(short_design), errors(short_design)
-        assert model_projection.model_for(path, REPOSITORY) == generated
+        assert expanded_design(short_design.splitlines()) == expanded_design(DESIGN.splitlines())
         assert not errors(DESIGN)
         assert "observed.row.002-001.comment=一意に識別するID\n" in generated
         assert "desired.row.001-004.comment=所属するVPCのID\n" in generated
@@ -109,14 +294,15 @@ def main():
         for text in (no_rules, no_rules.replace(tag_line + "\n", "")):
             assert not errors(text), errors(text)
             source = path.read_bytes()
-            model = model_projection.model_for(path, REPOSITORY)
+            lines, children = expanded_design(text.splitlines())
+            normalized = "\n".join(lines)
             assert path.read_bytes() == source
-            assert model.count(".resourceType=EC2.SecurityGroup\n") == 2
-            assert "desired.resource.002.anchor=security-group-grouptwo\n" in model
-            assert ".resourceType=EC2.SecurityGroupIngress" not in model
-            assert ".resourceType=EC2.SecurityGroupEgress" not in model
-            assert "desired.note." not in model
-            assert (".property=EC2.SecurityGroup.Tags[].Key" in model) == (tag_line in text)
+            assert normalized.count('### EC2.SecurityGroup:') == 2
+            assert '<a id="security-group-grouptwo"></a>' in normalized
+            assert not children
+            assert '### EC2.SecurityGroupIngress:' not in normalized
+            assert '### EC2.SecurityGroupEgress:' not in normalized
+            assert ('EC2.SecurityGroup.Tags[].Key' in normalized) == (tag_line in text)
         # Moving a standalone row changes its owner, not its logical or current ID.
         rule = next(line for line in DESIGN.splitlines() if 'id="security-group-egressone"' in line)
         moved = DESIGN.replace(rule + "\n", "").rstrip()
@@ -200,7 +386,7 @@ def main():
         for text in (DESIGN.replace('| Inbound |', '| invalid |', 1), DESIGN.replace(' | `tcp` |', ' | — |', 1), DESIGN + "\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n"):
             path.write_text(text, encoding="utf-8")
             try:
-                model_projection.model_for(path, REPOSITORY)
+                expanded_design(path.read_text().splitlines())
             except ValueError:
                 pass
             else:

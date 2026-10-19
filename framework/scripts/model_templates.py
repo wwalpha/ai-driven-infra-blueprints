@@ -687,9 +687,10 @@ def expand(template, parameters, observed, bindings, environment=None, *, _parse
     return result
 
 
-def expand_for_edit(template, parameters, observed, bindings, environment=None, *, _parsed=None):
+def expand_for_edit(template, parameters, observed, bindings, environment=None, *, _parsed=None, display=False):
     from model_parameter_inputs import edit_instances
-    return expand_inputs(template, parameters, observed, bindings, environment, edit_instances, _parsed)
+    from functools import partial
+    return expand_inputs(template, parameters, observed, bindings, environment, partial(edit_instances, display=display), _parsed)
 
 
 def expand_inputs(template, parameters, observed, bindings, environment, bind_inputs, _parsed):
@@ -982,9 +983,10 @@ def _load_expansion(path, _context=None):
     return load_sources(path, expand)
 
 
-def load_for_edit(path, source_files=None):
+def load_for_edit(path, source_files=None, *, display=False):
     """Read only this service; input constraints and reference checks belong to validation."""
-    return load_sources(path, expand_for_edit, source_files)
+    from functools import partial
+    return load_sources(path, partial(expand_for_edit, display=display), source_files)
 
 
 def load_sources(path, expander, source_files=None):

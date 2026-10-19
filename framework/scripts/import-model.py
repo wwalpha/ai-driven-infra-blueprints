@@ -451,7 +451,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     try:
         with publication_lock(root):
             with new_references(before, selected), preserved_reference_view(before):
-                saved = load_for_edit(path)
+                saved = load_for_edit(path, display=True)
             publication, view_inputs = view_plan(document, saved.values, root, managed)
             view_inputs.update({file: snapshot.get(file, text.encode('utf-8')) for file, text in saved.files.items()})
             for file in saved.files:

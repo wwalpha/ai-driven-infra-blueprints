@@ -21,7 +21,6 @@ from model_files import load_model
 from model_parameter_inputs import parameter_text, yaml_read
 from model_references import bound_resource_anchors
 from model_design import markdown_for
-from model_projection import model_for
 from design_document import DesignIndex
 from support.model_sources import write_fixture_files as save_files
 import sync_runtime
@@ -80,8 +79,7 @@ def validated(root, path):
     validator.check_design_tables(metadata, *validator.catalog_design_properties(), [doc])
     validator.check_design_links(validator.catalog_design_properties()[2], [doc])
     assert not validator.errors, validator.errors
-    projected = properties(model_for(doc, root, source=values))
-    assert projected == {k:v for k,v in values.items() if not k.startswith('display.') and not k.endswith('.cfn-logicalId')}
+    assert not sync_runtime.compare_generation(root, {(path.parent.parent.name, path.parent.name, path.stem)})
     return doc
 
 
@@ -130,7 +128,7 @@ def check(root):
         assert sync_runtime.sync(root, False, 'preview','team',services=[service]) == 0
         assert all(p.read_bytes()==data for p,data in saved.items())
         if service=='kms':
-            assert model_for(doc,root,source=after)
+            assert doc.read_text() == __import__("model_design").markdown_for(doc, after, root)
             assert DesignIndex().get(doc).view().expanded[1]
         original = doc.read_text()
         fixed = next(iter(bound_resource_anchors(path).values()))

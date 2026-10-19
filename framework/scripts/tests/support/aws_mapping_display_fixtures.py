@@ -31,7 +31,6 @@ from model_core import properties, entries
 
 from model_design import markdown_for
 
-from model_projection import model_for
 
 from sync_views import validate_views
 
@@ -58,4 +57,4 @@ def change(root, service, kind, prop, **display):
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding='utf-8')
 
 
-__all__ = ['Path', 'ROOT', 'TemporaryDirectory', 'change', 'copy', 'entries', 'fixture', 'json', 'markdown_for', 'model_for', 'patch', 'projection', 'properties', 'resource_anchor', 'selected_rows', 'shutil', 'snapshot_model', 'socket', 'sys', 'validate_views', 'write_model', 'yaml']
+__all__ = ['Path', 'ROOT', 'TemporaryDirectory', 'change', 'copy', 'entries', 'fixture', 'json', 'markdown_for', 'patch', 'projection', 'properties', 'resource_anchor', 'selected_rows', 'shutil', 'snapshot_model', 'socket', 'sys', 'validate_views', 'write_model', 'yaml']

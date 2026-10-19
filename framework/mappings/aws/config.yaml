@@ -73,6 +73,7 @@ resourceTypes:
         aws: {getter: recorder, path: 'recordingMode.recordingModeOverrides[].resourceTypes', normalize: typed}
         model: {include: false}
         display: {show: false, name: 'RecordingMode.RecordingModeOverrides[].ResourceTypes'}
+      # IMPORT acquired IAM Role ARNs use RoleARN; links and service names retain RoleName.
       RoleARN:
         access: [read-write]
         aws: {getter: recorder, path: roleARN, normalize: iam_role}

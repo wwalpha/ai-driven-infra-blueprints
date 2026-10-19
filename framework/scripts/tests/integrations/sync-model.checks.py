@@ -50,7 +50,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         assert not (stage / 'framework').exists() and not (stage / 'framework').is_symlink()
         assert load_model(stage / model.relative_to(root)).values == load_model(model).values
         assert {p: (stage / p.relative_to(root)).read_bytes() for p in originals} == originals
-        assert model_projection.model_for(staged, root, source=values, design_index=DesignIndex(root)) == model_projection.model_for(design, root, source=values)
+        assert DesignIndex(root).get(staged).headings.expanded == DesignIndex(root).get(design).headings.expanded
         validator = sync_views.view_validator(stage, root)
         assert validator.root == stage and validator.definitions_root == definition_root(root)
         assert validator.findings.canonical_root == stage.resolve()
@@ -356,7 +356,7 @@ def check_normal_writer_contents(generated_policy):
                   'check_observed_values', 'check_policy_tables')]
         checks += [(sync_runtime, 'validate_required_properties'), (design_tables, 'check_design_tables'), (design_links, 'check_design_overviews'),
                    (design_links, 'check_design_links'), (design_links, 'check_design_artifacts'),
-                   (cloudformation, 'check_stack_designs'), (sync_views, 'check_projection')]
+                   (cloudformation, 'check_stack_designs')]
         counters = [stack.enter_context(patch.object(module, name, wraps=getattr(module, name))) for module, name in checks]
         with patch.dict(os.environ, register([design, artifact])), \
              patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
@@ -527,7 +527,7 @@ def check_failure_counts(framework_root) -> None:
         findings = Findings(stage)
         findings.candidate = kwargs['context'].findings.candidate
         scope = {(*p.relative_to(stage / 'docs/designs').parts[:2], p.stem) for p in paths}
-        for name in ('design.projection', 'design.names', 'design.tables', 'design.overviews', 'design.links', 'design.artifacts', 'design.observed'):
+        for name in ('design.names', 'design.tables', 'design.overviews', 'design.links', 'design.artifacts', 'design.observed'):
             findings.evaluate(name, scope, lambda: None)
         return findings
     for extra_inputs in (False, True):
@@ -645,7 +645,7 @@ def check_required_preflight(framework_root) -> None:
         with pytest.raises(ValueError) as error:
             model_design.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
         assert "QuickSight.DataSource.Type" in str(error.value)
-    grouped = complete | {
+    grouped = {key: value for key, value in complete.items() if not key.startswith('desired.row.001-003.')} | {
         "desired.resource.001.resourceType": "S3.Bucket",
         "desired.row.001-001.property": "S3.Bucket.BucketName",
         "desired.row.001-002.property": "S3.BucketPolicy.PolicyDocument",
@@ -780,19 +780,18 @@ def check_workflow(tmp_path) -> None:
 """,
         encoding="utf-8",
     )
-    model = model_projection.model_for(design, root)
-    assert "desired.service.vpc.ownedCatalogResourceTypes=EC2.VPC,EC2.Subnet" in model
-    assert "desired.resource.001.logicalId=vpc-app-dev" in model
-    assert "desired.row.001-001.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
-    assert "observed.row.001-001.value=PENDING_DEPLOY" in model
-    assert "desired.row.001-002.value=10.1.0.0/16" in model
-    assert "desired.row.001-003.property=EC2.VPC.Name" in model
-    assert "desired.row.001-004.artifactSha256=" in model
-    assert "desired.row.002-001.value=[sbnt-app-dev-private-01](#vpc-sbnt-app-dev-private-01)" in model
-    assert "observed.row.002-001.value=PENDING_DEPLOY" in model
-    assert "desired.row.002-002.value=[vpc-app-dev](#vpc-vpc-app-dev)" in model
-    assert "desired.row.002-003.property=EC2.Subnet.Name" in model
-    assert model == model_projection.model_for(design, root)
+    from design_layout import expanded_design, stack_design, stack_deployment_policy
+    model = "\n".join(expanded_design(design.read_text().splitlines())[0])
+    assert '- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`' in model
+    assert '### EC2.VPC: vpc-app-dev' in model
+    assert '| EC2.VPC.VpcId | PENDING_DEPLOY |' in model
+    assert '| EC2.VPC.CidrBlock | 10.1.0.0/16 |' in model
+    assert '| EC2.VPC.Name | vpc-app-dev |' in model
+    assert model_projection.json_sha256(artifact)
+    assert '| EC2.Subnet.SubnetId | PENDING_DEPLOY |' in model
+    assert '| EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) |' in model
+    assert '| EC2.Subnet.Name | sbnt-app-dev-private-01 |' in model
+    assert "\n".join(expanded_design(design.read_text().splitlines())[0]) == model
 
     s3_design = design.with_name("s3.md")
     s3_artifact = s3_design.parent / "s3" / "app-data-bucket-policy.json"
@@ -851,23 +850,18 @@ def check_workflow(tmp_path) -> None:
 """,
         encoding="utf-8",
     )
-    s3_model = model_projection.model_for(s3_design, root)
-    assert "desired.resource.001.resourceType=S3.Bucket" in s3_model
-    assert "desired.resource.001.logicalId=app-dev-data-123456789012" in s3_model
-    assert "desired.resource.002." not in s3_model
-    assert "desired.row.001-001.property=S3.Bucket.BucketName" in s3_model
-    assert "desired.row.001-002.property=S3.Bucket.Region" in s3_model
-    assert "desired.row.001-002.value=us-east-1" in s3_model
-    assert "desired.row.001-003.value=[alias/app-data](kms.md#kms-appdatakeyalias)" in s3_model
-    assert "desired.row.001-003.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID" in s3_model
-    assert "desired.row.001-004.property=S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm" in s3_model
-    assert "observed.row.001-003" not in s3_model
-    assert "S3.BucketPolicy.Bucket" not in s3_model
-    assert "desired.row.001-006.property=S3.BucketPolicy.PolicyDocument" in s3_model
-    assert "desired.row.001-006.artifactSha256=" in s3_model
-    assert "リソース一覧" not in s3_model
-    assert "リソース詳細" not in s3_model
-    assert "BucketName | Region" not in s3_model
+    lines, children = expanded_design(s3_design.read_text().splitlines())
+    s3_model = "\n".join(lines)
+    assert '### S3.Bucket: app-dev-data-123456789012' in s3_model
+    assert not children  # BucketPolicy is an identity-free configuration.
+    assert '| S3.Bucket.BucketName | app-dev-data-123456789012 |' in s3_model
+    assert '| S3.Bucket.Region | us-east-1 |' in s3_model
+    assert '| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) |' in s3_model
+    assert '| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm |' in s3_model
+    assert 'S3.BucketPolicy.Bucket |' not in s3_model
+    assert '| S3.BucketPolicy.PolicyDocument |' in s3_model
+    assert model_projection.json_sha256(s3_artifact)
+    assert len([line for line in lines if line.startswith('### S3.Bucket:')]) == 1
     original_digest = model_projection.json_sha256(artifact)
     artifact.write_text(
         '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
@@ -892,10 +886,10 @@ def check_workflow(tmp_path) -> None:
         .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"),
         encoding="utf-8",
     )
-    deployed = model_projection.model_for(design, root)
-    assert "observed.row.001-001.value=vpc-0123456789abcdef0" in deployed
-    assert "observed.row.002-001.value=subnet-0123456789abcdef0" in deployed
-    assert "observed.row.002-002.value=vpc-0123456789abcdef0" in deployed
+    deployed = "\n".join(expanded_design(design.read_text().splitlines())[0])
+    assert '| EC2.VPC.VpcId | vpc-0123456789abcdef0 |' in deployed
+    assert '| EC2.Subnet.SubnetId | subnet-0123456789abcdef0 |' in deployed
+    assert '| EC2.Subnet.VpcId | [vpc-0123456789abcdef0](#vpc-vpc-app-dev) |' in deployed
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True)
@@ -935,14 +929,13 @@ def check_workflow(tmp_path) -> None:
 """,
         encoding="utf-8",
     )
-    stack_model = model_projection.model_for(stacks, root)
-    assert "desired.stack.001.template=job.yaml" in stack_model
-    assert "desired.stack.002.template=job.yaml" in stack_model
-    assert "desired.stack.002.parameters=job-02.json" in stack_model
-    assert "日次jobを配置するstack" not in stack_model and ".comment=" not in stack_model
-    assert "desired.deployment.maxConcurrentStacks=2" in stack_model
-    assert "desired.stack.002.deployOrder=10" in stack_model
-    assert "dependsOn" not in stack_model and ".resource." not in stack_model
+    stack_rows = stack_design(stacks)
+    assert [row['template'] for row in stack_rows] == ['job.yaml', 'job.yaml']
+    assert stack_rows[1]['parameters'] == 'job-02.json'
+    assert [row['comment'] for row in stack_rows] == ['日次jobを配置するstack', '月次jobを配置するstack']
+    assert stack_deployment_policy(stacks) == 2
+    assert stack_rows[1]['deployOrder'] == '10'
+    assert all(set(row) == {'name', 'template', 'parameters', 'deployOrder', 'comment'} for row in stack_rows)
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "123456789012")

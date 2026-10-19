@@ -66,6 +66,29 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
     return result
 
 
+def validate_model_keys(values: dict[str, str]) -> None:
+    """Expanded Model fields; visibility never determines whether a field is legal."""
+    fields = {
+        ('desired', 'service'): {'serviceId', 'ownedCatalogResourceTypes'},
+        ('desired', 'resource'): {'resourceType', 'logicalId', 'anchor', 'resourceMode',
+                                'cfn-logicalId', 'parentProperty', 'parentReference', 'deploymentEncryption'},
+        ('desired', 'row'): {'property', 'value', 'comment', 'document', 'artifactSha256'},
+        ('observed', 'row'): {'property', 'value', 'comment'},
+        ('desired', 'note'): {'text'},
+        ('display', 'resource'): {'comment', 'label'},
+        ('desired', 'stack'): {'name', 'template', 'parameters', 'deployOrder'},
+        ('display', 'stack'): {'comment'},
+        ('desired', 'artifact'): set(ARTIFACT_FIELDS),
+    }
+    singles = {'display.service.title', 'desired.deployment.maxConcurrentStacks',
+               'desired.deployment.templateBucket', 'desired.deployment.templateKeyPrefix'}
+    for key in values:
+        parts = key.split('.')
+        if key not in singles and not (len(parts) == 4 and parts[2] and
+                                      parts[3] in fields.get(tuple(parts[:2]), set())):
+            raise ValueError('unknown Model field: ' + key)
+
+
 def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
     """Validate deployment inputs once for rendering, projection and execution."""
     limit = positive_integer(values.get("desired.deployment.maxConcurrentStacks", "1"), "MaxConcurrentStacks")

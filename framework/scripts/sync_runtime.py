@@ -308,7 +308,7 @@ def _sync(
                 expanded = load_for_edit(model)
                 from import_scope import preserved_reference_view
                 with preserved_reference_view(expanded):
-                    expanded = load_for_edit(model, expanded.files)
+                    expanded = load_for_edit(model, expanded.files, display=True)
                 inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
                 from import_references import Resolver
                 references = Resolver(root, identity[0], identity[1], definitions_root=definition_root(root), local={identity[2]: expanded})
@@ -586,7 +586,7 @@ def validate_generation(plan, *, jobs=4, write=True):
     if write and plan.generated:
         common = plan.validation.get(None)
         required_common = {'design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'}
-        required_service = {'design.projection', 'design.names', 'design.tables', 'design.overviews',
+        required_service = {'design.names', 'design.tables', 'design.overviews',
                             'design.links', 'design.artifacts', 'design.observed'}
         if common is None or any(common.result(name, plan.generated_scope).status != 'PASS' for name in required_common):
             raise ValueError('required candidate scope validation is FAIL or NOT_RUN')

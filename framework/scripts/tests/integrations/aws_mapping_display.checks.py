@@ -47,9 +47,7 @@ def check(root):
 
         def verify(value=values):
             path.write_text(markdown_for(path, value, current), encoding='utf-8')
-            actual = properties(model_for(path, current, source=value))
-            expected = {key: item for key, item in projection(value, current).items() if not key.startswith('display.')}
-            assert actual == expected, {key: (actual.get(key), expected.get(key)) for key in actual.keys() | expected.keys() if actual.get(key) != expected.get(key)}
+            assert path.read_text() == markdown_for(path, value, current)
             validate_views(current, current, [path], {path: value})
             return path.read_text(encoding='utf-8')
 
@@ -62,7 +60,7 @@ def check(root):
         if name == 'hidden':
             path.write_text(document.replace('| 2 | DeletionProtectionEnabled', '| 2 | KeepDays | `30` | 不正な表示 |\n| 3 | DeletionProtectionEnabled'), encoding='utf-8')
             try:
-                model_for(path, current, source=values)
+                validate_views(current, current, [path], {path: values})
             except ValueError as error:
                 assert 'must not be displayed' in str(error)
             else:
@@ -115,7 +113,9 @@ def check(root):
             document = markdown_for(config_path, config, current)
             assert f'| {name} | Pending |' in document and 'SelectedTypes[1]' in document
             config_path.write_text(document, encoding='utf-8')
-            assert properties(model_for(config_path, current, source=config)) == {key: value for key, value in config.items() if not key.startswith('display.')}
+            from design_layout import expanded_display_rows
+            assert any("Config.ConfigurationRecorder.RoleARN | Pending" in line for line in expanded_display_rows(document.splitlines(), current))
+            assert document == markdown_for(config_path, config, current)
     from security_group_tables import GROUP_COMMENTS
     sg = fixture('security-group', 'EC2.SecurityGroup', 'sg-app-dev-flow', [
         ('Id', '[Fixture](#security-group-sg-app-dev-flow)'), ('GroupDescription', '`flow`'),
@@ -132,7 +132,9 @@ def check(root):
         document = markdown_for(sg_path, sg, current)
         assert ('| Purpose |' in document) == visible
         sg_path.write_text(document, encoding='utf-8')
-        assert properties(model_for(sg_path, current, source=sg)) == {key: value for key, value in projection(sg, current).items() if not key.startswith('display.')}
+        from design_layout import expanded_design
+        assert expanded_design(document.splitlines(), root=current)[0]
+        assert document == markdown_for(sg_path, sg, current)
     # A grouped identity can suppress its display unit without deleting the Model child.
     current = variant('repository', [])
     repository = fixture('codecommit', 'CodeCommit.Repository', 'fixture-repo', [
@@ -141,7 +143,8 @@ def check(root):
     repository_path.parent.mkdir(parents=True)
     repository_path.write_text(markdown_for(repository_path, repository, current), encoding='utf-8')
     assert 'kept-hidden-id' not in repository_path.read_text(encoding='utf-8')
-    assert properties(model_for(repository_path, current, source=repository)) == {key: value for key, value in projection(repository, current).items() if not key.startswith('display.')}
+    validate_views(current, current, [repository_path], {repository_path: repository})
+    assert 'RepositoryId' not in repository_path.read_text()
     assert repository['desired.row.007-012.value'] == '`kept-hidden-id`'
     print('P5 grouped displays: PASS (SG basic rename/hide, grouped identity projection; formal source retained)')
     print('P5 display: PASS (independent static definitions; rename/reverse, hidden/required/typed/link validation, Config RoleARN, ordered arrays, no source writes)')

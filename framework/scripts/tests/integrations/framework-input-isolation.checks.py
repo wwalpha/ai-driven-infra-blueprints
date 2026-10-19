@@ -23,7 +23,7 @@ def check():
                 assert path != ROOT/'project.json' and not path.is_relative_to(ROOT/'model'), path
                 return original(path, *args, **kwargs)
             stack.enter_context(patch.object(Path, name, guarded))
-        assert validator.run() == 0, output.getvalue()
+        assert validator.run() == 0, (validator.errors, output.getvalue())
         check_task_type_dispatch()
     print('Framework input isolation: PASS (no Model/project access; consumer validation retained)')
 

@@ -10,7 +10,7 @@ from array_display import restored_rows
 from ec2_display import ec2_formal_rows
 from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored_glue_argument_rows,
     CODEBUILD_VARIABLE, CODEBUILD_FORMAL_VARIABLE, COMPACT_SOURCE)
-from model_core import positive_integer
+from model_core import positive_integer, literal
 
 from design_catalog import design_material_files
 from validation_cache import memoized, input_scope
@@ -96,6 +96,16 @@ def is_service_role_reference(prop: str, value: str) -> bool:
     return bool(reference and reference[0] == "IAM.Role" and re.fullmatch(
         r"(`?)AWSService[A-Za-z0-9_+=,.@-]{1,54}\1", value
     ))
+
+
+def config_role_arn(prop: str, value: str) -> bool:
+    return prop == "Config.ConfigurationRecorder.RoleARN" and bool(re.fullmatch(
+        r"arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/(?:[!-~]{1,510}/)?[A-Za-z0-9_+=,.@-]{1,64}",
+        literal(value)))
+
+
+def is_import_role_arn(prop: str, value: str, mode: str) -> bool:
+    return mode == "IMPORT" and config_role_arn(prop, value)
 
 
 def is_import_pending_reference(prop: str, value: str) -> bool:
@@ -653,7 +663,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             prop = formal_property(cells[1], resource_type, root)
             if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(display_property, resource_type, root):
                 raise ValueError("Subnet list source marker requires an indexed Subnet row")
-            if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != display_name(prop, resource_type, root):
+            if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != ("RoleARN" if config_role_arn(prop, cells[2]) else display_name(prop, resource_type, root)):
                 raise ValueError("ConfigurationRecorder RoleARN must use Mapping display name")
             if prop in RESOURCE_REFERENCE_PROPERTIES:
                 if mode != "IMPORT" and not (is_service_role_reference(prop, cells[2]) or is_import_pending_reference(prop, cells[2])) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
@@ -662,7 +672,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             if prop in rules(root, owner) and (owner == resource_type or owner in GROUPED) and owner not in SECURITY_GROUP_TYPES and not compact_group(prop) and prop not in LINKED_LIST_PROPERTIES:
                 configured = display_name(prop, resource_type, root)
                 canonical = prop.removeprefix(resource_type + ".")
-                if configured != canonical and display_property in {prop, canonical}:
+                if configured != canonical and display_property in {prop, canonical} and not config_role_arn(prop, cells[2]):
                     raise ValueError(f"formal property must use its Markdown display alias: {prop}")
             if prop in rules(root, owner) and not show(prop, root) and not structural(prop):
                 raise ValueError(f"property must not be displayed: {prop}")

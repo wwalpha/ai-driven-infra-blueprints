@@ -282,17 +282,20 @@ def check_subnet_association_overview() -> None:
             return validator.errors
 
         assert not errors(valid), errors(valid)
-        merged_model = model_projection.model_for(design, SCRIPT.parents[2])
-        # An overview edit must not change resources, references, or observed IDs.
+        from design_document import DesignDocument
+        original = DesignDocument(design, design.read_text()).raw.expanded[0]
+        # Overview edits leave detail rows and links unchanged.
         write(design, metadata + legacy_overview + details)
-        assert model_projection.model_for(design, SCRIPT.parents[2]) == merged_model
-        assert "resourceType=EC2.SubnetRouteTableAssociation" not in merged_model
-        assert "desired.row.001-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
-        assert "desired.row.001-003.value=[route](#vpc-route)" in merged_model
-        assert "observed.row.001-003.value=rtb-00000001" in merged_model
-        assert "desired.row.002-003.property=EC2.SubnetRouteTableAssociation.RouteTableId" in merged_model
-        assert "EC2.SubnetRouteTableAssociation.Id" not in merged_model
-        assert "EC2.SubnetRouteTableAssociation.SubnetId" not in merged_model
+        changed = DesignDocument(design, design.read_text()).raw.expanded[0]
+        assert tuple(line for line in changed if "| EC2." in line) == tuple(
+            line for line in original if "| EC2." in line)
+        normalized, children = __import__("design_layout").expanded_design(details.splitlines())
+        assert not children
+        assert sum("| EC2.SubnetRouteTableAssociation.RouteTableId |" in line for line in normalized) == 2
+        assert any("| EC2.RouteTable.RouteTableId | `rtb-00000001` |" in line for line in normalized)
+        assert any("[rtb-00000001](#vpc-route)" in line for line in normalized)
+        assert not any("EC2.SubnetRouteTableAssociation.Id" in line for line in normalized)
+        assert not any("EC2.SubnetRouteTableAssociation.SubnetId" in line for line in normalized)
 
         write(design,
             valid.replace("EC2.RouteTableId", f"{association_type}.RouteTableId")

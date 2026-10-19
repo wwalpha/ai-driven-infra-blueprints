@@ -265,7 +265,7 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/tests/support/validator.py"] = {check.name for check in checks}
     mapping["framework/scripts/tests/integrations/model_design.checks.py"] = {check.name for check in checks}
     mapping["framework/scripts/tests/integrations/rotation_schedule.checks.py"] = {"rotation_schedule.checks.py", "cloudformation-deploy.checks.py"}
-    # check_links/check_projection dynamically load the reference fixture and its layout inputs.
+    # check_links/check_snapshot dynamically load the reference fixture and its layout inputs.
     mapping["framework/scripts/tests/integrations/design_document.checks.py"] = {
         "design_document.checks.py", "validate-blueprint.checks.py", "sync-model.checks.py"}
     mapping["framework/scripts/tests/integrations/design_layout.checks.py"] = {

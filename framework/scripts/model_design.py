@@ -135,6 +135,10 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
 
 def validate_required_properties(values: dict[str, str], root: Path) -> None:
     """Reject missing required model inputs before producing any view or artifact."""
+    from model_core import validate_model_keys
+    from model_files import resource_row_index
+    validate_model_keys(values)
+    resource_row_index(values)
     if entries(values, "desired.stack."):
         stack_model(values)
         return
@@ -144,6 +148,19 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
         resource_mode(resource)
         kind = resource["resourceType"]
         rows = resource_rows(values, identity, kind, root)
+        from aws_mapping_display import rule
+        from design_layout import RESOURCE_REFERENCE_PROPERTIES, is_service_role_reference, is_import_role_arn
+        for _, prop, value, _ in rows:
+            rule(prop, root)
+            owner = '.'.join(prop.split('.')[:2])
+            if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
+                raise ValueError(f"property does not belong to resource: {identity}: {prop}")
+            if prop in RESOURCE_REFERENCE_PROPERTIES and not (
+                LINK.fullmatch(value) or is_service_role_reference(prop, value) or
+                resource_mode(resource) == 'IMPORT' and is_import_pending_reference(prop, value) or
+                is_import_role_arn(prop, value, resource_mode(resource))
+            ):
+                raise ValueError(f"{prop} must be a resource link or an allowed IMPORT reference")
         properties = {row[1] for row in rows
                       if (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
                       or literal(row[2]).strip().strip('"').strip().lower()
@@ -337,13 +354,19 @@ def grouped_resources(values, details, by_anchor):
 
 
 def resource_table_lines(resource, name, rows, children, root):
+    expected = Counter(row[0] for row in selected_rows(rows, root))
+    for _, _, _, child_rows in children:
+        expected.update(row[0] for row in selected_rows(child_rows, root))
+    if any(count != 1 for count in expected.values()):
+        raise ValueError("duplicate selected Model row IDs")
+    consumed = []
     output = []
     kind = resource["resourceType"]
     if kind == "EC2.SecurityGroup":
         rules = [(child, selected_rows(child_rows, root)) for _, child, _, child_rows in children]
-        output += sg_tables(selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root)
+        output += sg_tables(selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
     else:
-        display = display_rows(kind, rows, root, mode=resource_mode(resource))
+        display = display_rows(kind, rows, root, mode=resource_mode(resource), consumed=consumed)
         for _, child, child_name, child_rows in children:
             child_rows = selected_rows(child_rows, root)
             if not child_rows:
@@ -351,7 +374,7 @@ def resource_table_lines(resource, name, rows, children, root):
             if child["resourceType"] == ROTATION_SCHEDULE:
                 child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                               for rid, prop, value, comment in child_rows]
-            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=resource_mode(child))
+            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=resource_mode(child), consumed=consumed)
             if child["resourceType"] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
@@ -373,6 +396,8 @@ def resource_table_lines(resource, name, rows, children, root):
             display += child_display
         display = indexed_rows(display, kind, root)
         output += row_table(display)
+    if Counter(consumed) != expected:
+        raise ValueError("selected display rows were omitted or consumed more than once")
     return output
 
 

@@ -35,8 +35,7 @@ def main():
             except (ValueError, KeyError) as error:
                 return str(error)
             assert read_model(source) == original
-            projected = properties(model_projection.model_for(path, root))
-            assert projected == {key: value for key, value in values.items() if not key.startswith("display.")}
+            assert path.read_text(encoding="utf-8") == markdown_for(path, values, root)
             assert "resource-mode:" not in path.read_text(encoding="utf-8")
             assert "resource-entry:" not in path.read_text(encoding="utf-8")
             return ""
@@ -149,9 +148,7 @@ def main():
             "desired.row.002-001.comment": "鍵を識別するalias",
         }
         kms_path.write_text(markdown_for(kms_path, kms, root), encoding="utf-8")
-        assert properties(model_projection.model_for(kms_path, root, source=kms)) == {
-            key: value for key, value in kms.items() if not key.startswith("display.")
-        }
+        assert kms_path.read_text(encoding="utf-8") == markdown_for(kms_path, kms, root)
         assert "### KMS.Alias" not in kms_path.read_text(encoding="utf-8")
     print("resourceMode: PASS (Name policies, mixed modes, schema/structure, metadata, lossless sync)")
 

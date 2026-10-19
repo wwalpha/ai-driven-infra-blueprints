@@ -139,7 +139,7 @@ def main():
             assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
-        rejects(lambda: sync_views.validate_views(root, root, [path], {path: mismatch}), "model/display projection mismatch", "parentReference")
+        rejects(lambda: markdown_for(path, mismatch, root), "SecretId", "parentReference")
 
         # Real sync: simultaneous KMS and Secrets Manager updates and rollback.
         models = root / "model/dev/123456789012"

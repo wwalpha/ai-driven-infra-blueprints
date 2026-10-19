@@ -12,7 +12,7 @@ from design_catalog import property_paths_with_parents
 from macie_bucket_tables import job_bucket_tables
 from design_layout import (
     SUBNET_LIST_PROPERTIES, GROUPED, REQUIRED_NAME_TAG_TYPES,
-    is_service_role_reference, is_import_pending_reference, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
+    is_service_role_reference, is_import_pending_reference, config_role_arn, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES, RESOURCE as RESOURCE_HEADING_PATTERN, expanded_display_rows,
     expanded_design, resource_anchor, resource_display_name, resource_heading_lines,
     resource_logical_ids, resource_modes, catalog_order_errors,
@@ -361,6 +361,11 @@ def check_design_tables(
                         raw_value = unquoted(cells[2])
                         if cells[1] in SUBNET_LIST_PROPERTIES and raw_value.lstrip().startswith("["):
                             property_path = property_path.removesuffix("[]")
+                        if config_role_arn(cells[1], cells[2]):
+                            findings.check(
+                                heading_modes.get((current_resource_type, current_logical_id), "CREATE") == "IMPORT",
+                                f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                            )
                         pending_reference = is_import_pending_reference(cells[1], cells[2])
                         if pending_reference:
                             findings.check(

@@ -110,10 +110,12 @@ def text(values):
 
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(markdown_for(path, values, root), encoding="utf-8")
-    projected = properties(model_projection.model_for(path, root, source=values))
-    expected = {key: value for key, value in values.items() if not key.startswith("display.") and not key.endswith(".cfn-logicalId")}
-    assert projected == expected, (path.name, {key: (projected.get(key), expected.get(key)) for key in projected.keys() | expected.keys() if projected.get(key) != expected.get(key)})
+    expected = markdown_for(path, values, root)
+    path.write_text(expected, encoding="utf-8")
+    from types import SimpleNamespace
+    plan = SimpleNamespace(root=path.parent, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})
+    sync_runtime._compare_generation(plan)
+    assert not plan.failures, plan.failures
     return path.read_text(encoding="utf-8")
 
 @pytest.fixture
