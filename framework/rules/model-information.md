@@ -88,7 +88,18 @@ is removed only after verified integration and successful checkout/branch cleanu
 See 08_import for failure/cancellation cleanup.
 
 Import reflection is append-only: add explicitly managed acquired resources with new
-fixed Resource/Row IDs, unique anchors and IMPORT mode, reusing existing Definitions.
+fixed Resource/Row IDs, unique anchors and IMPORT mode. Reuse existing Definitions
+only when new-instance inputs express the acquired settings/composition without
+changing declarations, fixed values, expressions, Properties, existing inputs or
+bindings. Otherwise preserve them and add a reusable Definition; matching AWS Resource
+Type or role alone does not require reuse. Keep newly required independent inputs in
+its `# parameter` declarations and selected `instances.<new-instance>.parameters`,
+with new-instance fixed bindings and necessary new-row observations. Existing common
+`# input` declarations remain unchanged; do not add common declarations for this
+addition. Unused Definitions need no environment inputs. Same-composition additions
+with the same input meanings share one Definition; do not clone identical shapes per
+environment, Resource ID, physical ID or acquisition count. Do not migrate existing
+instances or require other-environment input/binding supplementation for commonality.
 Skip confirmed physical IDs already registered in CREATE or IMPORT. Unknown existing
 physical IDs permit explicitly managed additions with a duplicate-risk report; unknown
 management remains unresolved. No Name/CIDR/order matching or existing-resource update.
@@ -97,11 +108,18 @@ never add rows to an existing resource. Retain unrelated parameters. New acquire
 reference values may be saved as observations; never replace another service's links.
 Non-secret acquired IDs/ARNs may persist; inferred/generated ARNs and secrets may not.
 Keep ordinary settings in desired/parameters, never move all settings to observed.
-Shared Template edits must preserve direct consumers using their unchanged local inputs.
-Only the selected service Template/Definition and selected environment/target/service
-parameters.yaml, bindings.json and observed.json are writable. Other environments are
-read-only preservation evidence; an incompatible shared change remains unresolved.
-Do not traverse recursive consumers or expand foreign Models for comparison.
+Candidate preparation uses unchanged existing Definitions or reusable new Definitions;
+existing acquisition/hash, direct-consumer preservation and publication guards still
+apply. Direct consumers retain their unchanged local inputs. Only the selected service
+Template/Definition and selected environment/target/service parameters.yaml,
+bindings.json and observed.json are writable. Other environments remain read-only
+preservation evidence. Inability to reuse an existing Definition does not itself make
+an addition unresolved: consider a new Definition first. Report concrete missing
+acquisition facts or management evidence remaining with that option, and handle
+independently confirmed additions. Do not traverse recursive consumers or expand
+foreign Models for comparison. Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
+and [08_import](../prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
+for fixed/input/derived values and the ordered candidate procedure.
 
 Normal `/import` authorizes append-only Model source changes for explicitly managed
 new resources through source candidates and guarded publication. Save Model sources

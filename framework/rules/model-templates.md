@@ -84,6 +84,11 @@ Unicode line separators are rejected); multiline JSON strings are escaped safely
 There is no overlay or whole-definition override.
 
 Use one definition for the same resource role across environments within an alias.
+For IMPORT, reuse requires an unchanged existing Definition and unchanged existing
+consumers; otherwise a reusable new Definition with the necessary inputs/composition
+may coexist for the same role. Do not migrate existing instances or supplement other
+environments' inputs/bindings as an import prerequisite. See
+[IMPORT Property source edits](#import-property-source-edits).
 Values and selectable relationships belong in declared inputs; an environment name
 does not select a definition or execute template code. Different aliases may retain
 different definitions. When a common resource shape has explicitly designed optional
@@ -345,7 +350,14 @@ Share a definition within one alias/service for the same resource role, preservi
 parameter meanings, resource types and row owners. Environment-specific values,
 annotations, source forms and field presence use declared inputs and explicit shape
 directives; they do not require dev/stg-specific definitions.
-Update explicit binding definition references without changing instances or fixed maps.
+For CREATE design and ordinary value-preserving refactors, update explicit binding
+definition references without changing instances or fixed maps. IMPORT instead keeps
+existing Definitions and consumers unchanged: reuse as-is or add a reusable Definition
+with the necessary inputs/composition, even for the same role. New resources with the
+same composition and input meanings share one Definition and differ by instance inputs.
+Do not clone identical shapes solely for environment names, Resource IDs, physical IDs
+or acquisition count. This restriction does not forbid structurally necessary new
+Definitions. Do not migrate existing instances or align other environments for reuse.
 Keep distinct definitions for different roles even if expanded values happen to match.
 Add only inputs needed to preserve real differences; do not split service sources by CFn stacks.
 
@@ -355,18 +367,36 @@ Add only inputs needed to preserve real differences; do not split service source
 The agent executing [08_import](../prompts/codex/08_import.md) chooses managed new
 additions and parameter names. Python acquires/normalizes facts and verifies ordinary
 edited sources; it never reconstructs composition or infers existing update targets.
-Reuse existing Definitions and input names. New instances get new fixed Resource/Row
-IDs, anchors and IMPORT mode. Preserve all existing expanded values, rows, observations,
-bindings and logical references; no existing-resource updates or row additions.
-Preserve unchanged YAML comments/order/spacing through local edits.
+Reuse an existing Definition only when new-instance inputs express the acquired
+settings/composition without changes to declarations, fixed values, expressions,
+Property composition, existing inputs or bindings. AWS Resource Type or role alone
+does not require reuse. If reuse needs required inputs, parameterized fixed values,
+new rows or changed defaults, keep the existing Definition and add a reusable one.
+Keep newly required independent inputs in its `# parameter` declarations and selected
+`instances.<new-instance>.parameters`; reuse common `# input` declarations unchanged,
+without adding common declarations for this addition. Unused Definitions need no
+other-environment inputs. Follow existing fixed/input/derived-expression rules; one
+acquired value alone is not a common fixed setting.
 
-For a changed shared Property, inspect registered direct Definition consumers and
-preserve their complete values/expressions/references with unchanged inputs. Write only
-the selected service Template/Definition and selected environment's parameters.yaml,
-bindings.json and observed.json. Never compensate with other-environment input edits.
-Do not traverse recursive consumers or expand foreign Models for comparison.
-An unpreservable dependent addition stays unresolved during candidate preparation;
-publish rejects an invalid candidate as a whole without silently filtering it.
+New instances get new fixed Resource/Row IDs, unique anchors and IMPORT mode. Add only
+their selected-environment bindings and necessary new-row observations. Preserve all
+existing resources, inputs, expanded values, rows, observations, bindings and logical
+references; no existing-resource updates or row additions. Preserve unchanged YAML
+comments/order/spacing through local edits. Do not reorganize Definitions or migrate
+existing consumers as import work or completion conditions.
+
+Candidate selection is unchanged reuse or new Definition addition; existing Python
+acquisition/hash and save-time consumer-preservation checks remain mandatory. Inspect
+registered direct consumers and preserve complete values/expressions/references using
+unchanged inputs. Write only the selected service Template/Definition and selected
+environment/target/service parameters.yaml, bindings.json and observed.json. Other
+environments remain read-only; never supplement their inputs for import. Do not
+traverse recursive consumers or expand foreign Models for comparison. Do not mark an
+addition unresolved solely because reuse would change existing consumers; use a new
+Definition. Report concrete acquisition/management gaps remaining even with a new
+Definition and handle independently confirmed additions. Publication rejects an invalid
+candidate as a whole without silently filtering it. See [08_import](../prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
+for the ordered procedure and LogGroup class example.
 
 The acquisition scope remains one environment/target/service. Source publication checks
 types, syntax, evidence, identities, references, scope, preservation and concurrent

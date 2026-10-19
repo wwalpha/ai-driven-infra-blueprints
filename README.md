@@ -116,9 +116,13 @@ The internal CLI requires `--phase acquire`, then `--phase publish --evidence <r
 with agent edits between them; [08_import](framework/prompts/codex/08_import.md) is the
 single workflow authority. Both phases take `--dry-run` for a temporary candidate diff.
 No legacy automatic-reconstruction fallback exists. Normal import uses a design Task
-with Workflow `import` in the Human-selected worktree. Shared edits preserve direct
-consumers through necessary YAML/binding edits in the same source transaction. Only the
-selected service's displays are generated in a second transaction.
+with Workflow `import` in the Human-selected worktree. Reuse an existing Definition
+unchanged, or add a reusable new Definition with new-instance inputs/bindings only in
+the selected environment. Preserve existing Definitions and consumers; do not require
+other-environment input edits or existing-instance migration. Acquisition/hash and
+consumer-preservation checks still apply. See [08_import](framework/prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
+for candidate selection. Only the selected service's displays are generated in a second
+transaction.
 
 [IMPORT configuration authority](framework/rules/model-information.md#import-configuration-authority)
 is enforced at saving, generation, Task completion and Worktree integration. Temporary

@@ -90,21 +90,55 @@ unresolved. Read the existing sources together; a parameters-only view is insuff
   remains `unreflected`. An existing resource with unknown physical ID does not block
   an explicitly managed addition; report the possible duplication and keep it independent.
 - Allocate a new fixed Resource ID, Row IDs and unique anchor for each added resource,
-  with `resourceMode=IMPORT`. Reuse a suitable existing Definition and input names;
-  add the new instance, parameters, bindings and observations as needed. Do not clone
-  a Definition per resource. Existing resources, rows, observations, bindings, settings,
+  with `resourceMode=IMPORT`. Select its Definition in the order below and add only
+  the new instance's inputs, fixed bindings and required new-row observations.
+  Existing resources, rows, observations, bindings, inputs, settings,
   references and expanded values must remain unchanged, including CREATE resources.
   Adding rows or observations to an existing resource is prohibited. Missing inventory
   never authorizes deletion. Old-resource deletion is a separate task.
-- For a required new input, choose a descriptive name and edit its declaration,
-  expression and the selected new instance together. A shared Template change is
-  permitted only when existing instances keep their complete expanded values and
-  references without changing any other environment's inputs. Do not introduce
-  environment switches or clone Definitions per resource/environment. Preserve native
-  Boolean/Number/String/List/Object/null setting types.
 - Retain existing common/AZ parameters and logical references. Keep confirmed physical
   values for new reference rows in observed.json. Never change another service's
   references or construct missing ARNs, IDs or unacquired values from fragments.
+
+Choose Definitions for candidate additions in this order:
+
+1. Reuse an existing Definition only if the acquired settings and composition can be
+   expressed with new-instance inputs without changing declarations, fixed values,
+   expressions, Property composition, existing inputs or existing bindings. Matching
+   AWS Resource Type or role alone does not require reuse.
+2. Otherwise, preserve the existing Definition and add a reusable new Definition.
+   Required input additions, parameterizing fixed values, adding rows or changing
+   defaults belong in the new Definition. Inability to fit an existing Definition
+   alone is not an unresolved addition.
+3. Keep newly required independent inputs in the new Definition's `# parameter`
+   declarations and the selected environment's `instances.<new-instance>.parameters`.
+   Reuse existing common `# input` declarations as-is; do not add or change common
+   declarations for this addition. Add the new instance's Definition and fixed-ID
+   maps to the selected bindings, and acquired observations only for its new rows.
+   Unused Definitions require no inputs in other environments.
+4. Report concrete missing acquisition facts or management evidence if even a new
+   Definition cannot express the addition. Handle independently confirmed additions;
+   do not stop merely because another environment's inputs cannot be changed without
+   considering a new Definition.
+
+Follow the existing Model rules for fixed settings, independent inputs and derived
+expressions. One acquired value does not establish a fixed setting for all instances.
+Preserve native Boolean/Number/String/List/Object/null setting types. New resources
+with the same composition and input meanings share one Definition with differing
+instance inputs. Do not duplicate identical shapes per environment, Resource ID,
+physical ID or acquisition count, or introduce environment switches. A new Definition
+with necessary inputs/composition may coexist with an existing same-role Definition.
+Do not migrate existing instances, align dev/cde or other-environment inputs/bindings,
+or reorganize common Definitions as import work or completion prerequisites.
+
+For example, an existing `LogGroup` Definition fixes `LogGroupClass=STANDARD` and is
+used by existing dev and stg instances. An acquired stg addition has
+`LogGroupClass=INFREQUENT_ACCESS`. Keep that Definition and all existing instances
+unchanged; add a reusable Definition with a class input, put the acquired class value
+in the new stg instance's inputs and bind it to the new Definition. Require no dev
+input/binding edits. Multiple new LogGroups of that composition share the new
+Definition. This illustrates candidate selection; it does not authorize consumer or
+AWS changes outside the selected new additions.
 
 Write only changed source files below the returned `candidates` directory using their
 normal repository-relative paths. Do not first edit authoritative files, copy the
@@ -141,10 +175,13 @@ Property is pending. Do not use a mutation DSL or ask Python to generate source 
 
 ## Shared Property consumers
 
-Acquisition pins the registered direct consumer set and input hashes once. When editing
-a common Definition/Property, inspect only its direct users through the existing
-consumer registry and provenance. Use `import_promotion.preserve_consumers` to check
-the candidate; it verifies edits and does not choose promotions or write files.
+Candidate preparation uses unchanged existing Definitions or adds new Definitions as
+specified above; it never requires shared-Definition changes or other-environment
+input supplementation. Separately, existing Python acquisition and save-time checks
+remain mandatory: acquisition pins the registered direct consumer set and input hashes
+once. Inspect the relevant direct users through the existing consumer registry and
+provenance. Use `import_promotion.preserve_consumers` to check the candidate; it
+verifies edits and does not choose Definitions or write files.
 
 - Write only the selected service's Template/Definition and the selected
   Environment/Target/Service's parameters.yaml, bindings.json and observed.json.
@@ -153,10 +190,13 @@ the candidate; it verifies edits and does not choose promotions or write files.
   Do not include their parameters, bindings or observations in the candidate transaction.
 - The checker evaluates affected Properties using the registered inputs without
   expanding foreign Models or traversing recursive consumers/services.
-- If a shared change would alter an existing consumer, leave that dependent addition
-  out of the candidate and report it unresolved. Do not repair another environment's
-  inputs to compensate. Independent confirmed additions may proceed. Never silently
-  trim an invalid candidate after publish rejects it.
+- If attempted reuse would require changing an existing consumer or Definition,
+  prepare a new Definition instead. Do not report an otherwise expressible addition
+  unresolved for that reason or repair another environment's inputs to compensate.
+  Report only concrete remaining fact/management gaps; independent confirmed additions
+  may proceed. Never silently trim an invalid candidate after publish rejects it.
+- Acquisition, source-hash, consumer-preservation and publication checks still apply
+  to the complete candidate; this selection policy does not relax Python guards.
 
 ## Publication and display
 
