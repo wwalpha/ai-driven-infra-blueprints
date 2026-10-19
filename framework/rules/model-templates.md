@@ -391,7 +391,9 @@ registered direct consumers and preserve complete values/expressions/references 
 unchanged inputs. Write only the selected service Template/Definition and selected
 environment/target/service parameters.yaml, bindings.json and observed.json. Other
 environments remain read-only; never supplement their inputs for import. Do not
-traverse recursive consumers or expand foreign Models for comparison. Do not mark an
+traverse recursive consumers or expand whole foreign Models for comparison. For declared
+producer attribute reads, follow [New-resource references](../prompts/codex/08_import.md#new-resource-references).
+Do not mark an
 addition unresolved solely because reuse would change existing consumers; use a new
 Definition. Report concrete acquisition/management gaps remaining even with a new
 Definition and handle independently confirmed additions. Publication rejects an invalid

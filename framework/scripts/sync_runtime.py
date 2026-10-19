@@ -306,8 +306,19 @@ def _sync(
             managed = {root / name for name in proof['ownedArtifacts']}
             with publication_lock(root):
                 expanded = load_for_edit(model)
+                from import_scope import preserved_reference_view
+                with preserved_reference_view(expanded):
+                    expanded = load_for_edit(model, expanded.files)
                 inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
-                inputs.setdefault(service_source(model)[2] / 'observed.json', None)
+                from import_references import Resolver
+                references = Resolver(root, identity[0], identity[1], definitions_root=definition_root(root), local={identity[2]: expanded})
+                for rid, resource in entries(expanded.values, 'desired.resource.'):
+                    if resource.get('resourceMode') == 'IMPORT':
+                        references.verify_resource(expanded.values, rid, require_links=False)
+                inputs.update({file: text.encode('utf-8') if text is not None else None for file, text in references.files.items()})
+                for file in expanded.files:
+                    if file.name == 'parameters.yaml':
+                        inputs.setdefault(file.parent / 'observed.json', None)
                 output, view_inputs = view_plan(document, expanded.values, root, managed)
             with publication_lock(root):
                 publish(root, output, inputs={**inputs, **view_inputs}, expected_task=expected_task)

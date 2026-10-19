@@ -147,16 +147,35 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
             continue
         if observed:
             row = {key: value for key, value in row.items() if key != 'document'}
-        elif LINK.fullmatch(raw) or '<<' in raw:
+        elif LINK.fullmatch(raw) or '<<' in raw or (
+                has_reference(row.get('document', raw)) and 'observed.row.' + row_id + '.value' in values):
             raw = values.get('observed.row.' + row_id + '.value')
             if raw is None:
                 continue
+            row = {key: value for key, value in row.items() if key != 'document'}
         result.append(typed_row(row, raw, schema))
     if '[]' in prop:
         return result[0] if len(result) == 1 and isinstance(result[0], list) else result
     if len(result) > 1:
         raise ValueError('IMPORT ambiguous candidate Property: ' + prop)
     return result[0] if result else None
+
+
+def has_reference(raw):
+    """Only Markdown resource links, including structured leaves, consume observations."""
+    if not isinstance(raw, str):
+        return False
+    if LINK.fullmatch(raw):
+        return True
+    try:
+        value = json_read(literal(raw))
+    except ValueError:
+        return False
+    def linked(value):
+        return (bool(LINK.fullmatch(value)) if isinstance(value, str) else
+                any(linked(item) for item in value.values()) if isinstance(value, dict) else
+                any(linked(item) for item in value) if isinstance(value, list) else False)
+    return linked(value)
 
 
 def selection_records(selection, records, old, new, property_schema, warnings=None):
@@ -259,7 +278,7 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
     return selected
 
 
-def verify_values(before, after, selected, property_schema):
+def verify_values(before, after, selected, property_schema, references=None):
     """Prove every changed real value against its selected acquired Property."""
     old, new = before.values, after.values
     old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
@@ -277,15 +296,15 @@ def verify_values(before, after, selected, property_schema):
     for key in new.keys() - old.keys():
         parts = key.split('.')
         if len(parts) >= 3 and parts[1] in {'resource', 'row'}:
-            owner = parts[2].split('-')[0] if parts[1] == 'row' else parts[2]
+            owner = parts[2].rpartition('-')[0] if parts[1] == 'row' else parts[2]
             if owner in old_resources:
                 raise ValueError('IMPORT cannot add fields, Rows or observations to an existing resource: ' + key)
         else:
             raise ValueError('IMPORT additions must belong to a new resource: ' + key)
     for key, previous in before.provenance.items():
         current = after.provenance.get(key, {})
-        references = lambda trace: (trace.get('references', {}), {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'})
-        if references(previous) != references(current):
+        reference_state = lambda trace: (trace.get('references', {}), {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'})
+        if reference_state(previous) != reference_state(current):
             raise ValueError('IMPORT reference declaration or selector changed: ' + key)
     indexed_new = resource_row_index(new)
     changes = []
@@ -293,6 +312,9 @@ def verify_values(before, after, selected, property_schema):
         if rid not in selected:
             raise ValueError('IMPORT new resource has no selected acquisition: ' + rid)
         record = selected[rid]
+        if references is not None:
+            identities = record.get('identityProperties', [record['identityProperty']])
+            references.verify_resource(new, rid, identity_properties=identities)
         for row_id, row in indexed_new.get(rid, []):
             prop = row['property']
             capture = record['properties'].get(prop, {})

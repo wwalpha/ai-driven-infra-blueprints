@@ -124,7 +124,8 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
             row_numbers[(identity.split("-", 1)[0], row["property"])].append(identity)
     identities = document.projection_source.logical_ids
     view = document.view(projection=True)
-    lines, children = view.expanded
+    lines, children = expanded_design(list(view.lines), root=definitions_root or root, modes=modes,
+                                      logical_ids=view.logical_ids, bound_anchors=view.bound_anchors)
     service_id = one_match(SERVICE_ID, lines, "Design service ID", path).group(1)
     owned = ",".join(
         re.findall(
@@ -210,6 +211,21 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                     and (source is None or f"observed.row.{key}.value" in source)
                 )
                 desired_value = cells[2]
+                preserved_reference = False
+                if source is not None and (physical := source.get(f"observed.row.{key}.value")) is not None:
+                    from model_core import literal
+                    original_link = RESOURCE_LINK.fullmatch(source[f"desired.row.{key}.value"])
+                    displayed_link = RESOURCE_LINK.fullmatch(cells[2])
+                    if (original_link and displayed_link and original_link.groups()[1:] == displayed_link.groups()[1:]
+                            and literal(physical) == displayed_link[1]):
+                        desired_value = source[f"desired.row.{key}.value"]
+                        is_identifier_reference = True
+                if source is not None and (previous := source.get(f"observed.row.{key}.value")) is not None:
+                    from import_sources import has_reference
+                    original = source[f"desired.row.{key}.value"]
+                    if has_reference(original) and not RESOURCE_LINK.fullmatch(original) and cells[2] == original:
+                        desired_value = original
+                        preserved_reference = True
                 if is_identifier_output:
                     desired_value = f"[{current_logical_id}](#{current_anchor})"
                 elif linked and (is_identifier_reference or cells[1] == ROTATION_SCHEDULE + ".SecretId"):
@@ -226,8 +242,14 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                         f"desired.row.{key}.comment={cells[3]}",
                     )
                 )
-                if is_identifier_output or is_identifier_reference:
+                if is_identifier_output or is_identifier_reference or preserved_reference:
                     observed_value = RESOURCE_LINK.fullmatch(cells[2]).group(1) if is_identifier_reference else cells[2]
+                    if preserved_reference:
+                        observed_value = previous
+                    if source is not None and (previous := source.get(f"observed.row.{key}.value")) is not None:
+                        from model_core import literal
+                        if literal(previous) == observed_value:
+                            observed_value = previous
                     output.extend(
                         (
                             f"observed.row.{key}.property={cells[1]}",

@@ -797,6 +797,123 @@ def check_batch_leaf_saves(monkeypatch):
         assert git(root, 'rev-parse', 'HEAD') == state['start']
 
 
+
+@pytest.mark.parametrize('present,race', [(False, False), (True, False), (True, True)])
+def check_reference_publication(tmp_path, present, race):
+    from support.import_model_fixtures import CloudControlCli
+    from support.model_sources import write_model
+    from utils.aws_mappings import mapping_alias
+    from task_contract import start
+    root = tmp_path / 'reference-publication'
+    root.mkdir()
+    (root / 'project.json').write_text(json_text({'targets': [{'environment': 'dev', 'alias': TARGET,
+        'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
+    path = root / 'model/dev/cde/cloudtrail.properties'
+    write_model(path, {'desired.service.cloudtrail.serviceId': 'cloudtrail',
+        'desired.service.cloudtrail.ownedCatalogResourceTypes': 'CloudTrail.Trail', 'display.service.title': '# CloudTrail'})
+    if present:
+        write_model(root / 'model/dev/cde/s3.properties', {
+            'desired.resource.001.resourceType': 'S3.Bucket', 'desired.resource.001.resourceMode': 'CREATE',
+            'desired.resource.001.anchor': 's3-audit-bucket',
+            'desired.row.001-001.property': 'S3.Bucket.BucketName', 'desired.row.001-001.value': '`audit-bucket`',
+            'desired.row.001-001.comment': '合成Bucket'})
+    for args in [('init', '-q'), ('add', '.'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'reference fixture')]:
+        subprocess.run(['git', *args], cwd=root, check=True)
+    directory = root / 'model/parameters/dev/cde/cloudtrail'
+    template = root / 'model/templates/cde/cloudtrail.properties.tpl'
+    files = {template, directory / 'parameters.yaml', directory / 'bindings.json', directory / 'observed.json', root / 'docs/designs/dev/cde/cloudtrail.md'}
+    listed = ['- `' + p.relative_to(root).as_posix() + '`' for p in sorted(files)] + ['- `tasks/import-fixture.md`']
+    text = '\n'.join(['# Reference fixture', '## Task contract', '- Task type: `design`', '- Task status: `running`',
+        '- Workflow: `import`', '- IMPORT target: `dev/cde/cloudtrail`', '## Goal', 'Synthetic reference addition',
+        '## Required changes', '- [R1] Add acquired resource', '## Acceptance checks', '- [R1] `exists:docs/designs/dev/cde/cloudtrail.md`',
+        '## Validation scope', '- `dev/cde/cloudtrail`', '## Modified files', *listed, '## Allowed paths', *listed])
+    start(root, 'tasks/import-fixture.md', text)
+    cli = CloudControlCli({'CloudTrail.Trail': [{'identifier': 'audit', 'properties': {'TrailName': 'audit', 'S3BucketName': 'audit-bucket', 'IsLogging': True}}]})
+    foreign = {p: p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file() and not p.is_relative_to(directory) and p != template}
+    with mapping_alias(m.ROOT, root):
+        acquired = m.acquire(root, 'dev', 'cloudtrail', TARGET, cli_runner=cli, resource_types=['CloudTrail.Trail'])
+        record = acquired['records'][0]
+        captured = {prop: item['value'] for prop, item in record['properties'].items() if item['status'] == 'captured'}
+        before_addition = load_for_edit(path)
+        block = ['# definition: AcquiredTrail', '# resource: trail']
+        if present:
+            block.insert(1, '# parameter: Bucket ' + json_text({'type': 'reference', 'description': '参照Bucket', 'required': True, 'service': 's3', 'resourceType': 'S3.Bucket'}))
+        block += ['# row: row_' + str(i) + ' trail' for i in range(len(captured))]
+        block += ['desired.resource.trail.resourceType=CloudTrail.Trail', 'desired.resource.trail.resourceMode=IMPORT', 'desired.resource.trail.anchor=cloudtrail-audit', 'display.resource.trail.comment=合成Trail']
+        observed = {}
+        for i, (prop, value) in enumerate(captured.items()):
+            raw = m.model_literal(value)
+            if present and prop == 'CloudTrail.Trail.S3BucketName':
+                raw = '<<Bucket>>'
+                observed['observed.row.009-' + str(i + 1).zfill(3) + '.value'] = m.model_literal(value)
+            if present and prop == 'CloudTrail.Trail.EventSelectors[].DataResources[].Values':
+                raw = m.model_literal([[['[audit-bucket](s3.md#s3-audit-bucket)']]])
+                observed['observed.row.009-' + str(i + 1).zfill(3) + '.value'] = m.model_literal(value)
+            block += ['desired.row.row_' + str(i) + '.property=' + prop, 'desired.row.row_' + str(i) + '.value=' + raw, 'desired.row.row_' + str(i) + '.comment=合成取得設定']
+        block += ['# end-definition', '']
+        bindings = json.loads((directory / 'bindings.json').read_text())
+        bindings['instances']['audit'] = {'definition': 'AcquiredTrail', 'resources': {'trail': '009'},
+            'rows': {'row_' + str(i): '009-' + str(i + 1).zfill(3) for i in range(len(captured))}, 'parameters': {}}
+        output = {template.relative_to(root).as_posix(): template.read_text() + '\n'.join(block),
+                  (directory / 'bindings.json').relative_to(root).as_posix(): json_text(bindings)}
+        if present:
+            output[(directory / 'parameters.yaml').relative_to(root).as_posix()] = 'instances:\n  audit:\n    parameters:\n      Bucket: "001"\n'
+        if observed:
+            output[(directory / 'observed.json').relative_to(root).as_posix()] = json_text({'version': 1, 'values': observed})
+        stage(acquired, output, [{'record': record['record'], 'resource': '009', 'action': 'add', 'reason': 'Explicit synthetic management', 'basis': []}])
+        calls = len(cli.calls)
+        import model_templates
+        real_parse = model_templates.parse_template
+        real_finish = m.finish_import
+        original_sources = source_files(root)
+        reads = []
+        def counted(template, *args, **kwargs):
+            if template.name == 's3.properties.tpl':
+                reads.append(template)
+            return real_parse(template, *args, **kwargs)
+        def finish(*args, **kwargs):
+            value = real_finish(*args, **kwargs)
+            if race and len(args) > 1 and args[1] == 'reflected':
+                bucket = root / 'model/templates/cde/s3.properties.tpl'
+                bucket.write_text(bucket.read_text().replace('`audit-bucket`', '`audit-bucket-raced`'))
+            return value
+        with patch.object(model_templates, 'parse_template', counted), patch.object(m, 'finish_import', finish):
+            if race:
+                with pytest.raises(ValueError, match='inputs changed during publication'):
+                    m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
+                changed = Path('model/templates/cde/s3.properties.tpl')
+                actual_sources = source_files(root)
+                assert actual_sources.pop(changed) != original_sources[changed]
+                assert actual_sources == {key: value for key, value in original_sources.items() if key != changed}
+                assert not (root / 'docs/designs/dev/cde/cloudtrail.md').exists()
+                assert len(reads) == 1 and len(cli.calls) == calls
+                import_guard.discard_acquisition(root, acquired['evidence'])
+                return
+            result = m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
+        assert len(reads) == int(present), reads
+        assert result['status'] == 'complete' and result['model'] == 'reflected' and result['markdown'] == 'generated', result
+        assert len(cli.calls) == calls
+        markdown = (root / 'docs/designs/dev/cde/cloudtrail.md').read_text()
+        assert ('[audit-bucket](s3.md#s3-audit-bucket)' if present else '`audit-bucket`') in markdown
+        assert result['referenceMetrics']['referenceModelReads'] == int(present)
+        assert all(p.read_bytes() == raw for p, raw in foreign.items())
+        assert not (root / 'docs/designs/dev/cde/s3.md').exists()
+        from model_projection import model_for
+        from model_core import properties
+        from model_design import generate_markdown
+        from import_scope import new_references
+        with new_references(before_addition, {'009': record}):
+            saved = load_for_edit(path).values
+            document = root / 'docs/designs/dev/cde/cloudtrail.md'
+            restored = properties(model_for(document, root, source=saved, definitions_root=m.ROOT))
+            assert all(saved[key] == value for key, value in restored.items() if key.startswith(('desired.row.', 'observed.row.')))
+            assert generate_markdown(document, {**saved, **restored}, root) == markdown
+        before_recovery = source_files(root)
+        assert sync_runtime.sync(root, True, 'dev', TARGET, services=['cloudtrail']) == 0
+        assert source_files(root) == before_recovery
+        assert document.read_text() == markdown
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

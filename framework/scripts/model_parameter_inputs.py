@@ -234,10 +234,10 @@ def edit_instances(template, parameters, bindings, definitions, environment=None
     result, files = bind_instances(template, parameters, bindings, definitions, environment,
                                    lambda _spec, value, _label: json_text(value), False)
     for item in result['instances']:
-        for name, spec in definitions[item['definition']].parameters.items():
-            if spec.get('type') != 'reference':
-                continue
-            if 'service' in spec:
+        for name in list(item['parameters']):
+            spec = definitions[item['definition']].parameters[name]
+            from import_scope import resolves_reference
+            if spec.get('type') == 'reference' and 'service' in spec and not resolves_reference(item):
                 item['parameters'][name] = '<<' + name + '>>'
             else:
                 item['parameters'][name] = parameter_value(template, item, name, result['instances'], bindings, definitions, environment, files)

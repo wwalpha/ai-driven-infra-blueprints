@@ -16,7 +16,7 @@ from service_rows import CODEBUILD_FORMAL_VARIABLE, CODEPIPELINE_STAGE
 from security_group_tables import security_group_table_lines
 from design_document import DesignIndex
 from model_files import resource_row_index
-from model_core import LINK, literal
+from model_core import LINK, literal, entries
 from validation_cache import input_scope
 from aws_mapping_display import validation_lines
 from .design import (
@@ -192,6 +192,41 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 source_values[source] = {}
     from import_scope import outside_design
     sources = design_files(root=root, scope=scope) if paths is None else paths
+    imported = {}
+    for source in sources:
+        values = source_values[source] or {}
+        imported[source] = {resource['anchor']: rid for rid, resource in entries(values, 'desired.resource.')
+                            if resource.get('resourceMode') == 'IMPORT'}
+        if not imported[source]:
+            continue
+        from collections import defaultdict, deque
+        from import_references import Resolver
+        queues = defaultdict(deque)
+        for row_id, row in entries(values, 'desired.row.'):
+            queues[row_id.rpartition('-')[0], row['property']].append(row_id)
+        candidate = dict(values)
+        anchor, kind = '', ''
+        try:
+            for line in design_index.get(source).raw.display_lines:
+                if match := ANCHOR_PATTERN.fullmatch(line):
+                    anchor = match[1]
+                if match := RESOURCE_HEADING_PATTERN.fullmatch(line):
+                    kind = match[1]
+                cells = [cell.strip() for cell in line.strip('|').split('|')]
+                if anchor not in imported[source] or len(cells) != 4:
+                    continue
+                prop = formal_property(cells[1], kind, definitions_root)
+                rows = queues[imported[source][anchor], prop]
+                if rows:
+                    candidate['desired.row.' + rows.popleft() + '.value'] = cells[2]
+            relative = source.relative_to(root / 'docs/designs')
+            from model_templates import Expansion
+            resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
+                                local={source.stem: Expansion(values, {}, {})})
+            for rid in imported[source].values():
+                resolver.verify_resource(candidate, rid, require_links=False)
+        except (OSError, ValueError) as error:
+            findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
     references = {path.resolve() for path in sources}
     fragments = {}
     visible_text = {}
@@ -285,6 +320,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             if anchor := ANCHOR_PATTERN.fullmatch(line):
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) == 4 and source_anchor in imported[source]:
+                continue  # IMPORT table links were checked against physical Model identities.
             for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
@@ -343,20 +380,27 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         source_lines = document.lines
         pipeline_rows = []
         pipeline_id = ""
+        pipeline_import = False
+        pipeline_anchor = ""
         providers = {}
         for line in source_lines:
+            if anchor := ANCHOR_PATTERN.fullmatch(line):
+                pipeline_anchor = anchor[1]
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                 pipeline_id = heading.group(2) if heading.group(1) == "CodePipeline.Pipeline" else ""
+                pipeline_import = pipeline_anchor in imported[source]
             elif line.startswith("#"):
                 pipeline_id = ""
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             match = CODEPIPELINE_STAGE.fullmatch(cells[1]) if pipeline_id and len(cells) == 4 else None
             if match:
                 identity = pipeline_id, match.group(1), match.group(2) or "1"
-                pipeline_rows.append((identity, match.group(3), cells[2]))
+                pipeline_rows.append((identity, match.group(3), cells[2], pipeline_import))
                 if match.group(3) == "ActionTypeId.Provider":
                     providers[identity] = unquoted(cells[2])
-        for identity, field, value in pipeline_rows:
+        for identity, field, value, pipeline_import in pipeline_rows:
+            if pipeline_import:
+                continue
             if not field.startswith("Configuration."):
                 continue
             key = field.removeprefix("Configuration.")
@@ -430,6 +474,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 cells[1] = formal_property(cells[1], reference_kind, definitions_root)
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
+            if source_anchor in imported[source]:
+                continue
             link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
             if not link:
                 continue

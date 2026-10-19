@@ -65,8 +65,10 @@ branch. CREATE and value-preserving source refactors retain their existing workf
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
-not decide design correctness or run issue gates, naming/schema constraints, cross-service
-reference validation, whole-repository candidate copies, generated equality or local loops.
+not decide design correctness or run issue gates, naming/schema constraints, whole-service
+design reference validation, whole-repository candidate copies, generated equality or
+local loops. New-resource physical references are acquisition consistency checks under [New-resource references](../prompts/codex/08_import.md#new-resource-references),
+using declared receiving contracts and exact same-target producer identities.
 The agent edits only changed source candidates outside the repository; publication
 checks their syntax and native types without applying unrelated design constraints.
 Explicit issues retains those design and consistency checks without requiring AWS.
@@ -121,7 +123,8 @@ preservation evidence. Inability to reuse an existing Definition does not itself
 an addition unresolved: consider a new Definition first. Report concrete missing
 acquisition facts or management evidence remaining with that option, and handle
 independently confirmed additions. Do not traverse recursive consumers or expand
-foreign Models for comparison. Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
+whole foreign Models for comparison. Declared reference producers permit only the
+attribute reads required by the shared physical reference resolver. Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
 and [08_import](../prompts/codex/08_import.md#agent-selection-and-append-only-source-edits)
 for fixed/input/derived values and the ordered candidate procedure.
 

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from model_core import LINK, literal
 from ec2_display import ec2_display_rows
-from service_rows import codebuild_display_row, pipeline_rows, glue_argument_rows, CODEBUILD_FORMAL_VARIABLE
+from service_rows import codebuild_display_row, pipeline_rows, glue_argument_rows, CODEBUILD_FORMAL_VARIABLE, packed_compact_rows
 from design_layout import (HEADER, ALIGNMENT, GROUPED, REQUIRED_NAME_TAG_TYPES,
     GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE, CLOUDTRAIL_RESOURCE_TYPES,
     LINKED_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, subnet_list_items, catalog_property_order)
@@ -45,21 +45,32 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
 
 
 @input_scope
-def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT) -> list[list[str]]:
+def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None) -> list[list[str]]:
     """Apply the existing service displays without changing formal model values."""
     rows = selected_rows(rows, root)
     formal_properties = {row[1] for row in rows}
     result = []
     index = 0
-    counts: dict[str, int] = {}
+    counts = {} if _counts is None else _counts
     while index < len(rows):
         identity, prop, value, comment = rows[index]
+        packed = packed_compact_rows(rows, index) if mode == 'IMPORT' else None
+        if packed is not None:
+            block, expanded = packed
+            rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts)
+            source = json.dumps([[row[1:] for row in block], len(rendered)], ensure_ascii=True)
+            for char in '|<>':
+                source = source.replace(char, f'\\u{ord(char):04x}')
+            rendered[0][3] = '<!-- compact-source: ' + source + ' --> ' + rendered[0][3]
+            result.extend(rendered)
+            index += len(block)
+            continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = codebuild_display_row(rows, index, comment)
+            _, prop, value, comment = codebuild_display_row(rows, index, comment, mode=mode)
             index += 2
         elif prop in LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
-            if prop in CODEBUILD_VPC_PROPERTIES and not linked:
+            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
                 raise ValueError("CodeBuild VpcConfig value must be a resource link")
             items = [value] if linked else subnet_list_items(prop, value)
             source = ""
@@ -89,7 +100,7 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT) -> list[li
             counts["data"] = counts.get("data", 0) + 1
             prop = f"CloudTrail.Trail.EventSelectors.DataResources[{counts['data']}].{types[literal(value)]}"
             value = rows[index + 1][2]
-            if literal(value) == '["arn:aws:s3"]':
+            if literal(value) == '["arn:aws:s3"]' or mode == 'IMPORT' and literal(value) == 'arn:aws:s3':
                 value = "`All current and future S3 buckets`"
             index += 1
         elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):

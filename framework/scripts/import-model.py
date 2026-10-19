@@ -12,7 +12,7 @@ import re
 
 import task_contract
 from import_guard import (workflow, require_import_changes, record_import, finish_import,
-                          acquired, read_acquisition, discard_acquisition, file_hash, write_sealed, acquisition_complete)
+                          acquired, read_acquisition, discard_acquisition, file_hash, text_hash, write_sealed, acquisition_complete)
 from model_core import entries
 from model_files import resource_row_index
 from model_parameter_inputs import yaml_read
@@ -380,7 +380,20 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     selection = json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8'))
     warnings = []
     selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
-    changes = verify_values(before, after, selected, property_schema)
+    from import_scope import new_references, preserved_reference_view
+    from import_references import Resolver
+    if any(key.startswith('desired.row.') and key.split('.')[2].rpartition('-')[0] in selected
+           and '<<' in after.values.get(key, '') and (trace.get('references') or
+                any(item.get('type') == 'reference' for item in trace.get('inputs', {}).values()))
+           for key, trace in after.provenance.items()):
+        with new_references(before, selected):
+            after = load_for_edit(path, after.files)
+    references = Resolver(root, identity[0], identity[1], local={identity[2]: after})
+    changes = verify_values(before, after, selected, property_schema, references)
+    # Producers are read dependencies, never candidate writes or display targets.
+    for file, text in {**after.files, **references.files}.items():
+        if file not in output:
+            checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     pending = pending_items(selection, selected, after.values)
     complete = not pending and acquisition_complete(acquisition)
     result = {'status': 'incomplete' if not complete else 'dry-run' if dry_run else 'complete',
@@ -390,6 +403,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
                             'excluded': len(selection['excluded']), 'unresolved': sum('property' not in item for item in pending)},
               'unreflected': pending, 'inventory': acquisition.get('inventory', {}), 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
+    result['referenceMetrics'] = references.metrics
     unchanged(root, checksums)
     if dry_run:
         result['diff'] = '\n'.join(''.join(difflib.unified_diff(
@@ -408,6 +422,12 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     acquisition['sources'][task_relative] = checksums[task_relative]
     write_sealed(root, evidence, acquisition)
     snapshot = {root / name: (root / name).read_bytes() if checksum is not None else None for name, checksum in checksums.items()}
+    from inspect import unwrap
+    from model_templates import _reference_inputs, reference_values
+    memo = memo_table()
+    readers = {unwrap(_reference_inputs), unwrap(reference_values)}
+    producers = {key: value for key, value in memo.items()
+                 if key[0] in readers and key[1][0] in references.model_paths}
     with publication_lock(root):
         contract_scope(root, {identity})
         unchanged(root, checksums)
@@ -426,11 +446,17 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             raise
     result['model'] = 'reflected' if output else 'unchanged'
     snapshot.update({p: text.encode('utf-8') for p, text in output.items()})
-    memo_table().clear()
+    memo.clear()
+    memo.update(producers)  # Producer bytes remain guarded by both publication snapshots.
     try:
         with publication_lock(root):
-            saved = load_for_edit(path)
+            with new_references(before, selected), preserved_reference_view(before):
+                saved = load_for_edit(path)
             publication, view_inputs = view_plan(document, saved.values, root, managed)
+            view_inputs.update({file: snapshot.get(file, text.encode('utf-8')) for file, text in saved.files.items()})
+            for file in saved.files:
+                if file.name == 'parameters.yaml':
+                    view_inputs.setdefault(file.parent / 'observed.json', None)
         record_outputs(root, identity, set(), set(publication), preserved)
         snapshot[task_path(root)] = task_path(root).read_bytes()
         with publication_lock(root):

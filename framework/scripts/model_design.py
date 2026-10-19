@@ -343,7 +343,7 @@ def resource_table_lines(resource, name, rows, children, root):
         rules = [(child, selected_rows(child_rows, root)) for _, child, _, child_rows in children]
         output += sg_tables(selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root)
     else:
-        display = display_rows(kind, rows, root)
+        display = display_rows(kind, rows, root, mode=resource_mode(resource))
         for _, child, child_name, child_rows in children:
             child_rows = selected_rows(child_rows, root)
             if not child_rows:
@@ -351,7 +351,7 @@ def resource_table_lines(resource, name, rows, children, root):
             if child["resourceType"] == ROTATION_SCHEDULE:
                 child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                               for rid, prop, value, comment in child_rows]
-            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root)
+            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=resource_mode(child))
             if child["resourceType"] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]

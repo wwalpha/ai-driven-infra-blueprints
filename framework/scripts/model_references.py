@@ -46,6 +46,7 @@ def catalog_outputs(root: Path, kind: str) -> set[str]:
 
 
 def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:
+    from import_sources import has_reference
     outputs = catalog_outputs(root, kind)
     rows = []
     for row_id, row in entries(values, "desired.row."):
@@ -58,6 +59,8 @@ def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) 
         if observed is not None:
             if link := LINK.fullmatch(value):
                 value = observed if row["property"] in outputs else f"[{literal(observed)}]({link.group(2)}#{link.group(3)})"
+            elif has_reference(value):
+                pass  # Structured link labels retain their native string/list shape.
             elif '<<' in value:
                 value += ' (observed: ' + observed + ')'
             else:

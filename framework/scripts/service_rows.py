@@ -12,9 +12,92 @@ CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[
 CODEBUILD_VARIABLE_TYPE = re.compile(r"^<!-- codebuild-variable-type: (PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER) -->\s*")
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
 CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+COMPACT_SOURCE = re.compile(r'^<!-- compact-source: (.+?) --> ')
+COMPACT_FIELDS = {
+    CODEBUILD_FORMAL_VARIABLE + 'Name': (('Name', 'Type', 'Value'), None),
+    'CloudTrail.Trail.EventSelectors[].DataResources[].Type': (('Type', 'Values'), 'Values'),
+}
+PACKED_ARRAY_PREFIXES = ('CodePipeline.Pipeline.Stages[]',)
 
 
-def codebuild_display_row(rows, index, comment):
+def packed_compact_rows(rows, index):
+    """Unpack acquired array dimensions before the existing compact renderers."""
+    for prefix in PACKED_ARRAY_PREFIXES:
+        if rows[index][1].startswith(prefix + '.'):
+            try:
+                value = json.loads(literal(rows[index][2]))
+            except ValueError:
+                return None
+            if not isinstance(value, list):
+                return None
+            stop = index
+            while stop < len(rows) and rows[stop][1].startswith(prefix + '.'):
+                stop += 1
+            block = rows[index:stop]
+            values = [json.loads(literal(row[2])) for row in block]
+            def expand(block, values, prefix):
+                if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
+                    raise ValueError('packed array dimensions differ')
+                result = []
+                for children in zip(*values):
+                    cursor = 0
+                    while cursor < len(block):
+                        row, value = block[cursor], children[cursor]
+                        end = row[1].find('[]', len(prefix))
+                        if end == -1:
+                            raw = value if isinstance(value, str) and LINK.fullmatch(value) else '`' + (value if isinstance(value, str) else json.dumps(value, separators=(',', ':'))) + '`'
+                            result.append([row[0], row[1], raw, row[3]])
+                            cursor += 1
+                            continue
+                        child_prefix = row[1][:end + 2]
+                        stop = cursor + 1
+                        while stop < len(block) and block[stop][1].startswith(child_prefix):
+                            stop += 1
+                        result.extend(expand(block[cursor:stop], children[cursor:stop], child_prefix))
+                        cursor = stop
+                return result
+            expanded = expand(block, values, prefix)
+            if not expanded:
+                raise ValueError('empty packed array display group')
+            return block, expanded
+    if rows[index][1] not in COMPACT_FIELDS:
+        return None
+    fields, vector = COMPACT_FIELDS[rows[index][1]]
+    try:
+        shape = json.loads(literal(rows[index][2]))
+    except ValueError:
+        return None
+    if not isinstance(shape, list):
+        return None
+    block = rows[index:index + len(fields)]
+    prefix = rows[index][1].rsplit('.', 1)[0] + '.'
+    if [row[1] for row in block] != [prefix + field for field in fields]:
+        raise ValueError('packed compact fields must be contiguous')
+    values = [json.loads(literal(row[2])) for row in block]
+    result = []
+    def unpack(values):
+        if isinstance(values[0], list):
+            if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
+                raise ValueError('packed compact array dimensions differ')
+            for children in zip(*values):
+                unpack(children)
+            return
+        groups = [values]
+        if vector and isinstance(values[fields.index(vector)], list):
+            groups = [[value if field != vector else item for field, value in zip(fields, values)]
+                      for item in values[fields.index(vector)]]
+        for group in groups:
+            if any(not isinstance(value, str) for value in group):
+                raise ValueError('compact fields require string leaves')
+            result.extend([[row[0], row[1], value if LINK.fullmatch(value) else '`' + value + '`', row[3]]
+                           for row, value in zip(block, group)])
+    unpack(values)
+    if not result:
+        raise ValueError('empty packed compact display group')
+    return block, result
+
+
+def codebuild_display_row(rows, index, comment, *, mode="CREATE"):
     block = rows[index:index + 3]
     if [row[1] for row in block] != [CODEBUILD_FORMAL_VARIABLE + field for field in ("Name", "Type", "Value")]:
         raise ValueError("CodeBuild variables require contiguous Name/Type/Value rows")
@@ -25,12 +108,15 @@ def codebuild_display_row(rows, index, comment):
         comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
     elif variable_type == "PLAINTEXT":
         value = block[2][2]
+    elif mode == "IMPORT" and variable_type in {"PARAMETER_STORE", "SECRETS_MANAGER"}:
+        value = block[2][2]
+        comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
     else:
         raise ValueError("CodeBuild non-PLAINTEXT variables require a resource link")
     return [rows[index][0], prop, value, comment]
 
 
-def codebuild_formal_rows(cells, names):
+def codebuild_formal_rows(cells, names, *, mode="CREATE"):
     name = cells[1].removeprefix(CODEBUILD_VARIABLE)
     if not re.fullmatch(r"[^.\s|]+", name) or name in names:
         raise ValueError(f"invalid or duplicate CodeBuild environment variable name: {name}")
@@ -44,7 +130,7 @@ def codebuild_formal_rows(cells, names):
         raise ValueError(f"CodeBuild resource variable must use a single resource anchor link: {name}")
     if "<!-- codebuild-variable-type:" in cells[3] and not marker:
         raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
-    if bool(marker) != bool(linked):
+    if bool(marker) != bool(linked) and not (mode == "IMPORT" and marker and not linked):
         raise ValueError(f"CodeBuild resource variable requires a link and Type marker: {name}")
     if re.match(r"^(PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER):", raw):
         raise ValueError(f"CodeBuild environment variable must omit the Type prefix: {name}")

@@ -96,9 +96,8 @@ unresolved. Read the existing sources together; a parameters-only view is insuff
   references and expanded values must remain unchanged, including CREATE resources.
   Adding rows or observations to an existing resource is prohibited. Missing inventory
   never authorizes deletion. Old-resource deletion is a separate task.
-- Retain existing common/AZ parameters and logical references. Keep confirmed physical
-  values for new reference rows in observed.json. Never change another service's
-  references or construct missing ARNs, IDs or unacquired values from fragments.
+- Retain existing common/AZ parameters and logical references. Follow
+  [New-resource references](#new-resource-references) for acquired reference values.
 
 Choose Definitions for candidate additions in this order:
 
@@ -172,6 +171,46 @@ Only `action: add` with a new Resource ID is accepted. State management evidence
 requires one disposition. Excluded entries have `record` and a concrete `reason`;
 unresolved entries have `record` and `reason`, optionally a `property` when only that
 Property is pending. Do not use a mutation DSL or ask Python to generate source names.
+
+## New-resource references
+
+Related services do not need to be imported. For each selected new IMPORT resource,
+use the shared `reference_contracts.contract` and `import_references.Resolver` with the
+same Environment/Target and the repository's existing Framework definitions. The
+resolver reads only declared producer types through `model_templates.reference_values`;
+it performs no AWS calls and never recursively expands other services. Reuse its
+invocation-local index, including missing/unknown producers. The receiving contract
+specifies resource types and allowed physical identifier forms; a property name ending
+in Id/Arn is not a contract.
+
+- One exact physical match in an existing CREATE or IMPORT Model requires an ordinary
+  `type: reference` link. Keep the acquired physical value in the new row's observed.json,
+  including complete ARN/ID/Name/Alias values and array structure. A display label is
+  not acquisition evidence. Mixed arrays may contain links and literal elements.
+- No matching Model, including an unobserved identifier, uses the existing literal
+  representation with the unchanged acquired value. No EXTERNAL/UNMANAGED flag, dummy
+  resource, recursive acquisition or other-environment parameter addition is permitted.
+- Multiple physical matches, a wrong explicit link, or literal fallback despite a
+  unique match rejects publication. Never match only by a logical Resource name or link
+  label, across Environments/Targets, or by constructing an ARN. ARN parsing is limited
+  to declared identity forms, checking account, Region and partition when applicable.
+- Other-service templates, parameters, bindings and observations are read-only input
+  dependencies. They are never generated or republished. Existing IMPORT resources
+  remain unchanged; importing a producer later does not automatically link old literals.
+
+The LLM edits ordinary source candidates. Python checks choices; it does not generate
+Definitions or parameters. Follow the Definition reuse order above. Existing template
+choices/optional inputs can express link versus literal instances without cloning a
+Definition per resource or environment; do not change an existing Definition's consumers
+or declarations to accommodate a new addition.
+
+Publication reuses `selection_records`, `verify_values`, the source hash comparison,
+publication lock and rollback transaction. Only selected fixed IDs absent from the before
+Model may resolve new external source references. Acquired values and explicit producer
+identities are checked together, including literal leaves beside links in arrays/objects.
+Unchanged old selectors may be read for selected-service display generation after source
+publication; this grants no source editing permission. Ordinary CREATE, internal
+parentReference links and policy/artifact link requirements retain their existing checks.
 
 ## Shared Property consumers
 

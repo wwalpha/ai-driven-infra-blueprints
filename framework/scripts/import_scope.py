@@ -10,6 +10,50 @@ _scope = ContextVar('import_scope', default=None)
 _consumers = ContextVar('import_local_consumers', default=None)
 _reference = ContextVar('import_create_reference', default=None)
 _views = ContextVar('import_generated_views', default=None)
+_additions = ContextVar('import_new_reference_resources', default=frozenset())
+_display_resources = ContextVar('import_preserved_reference_view', default=frozenset())
+
+
+@contextmanager
+def new_references(before, selected):
+    """Only acquisition-selected fixed IDs absent from the before Model may resolve."""
+    from model_core import entries
+    if set(selected) & dict(entries(before.values, 'desired.resource.')).keys():
+        raise ValueError('IMPORT references require selected new Resource IDs')
+    token = _additions.set(frozenset(selected))
+    try:
+        yield
+    finally:
+        _additions.reset(token)
+
+
+@contextmanager
+def preserved_reference_view(before):
+    """After guarded source publication, resolve unchanged old selectors for display."""
+    from model_core import entries
+    token = _display_resources.set(frozenset(dict(entries(before.values, 'desired.resource.'))))
+    try:
+        yield
+    finally:
+        _display_resources.reset(token)
+
+
+def resolves_reference(item):
+    return bool(set(item.get('resources', {}).values()) & (_additions.get() | _display_resources.get()))
+
+
+@contextmanager
+def reference_reader(path):
+    """A producer is read-only and always in the selected environment/target."""
+    root = path.parents[3]
+    identity = selected(root)
+    if identity is not None and path.parent != model_path(root, identity).parent:
+        raise ValueError('IMPORT reference is outside selected environment/target')
+    token = _reference.set(path.absolute())
+    try:
+        yield
+    finally:
+        _reference.reset(token)
 
 
 def selected(root):
@@ -215,7 +259,7 @@ def reference_input(path):
 
 @contextmanager
 def create_reference(template, item, name, definitions, environment):
-    """Allow only a selected CREATE row's declared producer during link resolution."""
+    """Read declared CREATE/new IMPORT producers; old IMPORT selectors are view-only."""
     from model_templates import bound_definition, resolve, variables
     from model_parameter_inputs import schema
     root = template.parents[3]
@@ -237,6 +281,12 @@ def create_reference(template, item, name, definitions, environment):
         raise ValueError('IMPORT reference is outside selected environment/target/service')
     definition = bound_definition(definitions[item['definition']], item['parameters'])
     uses = [(key, raw) for key, raw in definition.values.items() if name in variables(raw)]
+    if uses and all(key.startswith('desired.row.') and key.rsplit('.', 1)[1] in {'value', 'document'}
+                    and item.get('resources', {}).get(definition.rows[key.split('.')[2]]) in (_additions.get() | _display_resources.get())
+                    for key, _ in uses):
+        with reference_reader(root / 'model' / environment / template.parent.name / (spec['service'] + '.properties')):
+            yield
+        return
     if not uses or spec.get('format') not in (None, 'anchor', 'identifier'):
         raise ValueError('IMPORT reference is outside selected CREATE logical links')
     for key, raw in uses:
@@ -245,7 +295,7 @@ def create_reference(template, item, name, definitions, environment):
             raise ValueError('IMPORT reference is outside selected CREATE logical links')
         owner = definition.rows[parts[2]]
         mode = resolve(definition.values.get(f'desired.resource.{owner}.resourceMode', 'CREATE'), item['parameters'])
-        if mode != 'CREATE':
+        if mode != 'CREATE' and item.get('resources', {}).get(owner) not in _additions.get():
             raise ValueError('IMPORT reference is outside selected CREATE logical links')
     path = root / 'model' / environment / template.parent.name / (spec['service'] + '.properties')
     token = _reference.set(path.absolute())

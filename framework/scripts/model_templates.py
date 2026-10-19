@@ -878,6 +878,30 @@ def reference_values(path, identity, kind, mode, _context=None):
             return LoadedModel('', values, {}, files)
         if type_key not in fields or field_value(type_key) != kind:
             return LoadedModel('', values, {}, files)
+        if isinstance(mode, tuple) and mode[0] == 'physical':
+            from model_core import LINK
+            attributes = set(mode[1])
+            for leaf in ('anchor', 'logicalId', 'resourceMode'):
+                key = f'desired.resource.{identity}.' + leaf
+                if key in fields:
+                    field_value(key)
+            for key in fields:
+                if not key.startswith(f'desired.row.{identity}-') or not key.endswith('.property'):
+                    continue
+                prop = field_value(key)
+                if prop not in attributes:
+                    continue
+                value_key = key.removesuffix('.property') + '.value'
+                observed_key = value_key.replace('desired.', 'observed.', 1)
+                if observed_key in observed['values']:
+                    values[observed_key] = observed['values'][observed_key]
+                instance, definition, raw = fields[value_key]
+                # Identity lookup never follows another resource's logical value.
+                if not LINK.fullmatch(raw) and not any(
+                        definition.parameters.get(name, {}).get('type') == 'reference'
+                        for name in variables(raw)):
+                    field_value(value_key)
+            return LoadedModel('', values, {}, files)
         if mode not in {'name', 'identifier'}:
             field_value(f'desired.resource.{identity}.anchor')
             for leaf in ('logicalId', 'resourceMode', 'cfn-logicalId') if mode == 'preservation' else ():

@@ -9,7 +9,7 @@ from pathlib import Path
 from array_display import restored_rows
 from ec2_display import ec2_formal_rows
 from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored_glue_argument_rows,
-    CODEBUILD_VARIABLE, CODEBUILD_FORMAL_VARIABLE)
+    CODEBUILD_VARIABLE, CODEBUILD_FORMAL_VARIABLE, COMPACT_SOURCE)
 from model_core import positive_integer
 
 from design_catalog import design_material_files
@@ -567,18 +567,24 @@ def permission_rows(rows: list[list[str]]) -> list[list[str]]:
 
 
 @input_scope
-def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[str]:
+def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=None) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     from aws_mapping_display import ROOT, show, structural, display_name, rules, compact_group
     root = root or ROOT
     lines = resource_heading_lines(lines)
+    modes = resource_modes(lines) if modes is None else modes
+    anchor = ""
+    mode = "CREATE"
     result = []
     index = 0
     resource_type = ""
     while index < len(lines):
         if lines[index] != HEADER or index + 1 >= len(lines) or lines[index + 1] != ALIGNMENT:
+            if match := ANCHOR.fullmatch(lines[index]):
+                anchor = match.group(1)
             if heading := RESOURCE.fullmatch(lines[index]):
                 resource_type = heading.group(1)
+                mode = modes.get(anchor, "CREATE")
             elif lines[index].startswith("#"):
                 resource_type = ""
             result.append(lines[index])
@@ -592,6 +598,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
         linked_list_counts: dict[str, int] = {}
         guardduty_names = set()
         cloudtrail_count = 0
+        packed_pipeline = False
         changed = False
         normalized = False
         kind = ""
@@ -614,6 +621,29 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
+            if '<!-- compact-source:' in cells[3]:
+                marker = COMPACT_SOURCE.match(cells[3])
+                if mode != 'IMPORT' or marker is None:
+                    raise ValueError('packed compact source requires IMPORT and valid metadata')
+                source = json.loads(marker[1])
+                if (not isinstance(source, list) or len(source) != 2 or not isinstance(source[0], list)
+                        or type(source[1]) is not int or source[1] < 1 or not source[0]
+                        or any(not isinstance(row, list) or len(row) != 3 or any(not isinstance(cell, str) for cell in row) for row in source[0])):
+                    raise ValueError('invalid packed compact source')
+                original = [[cells[0], *row] for row in source[0]]
+                from model_display import display_rows
+                counts = {'data': cloudtrail_count}
+                expected = display_rows(resource_type, original, root, mode=mode, _counts=counts)
+                cloudtrail_count = counts['data']
+                actual = [[cell.strip() for cell in line.strip('|').split('|')] for line in lines[index:index + source[1]]]
+                if len(expected) != source[1] or [row[1:] for row in actual] != [row[1:] for row in expected]:
+                    raise ValueError('packed compact display differs from source')
+                row_numbers.extend(row[0] for row in actual)
+                rows.extend(original)
+                packed_pipeline |= resource_type == 'CodePipeline.Pipeline'
+                index += source[1]
+                changed, kind = True, 'packed compact'
+                continue
             row_numbers.append(cells[0])
             display_property = cells[1]
             if resource_type == "Lambda.Function" and display_property.startswith("Lambda.Permission."):
@@ -626,7 +656,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
             if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != display_name(prop, resource_type, root):
                 raise ValueError("ConfigurationRecorder RoleARN must use Mapping display name")
             if prop in RESOURCE_REFERENCE_PROPERTIES:
-                if not (is_service_role_reference(prop, cells[2]) or is_import_pending_reference(prop, cells[2])) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                if mode != "IMPORT" and not (is_service_role_reference(prop, cells[2]) or is_import_pending_reference(prop, cells[2])) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ValueError(f"{prop} must be a resource link")
             owner = ".".join(prop.split(".")[:2])
             if prop in rules(root, owner) and (owner == resource_type or owner in GROUPED) and owner not in SECURITY_GROUP_TYPES and not compact_group(prop) and prop not in LINKED_LIST_PROPERTIES:
@@ -652,7 +682,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
-                rows.extend(codebuild_formal_rows(cells, codebuild_names))
+                rows.extend(codebuild_formal_rows(cells, codebuild_names, mode=mode))
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1
@@ -662,7 +692,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
                 if "<!-- subnet-list-source:" in cells[3] and not marker:
                     raise ValueError("invalid Subnet list source marker")
                 source = json.loads(marker.group(1)) if marker else None
-                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES:
+                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES and mode != "IMPORT":
                     raise ValueError("CodeBuild VpcConfig value must be a resource link")
                 items = subnet_list_items(list_prop, source) if source is not None else [cells[2]]
                 comment = cells[3][marker.end():] if marker else cells[3]
@@ -670,7 +700,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
                 label = CHILD_NAME.match(comment[child.end():]) if child else None
                 # Rotation identity metadata occurs only on the first displayed Subnet.
                 continuation_comment = comment[child.end() + label.end():] if label and list_prop.startswith(ROTATION_SCHEDULE + ".") else comment
-                if source is None and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                if source is None and mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ValueError("Subnet/Security Group value must be a resource link")
                 for offset, value in enumerate(items):
                     row = cells
@@ -705,7 +735,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
                 resource_value = cells[2]
                 if match.group(2) == "S3" and resource_value == "`All current and future S3 buckets`":
                     resource_value = '`["arn:aws:s3"]`'
-                elif not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value):
+                elif mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value):
                     raise ValueError("CloudTrail DataResources value must be a resource link or, for S3, `All current and future S3 buckets`")
                 cloudtrail_count += 1
                 changed = True
@@ -719,7 +749,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
             rows = permission_rows(rows)
             changed = True
             kind = "Lambda Permission"
-        if resource_type == "CodePipeline.Pipeline":
+        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline:
             rows = pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
@@ -747,7 +777,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None) -> list[st
 def expanded_design(lines: list[str], *, normalized: bool = False,
                     logical_ids: dict[tuple[str, str], str] | None = None,
                     bound_anchors: dict[tuple[str, str], str] | None = None,
-                    root: Path | None = None) -> tuple[list[str], dict[str, dict]]:
+                    root: Path | None = None, modes=None) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
     Child anchors and logical IDs live in the first row's comment. Visible tables
@@ -757,7 +787,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
     lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
         lines = security_group_table_lines(lines, root)
-    lines = expanded_display_rows(lines, root)
+    lines = expanded_display_rows(lines, root, modes=modes)
     result: list[str] = []
     children: dict[str, dict] = {}
     parent_type = parent_id = parent_anchor = pending_anchor = service_id = ""

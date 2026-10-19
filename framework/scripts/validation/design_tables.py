@@ -229,8 +229,8 @@ def check_design_tables(
                 cursor += 1
         try:
             lines = security_group_table_lines(lines, definitions_root)
-            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root)
-            lines = expanded_display_rows(lines, definitions_root)
+            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root, modes=modes)
+            lines = expanded_display_rows(lines, definitions_root, modes=modes)
         except ValueError as error:
             findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
             children = {}

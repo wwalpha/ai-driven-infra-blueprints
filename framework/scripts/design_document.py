@@ -12,7 +12,8 @@ from pathlib import Path
 import re
 from threading import RLock
 
-from design_layout import ANCHOR, expanded_design, expanded_display_rows, resource_heading_lines, resource_logical_ids
+from design_layout import (ANCHOR, expanded_design, expanded_display_rows, resource_heading_lines,
+                           resource_logical_ids, resource_modes)
 from policy_tables import without_policy_tables
 from security_group_tables import security_group_table_lines
 from validation_scope import reference_lines
@@ -25,6 +26,7 @@ class DesignView:
     lines: tuple[str, ...]
     root: Path | None = field(default=None, repr=False, compare=False)
     bound_anchors: dict[tuple[str, str], str] = field(default_factory=dict, repr=False, compare=False)
+    modes: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
     @cached_property
@@ -38,7 +40,7 @@ class DesignView:
 
     @cached_property
     def _expanded(self) -> tuple[tuple[str, ...], dict[str, dict]]:
-        lines, children = expanded_design(list(self.lines), logical_ids=self.logical_ids, bound_anchors=self.bound_anchors, root=self.root)
+        lines, children = expanded_design(list(self.lines), logical_ids=self.logical_ids, bound_anchors=self.bound_anchors, root=self.root, modes=self.modes)
         return tuple(lines), children
 
     @property
@@ -48,7 +50,7 @@ class DesignView:
 
     @cached_property
     def _display_lines(self) -> tuple[str, ...]:
-        return tuple(expanded_display_rows(security_group_table_lines(list(self.lines), self.root), self.root))
+        return tuple(expanded_display_rows(security_group_table_lines(list(self.lines), self.root), self.root, modes=self.modes))
 
     @property
     def display_lines(self) -> tuple[str, ...]:
@@ -89,8 +91,19 @@ class DesignDocument:
             if lines not in self._parses:
                 from model_references import bound_resource_anchors
                 self._parses[lines] = DesignView(lines, self.root, bound_resource_anchors(self.path)
-                                               if any(line.startswith('### ') for line in lines) else {})
+                                               if any(line.startswith('### ') for line in lines) else {}, self.modes)
             return self._parses[lines]
+
+    @cached_property
+    def modes(self):
+        model_root = self.path.parents[4] if len(self.path.parents) >= 5 and self.path.parents[2].name == 'designs' and self.path.parents[3].name == 'docs' else None
+        values = None
+        if model_root is not None:
+            from model_templates import load_expansion, source_paths
+            model = (model_root / 'model' / self.path.relative_to(model_root / 'docs/designs')).with_suffix('.properties')
+            if source_paths(model)[2].is_dir():
+                values = load_expansion(model).values
+        return resource_modes(self.lines, values)
 
     @property
     def raw(self) -> DesignView:

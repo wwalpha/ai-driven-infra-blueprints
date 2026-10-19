@@ -1215,6 +1215,26 @@ def check_explicit_reference_operation(tmp_path, field):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
+
+def check_publication_verifies_only_acquisition_selected_additions():
+    from unittest.mock import Mock
+    before = expansion(resource())
+    after = expansion({**before.values, **resource('009', identity='vpc-new')})
+    references = Mock()
+    verify_values(before, after, {'009': record('vpc-new', cidr='10.10.0.0/23')}, schema_for, references)
+    assert references.verify_resource.call_count == 1
+    assert references.verify_resource.call_args.args[1] == '009'
+
+
+
+def check_existing_hyphenated_fixed_id_cannot_receive_rows():
+    original = resource('existing-vpc')
+    addition = {'desired.row.existing-vpc-999.property': 'EC2.VPC.EnableDnsSupport',
+                'desired.row.existing-vpc-999.value': '`true`', 'desired.row.existing-vpc-999.comment': '追加は禁止'}
+    with pytest.raises(ValueError, match='cannot add fields, Rows or observations'):
+        verify_values(expansion(original), expansion({**original, **addition}), {}, schema_for)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

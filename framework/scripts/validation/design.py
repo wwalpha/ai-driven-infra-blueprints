@@ -235,7 +235,7 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             values = design_model_values(path, design_sources=design_sources, root=root)
             modes = resource_modes(lines, values)
             lines = security_group_table_lines(lines, definitions_root)
-            lines = expanded_display_rows(lines, definitions_root)
+            lines = expanded_display_rows(lines, definitions_root, modes=modes)
             values = values or {}
             labels = {
                 (resource.get("resourceType"), resource.get("logicalId"), label)
