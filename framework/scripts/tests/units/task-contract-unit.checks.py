@@ -236,5 +236,27 @@ def check_batch_operation_contract():
     assert tasks.model_operation('## Goal\nFree prose with Model merge pairs is unrestricted.\n') is None
 
 
+def check_dependency_detach_contract():
+    from support.import_model_fixtures import dependency_contract
+    text = dependency_contract()
+    parsed = tasks.model_refactor(text)
+    assert len(parsed) == 1 and parsed[0].key == 'desired.row.002-001.value'
+    assert tasks.final_model_task(text) and tasks.model_operation(text) is None
+    assert tasks.model_refactor('## Task contract\n- Task type: `design`\n') is None
+    for bad in [text.replace('forbidden', 'allowed', 1), text.replace('design', 'infrastructure'),
+                text.replace('value-preserving', 'automatic'), text.replace('Model refactor:', 'Model refactor :'),
+                text.replace('service-a/001', 'service-a/999/001'), text.replace('002-001', '003-001'),
+                text + text[text.index('## Model dependency detach'):],
+                text.replace('"key":', '"key": null, "key":'),
+                text.replace('"key":', '"unknown": NaN, "key":'),
+                text.replace('"key":', '"pointer": "/bad~2", "key":'),
+                text.replace('## Model dependency detach', '## Model dependency detach extra'),
+                text.replace('## Model dependency detach', '- Model operation: `import-delete`\n- Source resource: `stg/cde/service-a/001`\n## Model dependency detach'),
+                text.split('## Model dependency detach')[0] + '## Model dependency detach\n',
+                text + 'unconsumed junk\n']:
+        with pytest.raises(ValueError):
+            tasks.model_refactor(bad)
+
+
 if __name__ == '__main__':
     raise SystemExit(run(__file__))

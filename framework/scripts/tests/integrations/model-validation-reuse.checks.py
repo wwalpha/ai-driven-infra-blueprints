@@ -71,7 +71,8 @@ def trace_validation(root, legacy=False):
     original_init = validator_module.Validator.__init__
     def init(validator, *args, **kwargs):
         original_init(validator, *args, **kwargs)
-        instrument(validator, 'saved')
+        if validator.root.resolve() == root.resolve():
+            instrument(validator, 'saved')
     def generate(scope):
         try:
             MODULE.sync(root, False, *ENTRY[:2], [ENTRY[2]], jobs=4)

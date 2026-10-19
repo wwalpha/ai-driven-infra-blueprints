@@ -342,6 +342,7 @@ def _parse_template(path, parts, contents):
             if identity in current.choices:
                 raise ValueError('duplicate field choice')
             current.choices[identity] = choice['value']
+            current.locations[('choice', *identity)] = (file, number)
         elif line.startswith('# retained-display:'):
             identity = line.removeprefix('# retained-display:').strip()
             if current is None or not re.fullmatch(r'[0-9]{3,}', identity) or identity in current.retained_displays:
@@ -520,37 +521,68 @@ def bound_definition(definition, supplied):
     values = {key: value for key, value in definition.values.items()
               if key not in definition.optional or supplied[definition.optional[key]]}
     selected = set()
-    documents = {}
+    documents, origins = {}, {}
+    locations = dict(definition.locations)
+
+    def origin_tree(value, location):
+        if isinstance(value, dict):
+            return {key: origin_tree(item, location) for key, item in value.items()}
+        if isinstance(value, list):
+            return [origin_tree(item, location) for item in value]
+        return location
+
+    def record_origins(key, value, pointer=''):
+        if isinstance(value, dict):
+            for name, item in value.items():
+                record_origins(key, item, pointer + '/' + name.replace('~', '~0').replace('/', '~1'))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                record_origins(key, item, pointer + '/' + str(index))
+        elif value is not None:
+            locations[key, pointer] = value
+
     for (key, pointer, selector), value in definition.choices.items():
         if key not in values or not supplied[selector]:
             continue
         if (key, pointer) in selected:
             raise ValueError(f'ambiguous field choices: {key}/{pointer}')
         selected.add((key, pointer))
+        location = locations.get(('choice', key, pointer, selector), locations.get(key))
         if pointer is None:
             values[key] = value
+            if location is not None:
+                locations[key] = location
         else:
             document = documents.setdefault(key, template_document(key, values[key]))
+            origin = origins.setdefault(key, origin_tree(template_document(key, values[key]), locations.get(key)))
             parent, item = json_pointer(document, pointer)
             parent[item] = value
+            parent, item = json_pointer(origin, pointer)
+            parent[item] = origin_tree(value, location)
     values.update({key: template_document_text(key, document) for key, document in documents.items()})
-    removals = {}
+    removals, origin_removals = {}, {}
     for (key, pointer), selector in definition.optional_json.items():
         if key in values and not supplied[selector]:
             if key not in removals:
                 removals[key] = template_document(key, values[key]), []
             document, operations = removals[key]
             operations.append(json_pointer(document, pointer))
+            if key in origins:
+                origin_removals.setdefault(key, []).append(json_pointer(origins[key], pointer))
     # Resolve all pointers before removing list elements; reverse indexes retain identity.
     for key, (document, operations) in removals.items():
         for parent, item in sorted(operations, key=lambda operation: str(operation[1]).zfill(20), reverse=True):
             del parent[item]
         values[key] = template_document_text(key, document)
+        for parent, item in sorted(origin_removals.get(key, ()), key=lambda operation: str(operation[1]).zfill(20), reverse=True):
+            del parent[item]
+    for key, origin in origins.items():
+        record_origins(key, origin)
     resources = {key.split('.')[2] for key in values if key.startswith('desired.resource.')}
     rows = {key.split('.')[2] for key in values if key.startswith('desired.row.')}
     used = selectors | set().union(*(variables(value) for value in values.values()))
     parameters = {name: spec for name, spec in definition.parameters.items() if name in used}
-    return definition._replace(parameters=parameters, resources=resources,
+    return definition._replace(parameters=parameters, resources=resources, locations=locations,
                                rows={row: owner for row, owner in definition.rows.items() if row in rows}, values=values)
 
 
@@ -707,6 +739,11 @@ def expand_inputs(template, parameters, observed, bindings, environment, bind_in
                            if len(key_parts) >= 4 and key_parts[1] == 'row' and key_parts[2] == local}
             provenance[output_key] = {'template':str(file),'line':line,'definition':instance['definition'],
                                      'key':key,'instance':instance['id'],'parameters':sorted(dependencies&instance['parameters'].keys()), 'resources':traced_resources, 'rows':traced_rows}
+            leaf_locations = {position[1]: {'file': str(location[0]), 'line': location[1]}
+                              for position, location in definition.locations.items()
+                              if isinstance(position, tuple) and len(position) == 2 and position[0] == key}
+            if leaf_locations:
+                provenance[output_key]['sourceLocations'] = leaf_locations
     for key, value in restore_observed(values, observed['values']).items():
         values[key] = value
         desired_key = 'desired.'+key.removeprefix('observed.')

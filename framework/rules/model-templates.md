@@ -422,3 +422,26 @@ Generation prepares/views validates/publishes separately. The final difference c
 proves all pairs, exact reference changes and preserved consumers at once. Outside the
 managed running Model-only boundary, existing completed-candidate IMPORT guards remain.
 Acquisition/addition restrictions above are unchanged.
+
+## Reference usage and dependency detach
+
+`model_reference_usage.incoming_references(root, resource_address)` and
+`outgoing_references(root, resource_address)` share the final operation checker's
+symbolic traversal and existing expansion/resolution. Addresses are exact
+`environment/target/service/fixed-Resource-ID`. Results carry producer/consumer, key,
+Property, JSON pointer, typed/link kind, format, role, effective value and source
+location/provenance. Selected choice origins follow the chosen expression, including
+JSON positions after optional removals. No expanded-value string matching identifies
+a dependency; equal names do not collapse fixed identities. Only active Instances and
+selected branches participate. Unresolved inputs/links raise a cause; CLI output uses
+status unresolved and a nonzero exit. No model edits, Task writes or generated output.
+A pending publication-recovery journal stops this read-only API without recovering it.
+
+Incoming discovery is restricted to the addressed environment/target; outgoing usage
+expands only its service and resolves needed producer attributes. Reuse an immutable
+input context for related calls. Refactor validation includes registered direct shared
+template consumers and their target references, preserving other environments without
+unconditional repository-wide expansion. It retains ordinary design publication and
+the existing IMPORT guard, not the operation-only intermediate source writer. See
+[Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor)
+for explicit declaration, comparison and final-candidate requirements.

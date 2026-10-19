@@ -458,3 +458,55 @@ def batch_operation_fixture(before, after):
         for source, destination in pairs)
     sources = {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
     return contract, sources
+
+
+def dependency_fixture(root):
+    """Generic service-a/service-b resource cycle, with a resolvable name dependency."""
+    root.mkdir(exist_ok=True, parents=True)
+    a_fields = {'name': ('Name', '<<Name>>'), 'peer': ('Peer', '<<Peer>>')}
+    a_parameters = {'Name': spec(), 'ResourceMode': spec(),
+                    'Peer': spec('reference', service='service-b', resourceType='ServiceB.Resource')}
+    a = ['# model-template: 1'] + metadata('service-a', ['ServiceA.Resource'])
+    a += declaration('Producer', 'ServiceA.Resource', a_fields, a_parameters)
+    a += declaration('Independent', 'ServiceA.Resource', {'name': a_fields['name']}, {'Name': spec(), 'ResourceMode': spec()})
+    b_fields = {'name': ('Name', '<<Origin>>')}
+    b_parameters = {'Origin': spec('reference', service='service-a', resourceType='ServiceA.Resource', format='name'), 'ResourceMode': spec()}
+    b = ['# model-template: 1'] + metadata('service-b', ['ServiceB.Resource'])
+    b += declaration('Consumer', 'ServiceB.Resource', b_fields, b_parameters)
+    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
+    for env in ('dev', 'stg'):
+        name = 'same-name-' + env
+        save_service(root, 'service-a', a,
+            {'instances': {'producer': {'parameters': {'Name': name, 'Peer': '002', 'ResourceMode': 'IMPORT'}},
+                           'same-name': {'parameters': {'Name': name, 'ResourceMode': 'IMPORT'}}}},
+            {'instances': {'service': empty, 'producer': binding('Producer', '001', a_fields, 'producer'),
+                           'same-name': binding('Independent', '003', {'name': a_fields['name']}, 'other-producer')}}, environment=env)
+        save_service(root, 'service-b', b,
+            {'instances': {'consumer': {'parameters': {'Origin': '001', 'ResourceMode': 'IMPORT'}}}},
+            {'instances': {'service': empty, 'consumer': binding('Consumer', '002', b_fields, 'consumer')}}, environment=env)
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': env, 'alias': 'cde', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
+
+
+def dependency_refactor(before, after):
+    """An authored candidate, reusing normal inputs and isolating one instance."""
+    import yaml
+    shutil.copytree(before / 'model', after / 'model')
+    shutil.copyfile(before / 'project.json', after / 'project.json')
+    template = after / 'model/templates/cde/service-b.properties.tpl'
+    lines = declaration('Detached', 'ServiceB.Resource', {'name': ('Name', '<<Name>>')}, {'Name': spec(), 'ResourceMode': spec()})
+    template.write_text(template.read_text() + '\n'.join(lines) + '\n')
+    directory = after / 'model/parameters/stg/cde/service-b'
+    parameters = {'instances': {'consumer': {'parameters': {'Name': 'same-name-stg', 'ResourceMode': 'IMPORT'}}}}
+    (directory / 'parameters.yaml').write_text(yaml.safe_dump(parameters))
+    bindings = json.loads((directory / 'bindings.json').read_text())
+    bindings['instances']['consumer']['definition'] = 'Detached'
+    (directory / 'bindings.json').write_text(json.dumps(bindings))
+    return {p.relative_to(after).as_posix() for p in (template, directory / 'parameters.yaml', directory / 'bindings.json')}
+
+
+def dependency_contract():
+    return ('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n'
+            '- Model refactor: `value-preserving`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
+            '## Model dependency detach\n- ' + json.dumps({'consumer': 'stg/cde/service-b/002',
+            'producer': 'stg/cde/service-a/001', 'key': 'desired.row.002-001.value'}) + '\n')

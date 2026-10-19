@@ -229,6 +229,10 @@ def check_resource_reading(root):
         stdout, stderr = io.StringIO(), io.StringIO()
         lookups, bodies = {}, {}
         with ExitStack() as patches:
+            if entry is model_files.main.__wrapped__:
+                # Simulate the pre-scope APIs too; unwrapping only main still reuses their scopes.
+                for name in ('find_model', 'read_resource', 'trace_model'):
+                    patches.enter_context(patch.object(model_files, name, getattr(model_files, name).__wrapped__))
             for module, name in ((model_files, 'load_model'), (model_templates, '_reference_inputs'),
                                  (model_templates, 'reference_values'), (model_templates, '_parse_template')):
                 original = getattr(module, name)

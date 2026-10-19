@@ -13,7 +13,7 @@ from collections.abc import Mapping, Callable
 from typing import Protocol, TYPE_CHECKING
 from validation_cache import (input_exists, input_is_dir, input_is_file, input_is_symlink,
                               input_select, input_text, memo_table, recording_inputs)
-from policy_tables import unique_object, invalid_constant
+from iac_values import unique_object, invalid_constant
 from sync_progress import phase, thread_lock
 import sync_files
 
@@ -58,7 +58,7 @@ def safe(root, path):
 
 
 @contextmanager
-def publication_lock(root):
+def publication_lock(root, *, read_only=False):
     """OS releases the lock on process exit; restore an interrupted batch before reads."""
     key = str(root.resolve())
     with _guard:
@@ -92,6 +92,8 @@ def publication_lock(root):
             depths[key] = journal
             try:
                 if journal.is_file():
+                    if read_only:
+                        raise ValueError('pending Model publication recovery; read-only analysis stopped')
                     record = json_read(journal.read_text(encoding='utf-8'))
                     exact(record, {'root', 'originals'}, 'publication journal')
                     if record['root'] != key:

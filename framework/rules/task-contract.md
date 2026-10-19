@@ -119,6 +119,55 @@ The normal Model-only finalize accepts running/completed tasks, validates after 
 commit/rebase, then completes only running tasks and merges the exact validated HEAD.
 No persistent PASS receipt, public skip flag, automatic repair or workflow rollback exists.
 
+## Value-preserving Model refactor
+
+An explicit dependency detach is a separate ordinary design Task, not a new Model
+operation and never combined with import-merge/import-delete. Declare:
+
+```markdown
+## Task contract
+- Task type: `design`
+- Task status: `running`
+- Workflow: `update`
+- Model refactor: `value-preserving`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
+
+## Model dependency detach
+- {"consumer":"stg/cde/service-b/002","producer":"stg/cde/service-a/001","key":"desired.row.002-001.value"}
+```
+
+Use exact fixed Resource addresses and expanded Model keys returned by the read-only
+reference API. Optional `pointer` selects one JSON document scalar leaf (RFC 6901);
+without it, the declaration covers that producer's usages at the entire key. Require
+nonempty, unique, nonoverlapping declarations; reject unknown keys, malformed sections,
+invalid JSON, mixed operations and unconsumed lines. All named Resources must exist.
+The dependency must exist before and disappear after; all undeclared dependencies,
+including producer identity, kind, format and JSON position, remain unchanged.
+
+Keep ordinary Modified files, Allowed paths, service Validation scope, naming and
+issue gates. Include every direct registered consumer of a changed shared template.
+The guard compares all effective Resource/Property values and types, fixed Resource/Row
+and Instance composition, resourceMode/type, anchors/Logical IDs, structural metadata,
+observations and unchanged consumers across those targets/environments. CREATE
+reference changes and structural metadata detach are not authorized by value equality.
+Unresolved references fail with a cause. This declaration grants no AWS permission.
+
+Save complete edited candidates through ordinary design `model_templates.publish`
+(with its existing input snapshot/Task revision and rollback), or `save_parameters`
+for input-only changes. Do not use operation-only `source_write_context`/`write_sources`
+or bypass the IMPORT guard. The guard verifies the candidate before publication;
+failed comparisons never rewrite inputs automatically. Generate views with existing
+generation APIs. Keep the Task running and call worktree finalize, which reuses the
+Model-only candidate composition: private commit, latest-base rebase, one read-only
+final loop on base→candidate, completion and ff-only merge of that exact HEAD, cleanup.
+No separate pre-finalize completion/final loop, PASS receipt or new integration engine.
+Failure retains the candidate without merge; a failure-approval flag cannot bypass this
+refactor's final verification. Ordinary design Tasks without this declaration retain
+all existing behavior. Each subsequent single-delete Task starts from the integrated
+previous Task; no remaining Resource edit is permitted inside its deletion Task.
+
+
 ## Controlled deploy repair contract
 
 The CloudFormation deploy phase permits IaC repair only under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). Specify the values of `- Controlled repair: ` and `- Deploy repair session: ` in backticks as `allowed` and an absolute session path outside the repository, respectively; declare only target templates/parameters/declared artifacts as exact Modified files/Allowed paths. Intended design, scope, and task type are immutable; file additions follow existing scope checks. Repair authorization does not permit arbitrary editing: the validator requires matching AUTO_REPAIRABLE history and file digests in the same session. Human approval updates for existing change sets remain permitted as before.

@@ -340,8 +340,7 @@ def check_staged_snapshot(tmp_path):
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
-    for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "worktree_task.py", "worktree_python.py"):
-        shutil.copyfile(SCRIPT.with_name(name), scripts / name)
+    make_loop_fixture(scripts)
     # These isolated runner fixtures exercise orchestration after authorization.
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "tests/units/snapshot.checks.py").write_text(
@@ -448,7 +447,7 @@ def check_regression_authorization(tmp_path):
     runner = scripts / SCRIPT.name
     runner.write_text("# fixture\n", encoding="utf-8")
     (scripts / "tests/units/a.checks.py").write_text("# fixture\n", encoding="utf-8")
-    with patch.object(MODULE, "__file__", str(runner)), \
+    with patch.object(CLI, "__file__", str(runner)), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()) as changed, \
          patch.object(MODULE, "authorize_full_regression", side_effect=ValueError("fixture locked")) as authorize, \
@@ -462,21 +461,21 @@ def check_regression_authorization(tmp_path):
                                    ("task", {"framework/scripts/tests/units/a.checks.py"}, ["--affected"])):
             changed.return_value = paths
             with patch.object(sys, "argv", [str(runner), "--mode", mode, "--log-dir", str(logs), *extra]):
-                assert MODULE.main() == 2
+                assert CLI.main() == 2
             run.assert_not_called()
         authorize.side_effect = KeyboardInterrupt()
         with patch.object(sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]):
-            assert MODULE.main() == 130
+            assert CLI.main() == 130
         run.assert_not_called()
         authorize.side_effect = None
         authorize.reset_mock()
         changed.return_value = set()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--log-dir", str(logs)]):
-            assert MODULE.main() == 0
+            assert CLI.main() == 0
         authorize.assert_not_called()
         assert len(run.call_args.args[1]) == 3
         with patch.object(sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]):
-            assert MODULE.main() == 0
+            assert CLI.main() == 0
         authorize.assert_called_once()
         assert len(run.call_args.args[1]) == 4
         # A proven leaf selection among multiple checks remains a focused run.
@@ -484,18 +483,17 @@ def check_regression_authorization(tmp_path):
         changed.return_value = {"framework/scripts/tests/units/a.checks.py"}
         authorize.reset_mock()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--affected", "--log-dir", str(logs)]):
-            assert MODULE.main() == 0
+            assert CLI.main() == 0
         authorize.assert_not_called()
 
 
 def check_failure_suspension(tmp_path):
+    root = tmp_path / "repository"
+    scripts = root / "framework/scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
+    make_loop_fixture(scripts)
     with patch.dict(os.environ, {}, clear=True):
-        root = tmp_path / "repository"
-        scripts = root / "framework/scripts"
-        scripts.mkdir(parents=True)
-        (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
-        for name in (SCRIPT.name, "validation_scope.py", "task_contract.py", "sync_files.py", "validation_cache.py", "sync_progress.py", "run-python.py", "worktree_task.py"):
-            shutil.copyfile(SCRIPT.with_name(name), scripts / name)
         (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
         (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
         validator = scripts / "validate-blueprint.py"
@@ -622,7 +620,7 @@ def check_startup_diagnostics(tmp_path, phase):
                 "timing": ("timing.open", "pathlib.Path.open"),
                 "diagnostic-open": ("diagnostics.start", "pathlib.Path.open"),
                 "unexpected": ("git.config", "subprocess.run")}
-    with patch.object(MODULE, "__file__", str(runner)), \
+    with patch.object(CLI, "__file__", str(runner)), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()), \
          patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
@@ -631,14 +629,14 @@ def check_startup_diagnostics(tmp_path, phase):
          patch.object(sys, "argv", [str(runner), "--mode", "task", "--task-file", selected,
                                     "--log-dir", str(logs)]), \
          patch.dict(os.environ, {tasks.SELECTOR: selected}):
-        assert MODULE.main() == 2
+        assert CLI.main() == 2
     directory, = logs.iterdir()
     details = json.loads((directory / "startup-error.json").read_text(encoding="utf-8"))
     assert (details["step"], details["api"]) == expected[phase], details
     assert details["cwd"] == str(root)
     assert details["location"]["line"] > 0 and details["location"]["filename"]
     assert "Traceback (most recent call last)" in details["traceback"]
-    assert "blueprint-loop.py" in details["traceback"]
+    assert str(Path(MODULE.__file__)) in details["traceback"]
     if phase not in {"git-exit", "unexpected"}:
         assert details["errno"] == 22 and details["winerror"] == 87
         assert details["filename"] == "日本語-input"
@@ -690,14 +688,7 @@ def check_workflow(tmp_path) -> None:
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
-    shutil.copyfile(SCRIPT.with_name("validation_scope.py"), scripts / "validation_scope.py")
-    shutil.copyfile(SCRIPT.with_name("task_contract.py"), scripts / "task_contract.py")
-    shutil.copyfile(SCRIPT.with_name("worktree_task.py"), scripts / "worktree_task.py")
-    shutil.copyfile(SCRIPT.with_name("worktree_python.py"), scripts / "worktree_python.py")
-    shutil.copyfile(SCRIPT.with_name("sync_files.py"), scripts / "sync_files.py")
-    shutil.copyfile(SCRIPT.with_name("validation_cache.py"), scripts / "validation_cache.py")
-    shutil.copyfile(SCRIPT.with_name("sync_progress.py"), scripts / "sync_progress.py")
+    make_loop_fixture(scripts)
     (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
     (scripts / "tests/units/a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")

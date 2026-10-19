@@ -1186,6 +1186,16 @@ def check_explicit_reference_operation(tmp_path, field):
     bindings['instances']['subnet'] = binding('Subnet', '020', fields, 'subnet-keep')
     inputs['instances']['subnet'] = {'parameters': {'Vpc': ('001' if field == 'reevaluation' else '009') if external else 'imported-vpc', 'ResourceMode': 'CREATE'}}
     bindings_file.write_text(json.dumps(bindings)); inputs_file.write_text(yaml.safe_dump(inputs))
+    from model_reference_usage import outgoing_references
+    from utils.aws_mappings import mapping_alias
+    with mapping_alias(Path(__file__).resolve().parents[4], before):
+        usages = outgoing_references(before, 'stg/cde/vpc/020')
+    expected_source = 'stg/cde/vpc/' + ('001' if field == 'reevaluation' else '009')
+    assert usages and all(item['producer'] == expected_source for item in usages)
+    if field == 'identifier':
+        assert any(item['format'] == 'identifier' and item['resolvedValue'] == 'vpc-source' for item in usages)
+    if field == 'name':
+        assert any(item['format'] == 'name' and item['resolvedValue'] == 'source-name' for item in usages)
     sources = operation_candidate(before, after)
     inputs_file = after / inputs_file.relative_to(before)
     inputs = yaml_read(inputs_file.read_text())
@@ -1215,6 +1225,304 @@ def check_explicit_reference_operation(tmp_path, field):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
+
+def check_generic_reference_usage(tmp_path):
+    from support.import_model_fixtures import dependency_fixture
+    from model_reference_usage import incoming_references, outgoing_references
+    dependency_fixture(tmp_path)
+    snapshot = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    incoming = incoming_references(tmp_path, 'stg/cde/service-a/001')
+    assert len(incoming) == 1
+    record = incoming[0]
+    assert record['consumer'] == 'stg/cde/service-b/002'
+    assert record['key'] == 'desired.row.002-001.value' and record['property'] == 'ServiceB.Resource.Name'
+    assert record['kind'] == 'typed' and record['format'] == 'name' and record['role'] == 'configuration'
+    assert record['resolvedValue'] == 'same-name-stg' and record['status'] == 'resolved'
+    assert record['sourceLocation']['file'] == 'model/templates/cde/service-b.properties.tpl'
+    line = snapshot[tmp_path / record['sourceLocation']['file']].decode().splitlines()[record['sourceLocation']['line'] - 1]
+    assert line == 'desired.row.name.value=<<Origin>>'
+    assert incoming_references(tmp_path, 'stg/cde/service-a/003') == []  # Same name, different fixed ID.
+    reverse = outgoing_references(tmp_path, 'stg/cde/service-a/001')
+    assert len(reverse) == 1 and reverse[0]['producer'] == 'stg/cde/service-b/002'
+    assert all(p.read_bytes() == data for p, data in snapshot.items())
+    with pytest.raises(ValueError, match='unknown Resource'):
+        incoming_references(tmp_path, 'stg/cde/service-a/999')
+
+
+@pytest.mark.parametrize('selected', [False, True])
+def check_reference_active_shapes_and_documents(tmp_path, selected):
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, spec
+    from model_reference_usage import outgoing_references
+    dependency_fixture(tmp_path)
+    path = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+    text = path.read_text().replace('# definition: Consumer\n', '# definition: Consumer\n# parameter: Select ' + json.dumps(spec('boolean')) + '\n')
+    text = text.replace('desired.row.name.value=<<Origin>>',
+        'desired.row.name.value=same-name-stg\n# choice: desired.row.name.value {"parameter":"Select","value":"<<Origin>>"}')
+    # A display link remains a distinct usage; identical ordinary text is not a reference.
+    text = text.replace('display.resource.resource.comment=合成テスト用のリソース',
+                        'display.resource.resource.comment=説明 [producer](./service-a.md#producer) same-name-stg')
+    text += '\n# definition: Unused\n# reference: Missing {"service":"unknown","resource":"999","resourceType":"Other.Resource"}\ndesired.note.099.text=<<Missing>>\n# end-definition\n'
+    path.write_text(text)
+    for env in ('dev', 'stg'):
+        inputs = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
+        value = yaml_read(inputs.read_text())
+        value['instances']['consumer']['parameters']['Select'] = selected
+        if not selected:
+            del value['instances']['consumer']['parameters']['Origin']
+        inputs.write_text(yaml.safe_dump(value))
+    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    assert len(references) == (2 if selected else 1)
+    assert sum(item['role'] == 'display' for item in references) == 1
+    if selected:
+        named = next(item for item in references if item['format'] == 'name')
+        assert path.read_text().splitlines()[named['sourceLocation']['line'] - 1].startswith('# choice:')
+    # Document shape uses the same resolver and escaped RFC 6901 positions.
+    text = path.read_text().replace('desired.row.name.comment=合成テストの取得設定',
+        'desired.row.name.comment=合成テストの取得設定\ndesired.row.name.document={"a/b":["drop","<<Origin>>"],"unused":"<<Missing>>"}\n'
+        '# parameter: Missing ' + json.dumps(spec('reference', service='missing', resourceType='Other.Resource')) + '\n'
+        '# optional-json: desired.row.name.document /unused Keep\n'
+        '# optional-json: desired.row.name.document /a~1b/0 Keep\n'
+        '# choice: desired.row.name.document {"parameter":"Select","pointer":"/a~1b/1","value":"<<Origin>>"}\n'
+        '# parameter: Keep ' + json.dumps(spec('boolean')))
+    path.write_text(text)
+    for env in ('dev', 'stg'):
+        inputs = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
+        value = yaml_read(inputs.read_text())
+        value['instances']['consumer']['parameters'].update(Origin='001', Keep=False)
+        inputs.write_text(yaml.safe_dump(value))
+    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    document = [item for item in references if item['pointer'] is not None]
+    assert len(document) == 1 and document[0]['pointer'] == '/a~1b/0'
+    assert document[0]['resolvedValue'] == 'same-name-stg'
+    location = path.read_text().splitlines()[document[0]['sourceLocation']['line'] - 1]
+    assert location.startswith('# choice:' if selected else 'desired.row.name.document=')
+
+
+@pytest.mark.parametrize('broken', ['unknown', 'cycle', 'link', 'missing-input'])
+def check_reference_fail_closed(tmp_path, broken):
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, spec
+    from model_reference_usage import incoming_references
+    dependency_fixture(tmp_path)
+    path = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
+    if broken == 'unknown':
+        path.write_text(path.read_text().replace("'001'", "'999'"))
+    elif broken == 'missing-input':
+        path.unlink()
+    elif broken == 'link':
+        template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+        template.write_text(template.read_text().replace('合成テスト用のリソース', '[missing](service-a.md#missing)'))
+    else:
+        template = tmp_path / 'model/templates/cde/service-a.properties.tpl'
+        text = template.read_text().replace('# parameter: Name ' + json.dumps(spec(), ensure_ascii=False, separators=(',', ':')),
+            '# parameter: Name ' + json.dumps(spec('reference', service='service-b', resourceType='ServiceB.Resource', format='name')))
+        template.write_text(text)
+        for env in ('dev', 'stg'):
+            inputs = tmp_path / 'model/parameters' / env / 'cde/service-a/parameters.yaml'
+            value = yaml_read(inputs.read_text())
+            for item in value['instances'].values():
+                item['parameters']['Name'] = '002'
+            inputs.write_text(yaml.safe_dump(value))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        incoming_references(tmp_path, 'stg/cde/service-a/001')
+
+
+def check_value_preserving_detach_and_single_deletions(tmp_path):
+    import shutil
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract, operation_contract
+    from task_contract import model_refactor, model_operation
+    from model_operation_checks import verify_model_refactor, verify_model_operation
+    from model_reference_usage import incoming_references
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    sources = dependency_refactor(before, after)
+    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
+    verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+    assert incoming_references(after, 'stg/cde/service-a/001') == []
+    assert incoming_references(after, 'dev/cde/service-a/001')
+    previous = after
+    for service, rid, instance in [('service-a', '001', 'producer'), ('service-b', '002', 'consumer')]:
+        candidate = tmp_path / service
+        shutil.copytree(previous, candidate)
+        directory = candidate / 'model/parameters/stg/cde' / service
+        parameters, bindings = directory / 'parameters.yaml', directory / 'bindings.json'
+        inputs, bound = yaml_read(parameters.read_text()), json.loads(bindings.read_text())
+        del inputs['instances'][instance]; del bound['instances'][instance]
+        parameters.write_text(yaml.safe_dump(inputs)); bindings.write_text(json.dumps(bound))
+        operation = model_operation(operation_contract('import-delete', source='stg/cde/' + service + '/' + rid))
+        changed = {p.relative_to(candidate).as_posix() for p in (parameters, bindings)}
+        verify_model_operation(previous, candidate, operation, changed)
+        previous = candidate
+
+
+@pytest.mark.parametrize('corrupt', ['property', 'mode', 'anchor', 'observed', 'foreign', 'identity-reference', 'scope', 'retained', 'create', 'undeclared'])
+def check_refactor_rejects_changes(tmp_path, corrupt):
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from task_contract import model_refactor
+    from model_operation_checks import verify_model_refactor
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    sources = dependency_refactor(before, after)
+    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
+    parameters = after / 'model/parameters/stg/cde/service-b/parameters.yaml'
+    if corrupt == 'property':
+        parameters.write_text(parameters.read_text().replace('same-name-stg', 'changed'))
+    elif corrupt == 'mode':
+        parameters.write_text(parameters.read_text().replace('IMPORT', 'CREATE'))
+    elif corrupt == 'anchor':
+        file = parameters.with_name('bindings.json')
+        file.write_text(file.read_text().replace('"Anchor": "consumer"', '"Anchor": "changed"'))
+    elif corrupt == 'observed':
+        file = parameters.with_name('observed.json')
+        file.write_text(json.dumps({'version': 1, 'values': {'observed.row.002-001.value': 'changed'}}))
+        sources.add(file.relative_to(after).as_posix())
+    elif corrupt == 'foreign':
+        file = after / 'model/parameters/dev/cde/service-a/parameters.yaml'
+        file.write_text(file.read_text().replace('same-name-dev', 'changed'))
+    elif corrupt == 'identity-reference':
+        file = after / 'model/parameters/dev/cde/service-b/parameters.yaml'
+        file.write_text(file.read_text().replace("'001'", "'003'"))
+    elif corrupt == 'scope':
+        scope.remove(('dev', 'cde', 'service-b'))
+    elif corrupt == 'retained':
+        for name in ('parameters.yaml', 'bindings.json'):
+            file = parameters.with_name(name)
+            file.write_bytes((before / file.relative_to(after)).read_bytes())
+    elif corrupt == 'create':
+        file = before / parameters.relative_to(after)
+        file.write_text(file.read_text().replace('IMPORT', 'CREATE'))
+        parameters.write_text(parameters.read_text().replace('IMPORT', 'CREATE'))
+    else:
+        file = after / 'model/parameters/dev/cde/service-b/parameters.yaml'
+        value = yaml_read(file.read_text())
+        value['instances']['consumer']['parameters'] = {'Name': 'same-name-dev', 'ResourceMode': 'IMPORT'}
+        file.write_text(yaml.safe_dump(value))
+        file = file.with_name('bindings.json')
+        file.write_text(file.read_text().replace('Consumer', 'Detached'))
+    with pytest.raises(ValueError):
+        verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+
+
+def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
+    import hashlib
+    from support.import_model_fixtures import dependency_fixture
+    from model_reference_usage import incoming_references, outgoing_references
+    import model_reference_usage as usage
+    import model_sources
+    dependency_fixture(tmp_path)
+    # A broken unrelated environment cannot affect this target's read-only answer.
+    foreign = tmp_path / 'model/parameters/dev/cde/service-b/parameters.yaml'
+    foreign.write_text('invalid: [')
+    calls = []
+    load = usage.load_expansion
+    def expand(path):
+        calls.append(path.relative_to(tmp_path).as_posix())
+        return load(path)
+    monkeypatch.setattr(usage, 'load_expansion', expand)
+    assert outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    assert calls == ['model/stg/cde/service-b.properties']
+    calls.clear()
+    assert incoming_references(tmp_path, 'stg/cde/service-a/001')
+    assert calls == ['model/stg/cde/service-a.properties', 'model/stg/cde/service-b.properties']
+    # The API refuses recovery, rather than writing a pending transaction's Model.
+    temporary = tmp_path / 'temporary'
+    temporary.mkdir()
+    monkeypatch.setattr(model_sources.tempfile, 'gettempdir', lambda: str(temporary))
+    journal = temporary / 'blueprint-model-publication' / (hashlib.sha256(str(tmp_path.resolve()).encode()).hexdigest() + '.json')
+    journal.parent.mkdir()
+    journal.write_text('pending recovery')
+    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    with pytest.raises(ValueError, match='read-only analysis stopped'):
+        incoming_references(tmp_path, 'stg/cde/service-a/001')
+    assert journal.read_text() == 'pending recovery'
+    assert all(p.read_bytes() == data for p, data in before.items())
+
+
+def check_reference_structural_and_remaining_delete(tmp_path):
+    import shutil
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, dependency_contract, operation_contract
+    from model_reference_usage import outgoing_references
+    from model_operation_checks import verify_model_refactor, verify_model_operation
+    from task_contract import model_refactor, model_operation
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    template = before / 'model/templates/cde/service-a.properties.tpl'
+    template.write_text(template.read_text().replace('# definition: Producer\n',
+        '# definition: Producer\ndesired.resource.resource.parentReference=[other](#other-producer)\n'))
+    refs = outgoing_references(before, 'stg/cde/service-a/001')
+    structural = next(item for item in refs if item['role'] == 'structure')
+    assert structural['producer'] == 'stg/cde/service-a/003' and structural['kind'] == 'link'
+    shutil.copytree(before, after)
+    file = after / template.relative_to(before)
+    file.write_text(file.read_text().replace('desired.resource.resource.parentReference=[other](#other-producer)\n', ''))
+    text = dependency_contract().replace('service-b/002', 'service-a/001').replace('service-a/001", "key"', 'service-a/003", "key"').replace('desired.row.002-001.value', 'desired.resource.001.parentReference')
+    with pytest.raises(ValueError, match='structure changed|structural metadata'):
+        verify_model_refactor(before, after, model_refactor(text), {file.relative_to(after).as_posix()}, {('stg', 'cde', 'service-a'), ('dev', 'cde', 'service-a')})
+    # Existing single-delete rejects an actual surviving name reference.
+    directory = after / 'model/parameters/stg/cde/service-a'
+    for filename in ('parameters.yaml', 'bindings.json'):
+        file = directory / filename
+        payload = yaml_read(file.read_text()) if filename.endswith('.yaml') else json.loads(file.read_text())
+        del payload['instances']['producer']
+        file.write_text(yaml.safe_dump(payload) if filename.endswith('.yaml') else json.dumps(payload))
+    with pytest.raises(ValueError):
+        verify_model_operation(before, after, model_operation(operation_contract('import-delete', source='stg/cde/service-a/001')),
+                               {p.relative_to(after).as_posix() for p in directory.iterdir()})
+
+
+def check_dependency_json_types_and_exact_detach(tmp_path):
+    import shutil
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from task_contract import model_refactor
+    from model_operation_checks import verify_model_refactor
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    template = before / 'model/templates/cde/service-b.properties.tpl'
+    template.write_text(template.read_text().replace('desired.row.name.comment=',
+        'desired.row.name.document={"ref":"<<Origin>>","keep":"<<Origin>>","typed":1}\ndesired.row.name.comment='))
+    sources = dependency_refactor(before, after)
+    file = after / template.relative_to(before)
+    # Retain one exact reference, detach Name and /ref only through an explicit choice of input.
+    text = file.read_text().replace('# definition: Detached\n',
+        '# definition: Detached\n# reference: Retained {"service":"service-a","resource":"001","resourceType":"ServiceA.Resource","format":"name"}\n')
+    text = text.replace('desired.row.name.value=<<Name>>',
+        'desired.row.name.value=<<Name>>\ndesired.row.name.document={"ref":"<<Name>>","keep":"<<Retained>>","typed":1}')
+    file.write_text(text)
+    declaration = {'consumer': 'stg/cde/service-b/002', 'producer': 'stg/cde/service-a/001', 'key': 'desired.row.002-001.document', 'pointer': '/ref'}
+    contract = dependency_contract() + '- ' + json.dumps(declaration) + '\n'
+    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
+    verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+    with pytest.raises(ValueError, match='undeclared'):
+        verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+    file.write_text(text.replace('"typed":1}', '"typed":true}'))
+    with pytest.raises(ValueError, match='value/type changed'):
+        verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+    file.write_text(text.replace('"typed":1}', '"typed":1.0}'))
+    with pytest.raises(ValueError, match='value/type changed'):
+        verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+    # Escaped NULs in source JSON cannot impersonate in-memory reference markers.
+    file.write_text(text.replace('"typed":1}', '"typed":"\\u0000reference0\\u0000"}'))
+    from model_reference_usage import outgoing_references
+    with pytest.raises(ValueError, match='reserved control character'):
+        outgoing_references(after, 'stg/cde/service-b/002')
+
+
+def check_reference_embedded_link_label(tmp_path):
+    from support.import_model_fixtures import dependency_fixture
+    from model_reference_usage import outgoing_references
+    dependency_fixture(tmp_path)
+    template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+    template.write_text(template.read_text().replace('display.resource.resource.comment=合成テスト用のリソース',
+        'display.resource.resource.comment=[<<Origin>>](service-a.md#other-producer)'))
+    usages = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    links = [item for item in usages if item['role'] == 'display']
+    assert {(item['producer'], item['kind']) for item in links} == {
+        ('stg/cde/service-a/001', 'typed'), ('stg/cde/service-a/003', 'link')}
+    assert all(item['resolvedValue'] == '[same-name-stg](service-a.md#other-producer)' for item in links)
 
 def check_publication_verifies_only_acquisition_selected_additions():
     from unittest.mock import Mock

@@ -1335,8 +1335,13 @@ def check_integrated_validator(generated_policy, initial):
                 write(path, 'partial output', encoding='utf-8')
                 raise OSError('injected publication I/O')
             return write(path, *args, **kwargs)
+        original_policy_check = validator_module.Validator.check_policy_tables
+        def candidate_policy_check(validator):
+            if validator.root == root:
+                raise AssertionError('post-save content handler')
+            return original_policy_check(validator)
         with patch.dict(os.environ, env), patch.object(Path, 'write_text', fail_write), \
-             patch.object(validator_module.Validator, 'check_policy_tables', side_effect=AssertionError('post-save content handler')):
+             patch.object(validator_module.Validator, 'check_policy_tables', candidate_policy_check):
             failed = validator_module.Validator(root, {('dev', '123456789012', 'iam')}, write=True)
             assert failed.run() == 1
         assert originals == {p: p.read_bytes() for p in originals}

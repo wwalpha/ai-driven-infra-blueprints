@@ -399,3 +399,11 @@ for status and merge without another loop. The validation interval holds no life
 lock. Recheck base, HEAD, clean state and exact permitted status transition before merge.
 On FAIL retain candidate/worktree; no auto-regeneration/amend/retry. Cleanup runs in the
 surviving ordinary-Python parent after the registered-runtime child exits.
+
+The same final-candidate composition also applies to an explicit
+[Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor).
+Its ordinary design save guard verifies source candidates; TaskValidation invokes the
+refactor meaning check through require_import_changes on the actual latest-base
+candidate. Generation remains the existing path, and independent complete retains its
+own check. No second pre-finalize final loop or completion is required. Ordinary design
+without this opt-in declaration retains its existing validation/integration behavior.

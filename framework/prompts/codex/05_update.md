@@ -17,6 +17,54 @@ Follow [task-contract](../../rules/task-contract.md) for contract registration, 
 
 Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
 
+## Dependency analysis and value-preserving refactoring
+
+Before single deletion use `model_reference_usage.incoming_references(root, address)`
+and `outgoing_references(root, address)`. A read-only CLI wraps the same API:
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/model_reference_usage.py <environment/target/service/fixed-ID> --direction incoming
+```
+
+Inspect raw sources and returned fixed producer/consumer IDs, expanded key, formal
+Property, JSON pointer, syntax kind/format, effective value and source/provenance.
+`role` distinguishes configuration, structure and display; a display link is not an
+AWS setting, but surviving links still block deletion. Self usages vanish with the
+resource; service-level links without a Resource owner must also be considered.
+Unknown/ambiguous/cyclic/unexpandable inputs are failures, never an empty dependency
+list. Do not infer Resource IDs, values, dependency meaning or an edit from names.
+
+The LLM decides in this order; Python reports facts and verifies safety:
+
+1. If A refers to B in one direction only, delete the explicitly authorized A first,
+   integrate that single-delete Task, then independently delete B. Report any needed
+   deletion outside Human authorization instead of executing it. Do not refactor when
+   ordering suffices, and never implement multiple deletions in one import-delete Task.
+2. For a resource cycle, inspect name/Property-derived dependencies that might be
+   detached while preserving every effective setting. `format: name` alone is not
+   proof. Preserve structural/AWS-setting/identifier constraints; stop with concrete
+   required design changes if preservation cannot be proved.
+3. Reuse existing independent parameters and Definitions. If changing a shared
+   Definition would alter other consumers, isolate only the intended Instance using
+   the existing Definition/binding structure, retaining fixed maps. Do not hardcode an
+   environment-specific value into a shared template or alter another environment.
+4. When necessary, execute a separate design /update Task under
+   [Value-preserving Model refactor](../../rules/task-contract.md#value-preserving-model-refactor).
+   Declare exact dependencies, ordinary paths/scope and forbidden AWS/deploy. Edit raw
+   inputs as the LLM, publish through the ordinary design guard, generate views, and
+   finalize the running worktree Task. Python verifies values, types, structure,
+   declared removals and preserved consumers; it never chooses/fixes the edit.
+5. Only after successful final validation/integration begin the next explicitly
+   authorized single-delete Task against that integrated base. The refactor Task and
+   each deletion have independent final validation and integration. Never change a
+   surviving Resource while executing its neighbor's deletion Task.
+
+CREATE dependency changes require ordinary design review even if values match; they
+cannot succeed as this value-preserving IMPORT detach. A failed guard retains work
+and detailed before/after diagnostics. Do not disable it or auto-approve failure.
+This branch does not enter infrastructure execution below.
+
+
 ## Model-only IMPORT merge or deletion
 
 Use this branch for an explicit human Model-only request. Register one running design

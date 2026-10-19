@@ -1764,3 +1764,27 @@ no new runner or live AWS/consumer inputs are introduced.
 | `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/import-model.checks.py) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |
 
 | `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py) | pytest / 3 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
+
+## Generic Model dependency detach
+
+| Original case | Case | Class | Current location | Execution / count | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `dependency/contract` | `check_dependency_detach_contract` | UT | [strict opt-in contract](units/task-contract-unit.checks.py) | pytest / 1 | exact JSON/keys/IDs/scope, malformed/duplicate/conflicting declarations; ordinary design unchanged | Added |
+| `dependency/usage` | `check_generic_reference_usage` | UT | [fixed-ID usage](units/import-model-unit.checks.py) | pytest / 1 | service-a/service-b cycle, identical names with distinct IDs, source line and value, read-only state | Added |
+| `dependency/shape` | `check_reference_active_shapes_and_documents` | UT | [active shapes](units/import-model-unit.checks.py) | pytest / 2 | active choice, inactive optional JSON/unused Definition, escaped JSON pointer, separate display links | Added |
+| `dependency/unresolved` | `check_reference_fail_closed` | UT | [unresolved references](units/import-model-unit.checks.py) | pytest / 4 | unknown fixed ID, cyclic name expansion, broken internal link and missing input fail closed | Added |
+| `dependency/delete` | `check_value_preserving_detach_and_single_deletions` | UT | [separate single deletions](units/import-model-unit.checks.py) | pytest / 1 | independent value-preserving detach followed by two unchanged single-delete checks; other environment preserved | Added |
+| `dependency/preservation` | `check_refactor_rejects_changes` | UT | [preservation rejection](units/import-model-unit.checks.py) | pytest / 10 | changed value/mode/anchor/observed/foreign consumer, identical-name retarget, scope, retained/undeclared reference and CREATE reject | Added |
+| `dependency/integration` | `check_model_refactor_integration` | IT | [ordinary publish and final candidate](integrations/worktree_task.checks.py) | direct / 1 | ordinary design atomic publication, operation-writer rejection, one final verification, actual base producer change/rebase blocks merge and preserves worktree | Added |
+| `dependency/bounded-read` | `check_reference_readonly_and_bounded_expansion` | UT | [bounded read-only API](units/import-model-unit.checks.py) | pytest / 1 | one selected-service expansion for outgoing, selected target only for incoming, pending journal refusal without Model writes | Added |
+| `dependency/structure` | `check_reference_structural_and_remaining_delete` | UT | [structural and surviving references](units/import-model-unit.checks.py) | pytest / 1 | parentReference identity/role, structural detach and deletion with remaining name reference rejected | Added |
+| `dependency/json-types` | `check_dependency_json_types_and_exact_detach` | UT | [exact JSON detach](units/import-model-unit.checks.py) | pytest / 1 | declared JSON leaf detach, retained sibling reference, undeclared change, boolean/number type changes, escaped marker impersonation rejection | Added |
+| `dependency/link-label` | `check_reference_embedded_link_label` | UT | [embedded label reference](units/import-model-unit.checks.py) | pytest / 1 | typed name in Markdown label and link target remain distinct fixed-ID usages | Added |
+
+The existing IT cases retain their assertions and registrations after the runtime extraction:
+blueprint-loop orchestration uses the CLI and validator API boundaries; deployment fixtures
+copy the complete runtime; publication races are injected at GenerationInputs.verify;
+Model-only imports avoid the presentation dependency; cache comparisons unwrap both CLI
+and read API scopes; saved-validation tracing excludes candidate validators; publication
+failure checks allow candidate validation; shared-input saves register a synthetic Task;
+partial-cache validation spies on compare_generation with the full consumer scope.

@@ -111,6 +111,7 @@ def validate_contract(root, name, text, legacy=False, *, check_paths=True):
     """Validate the selected contract declaration."""
     status(text, legacy)
     model_operation(text)
+    model_refactor(text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -250,6 +251,68 @@ def model_operation(text: str) -> ModelOperation | None:
     return ModelOperation(action, scope, tuple(pairs), tuple(references))
 
 
+@dataclass(frozen=True)
+class DependencyDetach:
+    consumer: str
+    producer: str
+    key: str
+    pointer: str | None = None
+
+
+def model_refactor(text: str) -> tuple[DependencyDetach, ...] | None:
+    """Opt-in design declaration, independent of Model operation and ordinary design."""
+    from iac_values import strict_json
+    lines = section(text, '## Task contract')
+    heading = '## Model dependency detach'
+    reserved = [line for line in lines if re.match(r'-\s*Model refactor\b', line)]
+    headings = [line for line in text.splitlines() if re.match(r'##\s+Model dependency detach\b', line)]
+    if not reserved and not headings:
+        return None
+    from model_reference_usage import resource_address
+    if reserved != ['- Model refactor: `value-preserving`'] or headings != [heading]:
+        raise ValueError('invalid Model refactor declaration/section')
+    for name, expected in [('Task type', 'design'), ('Workflow', 'update'),
+                           ('AWS API execution', 'forbidden'), ('deploy/apply', 'forbidden')]:
+        found = [line for line in lines if re.match(r'-\s*' + re.escape(name) + r'\b', line)]
+        if found != ['- ' + name + ': `' + expected + '`']:
+            raise ValueError('Model refactor requires ' + name + ': ' + expected)
+    if model_operation(text) is not None:
+        raise ValueError('Model refactor cannot be combined with Model operation')
+    result, seen = [], set()
+    for line in section(text, heading):
+        if not line.startswith('- {') or not line.endswith('}'):
+            raise ValueError('invalid Model dependency detach JSON entry')
+        value = strict_json(line[2:])
+        if not isinstance(value, dict) or set(value) not in ({'consumer', 'producer', 'key'}, {'consumer', 'producer', 'key', 'pointer'}):
+            raise ValueError('detach requires consumer, producer, key and optional pointer')
+        consumer, producer = resource_address(value['consumer']), resource_address(value['producer'])
+        key, pointer = value['key'], value.get('pointer')
+        if consumer[:2] != producer[:2] or consumer == producer:
+            raise ValueError('detach requires distinct Resources in the same environment/target')
+        if not isinstance(key, str) or not re.fullmatch(r'(?:desired|display)\.(?:row|resource)\.[0-9]{3,}(?:-[0-9]{3,})?\.[A-Za-z][A-Za-z0-9]*', key):
+            raise ValueError('detach requires an exact expanded Model key')
+        parts = key.split('.')
+        owner = parts[2].rpartition('-')[0] if parts[1] == 'row' else parts[2]
+        if owner != consumer[3]:
+            raise ValueError('detach key does not belong to its consumer')
+        if 'pointer' in value and (not isinstance(pointer, str) or not pointer.startswith('/') or re.search(r'~(?![01])', pointer) or not key.endswith('.document')):
+            raise ValueError('detach pointer requires a document scalar RFC 6901 path')
+        record = DependencyDetach(value['consumer'], value['producer'], key, pointer)
+        if record in seen or any(r.consumer == record.consumer and r.producer == record.producer and r.key == key
+                                 and (r.pointer is None or pointer is None) for r in result):
+            raise ValueError('duplicate/overlapping dependency detach')
+        seen.add(record)
+        result.append(record)
+    if not result:
+        raise ValueError('Model refactor requires nonempty dependency detach declarations')
+    return tuple(result)
+
+
+def final_model_task(text):
+    """Only explicit Model operations/refactors share the final candidate composition."""
+    return model_operation(text) is not None or model_refactor(text) is not None
+
+
 _selected_tasks = ContextVar('selected_tasks', default={})
 
 
@@ -333,7 +396,7 @@ def complete(root, name):
     text = selected_text(root, records, name)
     if status(text, name == "tasks/active.md") != "running":
         raise ValueError("only a running task can complete")
-    if "- Workflow: `import`" in section(text, "## Task contract") or model_operation(text) is not None:
+    if "- Workflow: `import`" in section(text, "## Task contract") or final_model_task(text):
         from import_guard import require_import_changes
         previous = os.environ.get(SELECTOR)
         try:

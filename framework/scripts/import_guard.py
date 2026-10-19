@@ -240,8 +240,9 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
     selected = task_path(root).relative_to(root).as_posix()
     text = contracts(root).get(selected, '')
-    from task_contract import model_operation
+    from task_contract import model_operation, model_refactor
     operation = model_operation(text)
+    refactor = model_refactor(text)
     if operation is not None:
         if generation:
             return  # Source/view generation does not decide final Model operation meaning.
@@ -251,6 +252,22 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         from model_operation_checks import verify_model_operation
         with snapshots(root, base, output or {}) as (before, after):
             verify_model_operation(before, after, operation, sources)
+        return
+    if refactor is not None:
+        from model_operation_checks import verify_model_refactor
+        from validation_scope import active_scope
+        from task_contract import paths_in, matches, safe_path
+        declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
+        for relative in sources:
+            safe_path(root, relative)
+            if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
+                raise ValueError('Model refactor source outside Modified files/Allowed paths: ' + relative)
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root)
+        if base is None:
+            raise ValueError('Model refactor requires a versioned baseline')
+        scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root)
+        with snapshots(root, base, output or {}) as (before, after):
+            verify_model_refactor(before, after, refactor, sources, scope)
         return
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:

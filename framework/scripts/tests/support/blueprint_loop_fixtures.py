@@ -62,4 +62,21 @@ def make_framework_fixture(source, root):
     (root / "docs/system-overview.md").write_text("# Fixture\n", encoding="utf-8")
 
 
-__all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_framework_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']
+def make_loop_fixture(scripts):
+    copy_framework(scripts, relative="scripts", dirs_exist_ok=True, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    # Orchestration fixtures keep their scripted outcomes at the current validator API boundary.
+    (scripts / 'validation/runner.py').write_text("""import runpy
+from types import SimpleNamespace
+
+def run_validation(root, options, **kwargs):
+    def report():
+        try:
+            runpy.run_path(str(root / 'framework/scripts/validate-blueprint.py'), run_name='__main__')
+        except SystemExit as error:
+            return error.code or 0
+        return 0
+    return SimpleNamespace(display_report=report)
+""", encoding='utf-8')
+
+
+__all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_framework_fixture', 'make_loop_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']

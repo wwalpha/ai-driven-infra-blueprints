@@ -82,6 +82,13 @@ def check(root):
         directory / 'parameters.yaml': serialized,
         directory / 'bindings.json': t.json_text(plain),
         directory / 'observed.json': t.json_text(observed)})
+    from task_contract import start
+    task = 'tasks/shared-inputs.md'
+    parameter_path = (directory / 'parameters.yaml').relative_to(root).as_posix()
+    start(root, task, '## Task contract\n- Task type: `design`\n- Task status: `running`\n'
+          '## Validation scope\n- `preview/team/security-group`\n'
+          '## Modified files\n- `' + task + '`\n- `' + parameter_path + '`\n'
+          '## Allowed paths\n- `' + task + '`\n- `' + parameter_path + '`\n')
     t.save_parameters(path, human)
     first = (directory / 'parameters.yaml').read_bytes()
     t.save_parameters(path, human)

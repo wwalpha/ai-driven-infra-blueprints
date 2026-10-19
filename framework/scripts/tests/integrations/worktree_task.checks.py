@@ -499,7 +499,7 @@ def check_final_candidate_staleness():
 
 
 def main():
-    for check in (check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
+    for check in (check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,
@@ -560,6 +560,82 @@ def check_model_operation_integration():
                             assert not target.exists()
     print('Model-only merge/delete integration and post-completion guard: PASS')
 
+
+@it_case
+def check_model_refactor_integration():
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from utils.aws_mappings import mapping_alias
+    from model_templates import publish, load_expansion
+    from import_guard import require_import_changes, source_write_context
+    from validation import loop
+    for advance in (False, True):
+        with fixture() as root, tempfile.TemporaryDirectory() as directory:
+            dependency_fixture(root)
+            git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'generic Model fixture')
+            candidate = Path(directory) / 'candidate'
+            sources = dependency_refactor(root, candidate)
+            target, state = start(root, files=tuple(sorted(sources)))
+            text = dependency_contract()
+            for heading in ('Modified files', 'Allowed paths'):
+                text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
+            text += '\n## Validation scope\n- `dev/cde/service-b`\n- `stg/cde/service-b`\n'
+            (target / state['task_file']).write_text(text)
+            tasks.refresh(target, state['task_file'])
+            with mapping_alias(SCRIPT.parents[2], target), tasks.selected_task(target, state['task_file']):
+                # Refactors use ordinary design publication, never intermediate operation saves.
+                try:
+                    with source_write_context(target, state['task_file']):
+                        raise AssertionError('refactor entered intermediate operation writer')
+                except ValueError as error:
+                    assert 'Model-only update operation' in str(error)
+                output = {target / name: (candidate / name).read_text() for name in sources}
+                original = {path: path.read_bytes() for path in output}
+                bad = {p: value.replace('same-name-stg', 'changed') for p, value in output.items()}
+                try:
+                    publish(target, bad, inputs=original)
+                    raise AssertionError('configuration change published')
+                except ValueError as error:
+                    assert 'changed' in str(error)
+                assert all(path.read_bytes() == data for path, data in original.items())
+                publish(target, output, inputs=original)
+                require_import_changes(target)
+                assert load_expansion(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
+                for address, code in [('stg/cde/service-a/001', 0), ('stg/cde/service-a/999', 1)]:
+                    result = subprocess.run([sys.executable, '-B', str(SCRIPT.with_name('model_reference_usage.py')),
+                        address, '--repository-root', str(target)], capture_output=True, text=True)
+                    assert result.returncode == code, result.stderr + result.stdout
+                    response = json.loads(result.stdout)
+                    assert response['status'] == ('resolved' if code == 0 else 'unresolved')
+                    if code == 0:
+                        assert response['references'] == []
+                if advance:
+                    file = root / 'model/parameters/stg/cde/service-a/parameters.yaml'
+                    file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
+                    git(root, 'add', file); git(root, 'commit', '-qm', 'advance producer on base')
+                latest = git(root, 'rev-parse', 'HEAD')
+                final = wt.prepare_integration(root, 'example')
+                assert final.base_commit == latest
+                calls = []
+                def validate(root, options, *, final_candidate):
+                    calls.append(final_candidate.candidate_head)
+                    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+                    with tasks.selected_task(root, final_candidate.task_file):
+                        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+                    return 0
+                with patch.object(loop, 'run_loop', side_effect=validate):
+                    if advance:
+                        try:
+                            wt.validate_final_candidate(final)
+                            raise AssertionError('rebased value change was accepted')
+                        except ValueError as error:
+                            assert 'value/type changed' in str(error)
+                        retained(root, target, state, latest)
+                    else:
+                        result = wt.validate_final_candidate(final)
+                        assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                        assert wt.cleanup(root, 'example')['cleaned']
+                assert calls == [final.candidate_head]
+    print('Generic refactor publication and actual post-rebase candidate guard: PASS')
 
 if __name__ == "__main__":
     main()

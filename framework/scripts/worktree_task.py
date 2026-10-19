@@ -312,8 +312,10 @@ def _prepare_commit(root, path, state, target, approval):
         raise Blocked('integration changes are outside the exact task contract')
     model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
     contract = (target / state['task_file']).read_text(encoding='utf-8')
-    operation = tasks.model_operation(contract)
-    if operation is None and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
+    operation = tasks.final_model_task(contract)
+    if approval and tasks.model_refactor(contract) is not None:
+        raise Blocked('Model refactor integration requires successful final candidate validation')
+    if not operation and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
         from import_guard import require_import_changes
         previous = os.environ.get(tasks.SELECTOR)
         try:
@@ -351,7 +353,7 @@ def _prepare_commit(root, path, state, target, approval):
     if changed:
         tree = output(target, "write-tree")
         message = (f"task({task_id}): human-approved validation failure" if approval
-                   else f"task({task_id}): Model operation candidate" if operation is not None
+                   else f"task({task_id}): Model operation candidate" if operation
                    else f"task({task_id}): completed task")
         git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
         state["commit"] = output(target, "rev-parse", "HEAD")
@@ -392,7 +394,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
     if not state['merged'] and human_approved_validation_failure is None and not state.get('validation_failure_approval'):
         target = task_worktree(root, state)
         text = (target / state['task_file']).read_text(encoding='utf-8')
-        if tasks.model_operation(text) is not None:
+        if tasks.final_model_task(text):
             interpreter, environment = python_env.runtime(target)
             command = [str(interpreter), '-B', '-c',
                        'import sys; sys.path.insert(0, "framework/scripts"); '
@@ -451,7 +453,7 @@ def prepare_integration(where: Path, task_id: str) -> FinalCandidate:
             raise Blocked('Model integration requires ready unmerged lifecycle state')
         target = task_worktree(root, state)
         text = (target / state['task_file']).read_text(encoding='utf-8')
-        if tasks.model_operation(text) is None or tasks.status(text) not in {'running', 'completed'}:
+        if not tasks.final_model_task(text) or tasks.status(text) not in {'running', 'completed'}:
             raise Blocked('Model integration requires a running/completed Model-only task')
         if tasks.section(text, '## Suspension reason'):
             raise Blocked('running/completed task has an unexpected suspension reason')

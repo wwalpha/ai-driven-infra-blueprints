@@ -1,6 +1,6 @@
 ---
 name: update
-description: Use for explicit Model-only IMPORT merge/delete or reflecting Human design changes into IaC and AWS, following the separate branches of 05_update.
+description: Use for explicit Model-only IMPORT merge/delete, value-preserving dependency refactors or reflecting Human design changes into IaC and AWS, following the separate branches of 05_update.
 ---
 
 [Service Model source authority](../../../framework/rules/model-templates.md) applies
@@ -20,3 +20,9 @@ IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Mode
 The Model-only branch composes model-transfer, model-retarget and model-delete under
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
 owns the post-rebase final validation/completion/merge sequence.
+
+The separate value-preserving branch first distinguishes deletion ordering from a
+necessary dependency detach using the shared read-only reference API. It uses an
+ordinary design Task with explicit detach declarations and ordinary guarded saving;
+it does not enter the operation-only intermediate writer. Each refactor and subsequent
+single deletion is independently validated and integrated as specified by 05_update.

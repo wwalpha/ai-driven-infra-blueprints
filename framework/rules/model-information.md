@@ -61,7 +61,12 @@ parent contract; generation is separate and final validation proves the whole op
 after rebase before integration. Declared references alone may be retargeted, retaining
 their structural meaning; D→D reevaluation is explicit.
 Other-environment inputs may receive necessary value-preserving additions only in this
-branch. CREATE and value-preserving source refactors retain their existing workflows.
+branch. CREATE retains its existing workflow. Explicit value-preserving dependency detach
+uses a separate ordinary design /update Task under
+[Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor):
+prove unchanged effective settings/types/structure and shared consumers, remove only
+declared dependencies, and revalidate the actual rebased candidate before merge.
+It is not an additional Model operation or permission to change IMPORT configuration.
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does

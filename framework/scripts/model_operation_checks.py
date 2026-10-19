@@ -1,12 +1,12 @@
 """Read-only final Model-only difference checks against versioned authoritative inputs."""
-from dataclasses import dataclass, replace
+from dataclasses import replace
 import re
 from pathlib import Path
 from model_core import entries, LINK
 from model_sources import json_read, json_text, consumers, source_paths
-from model_templates import (load_expansion, parse_template, bound_definition, resolve,
-                             template_document, remap_key, variables, _reference_inputs)
-from model_parameter_inputs import yaml_read, human_instances, parameter_value, schema
+from model_templates import load_expansion, parse_template, variables, _reference_inputs
+from model_parameter_inputs import yaml_read, schema
+from validation_cache import input_scope
 from import_sources import typed_equal
 
 def operation_rows(values, number):
@@ -68,118 +68,7 @@ def preserve_input_additions(before, after, old_definitions, definitions, bindin
 
 
 
-@dataclass(frozen=True)
-class _Reference:
-    producer: str
-    kind: str
-    resource_type: str | None = None
-    format: str | None = None
-    property_name: str | None = None
-    label: str | None = None
-    label_policy: str | None = None
-
-
-def _symbolic(path, expansion, anchors):
-    """Use existing bound templates/resolver inputs, replacing typed outputs by records."""
-    _, (_, files, _, normalized, bindings, fields) = _reference_inputs(path)
-    definitions, _ = parse_template(source_paths(path)[1])
-    env, target, service = path.parent.parent.name, path.parent.name, path.stem
-    root = source_paths(path)[0]
-    tokens = {}
-
-    def token(record):
-        # Markers are local to this comparison; raw inputs cannot impersonate a record.
-        marker = '\x00reference' + str(len(tokens)) + '\x00'
-        tokens[marker] = record
-        return marker
-
-    def producer(item, name, spec):
-        selected = item['parameters'][name]
-        selected_service = spec.get('service', service)
-        other_path = root / 'model' / env / target / (selected_service + '.properties')
-        _, producer_inputs = _reference_inputs(other_path)
-        _, _, _, _, producer_bindings, producer_fields = producer_inputs
-        instance = spec.get('instance') if 'service' in spec else selected
-        if instance is not None:
-            binding = producer_bindings['instances'].get(instance)
-            if binding is None:
-                raise ValueError('unknown reference Instance')
-            candidates = [rid for rid in binding['resources'].values()
-                          if producer_fields['desired.resource.' + rid + '.resourceType'][2] == spec['resourceType']]
-        else:
-            candidates = [selected] if ('desired.resource.' + selected + '.resourceType' in producer_fields and
-                           producer_fields['desired.resource.' + selected + '.resourceType'][2] == spec['resourceType']) else []
-        if len(candidates) != 1:
-            raise ValueError('ambiguous/type-mismatched fixed reference target')
-        return '/'.join((env, target, selected_service, candidates[0]))
-
-    def symbolize(value):
-        if isinstance(value, dict):
-            return {k: symbolize(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [symbolize(v) for v in value]
-        if not isinstance(value, str):
-            return value
-        if '\x00' in value and not any(marker in value for marker in tokens):
-            raise ValueError('invalid reference marker in source')
-        pattern = r'\x00reference[0-9]+\x00|\[[^\]]*\]\([^)]*\)'
-        pieces, start = [], 0
-        for match in re.finditer(pattern, value):
-            raw = match[0]
-            record = tokens.get(raw)
-            if record is None:
-                link = LINK.fullmatch(raw)
-                if link:
-                    filename = link[2].removeprefix('./')
-                    target_service = service if not filename else filename[:-3] if filename.endswith('.md') and '/' not in filename else None
-                    fixed = anchors.get((target_service, link[3]))
-                    if fixed:
-                        # Numeric self labels are identity-derived, other literal labels are fixed.
-                        label = None if link[1] == fixed.rsplit('/', 1)[1] else link[1]
-                        record = _Reference(fixed, 'link', label=label)
-            if record is not None:
-                pieces.extend((value[start:match.start()], record))
-                start = match.end()
-        if not pieces:
-            return value
-        pieces.append(value[start:])
-        return tuple(pieces)
-
-    result = {}
-    instances = normalized['instances']
-    for output_key, (item, definition, raw) in fields.items():
-        if '\x00' in raw or any('\x00' in str(value) for value in item['parameters'].values()):
-            raise ValueError('reserved control character in reference expression')
-        context = dict(item['parameters'])
-        context.update({'Id_' + key: value for key, value in item['resources'].items()})
-        for name in list(item['parameters']):
-            spec = schema(definition.parameters[name])
-            if spec['type'] == 'reference':
-                context[name] = token(_Reference(producer(item, name, spec), 'typed', spec['resourceType'],
-                    spec.get('format'), spec.get('property'), bindings['instances'][item['id']].get('labels', {}).get(name),
-                    'explicit' if name in bindings['instances'][item['id']].get('labels', {}) else
-                    'scalar' if spec.get('format') else 'service-auto' if 'service' in spec else 'local-auto'))
-            else:
-                context[name] = parameter_value(source_paths(path)[1], item, name, instances, bindings, definitions, env, {})
-        for local in definition.resources:
-            context['Anchor_' + local] = resolve(definition.values['desired.resource.' + local + '.anchor'], context)
-        value = resolve(template_document(output_key, raw), context, structured=True) if output_key.endswith('.document') else resolve(raw, context)
-        result[output_key] = symbolize(value)
-    for key, value in expansion.values.items():
-        if key not in result:
-            result[key] = json_read(value) if key.endswith('.document') else value
-    return result
-
-
-def _walk(value):
-    if isinstance(value, _Reference):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _walk(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _walk(item)
+from model_reference_usage import _Reference, _symbolic, _walk
 
 
 def _retarget(value, source, destination):
@@ -199,6 +88,7 @@ def _pointer(document, pointer):
     return json_pointer(document, pointer)
 
 
+@input_scope
 def verify_model_operation(before: Path, after: Path, operation, sources) -> None:
     """Verify all pairs/references together; never write, generate or complete a Task.
 
@@ -414,3 +304,114 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
                     raise ValueError('IMPORT removed resource still has an incoming reference: ' + key)
     if used != declarations.keys():
         raise ValueError('unused Model reference declaration')
+
+
+@input_scope
+def verify_model_refactor(before: Path, after: Path, detaches, sources, validation_scope):
+    """Prove an explicit IMPORT detach without editing Models or relaxing other Tasks."""
+    from collections import Counter
+    from import_guard import resource_config
+    from model_reference_usage import reference_models, reference_positions, resource_address
+    from model_templates import model_paths
+    from policy_tables import literal
+
+    direct = {tuple(resource_address(d.consumer)[:3]) for d in detaches}
+    for relative in sources:
+        parts = Path(relative).parts
+        if parts[:2] == ('model', 'templates') and (len(parts) == 4 and parts[3].endswith('.properties.tpl')
+                or len(parts) == 5 and parts[3].endswith('.properties') and parts[4].endswith('.properties')):
+            alias, service = parts[2], parts[3].removesuffix('.tpl').removesuffix('.properties')
+            old_consumers, new_consumers = consumers(before, alias, service), consumers(after, alias, service)
+            if old_consumers != new_consumers:
+                raise ValueError('Model refactor cannot add/remove shared consumers: ' + relative)
+            direct.update(old_consumers)
+        elif parts[:2] == ('model', 'parameters') and len(parts) == 6 and parts[5] in {'parameters.yaml', 'bindings.json', 'observed.json'}:
+            direct.add(tuple(parts[2:5]))
+        else:
+            raise ValueError('Model refactor source outside Model authority: ' + relative)
+    if validation_scope is None or not direct <= validation_scope:
+        raise ValueError('Model refactor requires all direct consumers in Validation scope: ' + repr(sorted(direct)))
+    scopes = set()
+    for env, target in {scope[:2] for scope in direct}:
+        def registered(root):
+            return {(env, target, path.stem) for path in model_paths(root, env, target)}
+        old, new = registered(before), registered(after)
+        if old != new:
+            raise ValueError('Model refactor cannot add/remove services: ' + env + '/' + target)
+        scopes.update(old)
+    old_expanded, old_symbols = reference_models(before, scopes)
+    new_expanded, new_symbols = reference_models(after, scopes)
+    used = set()
+    for declaration in detaches:
+        for address in (declaration.consumer, declaration.producer):
+            env, target, service, rid = resource_address(address)
+            expanded = old_expanded.get((env, target, service))
+            if expanded is None or 'desired.resource.' + rid + '.resourceType' not in expanded.values:
+                raise ValueError('Model refactor unknown Resource: ' + address)
+
+    def fail(scope, key, left, right, reason):
+        trace = old_expanded[scope].provenance.get(key, {})
+        source = trace.get('template', trace.get('sourceFile'))
+        parts = key.split('.')
+        rid = parts[2].rpartition('-')[0] if len(parts) > 2 and parts[1] == 'row' else parts[2] if len(parts) > 2 and parts[1] == 'resource' else None
+        raise ValueError('Model refactor ' + reason + ': ' + json_text({
+            'scope': '/'.join(scope), 'resource': '/'.join((*scope, rid)) if rid else None, 'key': key,
+            'property': old_expanded[scope].values.get(key.rsplit('.', 1)[0] + '.property'),
+            'sourceLocation': {'file': str(Path(source).relative_to(before)) if source else None, 'line': trace.get('line')},
+            'before': left, 'after': right}))
+
+    for scope in sorted(scopes):
+        old, new = old_expanded[scope], new_expanded[scope]
+        bindings_path = Path('model/parameters') / '/'.join(scope) / 'bindings.json'
+        old_bindings = json_read(old.files[before / bindings_path])
+        new_bindings = json_read(new.files[after / bindings_path])
+        if old_bindings['instances'].keys() != new_bindings['instances'].keys() or old_bindings.get('stacks') != new_bindings.get('stacks'):
+            raise ValueError('Model refactor fixed Instance/stack composition changed: ' + '/'.join(scope))
+        for name, binding in old_bindings['instances'].items():
+            if any(binding[field] != new_bindings['instances'][name][field] for field in ('resources', 'rows')):
+                raise ValueError('Model refactor fixed Resource/Row mappings changed: ' + '/'.join(scope) + '/' + name)
+        old_resources, new_resources = dict(entries(old.values, 'desired.resource.')), dict(entries(new.values, 'desired.resource.'))
+        if old_resources.keys() != new_resources.keys():
+            fail(scope, 'desired.resource', sorted(old_resources), sorted(new_resources), 'Resource composition changed')
+        if old.values.keys() != new.values.keys():
+            fail(scope, 'Model keys', sorted(old.values), sorted(new.values), 'structure changed')
+        for key, value in old.values.items():
+            other = new.values[key]
+            if key.endswith('.artifactSha256'):
+                continue  # Derived hash; the typed JSON document itself is compared below.
+            if key.endswith('.document'):
+                value, other = json_read(value), json_read(other)
+            elif key.startswith('desired.row.') and key.endswith('.value'):
+                value, other = literal(value), literal(other)
+            if not typed_equal(value, other):
+                fail(scope, key, value, other, 'value/type changed')
+            left, right = old_symbols[scope][key], new_symbols[scope][key]
+            declared = [d for d in detaches if tuple(d.consumer.split('/')[:3]) == scope and d.key == key]
+            if not declared:
+                if left != right:
+                    fail(scope, key, repr(left), repr(right), 'undeclared reference/expression change')
+                continue
+            rid = declared[0].consumer.rsplit('/', 1)[1]
+            if old_resources[rid].get('resourceMode', 'CREATE') != 'IMPORT':
+                raise ValueError('Model refactor cannot detach CREATE dependencies: ' + declared[0].consumer)
+            if not key.startswith('desired.row.') or not key.endswith(('.value', '.document')):
+                raise ValueError('Model refactor cannot detach structural metadata: ' + key)
+            remaining = Counter(reference_positions(left))
+            current = Counter(reference_positions(right))
+            for declaration in declared:
+                selected = [position for position in remaining if position[1].producer == declaration.producer
+                            and (declaration.pointer is None or position[0] == declaration.pointer)]
+                if not selected or any(position[1].producer == declaration.producer
+                                       and (declaration.pointer is None or position[0] == declaration.pointer) for position in current):
+                    fail(scope, key, repr(left), repr(right), 'declared dependency missing before or still present after')
+                for position in selected:
+                    del remaining[position]
+                used.add(declaration)
+            if remaining != current:
+                fail(scope, key, repr(left), repr(right), 'undeclared dependency change')
+        for rid in old_resources:
+            left, right = resource_config(old.values, rid), resource_config(new.values, rid)
+            if not typed_equal(left, right):
+                fail(scope, 'desired.resource.' + rid + '.resourceType', left, right, 'effective configuration changed')
+    if used != set(detaches):
+        raise ValueError('unused Model dependency detach declaration: ' + repr(set(detaches) - used))

@@ -623,13 +623,13 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
             raise OSError('injected source publication failure')
         monkeypatch.setattr(sync_files, 'save_files', fail_save)
     elif failure == 'race':
-        import import_promotion
-        original = import_promotion.verify_model_operation
-        def race(*args):
-            original(*args)
+        from sync_runtime import GenerationInputs
+        original = GenerationInputs.verify
+        def race(snapshot):
             file = root / 'model/parameters/dev/cde/vpc/parameters.yaml'
             file.write_text(file.read_text() + '# concurrent human input\n')
-        monkeypatch.setattr(import_promotion, 'verify_model_operation', race)
+            original(snapshot)
+        monkeypatch.setattr(GenerationInputs, 'verify', race)
     with mapping_alias(m.ROOT, root):
         if failure != 'none':
             with pytest.raises((ValueError, OSError)):
