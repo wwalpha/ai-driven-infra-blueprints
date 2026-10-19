@@ -92,12 +92,35 @@ def check_v3_registry():
     assert all(not hasattr(stack, name) for name in ('RESOURCE_TYPES', 'IDENTITIES', 'GETTERS'))
     metadata['cloudformation-stacks'] = {'RESOURCE_TYPES': ('CloudFormation.Stack',),
                                          'IDENTITIES': {}, 'APIS': sorted(stack.APIS)}
+    tgw_properties = {
+        'EC2.TransitGateway': {'Id', 'AmazonSideAsn', 'Description', 'DnsSupport',
+                              'DefaultRouteTableAssociation', 'DefaultRouteTablePropagation',
+                              'AutoAcceptSharedAttachments', 'VpnEcmpSupport'},
+        'EC2.TransitGatewayRouteTable': {'TransitGatewayRouteTableId', 'TransitGatewayId'},
+        'EC2.TransitGatewayRoute': {'TransitGatewayRouteTableId', 'DestinationCidrBlock',
+                                  'TransitGatewayAttachmentId', 'Blackhole'},
+        'EC2.TransitGatewayRouteTableAssociation': {'TransitGatewayRouteTableId', 'TransitGatewayAttachmentId'},
+        'EC2.TransitGatewayRouteTablePropagation': {'TransitGatewayRouteTableId', 'TransitGatewayAttachmentId'},
+    }
+    assert sum(map(len, tgw_properties.values())) == 18
+    from copy import deepcopy
+    baseline_properties = deepcopy(properties)
+    for kind, selected in tgw_properties.items():
+        actual = properties['ec2'][kind]
+        assert {name for name, prop in actual.items() if prop['model']['include']} == selected, kind
+        assert {name for name, prop in actual.items() if prop['display']['show']} == selected, kind
+        for name in selected:
+            assert actual[name]['model']['include'] is True, (kind, name)
+            assert actual[name]['display']['show'] is True, (kind, name)
+            # Restore only the two authorized flags in a test-local copy for the original hash.
+            baseline_properties['ec2'][kind][name]['model']['include'] = False
+            baseline_properties['ec2'][kind][name]['display']['show'] = False
     # Keep the original P0 hash by serializing YAML metadata in its historical shape.
-    for values, expected in [(properties, '011c38a46feabd4a28eb4619a3963a3c145f207266dfd757f4a0bbc25a02a463'),
+    for values, expected in [(baseline_properties, '011c38a46feabd4a28eb4619a3963a3c145f207266dfd757f4a0bbc25a02a463'),
                              (definitions, '345c0f5691eeaf636a27f902e04831de58cd96f5506d1936c67f43edb156944b'),
                              (metadata, '6ddf2190bf6c29c9615b5fad44deb27f8b33007f9fd8b4596be89630da10869b')]:
         assert hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest() == expected
-    print('YAML v3/P0 baseline: PASS (50 files, 178 types, 52 adapter types, 50 identities, 63 getters; properties/native getters/metadata/API sets unchanged)')
+    print('YAML v3/P0 baseline: PASS (50 files, 178 types, 52 adapter types, 50 identities, 63 getters; 18 TGW include/show changes explicit; all other properties/native getters/metadata/API sets unchanged)')
 
 
 def check_registry_cache():

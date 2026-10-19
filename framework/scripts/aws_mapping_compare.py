@@ -21,12 +21,12 @@ def comparison(root, service):
 
 def import_comparison(root, service):
     from aws_mapping import runtime_registry
-    return compile_comparison(root, service, runtime_registry(root, service))
+    return compile_comparison(root, service, runtime_registry(root, service), importing=True)
 
 
-def compile_comparison(root, service, mapping):
+def compile_comparison(root, service, mapping, importing=False):
     m = module('check-model-aws.py', 'model_aws_compare')
-    adapter = m.service_module(service)
+    adapter = m.service_module(service) if not importing or service in m.SERVICES else None
     properties = dict(mapping.properties)
     for key, prop in properties.items():
         field = prop.field
@@ -35,9 +35,11 @@ def compile_comparison(root, service, mapping):
             field = replace(field, classification='supported', reason='')
         if field.classification == 'supported':
             getter = mapping.getters[field.getter]
-            if getter.get('kind') in {'sdk', 'cloudcontrol'}:
+            if getter.get('kind') == 'cloudcontrol' and (importing or getter['resourceType'] in getattr(adapter, 'CLOUDCONTROL_RESOURCE_TYPES', ())):
+                pass
+            elif getter.get('kind') in {'sdk', 'cloudcontrol'}:
                 api = (getter['service'], getter['operation'])
-                if api not in adapter.APIS:
+                if api not in getattr(adapter, 'APIS', ()):
                     field = replace(field, classification='sdk_unavailable',
                                     reason='Mapping API is outside the existing service read-only allowlist: ' + '.'.join(api))
                 elif getattr(adapter, 'SDK_OPERATIONS', {}).get(getter['resourceType']) != getter['operation']:
@@ -55,6 +57,12 @@ def value(ctx, resource, mapping, prop, key):
     """Fetch via existing input selectors, then apply the YAML result/path/transform."""
     field = prop.field
     getter = mapping.getters.get(field.getter, {})
+    if getter.get('kind') == 'cloudcontrol':
+        from import_inventory import cloudcontrol_value
+        cache_key = (resource.model.path, resource.number, field.getter)
+        response = (ctx.fetch(resource, field.getter) if cache_key in ctx.fetch_cache
+                    else cloudcontrol_value(ctx, resource, getter))
+        return response, project(prop, response)
     if getter.get('kind') == 'sdk':
         api = (getter['service'], getter['operation'])
         if api not in resource.module.APIS or api not in ctx.allowed:

@@ -171,8 +171,30 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
     for record in records:
         identity_properties.setdefault(record['kind'], set()).update(
             prop for prop in record.get('identityProperties', [record['identityProperty']]) if prop)
+    component_properties = {}
+    for record in records:
+        if 'identityComponents' in record:
+            props = tuple(item['property'] for item in record['identityComponents'])
+            if record['kind'] in component_properties and component_properties[record['kind']] != props:
+                raise ValueError('IMPORT inconsistent primary identifier components')
+            component_properties[record['kind']] = props
     owners, unknown = {}, {}
     for rid, resource in old_resources.items():
+        kind = resource['resourceType']
+        if kind in component_properties:
+            components = []
+            for prop in component_properties[kind]:
+                value = property_values(old, rid, prop, property_schema(prop), observed=True, rows=rows)
+                if value is None:
+                    value = property_values(old, rid, prop, property_schema(prop), rows=rows)
+                if value is None or value == '' or value in ('PENDING_DEPLOY', 'UNSET'):
+                    break
+                components.append({'property': prop, 'value': value})
+            if components and len(components) == len(component_properties[kind]):
+                owners.setdefault((kind, json.dumps(components, sort_keys=True)), set()).add(rid)
+            else:
+                unknown.setdefault(kind, []).append(rid)
+            continue
         known = False
         for row_id, row in rows.get(rid, []):
             prop = row['property']
@@ -202,7 +224,12 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         basis = item['basis']
         if not isinstance(basis, list) or any(not isinstance(p, str) for p in basis) or len(basis) != len(set(basis)):
             raise ValueError('IMPORT correspondence basis must name distinct acquired Properties')
-        identity_key = record['kind'], record['identity']
+        if 'identityComponents' in record:
+            if record.get('identityStatus') != 'known':
+                raise ValueError('IMPORT acquired primary identity is unknown')
+            identity_key = record['kind'], json.dumps(record['identityComponents'], sort_keys=True)
+        else:
+            identity_key = record['kind'], record['identity']
         collisions = owners.get(identity_key, set())
         if identity_key in selected_identities or collisions:
             raise ValueError('IMPORT acquired record ' + record['record'] + ' for Resource ' + rid
@@ -286,11 +313,16 @@ def verify_values(before, after, selected, property_schema):
             raise ValueError('IMPORT new resource requires a new fixed anchor: ' + rid)
         anchors.add(anchor)
         record = selected[rid]
-        prop = record['identityProperty']
-        if prop and property_values(new, rid, prop, property_schema(prop), rows=indexed_new) != record['identity']:
-            raise ValueError('IMPORT new resource must retain its acquired physical identity')
-        for _, row in indexed_new.get(rid, []):
-            link = LINK.fullmatch(row['value'])
-            if row['property'] == prop and link and (link[2] or link[3] != new_resources[rid].get('anchor')):
-                raise ValueError('IMPORT new resource identity link must refer to its own anchor')
+        identity_values = (record['identityComponents'] if 'identityComponents' in record else
+                           [{'property': record['identityProperty'], 'value': record['identity']}])
+        if 'identityComponents' in record and record.get('identityStatus') != 'known':
+            raise ValueError('IMPORT acquired primary identity is unknown')
+        for component in identity_values:
+            prop = component['property']
+            if prop and not typed_equal(property_values(new, rid, prop, property_schema(prop), rows=indexed_new), component['value']):
+                raise ValueError('IMPORT new resource must retain its acquired physical identity')
+            for _, row in indexed_new.get(rid, []):
+                link = LINK.fullmatch(row['value'])
+                if row['property'] == prop and link and (link[2] or link[3] != new_resources[rid].get('anchor')):
+                    raise ValueError('IMPORT new resource identity link must refer to its own anchor')
     return changes

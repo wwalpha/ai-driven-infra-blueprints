@@ -333,7 +333,7 @@ def record_import(root, output, evidence, plan, complete=True):
              'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
              'plan': digest(plan), 'acquisition': digest(acquisition),
              'acquiredAt': acquisition['acquiredAt'], 'ownedArtifacts': plan['ownedArtifacts'],
-             'connection': acquisition['connection'], 'complete': complete,
+             'connection': acquisition['connection'], 'complete': complete and acquisition_complete(acquisition),
              'model': 'pending', 'markdown': 'not-run', 'designValidation': 'not-run'}
     file = proof_path(root)
     file.parent.mkdir(parents=True, exist_ok=True)
@@ -438,14 +438,17 @@ def write_sealed(root, file, value):
 def acquired(root, identity, ctx, records, sources, consumers, dry_run):
     if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
         raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
+    from import_inventory import inventory_for
     directory = Path(tempfile.mkdtemp(prefix='session-', dir=evidence_store(root)))
     try:
-        value = {'version': 1, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
+        value = {'version': 2, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
                  'base': base_revision(root), 'scope': list(identity), 'dryRun': dry_run,
                  'acquiredAt': datetime.now(timezone.utc).isoformat(), 'status': 'acquired',
                  'connection': {key: ctx.target.get(key) for key in ('environment', 'directory', 'awsExecutionAccountId', 'awsAccountId', 'awsRegion', 'awsProfile')},
                  'sts': {'account': ctx.target.get('awsExecutionAccountId', ctx.target['awsAccountId']), 'verified': True},
                  'trace': ctx.trace, 'records': records, 'sources': sources,
+                 'inventory': inventory_for(ctx).statuses,
+                 'metrics': dict(ctx.metrics),
                  'consumers': [list(item) for item in sorted(consumers)]}
         write_sealed(root, directory / 'acquisition.json', value)
         (directory / 'candidates').mkdir()
@@ -464,13 +467,33 @@ def read_acquisition(root, file, identity, dry_run):
         raise ValueError('IMPORT acquisition must use its original external evidence identifier')
     value = read_sealed(root, file)
     require_fresh_acquisition(value)
-    if (value.get('version') != 1 or value.get('root') != str(root.resolve())
+    if (value.get('version') not in {1, 2} or value.get('root') != str(root.resolve())
             or value.get('scope') != list(identity) or value.get('dryRun') is not dry_run
             or value.get('base') != base_revision(root) or value.get('status') != 'acquired'
             or value.get('task') != (None if dry_run else workflow(root))
             or value.get('sts', {}).get('verified') is not True):
         raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
+    if value['version'] == 2:
+        validate_inventory(value)
     return value
+
+
+def validate_inventory(value):
+    inventory = value.get('inventory')
+    allowed = {'complete', 'empty', 'unsupported', 'permission_denied', 'requires_filter', 'failed', 'not_modelled'}
+    if not isinstance(inventory, dict) or not inventory or any(
+            not isinstance(kind, str) or not isinstance(item, dict) or item.get('status') not in allowed
+            for kind, item in inventory.items()):
+        raise ValueError('IMPORT acquisition inventory status is invalid')
+    return inventory
+
+
+def acquisition_complete(value):
+    if value.get('version') == 1:
+        return True  # Sealed legacy sessions had all-or-error inventory acquisition.
+    if value.get('version') != 2:
+        raise ValueError('IMPORT unsupported acquisition evidence version')
+    return all(item['status'] in {'complete', 'empty'} for item in validate_inventory(value).values())
 
 
 def require_fresh_acquisition(value):

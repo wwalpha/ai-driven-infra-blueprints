@@ -361,3 +361,53 @@ def operation_contract(action='import-merge', source='stg/cde/vpc/009', destinat
             '- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
             '- Model operation: `' + action + '`\n- Source resource: `' + source + '`\n'
             + ('- Destination resource: `' + destination + '`\n' if action == 'import-merge' else ''))
+
+
+class CloudControlCli:
+    """Synthetic paginated provider with separately counted physical CLI requests."""
+    def __init__(self, resources, *, account=ACCOUNT, fail=None):
+        from threading import Lock
+        self.resources, self.account, self.fail = resources, account, fail or {}
+        self.calls, self.lock = [], Lock()
+
+    def __call__(self, command, **kwargs):
+        service, operation = command[1:3]
+        inputs = json.loads(command[command.index('--cli-input-json') + 1])
+        with self.lock:
+            self.calls.append((service, operation, inputs))
+        failure = self.fail.get((service, operation, inputs.get('Identifier')))
+        if failure:
+            return subprocess.CompletedProcess(command, 1, '', 'An error occurred (' + failure + ') when calling fixture: denied')
+        if service == 'sts':
+            response = {'Account': self.account}
+        elif service == 'cloudcontrol':
+            kind = inputs['TypeName'].removeprefix('AWS::').replace('::', '.', 1)
+            records = self.resources.get(kind, [])
+            if operation == 'list-resources':
+                filters = json.loads(inputs.get('ResourceModel', '{}'))
+                records = [item for item in records if all(item['properties'].get(k) == v for k, v in filters.items())]
+                offset = int(inputs.get('NextToken', '0'))
+                selected = records[offset:offset+1]
+                response = {'ResourceDescriptions': [{'Identifier': item['identifier'], 'Properties': json.dumps(item.get('list', {}))} for item in selected]}
+                if offset + 1 < len(records):
+                    response['NextToken'] = str(offset + 1)
+            elif operation == 'get-resource':
+                item = next(item for item in records if item['identifier'] == inputs['Identifier'])
+                response = {'ResourceDescription': {'Identifier': item['identifier'], 'Properties': json.dumps(item['properties'])}}
+            else:
+                raise AssertionError('unmocked Cloud Control operation')
+        elif service == 'cloudtrail':
+            if operation == 'get-trail':
+                response = {'Trail': {'Name': 'audit', 'CloudWatchLogsLogGroupArn': 'arn:aws:logs:ap-northeast-1:' + ACCOUNT + ':log-group:audit',
+                            'CloudWatchLogsRoleArn': 'arn:aws:iam::' + ACCOUNT + ':role/audit', 'LogFileValidationEnabled': True,
+                            'IncludeGlobalServiceEvents': True, 'IsMultiRegionTrail': True, 'KmsKeyId': 'key-confirmed', 'S3BucketName': 'audit-bucket'}}
+            elif operation == 'get-trail-status':
+                response = {'IsLogging': True}
+            elif operation == 'get-event-selectors':
+                response = {'EventSelectors': [{'DataResources': [{'Type': 'AWS::S3::Object', 'Values': ['arn:aws:s3:::audit-bucket/']}],
+                            'IncludeManagementEvents': True, 'ReadWriteType': 'All'}]}
+            else:
+                raise AssertionError('unmocked Trail operation')
+        else:
+            raise AssertionError('unmocked AWS call: ' + service + '.' + operation)
+        return subprocess.CompletedProcess(command, 0, json.dumps(response), '')

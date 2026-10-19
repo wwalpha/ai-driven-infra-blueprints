@@ -12,17 +12,17 @@ import re
 
 import task_contract
 from import_guard import (workflow, require_import_changes, record_import, finish_import,
-                          acquired, read_acquisition, discard_acquisition, file_hash, write_sealed)
+                          acquired, read_acquisition, discard_acquisition, file_hash, write_sealed, acquisition_complete)
 from model_core import entries
 from model_files import resource_row_index
 from model_parameter_inputs import yaml_read
 from model_templates import publication_lock, json_read, json_text, publish, service_source, load_for_edit
 from task_contract import task_path, section
 from validation_scope import active_scope
-from validation_cache import input_scope, memo_table
+from validation_cache import input_scope, memo_table, memoized
 from script_loader import module as load_script
 from sync_files import atomic_files
-from aws_mapping_compare import MODEL_ONLY, import_comparison as comparison, value as mapping_value
+from aws_mapping_compare import MODEL_ONLY, value as mapping_value
 from import_sources import candidate_sources, selection_records, verify_values, typed_equal
 from import_promotion import preserve_consumers
 
@@ -33,21 +33,7 @@ def comparator():
     return load_script('check-model-aws.py', 'model_aws_compare')
 
 
-# Explicit inventory shapes; property mapping and schema validation remain in the existing engine.
-INVENTORY = {
-    'EC2.VPC': ('ec2', 'describe_vpcs', 'Vpcs'),
-    'EC2.Subnet': ('ec2', 'describe_subnets', 'Subnets'),
-    'EC2.RouteTable': ('ec2', 'describe_route_tables', 'RouteTables'),
-    'EC2.FlowLog': ('ec2', 'describe_flow_logs', 'FlowLogs'),
-    'EC2.TransitGatewayVpcAttachment': ('ec2', 'describe_transit_gateway_vpc_attachments', 'TransitGatewayVpcAttachments'),
-    'Config.ConfigurationRecorder': ('config', 'describe_configuration_recorders', 'ConfigurationRecorders'),
-    'Config.DeliveryChannel': ('config', 'describe_delivery_channels', 'DeliveryChannels'),
-    'Logs.LogGroup': ('logs', 'describe_log_groups', 'logGroups'),
-    'QuickSight.DataSource': ('quicksight', 'list_data_sources', 'DataSources'),
-    'QuickSight.VPCConnection': ('quicksight', 'list_vpc_connections', 'VPCConnectionSummaries'),
-    'KinesisFirehose.DeliveryStream': ('firehose', 'list_delivery_streams', 'DeliveryStreamNames'),
-    'SecurityHub.Hub': ('securityhub', 'describe_hub', None),
-}
+from import_inventory import inventory_for
 
 
 def import_context(root, target, runner=None, service=None):
@@ -57,7 +43,7 @@ def import_context(root, target, runner=None, service=None):
     region = target.get('awsRegion')
     if not isinstance(region, str) or not re.fullmatch(r'[a-z]{2}(?:-[a-z]+)+-[1-9][0-9]*', region):
         raise ValueError('AWS target RegionMismatch; use the project.json awsRegion')
-    return comparator().Context(root, target, cli_runner=runner, services=(service,) if service else ())
+    return comparator().Context(root, target, cli_runner=runner, services=(service,) if service else (), import_mode=True)
 
 
 def target_for(root, environment, service, selector=None):
@@ -85,63 +71,8 @@ def target_for(root, environment, service, selector=None):
     return target
 
 
-def inventory(ctx, service):
-    if service == 'cloudformation-stacks':
-        resource_types = (comparator().service_module(service).STACK_TYPE,)
-    else:
-        mapping, _ = comparison(ctx.root, service)
-        resource_types = sorted(mapping.adapter_resource_types)
-    unsupported = set(resource_types) - INVENTORY.keys() - {'EC2.SubnetRouteTableAssociation'}
-    if unsupported:
-        raise ValueError('IMPORT inventory is unimplemented for: ' + ', '.join(sorted(unsupported)))
-    ctx.allowed.update((api, operation) for kind in resource_types if kind in INVENTORY
-                       for api, operation, _ in [INVENTORY[kind]])
-    records = []
-    for kind in resource_types:
-        if kind == 'EC2.SubnetRouteTableAssociation':
-            continue  # Expand the confirmed route table associations below.
-        api, operation, collection = INVENTORY[kind]
-        inputs = {'AwsAccountId': ctx.target.get('awsExecutionAccountId', ctx.target['awsAccountId'])} if api == 'quicksight' else {}
-        response = ctx.pages(api, operation, **inputs)
-        if collection is not None and (collection not in response or not isinstance(response[collection], list)):
-            raise comparator().AcquisitionError(api + '.' + operation, 'InvalidInventoryResponse')
-        items = response[collection] if collection else [response]
-        for item in items:
-            if kind == 'KinesisFirehose.DeliveryStream':
-                item = ctx.call('firehose', 'describe_delivery_stream', DeliveryStreamName=item)['DeliveryStreamDescription']
-            if api == 'quicksight':
-                operation, key, result_key = ('describe_data_source', 'DataSourceId', 'DataSource') if kind == 'QuickSight.DataSource' else ('describe_vpc_connection', 'VPCConnectionId', 'VPCConnection')
-                item = dict(ctx.call(api, operation, **inputs, **{key: item[key]})[result_key], **inputs)
-            record = dict(item)
-            if api == 'ec2':
-                names = [tag['Value'] for tag in record.get('Tags', []) if tag.get('Key') == 'Name']
-                if len(names) > 1:
-                    raise ValueError('IMPORT inventory has ambiguous Name tags')
-                record['NameTag'] = names[0] if names else comparator().MISSING
-            descriptor = mapping.identities[kind]
-            getter, id_path = descriptor.getter, descriptor.id_path
-            identity = comparator().select(record, id_path)
-            if not isinstance(identity, str) or not identity or identity == comparator().MISSING:
-                raise ValueError('IMPORT inventory has no confirmed resource identifier')
-            getters = {getter: record}
-            if kind == 'QuickSight.DataSource':
-                getters['permissions'] = ctx.call('quicksight', 'describe_data_source_permissions', **inputs, DataSourceId=record['DataSourceId'])
-            records.append({'kind': kind, 'identity': identity, 'getters': getters})
-            if kind == 'EC2.RouteTable':
-                for association in record.get('Associations', []):
-                    if association.get('SubnetId') and association.get('AssociationState', {}).get('State', 'associated') == 'associated':
-                        records.append({'kind': 'EC2.SubnetRouteTableAssociation', 'identity': association['RouteTableAssociationId'],
-                                        'getters': {'association': {'RouteTableId': record['RouteTableId'], 'SubnetId': association['SubnetId'], 'Id': association['RouteTableAssociationId']}}})
-    for association in [record for record in records if record['kind'] == 'EC2.SubnetRouteTableAssociation']:
-        payload = association['getters']['association']
-        subnet = next((record for record in records if record['kind'] == 'EC2.Subnet' and record['identity'] == payload['SubnetId']), None)
-        if subnet is None or 'association' in subnet['getters']:
-            raise ValueError('IMPORT subnet association is missing or ambiguous')
-        subnet['getters']['association'] = payload
-    records = [record for record in records if record['kind'] != 'EC2.SubnetRouteTableAssociation']
-    if len({(r['kind'], r['identity']) for r in records}) != len(records):
-        raise ValueError('IMPORT inventory contains duplicate identifiers')
-    return records
+def inventory(ctx, service, resource_types=None):
+    return inventory_for(ctx).discover(service, resource_types)
 
 
 
@@ -224,15 +155,25 @@ def schema_property(kind, prop):
     return prop.removeprefix(kind + '.')
 
 
+@memoized
+def property_catalog():
+    return comparator().DesignSchemaCatalog(ROOT)
+
+
+@memoized
 def property_schema(prop):
     kind = '.'.join(prop.split('.')[:2])
-    return comparator().DesignSchemaCatalog(ROOT).property_schema(kind, schema_property(kind, prop))
+    return property_catalog().property_schema(kind, schema_property(kind, prop))
 
 
 def normalize_records(ctx, service, records):
+    return [inventory_for(ctx).normalize(service, record, _normalize_records) for record in records]
+
+
+def _normalize_records(ctx, service, records):
     """Reuse Mapping and adapter getters without constructing any public Model source."""
     m = comparator()
-    mapping, mapped = comparison(ctx.root, service)
+    mapping, mapped = inventory_for(ctx).mapping(service)
     ctx.comparisons[service] = mapping, mapped
     model = SimpleNamespace(ctx=ctx, path=ctx.root / 'model' / ctx.target['environment'] / ctx.target['directory'] / (service + '.properties'),
                             service=service, values={}, resources=[])
@@ -240,18 +181,24 @@ def normalize_records(ctx, service, records):
     for record in records:
         kind = record['kind']
         record_id = hashlib.sha256((kind + '\0' + record['identity']).encode('utf-8')).hexdigest()
-        seed = next(iter(record['getters'].values()))
+        seed = next(iter(record['getters'].values()), {})
         seed_rows = []
+        proxy = m.Resource(model, record_id, {'resourceType': kind, 'resourceMode': 'IMPORT'}, seed_rows)
         for prop, item in mapped.items():
             field = item.field
             if prop.startswith(kind + '.') and field.getter in record['getters']:
                 raw = m.select(record['getters'][field.getter], field.path)
-                if raw not in (m.MISSING, None) and not sensitive(SimpleNamespace(module=m.service_module(service)), prop) and not unsafe(raw):
+                if raw not in (m.MISSING, None) and not sensitive(proxy, prop) and not unsafe(raw):
                     try:
                         seed_rows.append((record_id + '-' + str(len(seed_rows) + 1).zfill(3), {'property': prop, 'value': model_literal(raw)}))
                     except ValueError:
                         pass  # A non-scalar seed cannot be an adapter selector.
-        proxy = m.Resource(model, record_id, {'resourceType': kind, 'resourceMode': 'IMPORT'}, seed_rows)
+        for prop, raw in record.get('seedProperties', {}).items():
+            if not any(row['property'] == prop for _, row in seed_rows) and not unsafe(raw):
+                try:
+                    seed_rows.append((record_id + '-' + str(len(seed_rows) + 1).zfill(3), {'property': prop, 'value': model_literal(raw)}))
+                except ValueError:
+                    pass  # Unrepresentable data cannot be an adapter selector.
         for getter, payload in record['getters'].items():
             ctx.fetch_cache[model.path, record_id, getter] = payload
             ctx.fetch_trace[model.path, record_id, getter] = []
@@ -285,10 +232,14 @@ def normalize_records(ctx, service, records):
                 if value == m.MISSING:
                     captured[prop] = {'status': 'missing', 'reason': 'AWS optional value not retrieved'}
                     continue
-                expected = property_schema(prop).get('type')
+                expected = inventory_for(ctx).property_schema(prop).get('type')
                 types = {'string': (str,), 'integer': (int,), 'number': (int, float), 'boolean': (bool,), 'object': (dict,), 'array': (list,), 'null': (type(None),)}
                 allowed = expected if isinstance(expected, list) else [expected] if expected else []
-                extracted = value if '[]' in prop else [value]
+                extracted = [value]
+                for _ in range(prop.count('[]')):
+                    if any(not isinstance(item, list) for item in extracted):
+                        raise ValueError('AWS array projection does not match the Property path')
+                    extracted = [leaf for item in extracted for leaf in item]
                 for item in extracted:
                     if item == m.MISSING or unsafe(item):
                         raise ValueError('sensitive or unresolved AWS value')
@@ -298,13 +249,9 @@ def normalize_records(ctx, service, records):
             except (ValueError, KeyError, TypeError, m.AcquisitionError, m.Unresolved) as error:
                 reason = error.code if isinstance(error, m.AcquisitionError) else 'sensitive Property' if sensitive(proxy, prop) else type(error).__name__
                 captured[prop] = {'status': 'unavailable', 'reason': reason}
-        descriptor = mapping.identities[kind]
-        id_properties = [p for p, item in mapped.items() if p.startswith(kind + '.') and item.field.path == descriptor.id_path and item.field.getter == descriptor.getter]
-        from model_references import catalog_outputs
-        outputs = catalog_outputs(ROOT, kind)
-        id_properties.sort(key=lambda prop: prop not in outputs)
+        identity = inventory_for(ctx).identity(kind, record)
         normalized.append({'record': record_id, 'kind': kind, 'identity': record['identity'],
-                           'identityProperty': id_properties[0] if id_properties else None, 'identityProperties': id_properties, 'properties': captured})
+                           **identity, 'properties': captured})
     return normalized
 
 
@@ -333,7 +280,7 @@ def unchanged(root, checksums):
 
 
 @input_scope
-def acquire(root, environment, service, selector=None, dry_run=False, cli_runner=None, no_profile=False):
+def acquire(root, environment, service, selector=None, dry_run=False, cli_runner=None, no_profile=False, resource_types=None):
     from import_scope import restrict, read_consumers
     from model_templates import consumers
     root = root.resolve()
@@ -354,10 +301,10 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
             snapshots[contract.relative_to(root).as_posix()] = file_hash(contract)
         ctx = import_context(root, target, cli_runner, service)
         ctx.verify()
-        records = normalize_records(ctx, service, inventory(ctx, service))
+        records = normalize_records(ctx, service, inventory(ctx, service, resource_types))
         unchanged(root, snapshots)
         evidence, value = acquired(root, identity, ctx, records, snapshots, direct, dry_run)
-        return {'status': 'acquired', 'scope': list(identity), 'evidence': str(evidence),
+        return {'status': 'acquired' if acquisition_complete(value) else 'incomplete', 'inventory': value['inventory'], 'metrics': dict(ctx.metrics), 'scope': list(identity), 'evidence': str(evidence),
                 'candidates': str(evidence.parent / 'candidates'), 'selection': str(evidence.parent / 'selection.json'),
                 'records': records, 'connection': value['connection'], 'sts': value['sts'],
                 'model': 'unchanged', 'markdown': 'not-run', 'designValidation': 'not-run', 'dryRun': dry_run}
@@ -435,12 +382,13 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
     changes = verify_values(before, after, selected, property_schema)
     pending = pending_items(selection, selected, after.values)
-    result = {'status': 'incomplete' if pending else 'dry-run' if dry_run else 'complete',
+    complete = not pending and acquisition_complete(acquisition)
+    result = {'status': 'incomplete' if not complete else 'dry-run' if dry_run else 'complete',
               'scope': ['/'.join(identity)], 'model': 'unchanged', 'markdown': 'not-run',
               'designValidation': 'not-run', 'dryRun': dry_run,
               'resources': {'added': sum(item['action'] == 'add' for item in selection['resources']),
                             'excluded': len(selection['excluded']), 'unresolved': sum('property' not in item for item in pending)},
-              'unreflected': pending, 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
+              'unreflected': pending, 'inventory': acquisition.get('inventory', {}), 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
     unchanged(root, checksums)
     if dry_run:
@@ -470,7 +418,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         previous = proof.read_text(encoding='utf-8') if proof.is_file() else None
         record_import(root, output, evidence, {'sources': {p.relative_to(root).as_posix(): text for p, text in output.items()},
                       'selection': selection, 'changes': changes,
-                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=not pending)
+                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=complete)
         try:
             publish(root, output, inputs=snapshot, verify=lambda: finish_import(root, 'reflected' if output else 'unchanged'))
         except (OSError, ValueError):
@@ -498,7 +446,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             finish_import(root, markdown='failed')
         except (OSError, ValueError):
             result['displayError'] += '; evidence update failed'
-    result['status'] = 'incomplete' if pending else 'display-failed' if result['markdown'] == 'failed' else 'complete'
+    result['status'] = 'incomplete' if not complete else 'display-failed' if result['markdown'] == 'failed' else 'complete'
     return result
 
 
@@ -508,16 +456,17 @@ def main():
     parser.add_argument('--environment', required=True)
     parser.add_argument('--service', required=True)
     parser.add_argument('--target')
+    parser.add_argument('--resource-type', action='append', dest='resource_types')
     parser.add_argument('--phase', choices=('acquire', 'publish'), required=True)
     parser.add_argument('--evidence', type=Path)
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--no-profile', action='store_true', help='Acquire with the default credential chain, retaining Region and STS account verification')
     args = parser.parse_args()
     if (args.phase == 'acquire' and args.evidence is not None or
-            args.phase == 'publish' and (args.evidence is None or args.no_profile)):
+            args.phase == 'publish' and (args.evidence is None or args.no_profile or args.resource_types)):
         parser.error('acquire accepts --no-profile; publish requires --evidence and never accesses AWS')
     try:
-        result = (acquire(args.repository_root, args.environment, args.service, args.target, args.dry_run, no_profile=args.no_profile)
+        result = (acquire(args.repository_root, args.environment, args.service, args.target, args.dry_run, no_profile=args.no_profile, resource_types=args.resource_types)
                   if args.phase == 'acquire' else publish_acquisition(args.repository_root, args.environment, args.service,
                                                                     args.evidence, args.target, args.dry_run))
         print(json.dumps(result, ensure_ascii=False))

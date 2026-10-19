@@ -3,6 +3,9 @@
 from model_aws_compare import one, Unresolved, AcquisitionError
 
 APIS = {('ec2', 'describe_instances'), ('ec2', 'describe_volumes')}
+CLOUDCONTROL_RESOURCE_TYPES = frozenset({
+    'EC2.TransitGateway', 'EC2.TransitGatewayRouteTable', 'EC2.TransitGatewayRoute',
+    'EC2.TransitGatewayRouteTableAssociation', 'EC2.TransitGatewayRouteTablePropagation'})
 
 
 def sensitive(prop):

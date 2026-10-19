@@ -18,6 +18,9 @@ import re
 import subprocess
 import sys
 from urllib.parse import unquote
+from threading import RLock
+from copy import deepcopy
+from utils.lazy_definitions import load_once
 
 sys.modules.setdefault("model_aws_compare", sys.modules[__name__])
 
@@ -190,9 +193,12 @@ def redacted(value):
 
 
 class Context:
-    def __init__(self, root, target, session=None, cli_runner=None, services=None):
-        self.root, self.target, self.session = Path(root), target, session
+    def __init__(self, root, target, session=None, cli_runner=None, services=None, import_mode=False):
+        self.root, self.target, self.session = Path(root), deepcopy(target), session
         self.cli_runner = cli_runner
+        self.import_mode = import_mode
+        self._cache_lock, self._flights = RLock(), {}
+        self.metrics = Counter()
         self.clients, self.cache, self.models, self.fetch_cache, self.fetch_trace = {}, {}, {}, {}, {}
         self.comparisons = {}
         self.verified = False
@@ -201,14 +207,21 @@ class Context:
         if services is None:
             self.allowed.update({("kms", "describe_key"), ("cloudformation", "list_exports")})
         for service in SERVICES if services is None else services:
-            self.allowed.update(service_module(service).APIS)
-        self.catalog = DesignSchemaCatalog(ROOT)
+            if not import_mode or service in SERVICES:
+                self.allowed.update(service_module(service).APIS)
+        if import_mode:
+            self.allowed.update({("cloudcontrol", "list_resources"), ("cloudcontrol", "get_resource")})
+        self.catalog = DesignSchemaCatalog(self.root)
         self.trace = []
+        self._connection = (stable(self.target), id(self.session), id(self.cli_runner))
 
     def client(self, service):
-        if service not in self.clients:
-            self.clients[service] = self.session.client(service, region_name=self.target["awsRegion"])
-        return self.clients[service]
+        def create():
+            from botocore.config import Config
+            options = {'config': Config(retries={'total_max_attempts': 1})} if self.import_mode else {}
+            self.clients[service] = self.session.client(service, region_name=self.target['awsRegion'], **options)
+            return self.clients[service]
+        return self.once(('client', service), create)
 
     def cli(self, service, operation, inputs, paginate=False):
         command = ["aws", {"s3": "s3api", "config": "configservice"}.get(service, service), operation.replace("_", "-"),
@@ -219,7 +232,8 @@ class Context:
         if not paginate:
             command.append("--no-paginate")
         result = (self.cli_runner or subprocess.run)(command, capture_output=True, encoding="utf-8", errors="replace", timeout=60,
-                                env={**os.environ, "AWS_CLI_AUTO_PROMPT": "off", "AWS_PAGER": ""})
+                                env={**os.environ, "AWS_CLI_AUTO_PROMPT": "off", "AWS_PAGER": "",
+                                     **({"AWS_MAX_ATTEMPTS": "1"} if self.import_mode else {})})
         if result.returncode:
             raise subprocess.CalledProcessError(result.returncode, command[:3], stderr=result.stderr)
         response = json.loads(result.stdout, object_pairs_hook=unique_object, parse_constant=invalid_constant)
@@ -227,16 +241,34 @@ class Context:
             raise ValueError("AWS CLI response must be a JSON object")
         return response
 
+    def once(self, key, load):
+        if (stable(self.target), id(self.session), id(self.cli_runner)) != self._connection:
+            raise ValueError('AWS Context connection changed; start a new acquisition')
+        with self._cache_lock:
+            self.metrics['cache_hits' if key in self._flights else 'cache_misses'] += 1
+        return load_once(self._cache_lock, self._flights, key, load)
+
     def call(self, service, operation, **inputs):
+        if (service, operation) not in self.allowed or operation in {'get_secret_value', 'batch_get_secret_value'}:
+            raise ValueError('API is outside the read-only allowlist')
+        if not self.verified and (service, operation) != ('sts', 'get_caller_identity'):
+            raise ValueError('AWS account has not been verified')
+        self.trace.append({'api': service + '.' + operation, 'inputs': redacted(inputs)})
+        return deepcopy(self.once(('call', service, operation, stable(inputs)),
+                                  lambda: self._call(service, operation, **inputs)))
+
+    def _call(self, service, operation, **inputs):
         if (service, operation) not in self.allowed or operation in {"get_secret_value", "batch_get_secret_value"}:
             raise ValueError("API is outside the read-only allowlist")
         if not self.verified and (service, operation) != ("sts", "get_caller_identity"):
             raise ValueError("AWS account has not been verified")
         api = service + "." + operation
         key = (service, operation, stable(inputs))
-        self.trace.append({"api": api, "inputs": redacted(inputs)})
         if key not in self.cache:
             try:
+                with self._cache_lock:
+                    self.metrics['api_calls'] += 1
+                    self.metrics[api] += 1
                 self.cache[key] = (self.cli(service, operation, inputs) if self.session is None
                                    else getattr(self.client(service), operation)(**inputs))
             except Exception as error:
@@ -248,15 +280,22 @@ class Context:
 
     def pages(self, service, operation, **inputs):
         if (service, operation) not in self.allowed or not self.verified:
+            raise ValueError('paginated API is outside verified read-only scope')
+        self.trace.append({'api': service + '.' + operation, 'inputs': redacted(inputs), 'pagination': 'all'})
+        return deepcopy(self.once(('pages', service, operation, stable(inputs)),
+                                  lambda: self._pages(service, operation, **inputs)))
+
+    def _pages(self, service, operation, **inputs):
+        if (service, operation) not in self.allowed or not self.verified:
             raise ValueError("paginated API is outside verified read-only scope")
         key = (service, operation, "pages", stable(inputs))
         api = service + "." + operation
-        self.trace.append({"api": api, "inputs": redacted(inputs), "pagination": "all"})
         if key not in self.cache:
             try:
-                if self.session is None:
+                if self.session is None and not self.import_mode:
+                    self.metrics["pagination_requests"] += 1
                     self.cache[key] = self.cli(service, operation, inputs, paginate=True)
-                elif (client := self.client(service)).can_paginate(operation):
+                elif not self.import_mode and (client := self.client(service)).can_paginate(operation):
                     self.cache[key] = client.get_paginator(operation).paginate(**inputs).build_full_result()
                 else:
                     result, params, seen = {}, dict(inputs), set()
@@ -310,6 +349,16 @@ class Context:
         return self.comparisons[service]
 
     def fetch(self, resource, getter, definition=None):
+        key = ('fetch', resource.model.path, resource.number, getter)
+        with self._cache_lock:
+            hit = key in self._flights
+        try:
+            return deepcopy(self.once(key, lambda: self._fetch(resource, getter, definition)))
+        finally:
+            if hit:
+                self.trace.extend(self.fetch_trace.get((resource.model.path, resource.number, getter), []))
+
+    def _fetch(self, resource, getter, definition=None):
         key = (resource.model.path, resource.number, getter)
         if key not in self.fetch_cache:
             start = len(self.trace)
@@ -342,7 +391,11 @@ class Resource:
     def __init__(self, model, number, spec, rows):
         self.model, self.ctx, self.number, self.spec, self.rows = model, model.ctx, number, spec, rows
         self.kind = spec["resourceType"]
-        self.module = service_module(model.service)
+        if getattr(self.ctx, 'import_mode', False) and model.service not in SERVICES:
+            from types import SimpleNamespace
+            self.module = SimpleNamespace(APIS=frozenset(), sensitive=lambda prop: False)
+        else:
+            self.module = service_module(model.service)
 
     def rows_for(self, prop):
         full = prop if prop.startswith(self.kind + ".") else self.kind + "." + prop
@@ -398,6 +451,20 @@ class Resource:
             raise Unresolved("resource has no SDK identity mapping")
         mapping, _ = self.ctx.comparison(self.model.service)
         descriptor = mapping.identities.get(self.kind)
+        if not descriptor and self.kind in getattr(self.module, 'CLOUDCONTROL_RESOURCE_TYPES', ()):
+            if mode == 'arn':
+                raise Unresolved('provider primary identifier cannot supply arn')
+            from import_inventory import inventory_for, cloudcontrol_value, pointer_value
+            schema = inventory_for(self.ctx).schema(self.kind)
+            getters = [definition for definition in mapping.getters.values()
+                       if definition.get('kind') == 'cloudcontrol' and definition.get('resourceType') == self.kind]
+            if len(getters) != 1:
+                raise Unresolved('resource has no unique provider identity getter')
+            payload = cloudcontrol_value(self.ctx, self, getters[0])
+            components = [pointer_value(payload, pointer) for pointer in schema['primaryIdentifier']]
+            if any(not isinstance(value, str) or not value for value in components):
+                raise Unresolved('provider identity is absent')
+            return '|'.join(components)
         if not descriptor:
             raise Unresolved("resource has no SDK identity mapping")
         getter, idpath, arnpath, nameprop = (descriptor.getter, descriptor.id_path,

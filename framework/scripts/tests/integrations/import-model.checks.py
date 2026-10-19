@@ -264,8 +264,11 @@ def check_cli_faults(tmp_path):
     for payload in ({}, {'logGroups': None}, {'logGroups': 'invalid'}):
         cli = aws()
         cli.responses['logs', 'describe-log-groups'] = payload
-        with pytest.raises(m.comparator().AcquisitionError, match='InvalidInventoryResponse'):
-            m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli)
+        acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli)
+        assert acquired['status'] == 'incomplete'
+        assert acquired['inventory']['Logs.LogGroup'] == {'status': 'failed', 'reason': 'InvalidInventoryResponse'}
+        assert acquired['records'] == []
+        import_guard.discard_acquisition(root, acquired['evidence'])
 
 
 def check_inventory_parent_references(tmp_path):
@@ -645,6 +648,55 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
         complete(root, selected)
         import_guard.require_import_changes(root)
     assert not (root / '.blueprint').exists()
+
+
+
+def check_partial_acquisition_cannot_complete(tmp_path):
+    root = tmp_path / 'case'
+    fixture(root, 'config')
+    original = aws('config')
+    def cli(command, **kwargs):
+        if command[1:3] == ['configservice', 'describe-delivery-channels']:
+            original.calls.append(('configservice', 'describe-delivery-channels', {}))
+            return subprocess.CompletedProcess(command, 1, '', 'An error occurred (AccessDeniedException) when calling fixture: denied')
+        return original(command, **kwargs)
+    before = source_files(root)
+    acquired = m.acquire(root, 'dev', 'config', TARGET, cli_runner=cli)
+    assert acquired['status'] == 'incomplete' and acquired['records']
+    assert acquired['inventory']['Config.DeliveryChannel']['status'] == 'permission_denied'
+    sealed = import_guard.read_acquisition(root, Path(acquired['evidence']), ('dev', TARGET, 'config'), False)
+    assert sealed['version'] == 2 and not import_guard.acquisition_complete(sealed)
+    stage(acquired, {}, excluded=exclusions(acquired, []))
+    count = len(original.calls)
+    with patch.object(m, 'import_context', side_effect=AssertionError('publish cannot acquire')):
+        result = publish_fixture(root, acquired, 'config')
+    assert result['status'] == 'incomplete' and len(original.calls) == count
+    assert source_files(root) == before and import_guard.read_proof(root)['complete'] is False
+
+
+def check_generic_acquisition_roundtrip(tmp_path):
+    from support.import_model_fixtures import small_framework, CloudControlCli
+    from support.model_sources import write_model
+    root = tmp_path / 'case'
+    root.mkdir()
+    small_framework(root, ['datazone'], ['DataZone.Domain'])
+    path = root / 'model/dev' / ACCOUNT / 'datazone.properties'
+    write_model(path, {'desired.service.datazone.serviceId': 'datazone',
+                      'desired.service.datazone.ownedCatalogResourceTypes': 'DataZone.Domain',
+                      'display.service.title': '# DataZone 詳細設計'})
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic DataZone'], cwd=root, check=True)
+    cli = CloudControlCli({'DataZone.Domain': [{'identifier': 'dzd-fixture', 'properties': {'Id': 'dzd-fixture', 'Name': 'fixture', 'DomainVersion': 'V2', 'SingleSignOn': {'Type': 'DISABLED'}}}]})
+    before = source_files(root)
+    acquired = m.acquire(root, 'dev', 'datazone', ACCOUNT, True, cli, resource_types=['DataZone.Domain'])
+    assert acquired['status'] == 'acquired' and len(acquired['records']) == 1
+    assert acquired['records'][0]['identityComponents'] == [{'property': 'DataZone.Domain.Id', 'value': 'dzd-fixture'}]
+    stage(acquired, {}, excluded=exclusions(acquired, []))
+    count = len(cli.calls)
+    with patch.object(m, 'import_context', side_effect=AssertionError('publish cannot acquire')):
+        result = m.publish_acquisition(root, 'dev', 'datazone', acquired['evidence'], ACCOUNT, True)
+    assert result['status'] == 'dry-run' and source_files(root) == before and len(cli.calls) == count
 
 
 if __name__ == '__main__':

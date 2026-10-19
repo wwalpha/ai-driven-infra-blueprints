@@ -1236,38 +1236,38 @@ resourceTypes:
   EC2.TransitGateway:
     properties:
       Id:
-        model: {include: false}
-        display: {show: false, name: Id}
+        model: {include: true}
+        display: {show: true, name: Id}
         access: [read-only]
         aws: {getter: provider-ec2-transitgateway, path: Id, normalize: typed}
       AmazonSideAsn:
-        model: {include: false}
-        display: {show: false, name: AmazonSideAsn}
+        model: {include: true}
+        display: {show: true, name: AmazonSideAsn}
         access: [create-only]
         aws: {getter: provider-ec2-transitgateway, path: AmazonSideAsn, normalize: typed}
       AutoAcceptSharedAttachments:
-        model: {include: false}
-        display: {show: false, name: AutoAcceptSharedAttachments}
+        model: {include: true}
+        display: {show: true, name: AutoAcceptSharedAttachments}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: AutoAcceptSharedAttachments, normalize: typed}
       DefaultRouteTableAssociation:
-        model: {include: false}
-        display: {show: false, name: DefaultRouteTableAssociation}
+        model: {include: true}
+        display: {show: true, name: DefaultRouteTableAssociation}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: DefaultRouteTableAssociation, normalize: typed}
       DefaultRouteTablePropagation:
-        model: {include: false}
-        display: {show: false, name: DefaultRouteTablePropagation}
+        model: {include: true}
+        display: {show: true, name: DefaultRouteTablePropagation}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: DefaultRouteTablePropagation, normalize: typed}
       Description:
-        model: {include: false}
-        display: {show: false, name: Description}
+        model: {include: true}
+        display: {show: true, name: Description}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: Description, normalize: typed}
       DnsSupport:
-        model: {include: false}
-        display: {show: false, name: DnsSupport}
+        model: {include: true}
+        display: {show: true, name: DnsSupport}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: DnsSupport, normalize: typed}
       EncryptionSupport:
@@ -1301,37 +1301,37 @@ resourceTypes:
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: TransitGatewayCidrBlocks, normalize: typed}
       VpnEcmpSupport:
-        model: {include: false}
-        display: {show: false, name: VpnEcmpSupport}
+        model: {include: true}
+        display: {show: true, name: VpnEcmpSupport}
         access: [read-write]
         aws: {getter: provider-ec2-transitgateway, path: VpnEcmpSupport, normalize: typed}
   EC2.TransitGatewayRoute:
     properties:
       Blackhole:
-        model: {include: false}
-        display: {show: false, name: Blackhole}
+        model: {include: true}
+        display: {show: true, name: Blackhole}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroute, path: Blackhole, normalize: typed}
       DestinationCidrBlock:
-        model: {include: false}
-        display: {show: false, name: DestinationCidrBlock}
+        model: {include: true}
+        display: {show: true, name: DestinationCidrBlock}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroute, path: DestinationCidrBlock, normalize: typed}
       TransitGatewayAttachmentId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayAttachmentId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayAttachmentId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroute, path: TransitGatewayAttachmentId, normalize: typed}
       TransitGatewayRouteTableId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayRouteTableId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayRouteTableId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroute, path: TransitGatewayRouteTableId, normalize: typed}
   EC2.TransitGatewayRouteTable:
     properties:
       TransitGatewayRouteTableId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayRouteTableId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayRouteTableId}
         access: [read-only]
         aws: {getter: provider-ec2-transitgatewayroutetable, path: TransitGatewayRouteTableId, normalize: typed}
       Tags[].Key:
@@ -1345,32 +1345,32 @@ resourceTypes:
         access: [read-write]
         aws: {getter: provider-ec2-transitgatewayroutetable, path: 'Tags[].Value', normalize: typed}
       TransitGatewayId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroutetable, path: TransitGatewayId, normalize: typed}
   EC2.TransitGatewayRouteTableAssociation:
     properties:
       TransitGatewayAttachmentId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayAttachmentId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayAttachmentId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroutetableassociation, path: TransitGatewayAttachmentId, normalize: typed}
       TransitGatewayRouteTableId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayRouteTableId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayRouteTableId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroutetableassociation, path: TransitGatewayRouteTableId, normalize: typed}
   EC2.TransitGatewayRouteTablePropagation:
     properties:
       TransitGatewayAttachmentId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayAttachmentId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayAttachmentId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroutetablepropagation, path: TransitGatewayAttachmentId, normalize: typed}
       TransitGatewayRouteTableId:
-        model: {include: false}
-        display: {show: false, name: TransitGatewayRouteTableId}
+        model: {include: true}
+        display: {show: true, name: TransitGatewayRouteTableId}
         access: [create-only]
         aws: {getter: provider-ec2-transitgatewayroutetablepropagation, path: TransitGatewayRouteTableId, normalize: typed}
   EC2.VPCBlockPublicAccessExclusion:

@@ -347,7 +347,7 @@ def check_cli_phase_dispatch():
     with patch.object(sys, 'argv', ['import-model', '--environment', 'dev', '--service', 'vpc', '--phase', 'acquire', '--no-profile']), \
             patch.object(m, 'acquire', return_value=result) as acquire, patch.object(m, 'publish_acquisition') as publish:
         assert m.main() == 0
-        assert acquire.call_args.kwargs == {'no_profile': True}
+        assert acquire.call_args.kwargs == {'no_profile': True, 'resource_types': None}
         publish.assert_not_called()
     for result, code in [({'status': 'complete', 'markdown': 'generated'}, 0),
                          ({'status': 'incomplete', 'markdown': 'generated'}, 2),
@@ -765,6 +765,323 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
     assert not import_guard.proof_path(snapshot).exists() and import_guard.read_proof(root) == proof
     assert not (root / '.blueprint').exists() and not (snapshot / '.blueprint').exists()
     import_guard.discard_import_proof(root, 'tasks/example.md')
+
+
+
+def generic_context(service='datazone', resources=None, **kwargs):
+    from support.import_model_fixtures import CloudControlCli, ACCOUNT
+    cli = CloudControlCli(resources or {}, **kwargs)
+    target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1'}
+    ctx = m.import_context(m.ROOT, target, cli, service)
+    ctx.verify()
+    return ctx, cli
+
+
+def domain(identifier='dzd-one'):
+    return {'identifier': identifier, 'properties': {'Id': identifier, 'Name': 'fixture', 'DomainVersion': 'V2', 'SingleSignOn': {'Type': 'DISABLED'}}}
+
+
+def check_inventory_singleflight_and_isolation():
+    from concurrent.futures import ThreadPoolExecutor
+    from import_inventory import ImportInventory, inventory_for
+    from collections import Counter
+    resources = {'DataZone.Domain': [domain(), domain('dzd-two')]}
+    ctx, cli = generic_context(resources=resources)
+    original = m._normalize_records
+    from import_inventory import import_comparison
+    with patch('import_inventory.import_comparison', wraps=import_comparison) as mapping, patch.object(m, '_normalize_records', wraps=original) as normalize:
+        def acquire(_):
+            assert inventory_for(ctx) is ImportInventory(ctx)
+            return m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(acquire, range(16)))
+        assert all(result == results[0] for result in results)
+        assert mapping.call_count == 1 and normalize.call_count == 2
+    calls = Counter((s, o, json.dumps(i, sort_keys=True)) for s, o, i in cli.calls)
+    assert len(calls) == 5 and set(calls.values()) == {1}  # STS + two list pages + two detail reads.
+    assert ctx.metrics['api_calls'] == 5
+    assert ctx.metrics['inventory_normalize_runs'] == ctx.metrics['inventory_identity_runs'] == 2
+    assert ctx.metrics['inventory_mapping_runs'] == 1
+    assert inventory_for(ctx).statuses == {'DataZone.Domain': {'status': 'complete'}}
+    results[0][0]['properties']['DataZone.Domain.Name']['value'] = 'mutated'
+    assert acquire(0)[0]['properties']['DataZone.Domain.Name']['value'] == 'fixture'
+    other, other_cli = generic_context(resources=resources)
+    assert inventory_for(other) is not inventory_for(ctx)
+    assert len(m.inventory(other, 'datazone', ['DataZone.Domain'])) == 2 and len(other_cli.calls) == 5
+    assert results[1][0]['identityComponents'] == [{'property': 'DataZone.Domain.Id', 'value': 'dzd-one'}]
+
+
+def check_context_api_singleflight_and_failures():
+    from concurrent.futures import ThreadPoolExecutor
+    from collections import Counter
+    resources = {'DataZone.Domain': [domain()]}
+    ctx, cli = generic_context(resources=resources)
+    def call(_):
+        return ctx.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(call, range(32)))
+    assert len(cli.calls) == 2
+    results[0]['ResourceDescription']['Identifier'] = 'changed'
+    assert call(0)['ResourceDescription']['Identifier'] == 'dzd-one'
+    failed, failed_cli = generic_context(resources=resources, fail={('cloudcontrol', 'get-resource', 'dzd-one'): 'AccessDeniedException'})
+    def denied(_):
+        with pytest.raises(m.comparator().AcquisitionError, match='AccessDeniedException'):
+            failed.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(denied, range(16)))
+    assert len(failed_cli.calls) == 2
+    assert failed.metrics['api_calls'] == 2 and failed.metrics['cache_hits'] >= 15
+
+
+def check_cloudtrail_all_model_properties():
+    from import_inventory import inventory_for
+    ctx, cli = generic_context('cloudtrail', {'CloudTrail.Trail': [{'identifier': 'audit', 'list': {'TrailName': 'audit'}, 'properties': {'TrailName': 'audit'}}]})
+    result = m.normalize_records(ctx, 'cloudtrail', m.inventory(ctx, 'cloudtrail'))
+    assert len(result) == 1 and len(result[0]['properties']) == 13
+    assert all(value['status'] == 'captured' for value in result[0]['properties'].values())
+    assert result[0]['properties']['CloudTrail.Trail.IsLogging']['value'] is True
+    assert result[0]['properties']['CloudTrail.Trail.S3BucketName']['value'] == 'audit-bucket'
+    assert result[0]['properties']['CloudTrail.Trail.KMSKeyId']['value'] == 'key-confirmed'
+    assert len(cli.calls) == 5  # STS, provider discovery, three existing adapter APIs.
+    assert not any(operation == 'get-resource' for _, operation, _ in cli.calls)
+    assert inventory_for(ctx).statuses['CloudTrail.Trail']['status'] == 'complete'
+
+
+def check_tgw_provider_and_composite_identity():
+    from import_inventory import inventory_for
+    resources = {
+        'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one', 'AmazonSideAsn': 64512, 'Description': 'fixture',
+            'DnsSupport': 'enable', 'DefaultRouteTableAssociation': 'enable', 'DefaultRouteTablePropagation': 'enable',
+            'AutoAcceptSharedAttachments': 'disable', 'VpnEcmpSupport': 'enable'}}],
+        'EC2.TransitGatewayRouteTable': [{'identifier': 'tgw-rtb-one', 'properties': {'TransitGatewayRouteTableId': 'tgw-rtb-one', 'TransitGatewayId': 'tgw-one'}}],
+        'EC2.TransitGatewayRoute': [{'identifier': 'opaque-route', 'properties': {'TransitGatewayRouteTableId': 'tgw-rtb-one', 'DestinationCidrBlock': '10.0.0.0/16', 'TransitGatewayAttachmentId': 'tgw-attach-one', 'Blackhole': False}}],
+        'EC2.TransitGatewayRouteTableAssociation': [{'identifier': 'opaque-assoc', 'properties': {'TransitGatewayRouteTableId': 'tgw-rtb-one', 'TransitGatewayAttachmentId': 'tgw-attach-one'}}],
+        'EC2.TransitGatewayRouteTablePropagation': [{'identifier': 'opaque-propagation', 'properties': {'TransitGatewayRouteTableId': 'tgw-rtb-one', 'TransitGatewayAttachmentId': 'tgw-attach-one'}}],
+    }
+    ctx, cli = generic_context('ec2', resources)
+    result = m.normalize_records(ctx, 'ec2', m.inventory(ctx, 'ec2', list(resources)))
+    assert len(result) == 5 and all(item['status'] == 'complete' for item in inventory_for(ctx).statuses.values())
+    assert all(value['status'] == 'captured' for record in result for value in record['properties'].values())
+    route = next(r for r in result if r['kind'] == 'EC2.TransitGatewayRoute')
+    assert route['identity'] == 'opaque-route' and route['identityProperty'] is None
+    assert route['identityComponents'] == [{'property': 'EC2.TransitGatewayRoute.TransitGatewayRouteTableId', 'value': 'tgw-rtb-one'},
+                                          {'property': 'EC2.TransitGatewayRoute.DestinationCidrBlock', 'value': '10.0.0.0/16'}]
+    lists = [inputs for _, op, inputs in cli.calls if op == 'list-resources']
+    assert len(lists) == 5 and sum('ResourceModel' in inputs for inputs in lists) == 3
+    assert len(cli.calls) == 11
+    from aws_mapping_compare import comparison
+    _, compare = comparison(m.ROOT, 'ec2')
+    assert all(compare[prop].field.classification == 'supported' for record in result for prop in record['properties'])
+
+
+def check_inventory_status_and_partial_retention():
+    from import_inventory import inventory_for
+    ctx, cli = generic_context(resources={'DataZone.Domain': [domain(), domain('dzd-two')]},
+                               fail={('cloudcontrol', 'get-resource', 'dzd-two'): 'AccessDeniedException'})
+    records = m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
+    assert len(records) == 1 and records[0]['identity'] == 'dzd-one'
+    assert inventory_for(ctx).statuses['DataZone.Domain']['status'] == 'permission_denied'
+    count = len(cli.calls)
+    assert len(m.inventory(ctx, 'datazone', ['DataZone.Domain'])) == 1 and len(cli.calls) == count
+    evidence = {'version': 2, 'inventory': inventory_for(ctx).statuses}
+    assert not import_guard.acquisition_complete(evidence)
+    empty, _ = generic_context()
+    assert m.inventory(empty, 'datazone', ['DataZone.Domain']) == []
+    assert inventory_for(empty).statuses['DataZone.Domain']['status'] == 'empty'
+    assert import_guard.acquisition_complete({'version': 2, 'inventory': inventory_for(empty).statuses})
+    assert m.inventory(empty, 'datazone', ['DataZone.DataSource']) == []
+    assert inventory_for(empty).statuses['DataZone.DataSource']['status'] == 'not_modelled'
+    with pytest.raises(ValueError, match='owner'):
+        m.inventory(empty, 'datazone', ['EC2.TransitGateway'])
+
+
+def check_cloudcontrol_json_and_readonly_boundary():
+    from import_inventory import properties_json, inventory_for
+    for value in ('null', '[]', '{"Id":1,"Id":2}', '{"Id":NaN}', '{invalid', {}, None):
+        with pytest.raises((ValueError, TypeError)):
+            properties_json(value)
+    from support.import_model_fixtures import CloudControlCli, ACCOUNT
+    target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1'}
+    ctx = m.import_context(m.ROOT, target, CloudControlCli({}), 'datazone')
+    with pytest.raises(ValueError, match='verified'):
+        ctx.call('cloudcontrol', 'list_resources', TypeName='AWS::DataZone::Domain')
+    ctx.verify()
+    for operation in ('create_resource', 'update_resource', 'delete_resource'):
+        with pytest.raises(ValueError, match='allowlist'):
+            ctx.call('cloudcontrol', operation)
+    with pytest.raises(ValueError, match='allowlist'):
+        ctx.call('datazone', 'get_domain', identifier='unvalidated-selector')
+    with pytest.raises(m.comparator().AcquisitionError, match='AccountMismatch'):
+        generic_context(account='999999999999')
+    with pytest.raises(ValueError, match='unimplemented service'):
+        m.comparator().Context(m.ROOT, target, services=('datazone',))
+
+
+def check_composite_identity_same_resource_only():
+    kind = 'EC2.TransitGatewayRouteTableAssociation'
+    props = [kind + '.TransitGatewayRouteTableId', kind + '.TransitGatewayAttachmentId']
+    def values(rid, table, attachment):
+        result = {f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': 'IMPORT', f'desired.resource.{rid}.anchor': 'association-' + rid}
+        for n, (prop, value) in enumerate(zip(props, (table, attachment)), 1):
+            if value is not None:
+                result[f'desired.row.{rid}-{n:03d}.property'] = prop
+                result[f'desired.row.{rid}-{n:03d}.value'] = '`' + value + '`'
+        return result
+    captured = {'record': 'assoc', 'kind': kind, 'identity': 'opaque', 'identityProperty': None, 'identityProperties': props,
+                'identityStatus': 'known', 'identityComponents': [{'property': p, 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'))],
+                'properties': {p: {'status': 'captured', 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'))}}
+    old = {**values('001', 'table-a', 'attachment-a'), **values('002', 'table-b', 'attachment-b')}
+    new = {**old, **values('009', 'table-a', 'attachment-b')}
+    selected = selection_records(selection('assoc', '009'), [captured], old, new, schema_for)
+    assert verify_values(expansion(old), expansion(new), selected, schema_for)
+    old_same = values('001', 'table-a', 'attachment-b')
+    with pytest.raises(ValueError, match='duplicate identity'):
+        selection_records(selection('assoc', '009'), [captured], old_same, {**old_same, **values('009', 'table-a', 'attachment-b')}, schema_for)
+    partial = values('001', 'table-a', None)
+    warnings = []
+    selection_records(selection('assoc', '009'), [captured], partial, {**partial, **values('009', 'table-a', 'attachment-b')}, schema_for, warnings)
+    assert warnings and warnings[0]['existingResources'] == ['001']
+    invalid = {**new, 'desired.row.009-002.value': '`wrong`'}
+    with pytest.raises(ValueError, match='differs|identity'):
+        verify_values(expansion(old), expansion(invalid), selected, schema_for)
+
+
+
+@pytest.mark.parametrize('case,expected', [('no-list', 'unsupported'), ('no-read', 'unsupported'), ('filter', 'requires_filter'), ('missing', 'failed')])
+def check_inventory_capability_outcomes(case, expected):
+    from import_inventory import inventory_for
+    item = domain()
+    if case == 'missing':
+        del item['properties']['Name']
+    ctx, cli = generic_context(resources={'DataZone.Domain': [item]})
+    inv = inventory_for(ctx)
+    def schema(kind):
+        # Plain copies of the fixture schema; no static singleton mutation.
+        from aws_mapping import readonly
+        data = {'handlers': {'list': {}, 'read': {}}, 'primaryIdentifier': ['/properties/Id'], 'required': ['Name']}
+        if case == 'no-list':
+            del data['handlers']['list']
+        elif case == 'no-read':
+            del data['handlers']['read']
+        elif case == 'filter':
+            data['handlers']['list']['handlerSchema'] = {'required': ['UnboundScope']}
+        return readonly(data)
+    with patch.object(inv, 'schema', side_effect=schema):
+        records = m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
+    assert inv.statuses['DataZone.Domain']['status'] == expected
+    assert len(records) == (1 if case == 'missing' else 0)
+    count = len(cli.calls)
+    assert len(inv.inventory('datazone', 'DataZone.Domain')) == len(records)
+    assert len(cli.calls) == count
+
+
+def check_fetch_singleflight_and_trace():
+    from concurrent.futures import ThreadPoolExecutor
+    from import_inventory import inventory_for
+    ctx, cli = generic_context(resources={'DataZone.Domain': [domain()]})
+    def get(context, resource, getter):
+        return context.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    resource = SimpleNamespace(model=SimpleNamespace(path=Path('/synthetic/datazone')), number='one', module=SimpleNamespace(fetch=get))
+    with patch.object(resource.module, 'fetch', wraps=get) as fetch:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(lambda _: ctx.fetch(resource, 'provider'), range(16)))
+        assert fetch.call_count == 1 and len(cli.calls) == 2
+    assert results[0] == results[-1]
+    assert ctx.fetch_trace[resource.model.path, 'one', 'provider'] == [{'api': 'cloudcontrol.get_resource', 'inputs': {'TypeName': 'AWS::DataZone::Domain', 'Identifier': 'dzd-one'}}]
+    inv = inventory_for(ctx)
+    inv.mapping('datazone'); inv.mapping('datazone')
+    assert ctx.metrics['inventory_mapping_runs'] == 1
+    record = {'kind': 'DataZone.Domain', 'identity': 'one', 'cloudProperties': {'Id': 'one'}}
+    inv.identity('DataZone.Domain', record); inv.identity('DataZone.Domain', record)
+    assert ctx.metrics['inventory_identity_runs'] == 1
+    inv.property_schema('DataZone.Domain.Name'); inv.property_schema('DataZone.Domain.Name')
+    assert ctx.metrics['inventory_property_schema_runs'] == 1
+    ctx.target['awsRegion'] = 'us-east-1'
+    with pytest.raises(ValueError, match='connection changed'):
+        ctx.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+
+
+def check_tgw_compare_provider_evaluation():
+    from aws_mapping_compare import comparison, value
+    kind = 'EC2.TransitGatewayRouteTableAssociation'
+    identifier = 'table-one|attachment-one'
+    payload = {'TransitGatewayRouteTableId': 'table-one', 'TransitGatewayAttachmentId': 'attachment-one'}
+    ctx, cli = generic_context('ec2', {kind: [{'identifier': identifier, 'properties': payload}]})
+    ctx.import_mode = False  # Exercise the unchanged Compare service gate plus the explicit TGW capability.
+    model = SimpleNamespace(ctx=ctx, path=Path('/synthetic/ec2'), service='ec2', values={})
+    rows = [(str(i), {'property': kind + '.' + prop, 'value': '`' + actual + '`'}) for i, (prop, actual) in enumerate(payload.items())]
+    resource = m.comparator().Resource(model, '001', {'resourceType': kind}, rows)
+    mapping, mapped = comparison(m.ROOT, 'ec2')
+    for prop, expected in payload.items():
+        key = kind + '.' + prop
+        assert value(ctx, resource, mapping, mapped[key], key)[1] == expected
+    assert resource.identity() == identifier
+    assert len(cli.calls) == 2 and cli.calls[-1][2]['Identifier'] == identifier
+    gateway, gateway_cli = generic_context('ec2', {'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one'}}]})
+    gateway.import_mode = False
+    model = SimpleNamespace(ctx=gateway, path=Path('/synthetic/ec2'), service='ec2', values={'observed.row.001-001.value': '`tgw-one`'})
+    resource = m.comparator().Resource(model, '001', {'resourceType': 'EC2.TransitGateway', 'anchor': 'gateway'}, [('001-001', {'property': 'EC2.TransitGateway.Id', 'value': '[Gateway](#gateway)'})])
+    assert resource.identity() == 'tgw-one' and len(gateway_cli.calls) == 2
+    model.values.clear()
+    with pytest.raises(m.comparator().Unresolved, match='observation'):
+        resource.identity()
+
+
+def check_legacy_adapter_api_counts():
+    from support.import_model_fixtures import SERVICES, ACCOUNT, aws
+    # Baseline counts are physical mock transport invocations on the identical fixture.
+    expected = {'vpc': 7, 'config': 3, 'cloudwatch-logs': 2, 'data-firehose': 3, 'quicksight': 7, 'security-hub': 2, 'transit-gateway': 2}
+    measured = {}
+    for service in SERVICES:
+        cli = aws(service)
+        target = {'environment': 'dev', 'directory': 'cde', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'awsProfile': 'confirmed'}
+        ctx = m.import_context(m.ROOT, target, cli, service)
+        ctx.verify()
+        records = m.inventory(ctx, service)
+        m.normalize_records(ctx, service, records)
+        first = len(cli.calls)
+        m.normalize_records(ctx, service, m.inventory(ctx, service))
+        assert len(cli.calls) == first
+        measured[service] = first
+    assert measured == expected
+
+
+
+@pytest.mark.parametrize('account,region', [('999999999999', 'ap-northeast-1'), ('123456789012', 'us-east-1')])
+def check_acquisition_account_region_isolation(account, region):
+    from support.import_model_fixtures import CloudControlCli
+    from import_inventory import inventory_for
+    first, _ = generic_context(resources={'DataZone.Domain': [domain()]})
+    first_records = m.inventory(first, 'datazone', ['DataZone.Domain'])
+    cli = CloudControlCli({'DataZone.Domain': [domain('dzd-other')]}, account=account)
+    target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': account, 'awsRegion': region}
+    second = m.import_context(m.ROOT, target, cli, 'datazone')
+    second.verify()
+    records = m.inventory(second, 'datazone', ['DataZone.Domain'])
+    assert records[0]['identity'] == 'dzd-other' and first_records[0]['identity'] == 'dzd-one'
+    assert inventory_for(second) is not inventory_for(first) and len(cli.calls) == 3
+    with pytest.raises(TypeError):
+        inventory_for(second).schema('DataZone.Domain')['primaryIdentifier'] = []
+
+
+def check_resource_type_cli_selection():
+    arguments = ['import-model', '--environment', 'dev', '--service', 'ec2', '--phase', 'acquire',
+                 '--resource-type', 'EC2.TransitGateway', '--resource-type', 'EC2.TransitGatewayRouteTable']
+    with patch.object(sys, 'argv', arguments), patch.object(m, 'acquire', return_value={'status': 'acquired', 'markdown': 'not-run'}) as acquire:
+        assert m.main() == 0
+        assert acquire.call_args.kwargs['resource_types'] == ['EC2.TransitGateway', 'EC2.TransitGatewayRouteTable']
+
+
+def check_unknown_acquired_identity_rejected():
+    captured = record()
+    captured.update(identityStatus='unknown', identityComponents=[{'property': 'EC2.VPC.VpcId', 'value': None}])
+    with pytest.raises(ValueError, match='identity is unknown'):
+        selection_records(selection(), [captured], {}, resource(), schema_for)
+    with pytest.raises(ValueError, match='inventory status'):
+        import_guard.acquisition_complete({'version': 2, 'inventory': {}})
+    with pytest.raises(ValueError, match='version'):
+        import_guard.acquisition_complete({'version': 99})
+    assert import_guard.acquisition_complete({'version': 1})
 
 
 if __name__ == '__main__':
