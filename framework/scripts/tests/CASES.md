@@ -1772,6 +1772,7 @@ no new runner or live AWS/consumer inputs are introduced.
 | Original case | Case | Class | Current location | Execution / count | Responsibility | Change |
 | --- | --- | --- | --- | --- | --- | --- |
 | `dependency/contract` | `check_dependency_detach_contract` | UT | [strict opt-in contract](units/task-contract-unit.checks.py) | pytest / 1 | exact JSON/keys/IDs/scope, malformed/duplicate/conflicting declarations; ordinary design unchanged | Added |
+| `dependency/stack-usage` | `check_stack_reference_usage` | UT | [fixed-ID Stack usage](units/import-model-unit.checks.py) | pytest / 7 | synthetic Stack and Resource references, pointers/provenance, unrelated deletion meaning check, collision/missing/type/format/name/shape rejection | Added |
 | `dependency/usage` | `check_generic_reference_usage` | UT | [fixed-ID usage](units/import-model-unit.checks.py) | pytest / 1 | service-a/service-b cycle, identical names with distinct IDs, source line and value, read-only state | Added |
 | `dependency/shape` | `check_reference_active_shapes_and_documents` | UT | [active shapes](units/import-model-unit.checks.py) | pytest / 2 | active choice, inactive optional JSON/unused Definition, escaped JSON pointer, separate display links | Added |
 | `dependency/unresolved` | `check_reference_fail_closed` | UT | [unresolved references](units/import-model-unit.checks.py) | pytest / 4 | unknown fixed ID, cyclic name expansion, broken internal link and missing input fail closed | Added |

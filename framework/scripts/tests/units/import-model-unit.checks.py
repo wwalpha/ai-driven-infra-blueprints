@@ -1382,6 +1382,85 @@ def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
     assert result['status'] == 'unresolved' and result['error'] == message
 
 
+@pytest.mark.parametrize('broken', [None, 'collision', 'missing', 'type', 'format', 'name', 'shape'])
+def check_stack_reference_usage(tmp_path, broken):
+    import shutil
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, metadata, save_service, operation_contract
+    from model_reference_usage import incoming_references, outgoing_references, _symbolic
+    from model_templates import load_expansion
+    from model_operation_checks import verify_model_operation
+    from task_contract import model_operation
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    stack = ['# model-template: 1'] + metadata('cloudformation-stacks', ['CloudFormation.Stack'])
+    stack += ['# definition: Stack', 'desired.stack.028.name=fixture-stack',
+              'desired.stack.028.template=stack.yaml', 'desired.stack.028.parameters=stack.json',
+              'desired.stack.028.deployOrder=10', '# end-definition']
+    save_service(before, 'cloudformation-stacks', stack, {'instances': {}},
+                 {'instances': {'service': {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}},
+                                'stack': {'definition': 'Stack', 'resources': {}, 'rows': {}, 'parameters': {}}}}, environment='stg')
+    template = before / 'model/templates/cde/service-b.properties.tpl'
+    reference = {'service': 'cloudformation-stacks', 'resource': '028', 'resourceType': 'CloudFormation.Stack', 'format': 'name'}
+    content = template.read_text(encoding='utf-8').replace('# definition: Consumer\n',
+        '# definition: Consumer\n# reference: StackName ' + json.dumps(reference) + '\n')
+    content = content.replace('desired.row.name.comment=',
+        'desired.row.name.document={"a/b":["arn:aws:cloudformation:ap-northeast-1:123456789012:stack/<<StackName>>/*"]}\ndesired.row.name.comment=')
+    template.write_text(content, encoding='utf-8')
+    path = before / 'model/stg/cde/service-b.properties'
+    valid_expansion = load_expansion(path)
+    if broken:
+        if broken in {'missing', 'type', 'format'}:
+            bad = dict(reference)
+            bad[{'missing': 'resource', 'type': 'resourceType', 'format': 'format'}[broken]] = {
+                'missing': '999', 'type': 'IAM.Role', 'format': 'anchor'}[broken]
+            template.write_text(content.replace(json.dumps(reference), json.dumps(bad)), encoding='utf-8')
+        else:
+            producer = before / 'model/templates/cde/cloudformation-stacks.properties.tpl'
+            text = producer.read_text(encoding='utf-8')
+            if broken == 'collision':
+                text = text.replace('# definition: Stack\n', '# definition: Stack\n# resource: resource\ndesired.resource.resource.resourceType=CloudFormation.Stack\ndesired.resource.resource.anchor=collision\n')
+                file = before / 'model/parameters/stg/cde/cloudformation-stacks/bindings.json'
+                bindings = json.loads(file.read_text(encoding='utf-8'))
+                bindings['instances']['stack']['resources'] = {'resource': '028'}
+                file.write_text(json.dumps(bindings), encoding='utf-8')
+            elif broken == 'name':
+                text = text.replace('fixture-stack', 'invalid_stack')
+            else:
+                text = text.replace('desired.stack.028.template=stack.yaml\n', '')
+            producer.write_text(text, encoding='utf-8')
+        for analyze in (lambda: outgoing_references(before, 'stg/cde/service-b/002'),
+                        lambda: incoming_references(before, 'stg/cde/service-a/003'),
+                        lambda: _symbolic(path, valid_expansion, {})):
+            with pytest.raises(ValueError):
+                analyze()
+        return
+    snapshot = {p: p.read_bytes() for p in before.rglob('*') if p.is_file()}
+    usages = outgoing_references(before, 'stg/cde/service-b/002')
+    record, = [item for item in usages if item['producer'] == 'stg/cde/cloudformation-stacks/stack/028']
+    assert record['consumer'] == 'stg/cde/service-b/002'
+    assert record['key'] == 'desired.row.002-001.document'
+    assert record['property'] == 'ServiceB.Resource.Name' and record['pointer'] == '/a~1b/0'
+    assert record['kind'] == 'typed' and record['format'] == 'name' and record['status'] == 'resolved'
+    assert record['resolvedValue'].endswith(':stack/fixture-stack/*')
+    assert record['provenance']['references']['StackName']['service'] == 'cloudformation-stacks'
+    assert record['sourceLocation']['file'] == template.relative_to(before).as_posix()
+    assert template.read_text(encoding='utf-8').splitlines()[record['sourceLocation']['line'] - 1].startswith('desired.row.name.document=')
+    assert any(item['producer'] == 'stg/cde/service-a/001' and item['resolvedValue'] == 'same-name-stg' for item in usages)
+    assert incoming_references(before, 'stg/cde/service-a/001')
+    assert incoming_references(before, 'stg/cde/service-a/003') == []
+    assert all(p.read_bytes() == value for p, value in snapshot.items())
+    shutil.copytree(before, after)
+    directory = after / 'model/parameters/stg/cde/service-a'
+    for filename in ('parameters.yaml', 'bindings.json'):
+        file = directory / filename
+        payload = yaml_read(file.read_text(encoding='utf-8'))
+        del payload['instances']['same-name']
+        file.write_text(yaml.safe_dump(payload) if filename.endswith('.yaml') else json.dumps(payload), encoding='utf-8')
+    verify_model_operation(before, after,
+        model_operation(operation_contract('import-delete', source='stg/cde/service-a/003')),
+        {p.relative_to(after).as_posix() for p in directory.iterdir()})
+
 def check_generic_reference_usage(tmp_path):
     from support.import_model_fixtures import dependency_fixture
     from model_reference_usage import incoming_references, outgoing_references
