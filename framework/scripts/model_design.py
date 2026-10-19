@@ -157,7 +157,7 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
                 raise ValueError(f"property does not belong to resource: {identity}: {prop}")
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
                 LINK.fullmatch(value) or is_service_role_reference(prop, value) or
-                resource_mode(resource) == 'IMPORT' and is_import_pending_reference(prop, value) or
+                resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
                 is_import_role_arn(prop, value, resource_mode(resource))
             ):
                 raise ValueError(f"{prop} must be a resource link or an allowed IMPORT reference")

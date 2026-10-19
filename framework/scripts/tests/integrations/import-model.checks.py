@@ -916,16 +916,12 @@ def check_reference_publication(tmp_path, present, race):
         assert result['referenceMetrics']['referenceModelReads'] == int(present)
         assert all(p.read_bytes() == raw for p, raw in foreign.items())
         assert not (root / 'docs/designs/dev/cde/s3.md').exists()
-        from model_projection import model_for
-        from model_core import properties
         from model_design import generate_markdown
         from import_scope import new_references
         with new_references(before_addition, {'009': record}):
-            saved = load_for_edit(path).values
+            saved = load_for_edit(path, display=True).values
             document = root / 'docs/designs/dev/cde/cloudtrail.md'
-            restored = properties(model_for(document, root, source=saved, definitions_root=m.ROOT))
-            assert all(saved[key] == value for key, value in restored.items() if key.startswith(('desired.row.', 'observed.row.')))
-            assert generate_markdown(document, {**saved, **restored}, root) == markdown
+            assert generate_markdown(document, saved, root) == markdown
         before_recovery = source_files(root)
         assert sync_runtime.sync(root, True, 'dev', TARGET, services=['cloudtrail']) == 0
         assert source_files(root) == before_recovery

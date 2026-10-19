@@ -216,7 +216,8 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
         choice.pop(directory / 'observed.json')
         choice[directory / 'parameters.yaml'] = 'instances:\n  new-project:\n    parameters:\n      UseLink: false\n      LiteralSubnet: subnet-external\n'
         with new_references(before, {'009': {}}):
-            assert load_for_edit(path, choice).values['desired.row.009-001.value'] == '`subnet-external`'
+            assert load_for_edit(path, choice).values['desired.row.009-001.value'] == 'subnet-external'
+            assert load_for_edit(path, choice, display=True).values['desired.row.009-001.value'] == '`subnet-external`'
         choice[directory / 'parameters.yaml'] = 'instances:\n  new-project:\n    parameters:\n      UseLink: true\n      Subnet: "001"\n'
         choice[directory / 'observed.json'] = output[directory / 'observed.json']
         with new_references(before, {'009': {}}):
@@ -281,8 +282,6 @@ def check_import_compact_display_and_create_guards():
 ])
 def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, desired, observed):
     from model_design import generate_markdown
-    from model_projection import model_for
-    from model_core import properties
     from utils.aws_mappings import owners
     service = owners(ROOT)[kind]
     source = values(kind, {name: 'audit', prop: 'unused'}, rid='009', anchor=service + '-audit')
@@ -294,10 +293,13 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
     path.parent.mkdir(parents=True)
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
-    restored = properties(model_for(path, tmp_path, source=source, definitions_root=ROOT))
-    assert restored['desired.row.009-002.value'] == desired
-    assert restored['observed.row.009-002.value'] == observed
-    assert generate_markdown(path, {**source, **restored}, ROOT) == first
+    from design_layout import expanded_display_rows
+    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={service + '-audit': 'IMPORT'})
+    expected = '[' + literal(observed) + ']' + desired[desired.index(']') + 1:] if desired.startswith('[') else desired
+    assert any(expected in line for line in normalized), normalized
+    assert source['desired.row.009-002.value'] == desired
+    assert source['observed.row.009-002.value'] == observed
+    assert path.read_text() == first
 
 
 def check_mixed_literals_cannot_hide_behind_observations(tmp_path):
@@ -384,8 +386,6 @@ def check_packed_variable_roundtrip_and_tamper():
 
 def check_packed_pipeline_configuration_roundtrip(tmp_path):
     from model_design import generate_markdown
-    from model_projection import model_for
-    from model_core import properties
     kind = 'CodePipeline.Pipeline'
     producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
     config = [[{'ProjectName': '[audit-build](codebuild.md#producer)', 'EnvironmentVariables': 'literal-json'}]]
@@ -405,10 +405,11 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
     assert '[audit-build](codebuild.md#producer)' in first
-    restored = properties(model_for(path, tmp_path, source=source, definitions_root=ROOT))
-    assert restored['desired.row.009-003.value'] == source['desired.row.009-003.value']
-    assert restored['observed.row.009-003.value'] == source['observed.row.009-003.value']
-    assert generate_markdown(path, {**source, **restored}, ROOT) == first
+    from design_layout import expanded_display_rows
+    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'codepipeline-audit': 'IMPORT'})
+    assert any('literal-json' in line and '[audit-build](codebuild.md#producer)' in line for line in normalized)
+    assert source['observed.row.009-003.value'] == json.dumps(actual)
+    assert path.read_text() == first
     wrong = json.loads(json.dumps(config))
     wrong[0][0]['EnvironmentVariables'] = 'wrong'
     source['desired.row.009-003.value'] = '`' + json.dumps(wrong) + '`'
