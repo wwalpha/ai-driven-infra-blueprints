@@ -31,6 +31,8 @@ pytest件数はテスト定義・aliasと設定から算出する。直接実行
 
 ## design_catalog の検証経路
 
+- `units/cloudformation_schema.checks.py::main` は共通動的参照の構文（名前/ARN、既定/明示SecretString、version、埋込/複数参照）、不正構文・未対応provider・SSM secure利用先の拒否、通常値の長さ/pattern/enum/const、型/構造、API-only非影響を検証する。`model_design.check_dynamic_reference_candidates` は合成Snowflakeの正式candidate生成/再読込、通常値と不正参照の拒否時の正本入力・既存表示保持を確認する。
+
 - API異常値24件は `integrations/design_catalog.checks.py` に維持。23件は `DesignSchemaCatalog.api_value_errors()` の型・範囲・required・additionalPropertiesと `job_errors()` の具体的違反を検証し、`jobId` ARN拒否1件はMarkdown→Model→Validatorで検証する。UTへの移動なし。
 - 個別結合ケースは `Validator(model_check=...)` で全体同期だけを分離し、Markdown/Model構造検証を維持。既存 `input_scope` はケースごとに終了し、Modelを書き換えた直後もキャッシュを破棄する。
 - 実処理の `sync_runtime.sync()` は正常系の生成・読み戻しと、`desired.extra=stale` に対する `model/display projection mismatch: macie.md: desired.extra` の検出を担当する。
@@ -71,7 +73,7 @@ pytest件数はテスト定義・aliasと設定から算出する。直接実行
 | 種別 | ファイル数 | 台帳登録pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
 | units | 52 | 150 / 261 | 23 |
-| integrations | 76 | 186 / 290 | 112 |
+| integrations | 76 | 187 / 291 | 112 |
 | unknown | 0 | 0 / 0 | 0 |
 | support | 42 | 0 / 0 | 0 |
 
@@ -240,7 +242,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/blueprint-loop-unit.checks.py:250` | `check_it_reachability` | UT | [units/blueprint-loop-unit.checks.py:250](units/blueprint-loop-unit.checks.py#L250) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
 | `units/blueprint-loop-unit.checks.py:282` | `check_it_assertion_guards` | UT | [units/blueprint-loop-unit.checks.py:283](units/blueprint-loop-unit.checks.py#L283) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
 | `units/blueprint-loop-unit.checks.py:297` | `check_it_fixture_isolation` | UT | [units/blueprint-loop-unit.checks.py:298](units/blueprint-loop-unit.checks.py#L298) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
-| `units/blueprint-loop-unit.checks.py:330` | `check_it_inventory` | UT | [units/blueprint-loop-unit.checks.py:331](units/blueprint-loop-unit.checks.py#L331) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py:330` | `check_it_inventory` | UT | [units/blueprint-loop-unit.checks.py:415](units/blueprint-loop-unit.checks.py#L415) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 固定総数・種別別件数・展開件数・suite総数のassertを削除。登録整合性・重複/未登録/欠落・到達性検証を保持 |
 | `units/blueprint-loop-unit.checks.py` | `check_it_run_lifecycle` | UT | [units/blueprint-loop-unit.checks.py:344](units/blueprint-loop-unit.checks.py#L344) | pytest / 1 | runner lifecycle: one initialization, measured events and environment restoration | 新規UT |
 
 ### UT 内部パターン
@@ -520,6 +522,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/model_design.checks.py:1656` | `check_service_failure_protection` | IT | [integrations/model_design.checks.py:1368](integrations/model_design.checks.py#L1368) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 入力変更検出前に既存Scope契約を作成。保存・rollback検証を保持 |
 | `unknown/model_design.checks.py:1970` | `check_service_displays` | IT | [integrations/model_design.checks.py:1643](integrations/model_design.checks.py#L1643) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/model_design.checks.py:2092` | `check_observed_arn_authority` | IT | [integrations/model_design.checks.py:1735](integrations/model_design.checks.py#L1735) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `model_design.checks.py::check_dynamic_reference_candidates` | `check_dynamic_reference_candidates` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py) | pytest / 1 | 合成Snowflake Modelの正式candidate検証・生成・再読込、Username/Passwordの不正値拒否と入力・既存表示の保持 | 共通動的参照検証 |
 | `unknown/model_files.checks.py:38` | `check_resource_reading` | IT | [integrations/model_files.checks.py:13](integrations/model_files.checks.py#L13) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:115` | `check_precision` | IT | [integrations/model_impact.checks.py:115](integrations/model_impact.checks.py#L115) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:161` | `check_identity_and_deletion` | IT | [integrations/model_impact.checks.py:161](integrations/model_impact.checks.py#L161) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |

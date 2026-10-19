@@ -28,6 +28,13 @@ DESCRIPTION_PATTERNS = {
     ("AWS::EC2::SecurityGroup", "GroupDescription"): r"\A[a-zA-Z0-9 ._:/()#,@\[\]+=&;{}!$*\-]*\Z",
 }
 
+DYNAMIC_REFERENCE_START = re.compile(r"\{\{\s*resolve\b")
+DYNAMIC_REFERENCE = re.compile(r"\{\{resolve:([^{}]*)\}\}")
+SECRETS_MANAGER_REFERENCE = re.compile(
+    r"(?:arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:)?[a-zA-Z0-9/_+=.@-]+"
+    r"(?::(?P<fields>[^\r\n]*))?"
+)
+
 
 def aws_type(material: Path) -> str:
     return "AWS::" + material.stem.replace("_", "::", 1)
@@ -138,11 +145,48 @@ class CloudFormationSchemaCatalog:
 
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
         node = self.property_schema(resource_type, property_path)
+        expected = node.get("type")
+        if expected == "string" or (isinstance(expected, list) and "string" in expected):
+            dynamic_errors = self._dynamic_reference_errors(resource_type, property_path, raw_value)
+            if dynamic_errors is not None:
+                # AWS resolves references at deployment; their text is not the property value.
+                return dynamic_errors
         errors = self._literal_errors(node, raw_value)
         pattern = DESCRIPTION_PATTERNS.get((self.canonical_type(resource_type), property_path))
         if pattern and not errors:
             errors.extend(self._literal_errors({"type": "string", "pattern": pattern}, raw_value))
         return errors
+
+    def _dynamic_reference_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str] | None:
+        if DYNAMIC_REFERENCE_START.search(raw_value) is None:
+            return None
+        if DYNAMIC_REFERENCE_START.search(DYNAMIC_REFERENCE.sub("", raw_value)):
+            return ["invalid CloudFormation dynamic reference syntax"]
+        resource_type = self.canonical_type(resource_type)
+        if resource_type.startswith("AWS::EC2::") and property_path.split(".")[-1] == "UserData":
+            return ["CloudFormation dynamic references are unsupported in EC2 UserData"]
+        for match in DYNAMIC_REFERENCE.finditer(raw_value):
+            kind, _, target = match[1].partition(":")
+            if kind == "secretsmanager":
+                secret = SECRETS_MANAGER_REFERENCE.fullmatch(target)
+                if secret is None or target.endswith("\\"):
+                    return ["invalid Secrets Manager dynamic reference syntax"]
+                fields = secret["fields"].split(":") if secret["fields"] is not None else []
+                if len(fields) > 4 or (fields and fields[0] not in {"", "SecretString"}):
+                    return ["invalid Secrets Manager dynamic reference syntax"]
+                if len(fields) == 4 and fields[2] and fields[3]:
+                    return ["invalid Secrets Manager dynamic reference syntax"]
+            elif kind in {"ssm", "ssm-secure"}:
+                if re.fullmatch(r"[a-zA-Z0-9_.\-/]+(?::[0-9]+)?", target) is None:
+                    return ["invalid SSM dynamic reference syntax"]
+                if kind == "ssm-secure":
+                    from cfnlint.rules.functions.DynamicReferenceSecureString import DynamicReferenceSecureString
+                    path = "Resources/" + resource_type + "/Properties/" + property_path.replace("[]", "/*").replace(".", "/")
+                    if path not in DynamicReferenceSecureString().exceptions:
+                        return ["SSM secure dynamic reference is unsupported for this resource property"]
+            else:
+                return ["unsupported CloudFormation dynamic reference provider"]
+        return []
 
     def _literal_errors(self, node: dict[str, Any], raw_value: str) -> list[str]:
         if raw_value.lower() in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"} and raw_value not in node.get("enum", []):

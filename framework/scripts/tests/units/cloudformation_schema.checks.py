@@ -218,6 +218,67 @@ def main() -> None:
             ["2", "SSM.Association.AssociationName", "patch-scan", "associationの名前"]]
     assert resource_display_name("SSM.Association", rows) == "patch-scan"
     assert resource_display_name("SSM.Association", rows[:1]) is None
+
+    reference = "{{resolve:secretsmanager:example/dev/snowflake-pat/iad/pii:SecretString:username}}"
+    valid_references = (
+        reference, reference.replace(":username}}", ":password}}"),
+        "{{resolve:secretsmanager:example}}", "{{resolve:secretsmanager:example::::}}",
+        "{{resolve:secretsmanager:example:SecretString:username:AWSCURRENT}}",
+        "{{resolve:secretsmanager:example:SecretString:username::version-id}}",
+        "{{resolve:secretsmanager:arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-Ab1234:SecretString:username}}",
+        "{{resolve:secretsmanager:arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:example}}",
+        "{{resolve:ssm:/example/username}}", "{{resolve:ssm:/example/username:2}}",
+        "prefix-" + reference + "-suffix", reference + ":" + reference,
+    )
+    invalid_references = (
+        "{{resolve", "{{resolve:ssm:/example}", "{{ resolve:ssm:/example}}",
+        "{{resolve :ssm:/example}}", "{{resolve:unknown:example}}",
+        "{{resolve:secretsmanager:}}", "{{resolve:secretsmanager:example:SecretBinary:username}}",
+        "{{resolve:secretsmanager:example:SecretString:username:stage:version}}",
+        "{{resolve:secretsmanager:example:SecretString:username:::extra}}",
+        "{{resolve:secretsmanager:arn:aws:s3:ap-northeast-1:123456789012:secret:example}}",
+        "{{resolve:secretsmanager:arn:aws:secretsmanager:ap-northeast-1:wrong:secret:example}}",
+        "{{resolve:secretsmanager:example:SecretString:username\\}}",
+        "{{resolve:ssm:}}", "{{resolve:ssm:/example:label}}",
+        "{{resolve:ssm:/example:1:2}}", "{{resolve:ssm:/bad name}}",
+        reference + "{{resolve:ssm:}}", reference + "{{resolve:ssm:/missing",
+        "{{resolve:secretsmanager:{{resolve:ssm:/nested}}}}",
+    )
+    for schemas in (catalog, DesignSchemaCatalog(root)):
+        for prop in ("Username", "Password"):
+            path = "Credentials.CredentialPair." + prop
+            for value in valid_references:
+                assert schemas.literal_errors("QuickSight.DataSource", path, value) == [], (prop, value)
+            for value in invalid_references:
+                assert schemas.literal_errors("QuickSight.DataSource", path, value), (prop, value)
+            limit = 64 if prop == "Username" else 1024
+            assert schemas.literal_errors("QuickSight.DataSource", path, "x" * limit) == []
+            assert schemas.literal_errors("QuickSight.DataSource", path, "x" * (limit + 1))
+            assert schemas.literal_errors("QuickSight.DataSource", path, "")
+        assert schemas.literal_errors("IAM.Role", "Description", reference) == []
+        assert schemas.literal_errors("IAM.User", "LoginProfile.Password", "{{resolve:ssm-secure:/example:2}}") == []
+        assert schemas.literal_errors("QuickSight.DataSource", "Credentials.CredentialPair.Username", "{{resolve:ssm-secure:/example}}")
+        assert schemas.literal_errors("EC2.Instance", "UserData", reference)
+        for kind, path in (("Logs.LogGroup", "RetentionInDays"), ("EC2.VPC", "EnableDnsSupport"),
+                           ("QuickSight.DataSource", "Credentials.CredentialPair"), ("IAM.User", "Groups")):
+            assert schemas.literal_errors(kind, path, reference), (kind, path)
+
+    # Defer value constraints together, while retaining every ordinary-literal check.
+    for node, accepted, rejected in (
+        ({"type": "string", "minLength": 3}, "abc", "ab"),
+        ({"type": "string", "maxLength": 3}, "abc", "abcd"),
+        ({"type": "string", "pattern": "^allowed$"}, "allowed", "other"),
+        ({"type": "string", "enum": ["allowed"]}, "allowed", "other"),
+        ({"type": ["string", "object"], "const": "allowed"}, "allowed", "other"),
+    ):
+        catalog.schemas["AWS::Test::Dynamic"] = {"properties": {"Value": node}}
+        assert catalog.literal_errors("Test.Dynamic", "Value", reference) == []
+        assert catalog.literal_errors("Test.Dynamic", "Value", accepted) == []
+        assert catalog.literal_errors("Test.Dynamic", "Value", rejected)
+        assert catalog.literal_errors("Test.Dynamic", "Value", invalid_references[0])
+    long_reference = reference.replace("username", "k" * 1100)
+    assert catalog.literal_errors("QuickSight.DataSource", "Credentials.CredentialPair.Password", long_reference) == []
+    assert DesignSchemaCatalog(root).literal_errors("QuickSight.Group", "Description", long_reference)
     print("cloudformation-schema: PASS")
 
 

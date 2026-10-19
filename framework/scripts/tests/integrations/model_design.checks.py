@@ -1756,6 +1756,43 @@ def check_observed_arn_authority(tmp_path):
 
 
 
+def check_dynamic_reference_candidates(root, project):
+    source = root / "model/dev/123456789012/quicksight.properties"
+    reference = "{{resolve:secretsmanager:example/dev/snowflake-pat/iad/pii:SecretString:username}}"
+    values = model("quicksight", "QuickSight.DataSource", "datasource", [
+        ("Name", "`datasource`", "接続名"), ("Type", "`SNOWFLAKE`", "接続の種類"),
+        ("AwsAccountId", "`123456789012`", "アカウント"), ("DataSourceId", "`datasource`", "接続ID"),
+        ("DataSourceParameters.SnowflakeParameters.Database", "`example`", "データベース"),
+        ("DataSourceParameters.SnowflakeParameters.Host", "`example.snowflakecomputing.com`", "接続先"),
+        ("DataSourceParameters.SnowflakeParameters.Warehouse", "`example`", "ウェアハウス"),
+        ("Credentials.CredentialPair.Username", "`" + reference + "`", "認証ユーザー"),
+        ("Credentials.CredentialPair.Password", "`" + reference.replace(":username}}", ":password}}") + "`", "認証パスワード"),
+    ])
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    write_model(source, text(values))
+    inputs = {path: path.read_bytes() for path in load_model(source).files}
+    assert SYNC.sync(root, True, "dev", "123456789012", {"quicksight"}) == 0
+    design = root / "docs/designs/dev/123456789012/quicksight.md"
+    saved = design.read_bytes()
+    assert reference in saved.decode("utf-8")
+    assert reference.replace(":username}}", ":password}}") in saved.decode("utf-8")
+    assert inputs == {path: path.read_bytes() for path in inputs}
+    assert SYNC.sync(root, False, "dev", "123456789012", {"quicksight"}) == 0
+
+    for key, value, diagnostic in (
+        ("desired.row.001-008.value", "`" + "x" * 65 + "`", "length must be <= 64"),
+        ("desired.row.001-009.value", "`" + "x" * 1025 + "`", "length must be <= 1024"),
+        ("desired.row.001-008.value", "`{{resolve:secretsmanager:example:SecretBinary:username}}`", "dynamic reference"),
+        ("desired.row.001-009.value", "`{{resolve:ssm:/example:label}}`", "dynamic reference"),
+    ):
+        write_model(source, text({**values, key: value}))
+        inputs = {path: path.read_bytes() for path in load_model(source).files}
+        with pytest.raises(ValueError, match=diagnostic):
+            SYNC.sync(root, True, "dev", "123456789012", {"quicksight"})
+        assert design.read_bytes() == saved
+        assert inputs == {path: path.read_bytes() for path in inputs}
+
+
 if __name__ == "__main__":
     if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
         import cProfile
