@@ -608,6 +608,33 @@ def check_model_operation_row_correspondence():
         operation_rows(values, '001')
 
 
+@pytest.mark.parametrize('properties, expected', [
+    (['IAM.Role.ManagedPolicyArns'] * 2, ['IAM.Role.ManagedPolicyArns[1]', 'IAM.Role.ManagedPolicyArns[2]']),
+    (['IAM.Role.ManagedPolicyArns[]'] * 2, ['IAM.Role.ManagedPolicyArns[1]', 'IAM.Role.ManagedPolicyArns[2]']),
+    (['IAM.Role.ManagedPolicyArns[1]', 'IAM.Role.ManagedPolicyArns[2]'], ['IAM.Role.ManagedPolicyArns[1]', 'IAM.Role.ManagedPolicyArns[2]']),
+    (['IAM.Role.Policies[].PolicyDocument.Statement[].Effect'] * 2,
+     ['IAM.Role.Policies[1].PolicyDocument.Statement[1].Effect', 'IAM.Role.Policies[1].PolicyDocument.Statement[2].Effect']),
+    (['IAM.Role.RoleName'] * 2, None),
+    (['IAM.Role.ManagedPolicyArns[1]'] * 2, None),
+])
+def check_model_operation_catalog_arrays(tmp_path, properties, expected):
+    from import_promotion import operation_rows
+    values = {'desired.resource.001.resourceType': 'IAM.Role'}
+    for rid, prop, value in zip(('001-004', '001-007'), properties, ('[first](#first)', '[second](#second)')):
+        values.update({f'desired.row.{rid}.property': prop, f'desired.row.{rid}.value': value})
+    fixture = tmp_path / 'rows.json'
+    fixture.write_text(json.dumps(values))
+    values = json.loads(fixture.read_text())
+    if expected is None:
+        with pytest.raises(ValueError, match='ambiguous Property correspondence'):
+            operation_rows(values, '001')
+    else:
+        rows = operation_rows(values, '001')
+        assert list(rows) == expected
+        assert [(rid, row['value']) for rid, row in rows.values()] == [
+            ('001-004', '[first](#first)'), ('001-007', '[second](#second)')]
+
+
 
 @pytest.mark.parametrize('shape', ['optional', 'choice', 'optional-json', 'document', 'untransferred'])
 def check_model_operation_shape_preservation(tmp_path, shape):

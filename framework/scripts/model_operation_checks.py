@@ -11,11 +11,11 @@ from import_sources import typed_equal
 
 def operation_rows(values, number):
     """Formal Property and array position identify rows, never matching row numbers."""
-    from array_display import numbered_property
+    from array_display import ROOT, array_template, numbered_property
     from model_files import resource_row_index
     result, states = {}, {}
     for rid, row in resource_row_index(values)[number]:
-        key = numbered_property(row['property'], states)
+        key = numbered_property(array_template(row['property'], values['desired.resource.' + number + '.resourceType'], ROOT), states)
         if key in result:
             raise ValueError('IMPORT ambiguous Property correspondence: ' + key)
         result[key] = rid, row
