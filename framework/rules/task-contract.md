@@ -205,6 +205,8 @@ normal finalize is blocked until recovery finishes. A failed rebase is aborted.
 After reviewing conflicts, rebase manually onto that exact base, resolve and continue,
 then run the same command with `--finish-recovery`. This accepts only a clean linear
 candidate on the unchanged base, with the expected commit count and declared paths.
+The verified recovery base becomes the Task validation baseline; retain the original
+lifecycle start separately, excluding inherited base changes from this Task scope.
 No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
 validation PASS. Run the required IT and Full checks, complete the contract, and use
 normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.

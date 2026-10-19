@@ -195,7 +195,7 @@ def task_start_commit(root, task_file):
     if state['task_file'] != task_file:
         raise Blocked('selected task does not match managed task_file')
     task_worktree(root, state)
-    start = output(root, 'rev-parse', '--verify', state['start'] + '^{commit}')
+    start = output(root, 'rev-parse', '--verify', state.get('validation_base', state['start']) + '^{commit}')
     if git(root, 'merge-base', '--is-ancestor', start, 'HEAD', check=False).returncode:
         raise Blocked('task lifecycle start is not an ancestor of HEAD')
     return start
@@ -418,7 +418,7 @@ def recover(where, task_id, expected_commit, expected_base, finish=False):
             allowed = tasks.paths_in(text, '## Allowed paths')
             if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
                 raise Blocked("recovery candidate is outside the exact task contract")
-            state.update(tip=head, commit=head, verified=True)
+            state.update(tip=head, commit=head, verified=True, validation_base=expected_base)
             del state['recovery']
             save(path, state)
             return state

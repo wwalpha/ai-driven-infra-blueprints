@@ -167,6 +167,8 @@ def check_ahead_and_rebase_conflict():
                 recovered = wt.recover(root, 'example', old, latest, finish=True)
                 assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
                 assert 'recovery' not in recovered
+                assert recovered['start'] == state['start']
+                assert wt.task_start_commit(target, state['task_file']) == latest
                 finish_contract(target, state)
                 assert cli(root, 'finalize')['cleaned']
                 assert (root / 'file.txt').read_text() == 'base update\ntask\n'
