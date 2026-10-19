@@ -82,11 +82,14 @@ def changed_sources(root, supplied=None, *, contract_file=None):
     return {str(p) for p in supplied if str(p).startswith(('model/templates/', 'model/parameters/')) or str(p) == 'project.json'}
 
 
-def resource_config(values, number, path=None, expansion=None):
+def resource_config(values, number, path=None, expansion=None, *, symbols=None):
     spec = dict(entries(values, 'desired.resource.'))[number]
     rows = resource_row_index(values)[number]
-    if path is not None:
-        from model_templates import load_expansion
+    if symbols is not None:
+        compared = symbols
+        spec = {key: symbols.get(f'desired.resource.{number}.' + key, value) for key, value in spec.items()}
+    elif path is not None:
+        from model_templates import load_for_analysis as load_expansion
         from import_preservation import preserved_values
         expansion = expansion or load_expansion(path)
         compared = preserved_values(path, expansion._replace(values=values))
@@ -96,7 +99,8 @@ def resource_config(values, number, path=None, expansion=None):
     observed = []
     for rid, row in rows:
         if 'document' in row:
-            value = json.loads(row['document'])
+            document = compared.get('desired.row.' + rid + '.document', row['document'])
+            value = json.loads(document) if isinstance(document, str) else document
         else:
             raw = compared.get('desired.row.' + rid + '.value', row['value'])
             value = literal(raw) if isinstance(raw, str) else raw
@@ -111,8 +115,8 @@ def resource_config(values, number, path=None, expansion=None):
             observed.append([row['property'], literal(current)])
     # Comments, source layout and literal backticks do not change AWS configuration.
     result = {'resource': spec, 'rows': configuration, 'observed': observed if spec.get('resourceMode') == 'IMPORT' else []}
-    if path is not None and spec.get('resourceMode', 'CREATE') != 'IMPORT':
-        from model_templates import load_expansion, parse_template, service_source, json_read
+    if symbols is None and path is not None and spec.get('resourceMode', 'CREATE') != 'IMPORT':
+        from model_templates import load_for_analysis as load_expansion, parse_template, service_source, json_read
         from model_parameter_inputs import schema
         expansion = expansion or load_expansion(path)
         _, template, directory = service_source(path)
@@ -215,17 +219,29 @@ def changes(root, sources, output=None, include_create=False, *, contract_file=N
             old_path, new_path = before / relative, after / relative
             old_exists = old_path in model_paths(before, env, target)
             new_exists = new_path in model_paths(after, env, target)
-            old = load_model(old_path).values if old_exists else {}
-            new = load_model(new_path).values if new_exists else {}
+            from model_templates import load_for_analysis
+            old_expansion = load_for_analysis(old_path) if old_exists else None
+            new_expansion = load_for_analysis(new_path) if new_exists else None
+            old = old_expansion.values if old_expansion else {}
+            new = new_expansion.values if new_expansion else {}
+            from model_reference_usage import _symbolic
+            from model_operation_checks import reference_equal
+            from model_core import report_reference_warnings
+            warnings = [w for expansion in (old_expansion, new_expansion) if expansion for w in expansion.warnings]
+            old_symbols = _symbolic(old_path, old_expansion, {}, warnings) if old_expansion else {}
+            new_symbols = _symbolic(new_path, new_expansion, {}, warnings) if new_expansion else {}
+            report_reference_warnings(warnings)
             old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
             for number in old_resources.keys() | new_resources.keys():
                 previous, current = old_resources.get(number, {}), new_resources.get(number, {})
                 imported = previous.get('resourceMode') == 'IMPORT' or current.get('resourceMode') == 'IMPORT'
                 if not imported and not include_create:
                     continue
-                left = resource_config(old, number, old_path if identity else None) if previous else None
-                right = resource_config(new, number, new_path if identity else None) if current else None
-                if left != right:
+                left = resource_config(old, number, symbols=old_symbols) if previous else None
+                right = resource_config(new, number, symbols=new_symbols) if current else None
+                if not reference_equal(left, right):
+                    left = resource_config(old, number) if previous else None
+                    right = resource_config(new, number) if current else None
                     found['/'.join((env, target, service, number))] = {'before': digest(left), 'after': digest(right), 'mode': 'IMPORT' if imported else 'CREATE',
                         'action': 'add' if left is None else 'delete' if right is None else 'update'}
         return base, found
@@ -262,8 +278,10 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
                 required |= affected(after, sources, before=before)
                 if scope is None or not required <= scope:
                     raise ValueError('retarget requires all producers/consumers in Validation scope')
-            verify_model_operation(before, after, operation, sources)
-        return
+            warnings = verify_model_operation(before, after, operation, sources)
+        from model_core import report_reference_warnings
+        report_reference_warnings(warnings)
+        return warnings
     if refactor is not None:
         from model_operation_checks import verify_model_refactor
         from validation_scope import active_scope
@@ -278,8 +296,10 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
             raise ValueError('Model refactor requires a versioned baseline')
         scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
-            verify_model_refactor(before, after, refactor, sources, scope)
-        return
+            warnings = verify_model_refactor(before, after, refactor, sources, scope)
+        from model_core import report_reference_warnings
+        report_reference_warnings(warnings)
+        return warnings
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:
         if not sources and generation:

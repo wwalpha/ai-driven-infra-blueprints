@@ -226,6 +226,10 @@ Shared internal modules conservatively select full regression under `--affected`
 
 ## Validation cache
 
+Do not save warning-bearing or incomplete results as count-only PASS cache records.
+Keep their warnings/unverified scope visible on rerun. Reuse normal complete caches
+under the existing content-hash rules.
+
 Read-only task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
 
 For new inputs, changed contents, added/deleted files, missing/corrupt caches, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
@@ -387,6 +391,13 @@ Follow [task-contract](task-contract.md#retry-and-stop) for stopping/retry and a
 When a local loop is required, its PASS displays executed Requirement IDs, Acceptance check count, task type, and framework regression script count. Do not substitute generic validation for that required evidence. For classifications completed without a loop, confirm their required checks and Acceptance requirements; report that no local loop ran.
 
 ## Model-only final integration
+
+Follow [Reference diagnostics](model-information.md#reference-diagnostics). Preserve
+warnings through child validators, generation/comparison and final candidate aggregation.
+Executed checks with no errors are PASS; individual reference-unavailable checks are
+NOT_RUN with reason/scope/retained-view metadata. Model completion accepts only this
+identified reference condition, never arbitrary NOT_RUN. Keep source save success
+separate from view completeness; do not restore old-view equality failures afterward.
 
 The running /update Model-only parent prepares source and generated views, then finalize
 creates its private candidate commit and rebases onto latest local base. Run the existing

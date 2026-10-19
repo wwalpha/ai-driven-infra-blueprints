@@ -20,6 +20,7 @@ class LoadedModel(NamedTuple):
     values: dict[str, str]
     locations: dict[str, tuple[Path, int]]
     files: dict[Path, str]
+    warnings: tuple = ()
 
 
 @scoped_read
@@ -36,7 +37,7 @@ def load_model(path: Path, _context=None) -> LoadedModel:
         text = ''.join(f'{key}={value}\n' for key, value in expanded.values.items())
         locations = {key: (Path(source["template"]), source["line"]) if "template" in source else (paths[2]/"observed.json", 1)
                      for key, source in expanded.provenance.items()}
-        return LoadedModel(text, expanded.values, locations, expanded.files)
+        return LoadedModel(text, expanded.values, locations, expanded.files, expanded.warnings)
 
 
 @input_scope

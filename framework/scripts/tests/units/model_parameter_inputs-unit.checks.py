@@ -51,7 +51,7 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
         return LoadedModel('', {f'desired.resource.{rid}.resourceType': types[int(rid)-1],
                                 f'desired.resource.{rid}.anchor': 'anchor-' + rid}, {}, {dependency: 'input'})
     files = {}
-    with patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
+    with patch.object(t, 'service_source', return_value=(tmp_path, template, tmp_path)), patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
          patch.object(t, 'load_expansion', side_effect=AssertionError('full expansion forbidden')):
         call = lambda: select_reference_target(template, consumer, 'Ref', [consumer, producer], definitions, 'dev', files)
         if expected == '001':
@@ -90,7 +90,7 @@ def check_stack_target_identity(tmp_path, failure):
             raise ValueError('stack reference requires format:name')
         return LoadedModel('', {'desired.stack.001.name': 'StackName'}, {}, {})
     from contextlib import nullcontext
-    with patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
+    with patch.object(t, 'service_source', return_value=(tmp_path, template, tmp_path)), patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
          patch('import_scope.create_reference', return_value=nullcontext()):
         call = lambda: select_reference_target(template, item, 'Stack', [item], definitions, 'dev', {})
         if failure:

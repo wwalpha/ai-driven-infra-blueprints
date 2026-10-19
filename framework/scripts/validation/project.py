@@ -46,6 +46,14 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             findings.check(False, f"invalid validation YAML input: {error}")
         for base, suffix in (() if candidates else (("docs/designs", ".md"),)):
             relative = f"{base}/{environment}/{target}/{service}{suffix}"
+            if not input_is_file(root / relative):
+                from model_templates import load_expansion
+                from model_core import ReferenceResolutionError
+                try:
+                    load_expansion(root / 'model' / environment / target / (service + '.properties'))
+                except ReferenceResolutionError as error:
+                    findings.warn(error, source=relative, retainedView=None)
+                    continue
             findings.check(input_is_file(root / relative), f"validation input missing: {relative}")
     from model_templates import affected
     impact = set()

@@ -177,8 +177,9 @@ def preserve_consumers(path, expansion, output, identities, selected=None):
     return snapshots, used, changed
 
 
-def replacement_inputs(root, identity, selected):
+def replacement_inputs(root, identity, selected, warnings=None):
     """Reuse incoming-reference analysis and its input snapshot; never retarget here."""
+    warnings = warnings if warnings is not None else []
     replacements = {rid for rid, record in selected.items() if record.get('_action') == 'replace'}
     if not replacements:
         return {}, ()
@@ -194,10 +195,11 @@ def replacement_inputs(root, identity, selected):
             inputs.update(read_sources(root / 'model' / scope[0] / scope[1] / (scope[2] + '.properties')))
         for rid in sorted(replacements):
             address = '/'.join((*identity, rid))
-            references = [item for item in incoming_references(root, address) if item['consumer'] != address]
-            if references:
-                raise ValueError('IMPORT replace has incoming references; use a separately authorized Model-only operation: '
-                                 + address + ': ' + ', '.join(item['scope'] + '/' + item['key'] for item in references))
+            diagnosis = incoming_references(root, address)
+            warnings.extend(diagnosis['warnings'])
+            warnings.extend({'code': 'reference.replace_impact',
+                             'message': 'replacement affects an incoming reference', **item}
+                            for item in diagnosis['references'] if item['consumer'] != address)
     return inputs, directories
 
 

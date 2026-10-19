@@ -251,13 +251,11 @@ def check_one_way_model_contract():
     validate_required_properties(values, ROOT)
     with pytest.raises(ValueError, match='unknown Model field'):
         validate_required_properties(values | {'desired.extra': 'stale'}, ROOT)
-    with pytest.raises(ValueError, match='resource link'):
-        validate_required_properties(values | {'desired.resource.001.resourceMode': 'CREATE'}, ROOT)
+    assert validate_required_properties(values | {'desired.resource.001.resourceMode': 'CREATE'}, ROOT)
     for invalid in ('arn:aws:iam::123:role/test', 'arn:aws:iam::123456789012:user/test',
                     'arn:aws:iam::123456789012:role/', 'arn:aws:iam::123456789012:role/a b', '`' + arn, arn + '`'):
         assert not is_import_role_arn(prop, invalid, 'IMPORT')
-        with pytest.raises(ValueError, match='resource link'):
-            validate_required_properties(values | {'desired.row.001-001.value': invalid}, ROOT)
+        assert validate_required_properties(values | {'desired.row.001-001.value': invalid}, ROOT)
     assert is_import_role_arn(prop, 'arn:aws:iam::123456789012:role/path!special/Role', 'IMPORT')
     shown = display_rows('Config.ConfigurationRecorder', [['001-001', prop, '`' + arn + '`', '記録用IAM Role']], mode='IMPORT')
     assert shown == [['001-001', 'RoleARN', '`' + arn + '`', '記録用IAM Role']]

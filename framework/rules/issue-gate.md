@@ -20,6 +20,17 @@ Standalone `import-retarget` retains the ordinary pre-task/resume/save/generatio
 Issue Gate for all declared producer and consumer services. It inherits no deletion
 exception and cannot change issue inventories or classify existing issues as fixed.
 
+## Reference-only Issues
+
+Apply [Reference diagnostics](model-information.md#reference-diagnostics) to all Model
+operations. Recognize known old machine diagnostic forms before resolving issue ownership;
+reference-only items are nonblocking even with unknown ownership. Keep their text and
+numbering. In mixed items retain the non-reference errors as blocking; a reference/link
+keyword alone never changes classification. Scan artifacts, summary and detail carry
+warnings, without requiring judgement, reassignment or migration saving. Never mark them
+fixed or delete them merely to allow an update. IaC comparisons unable to resolve a Model
+report uncompared plus warnings, not match/verified or category error.
+
 ## Model deletion exception
 
 For an explicit Human Model deletion request, do not stop at the ordinary pre-contract
@@ -34,10 +45,10 @@ scope mismatches and mismatched managed Tasks fail closed. The ordinary CLI with
 
 Only the existing-issue stop decision is waived within that deletion Task's Validation
 scope. Do not require Issue remediation, delete issues.md or mark existing issues fixed.
-Keep incoming-reference analysis, ambiguity/type/parse failures, surviving-reference and
-final verify_model_operation checks, Model/Properties/Bindings consistency, source
-existence/identity, path/scope/worktree guards, AWS/deploy prohibitions and newly detected
-generation/validation errors. Unsafe deletion still stops. `import-merge`, ordinary
+Keep incoming-reference diagnostics and final verify_model_operation checks. Reference
+ambiguity/type mismatch/surviving links are warnings. Retain parse/Model/Bindings errors,
+operation source existence/fixed identity, path/scope/worktree guards, AWS/deploy
+prohibitions and non-reference generation/validation errors. `import-merge`, ordinary
 updates, IaC/deploy and later ordinary Tasks retain the issue gate; completed deletion
 contracts do not grant the exception.
 

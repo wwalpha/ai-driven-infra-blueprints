@@ -1,11 +1,24 @@
 """Prove automatic reference labels without relaxing ordinary Model comparisons."""
-from model_core import LINK, entries, literal
+from model_core import LINK, entries, literal, ReferenceResolutionError
 from model_parameter_inputs import schema, parameter_value
 from model_templates import (_reference_inputs, parse_template, reference_values,
                              service_source)
 
 
-def automatic_reference(path, expansion, key):
+def automatic_reference(path, expansion, key, warnings=None):
+    try:
+        return _automatic_reference(path, expansion, key)
+    except ReferenceResolutionError as error:
+        warning = {**error.diagnostic, "key": key, "source": str(path)}
+        if warnings is not None:
+            warnings.append(warning)
+        else:
+            from model_core import report_reference_warnings
+            report_reference_warnings([warning])
+        return None
+
+
+def _automatic_reference(path, expansion, key):
     """Return the declared identity and consumed attribute, never just an anchor."""
     from import_scope import selected, create_reference
     from issues_iac import REFERENCE_PROPERTIES
@@ -45,11 +58,13 @@ def automatic_reference(path, expansion, key):
         _, files, observed, _, bindings, fields = inputs
         rid = selector
         if 'instance' in spec:
+            if spec['instance'] not in bindings['instances']:
+                raise ReferenceResolutionError('unknown external instance reference')
             bound = bindings['instances'][spec['instance']]
             candidates = [number for number in bound['resources'].values()
                           if fields[f'desired.resource.{number}.resourceType'][2] == spec['resourceType']]
             if len(candidates) != 1:
-                return None
+                raise ReferenceResolutionError('reference producer requires exactly one matching resource')
             rid = candidates[0]
         resolved = reference_values(producer, rid, spec['resourceType'], 'preservation')
         expected = parameter_value(template, item, name, [], {'instances': {trace['instance']: binding}},

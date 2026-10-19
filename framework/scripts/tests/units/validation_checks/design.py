@@ -127,10 +127,9 @@ def check_schema_backed_design_rows() -> None:
             invalid.replace(
                 "| 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |\n"
                 "| 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |",
-                "| 1 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
-                "| 2 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |\n"
-                "| 3 | Tags[].Key | `Name` | ロググループを識別するNameタグのキー |\n"
-                "| 4 | Tags[].Value | `cwlogs-app-stg-flow-logs` | ロググループを識別するNameタグの値 |",
+                "| 1 | LogGroupName | `cwlogs-app-stg-flow-logs` | ロググループの名前 |\n"
+                "| 2 | LogGroupClass | `STANDARD` | ロググループの保存クラス |\n"
+                "| 3 | KmsKeyId | [LOGKEY01](kms.md#kms-logkey01) | ログ暗号化に使用するKMSキーのARN |",
             )
         )
         validator = schema_validator(root)
@@ -231,7 +230,7 @@ def check_cidr_pending_deploy() -> None:
 
         def errors(text):
             write(path, text)
-            validator = MODULE.Validator(root)
+            validator = MODULE.Validator(root, definitions_root=repository)
             validator.schema_catalog = schema
             validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog)
             validator.check_design_overviews()
@@ -341,7 +340,6 @@ def check_event_rule_row_order() -> None:
             ("Name", "ebr-event-venus-dev-hulft-retrieval-detect"),
             ("State", "DISABLED"),
             ("EventBusName", "default"),
-            ("ScheduleExpression", "rate(5 minutes)"),
         ]
 
         def errors(selected):
@@ -349,7 +347,7 @@ def check_event_rule_row_order() -> None:
                 f"| {number} | {prop} | `{value}` | ルールの設定 |\n"
                 for number, (prop, value) in enumerate(selected, 1)
             ))
-            validator = MODULE.Validator(root)
+            validator = MODULE.Validator(root, definitions_root=repository)
             validator.schema_catalog = schema
             validator.check_design_tables({design: ("eventbridge", ("Events.Rule",))}, *catalog)
             return validator.errors

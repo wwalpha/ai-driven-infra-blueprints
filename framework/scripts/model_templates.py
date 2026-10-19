@@ -14,7 +14,7 @@ import tempfile
 import threading
 from typing import NamedTuple
 
-from model_core import properties, entries, LINK
+from model_core import properties, entries, LINK, ReferenceResolutionError
 from policy_tables import unique_object, invalid_constant
 from validation_cache import input_scope, memoized, memo_table
 import sync_files
@@ -209,8 +209,10 @@ def save_parameters(path, parameters):
         from model_parameter_inputs import parameter_text
         definitions, _ = parse_template(template)
         bindings = json_read(inputs[directory/'bindings.json'].decode('utf-8'))
-        expand(template, parameters, observed, bindings, path.parent.parent.name)
         text = parameter_text(parameters, definitions, bindings)
+        analysis = load_for_analysis(path, {target: text})
+        from model_core import report_reference_warnings
+        report_reference_warnings(analysis.warnings)
         publish(root, {target:text}, inputs=inputs, expected_task=expected_task)
 
 
@@ -782,35 +784,49 @@ def validate_local(values):
     from model_files import resource_row_index
     resource_row_index(values)
     resources = entries(values, 'desired.resource.')
-    anchors = [resource.get('anchor') for _,resource in resources]
-    if None in anchors or len(anchors) != len(set(anchors)):
-        raise ValueError('missing/duplicate resource anchor')
+    anchors = [resource.get('anchor') for _, resource in resources]
+    warnings = []
+
+    def warn(code, message, key):
+        warnings.append({'code': code, 'message': message, 'key': key,
+                         'reference': values.get(key), 'status': 'unresolved'})
+
+    if None in anchors:
+        raise ValueError('missing resource anchor')
+    for identity, resource in resources:
+        if anchors.count(resource['anchor']) > 1:
+            warn('reference.ambiguous_anchor', 'duplicate resource anchor', 'desired.resource.' + identity + '.anchor')
     parents = {}
-    for identity,resource in resources:
+    for identity, resource in resources:
         if 'parentReference' in resource:
             match = LINK.fullmatch(resource['parentReference'])
+            key = 'desired.resource.' + identity + '.parentReference'
             if not match or match[2] or match[3] not in anchors:
-                raise ValueError('broken local parentReference')
-            parents[resource['anchor']] = match[3]
+                warn('reference.broken_parent', 'broken local parentReference', key)
+            else:
+                parents[resource['anchor']] = match[3], key
     for anchor in parents:
         seen = set()
         current = anchor
         while current in parents:
             if current in seen:
-                raise ValueError('cyclic parentReference')
-            seen.add(current); current = parents[current]
-    for _,row in entries(values,'desired.row.'):
-        match = LINK.fullmatch(row.get('value',''))
+                warn('reference.cyclic_parent', 'cyclic parentReference', parents[current][1])
+                break
+            seen.add(current)
+            current = parents[current][0]
+    for identity, row in entries(values, 'desired.row.'):
+        match = LINK.fullmatch(row.get('value', ''))
         if match and not match[2] and match[3] not in anchors:
-            raise ValueError('broken same-service reference')
+            warn('reference.broken_link', 'broken same-service reference', 'desired.row.' + identity + '.value')
+    return warnings
 
 
 class Expansion(NamedTuple):
     values: dict
     provenance: dict
     files: dict
-
-
+    warnings: tuple = ()
+    complete: bool = True
 
 
 @scoped_read
@@ -884,7 +900,7 @@ def reference_values(path, identity, kind, mode, _context=None):
             dependency = str(path), key
             if dependency in chain:
                 route = ' -> '.join(f'{p}:{attribute}' for p, attribute in (*chain, dependency))
-                raise ValueError('cyclic attribute reference: '+route)
+                raise ReferenceResolutionError('cyclic attribute reference: '+route)
             _local.reference_chain = (*chain, dependency)
             try:
                 instance, definition, value = fields[key]
@@ -900,7 +916,7 @@ def reference_values(path, identity, kind, mode, _context=None):
         stack_name = f'desired.stack.{identity}.name'
         if kind == 'CloudFormation.Stack' and stack_name in fields:
             if type_key in fields:
-                raise ValueError(f'ambiguous resource/stack reference: {identity}')
+                raise ReferenceResolutionError(f'ambiguous resource/stack reference: {identity}')
             if mode != 'name':
                 raise ValueError('stack reference requires format:name')
             prefix = f'desired.stack.{identity}.'
@@ -917,7 +933,7 @@ def reference_values(path, identity, kind, mode, _context=None):
                     raise ValueError('conflicting fixed stack binding')
             name = field_value(stack_name)
             if not name or not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]{0,127}', name):
-                raise ValueError('reference producer requires a valid stack name')
+                raise ReferenceResolutionError('reference producer requires a valid stack name')
             if 'stacks' in bindings and any(bound == name and key != identity for key, bound in bindings['stacks'].items()):
                 raise ValueError('conflicting fixed stack binding')
             return LoadedModel('', values, {}, files)
@@ -997,10 +1013,68 @@ def _load_expansion(path, _context=None):
     return load_sources(path, expand)
 
 
+def load_for_analysis(path, source_files=None):
+    if source_files is None:
+        return _analysis_cached(path)
+    return _load_for_analysis(path, source_files)
+
+
+@scoped_read
+@memoized
+def _analysis_cached(path, _context=None):
+    return _load_for_analysis(path)
+
+
+def _load_for_analysis(path, source_files=None):
+    """Keep unresolved expressions only in analysis, never in generated views."""
+    from model_parameter_inputs import human_instances, parameter_value
+    warnings = []
+
+    def bind(template, parameters, bindings, definitions, environment):
+        normalized, files = human_instances(template, parameters, bindings, definitions,
+                                            environment, resolve_references=False)
+        # Resolve from the immutable normalized inputs, not partially substituted peers.
+        import copy
+        result = copy.deepcopy(normalized)
+        for item in result['instances']:
+            original = next(value for value in normalized['instances'] if value['id'] == item['id'])
+            for name in item['parameters']:
+                try:
+                    item['parameters'][name] = parameter_value(template, original, name,
+                        normalized['instances'], bindings, definitions, environment, files)
+                except ReferenceResolutionError as error:
+                    item['parameters'][name] = '<<' + name + '>>'
+                    warnings.append({**error.diagnostic, 'instance': item['id'],
+                                     'parameter': name, 'reference': '<<' + name + '>>',
+                                     'selector': original['parameters'][name]})
+        return result, files
+
+    def expand_analysis(template, parameters, observed, bindings, environment, *, _parsed):
+        return expand_inputs(template, parameters, observed, bindings, environment, bind, _parsed)
+
+    result = load_sources(path, expand_analysis, source_files)
+    if result is None:
+        return None
+    for key, trace in result.provenance.items():
+        for warning in warnings:
+            if trace.get('instance') == warning['instance'] and warning['parameter'] in trace.get('parameters', ()):
+                parts = key.split('.')
+                rid = parts[2].rpartition('-')[0] if parts[1] == 'row' else parts[2] if parts[1] == 'resource' else None
+                warning.setdefault('locations', []).append({'key': key, 'sourceLocation': {
+                    'file': trace.get('template'), 'line': trace.get('line')},
+                    'consumer': '/'.join((path.parent.parent.name, path.parent.name, path.stem, rid)) if rid else None})
+    return result._replace(warnings=(*result.warnings, *warnings), complete=not warnings)
+
+
 def load_for_edit(path, source_files=None, *, display=False):
     """Read only this service; input constraints and reference checks belong to validation."""
     from functools import partial
-    return load_sources(path, partial(expand_for_edit, display=display), source_files)
+    try:
+        return load_sources(path, partial(expand_for_edit, display=display), source_files)
+    except ReferenceResolutionError:
+        if display:
+            raise
+        return load_for_analysis(path, source_files)
 
 
 def load_sources(path, expander, source_files=None):
@@ -1060,7 +1134,7 @@ def load_sources(path, expander, source_files=None):
                     source['sourceFile'] = str(selected[1])
                 elif source['references'] and not source['inputs']:
                     source['sourceFile'] = str(template)
-        return Expansion(values,provenance,files)
+        return Expansion(values, provenance, files, tuple(validate_local(values)))
 
 
 def observed_outputs(path, values):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from model_core import ReferenceResolutionError
+
 import json
 import re
 from collections import Counter
@@ -143,7 +145,7 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
         stack_model(values)
         return
     catalog = DesignSchemaCatalog(root)
-    errors = []
+    errors, warnings = [], []
     for identity, resource in entries(values, "desired.resource."):
         resource_mode(resource)
         kind = resource["resourceType"]
@@ -160,7 +162,8 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
                 resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
                 is_import_role_arn(prop, value, resource_mode(resource))
             ):
-                raise ValueError(f"{prop} must be a resource link or an allowed IMPORT reference")
+                warnings.append({'code': 'reference.expected_link', 'message': f'{prop} must be a resource link or an allowed IMPORT reference',
+                                 'resource': identity, 'property': prop, 'reference': value})
         properties = {row[1] for row in rows
                       if (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
                       or literal(row[2]).strip().strip('"').strip().lower()
@@ -179,6 +182,7 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
                           for prop in sorted(missing))
     if errors:
         raise ValueError("\n- ".join(errors))
+    return warnings
 
 
 def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
@@ -266,7 +270,7 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
                 stack_names = placement_names(stack_source, {iac_values.cfn_resource_identity(spec['cfn-logicalId'])[0]
                     for _, spec in resources if spec.get('cfn-logicalId')})[0]
             if iac_values.cfn_resource_identity(resource['cfn-logicalId'])[0] not in stack_names:
-                raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
+                raise ReferenceResolutionError(f"{identity}: cfn-logicalId references an undeclared stack")
             continue
         if target.get("iacEngine") == "cloudformation" and (stack_source is None or service_source(stack_source) is None):
             raise ValueError(f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties")
@@ -277,7 +281,7 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
                 from model_references import bound_stack_names
                 stack_names = set(bound_stack_names(stack_source)) or {stack["name"] for _, stack in stacks}
             if iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
-                raise ValueError(f"{identity}: cfn-logicalId references an undeclared stack")
+                raise ReferenceResolutionError(f"{identity}: cfn-logicalId references an undeclared stack")
 
 
 def resource_presentation(values, identity, resource, root):
@@ -313,7 +317,7 @@ def resource_details(values, root, service, owned, resources, bound_anchors):
         derived = resource_anchor(service, name, kind)
         expected = bound_anchors.get((kind, resource["logicalId"]), derived)
         if anchor != expected or anchor in by_anchor or derived in names:
-            raise ValueError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
+            raise ReferenceResolutionError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
         errors = naming_errors(root, kind, rows, mode)
         if errors:
             raise ValueError("; ".join(errors))
@@ -337,13 +341,17 @@ def grouped_resources(values, details, by_anchor):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})")
         link = LINK.fullmatch(resource["parentReference"])
         parent = by_anchor.get(link.group(3)) if link and not link.group(2) else None
-        if not parent or parent[1]["resourceType"] != rule["parent"] or link.group(1) != parent[1]["logicalId"] or resource["parentProperty"] != kind + "." + rule["parentProperty"]:
-            raise ValueError(f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})")
+        if resource['parentProperty'] != kind + '.' + rule['parentProperty']:
+            raise ValueError('invalid grouped parentProperty: ' + identity)
+        if not parent or parent[1]['resourceType'] != rule['parent'] or link.group(1) != parent[1]['logicalId']:
+            raise ReferenceResolutionError(f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})")
         if kind in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
             parent_rows = [row for row_id, row in entries(values, "desired.row.")
                            if row_id.startswith(identity + "-") and row.get("property") == resource["parentProperty"]]
-            if len(parent_rows) != 1 or parent_rows[0].get("value") != resource["parentReference"]:
+            if len(parent_rows) != 1:
                 raise ValueError(f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference")
+            if parent_rows[0].get('value') != resource['parentReference']:
+                raise ReferenceResolutionError('grouped formal row does not match parentReference', resource=identity, property=resource['parentProperty'])
             if kind + ".Id" not in HIDDEN_PROPERTIES and (not rows or rows[0][1] != kind + ".Id"):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required first property: {kind}.Id")
         grouped.setdefault(parent[0], []).append(item)

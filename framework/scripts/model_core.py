@@ -6,6 +6,24 @@ from iac_values import cfn_resource_identity
 from validation_cache import memo_table
 
 
+class ReferenceResolutionError(ValueError):
+    """A semantic reference failure, distinct from invalid source data or I/O."""
+    def __init__(self, message, *, code='reference.unresolved', **details):
+        super().__init__(message)
+        self.diagnostic = {'code': code, 'message': message, 'status': 'unresolved', **details}
+
+
+def reference_warning(error, **details):
+    return {**error.diagnostic, **details}
+
+
+def report_reference_warnings(warnings):
+    import json
+    import sys
+    for warning in warnings:
+        print('WARNING [' + warning['code'] + '] ' + json.dumps(warning, ensure_ascii=False), file=sys.stderr)
+
+
 LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 
 def positive_integer(value: str, label: str) -> int:

@@ -22,6 +22,15 @@ from validation_cache import input_context
 ROOT = Path(__file__).resolve().parents[4]
 
 
+from contextlib import contextmanager
+
+@contextmanager
+def warned(resolver, match):
+    before = len(resolver.warnings)
+    yield
+    assert any(match in warning['message'] for warning in resolver.warnings[before:]), resolver.warnings[before:]
+
+
 @pytest.fixture(autouse=True)
 def project(tmp_path):
     (tmp_path / 'project.json').write_text(json_text({'targets': [
@@ -74,11 +83,11 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
         if present:
             assert result['service'] == service and result['id'] == '001'
             resolver.verify(prop, '[label](' + service + '.md#producer)', raw)
-            with pytest.raises(ValueError, match='requires a reference link'):
+            with warned(resolver, 'requires a reference link'):
                 resolver.verify(prop, '`' + raw + '`', raw)
         else:
             resolver.verify(prop, '`' + raw + '`', raw)
-            with pytest.raises(ValueError, match='differs from acquired'):
+            with warned(resolver, 'differs from acquired'):
                 resolver.verify(prop, '[label](s3.md#producer)', raw)
 
 
@@ -101,9 +110,9 @@ def check_ambiguous_and_wrong_explicit_link(tmp_path):
         resolver.match('EC2.SecurityGroup.VpcId', 'vpc-confirmed')
     producer(tmp_path, 'EC2.VPC', {'VpcId': 'vpc-confirmed'})
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
-    with pytest.raises(ValueError, match='differs from acquired'):
+    with warned(resolver, 'differs from acquired'):
         resolver.verify('EC2.SecurityGroup.VpcId', '[wrong](vpc.md#other)', 'vpc-confirmed')
-    with pytest.raises(ValueError, match='differs from acquired'):
+    with warned(resolver, 'differs from acquired'):
         resolver.verify('EC2.SecurityGroup.VpcId', '[wrong](../other/vpc.md#producer)', 'vpc-confirmed')
 
 
@@ -119,7 +128,7 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     assert verify_values(before, after, {'009': record}, lambda _: {'type': 'string'}, resolver)
     wrong = {**new, 'observed.row.009-001.value': '["subnet-external","subnet-external"]'}
-    with pytest.raises(ValueError, match='differs from acquired physical reference'):
+    with pytest.raises(ValueError, match='differs from the acquired Property'):
         verify_values(before, Expansion(wrong, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
     assert property_values(new, '009', prop, {'type': 'string'}) == record['properties'][prop]['value']
 
@@ -154,15 +163,15 @@ def check_pending_explicit_reference_after_destroy(tmp_path, physical, local):
     if physical == 'PENDING_DEPLOY':
         resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
     else:
-        with pytest.raises(ValueError, match='differs from acquired'):
+        with warned(resolver, 'differs from acquired'):
             resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
     for wrong in ('[missing](vpc.md#absent)', '[foreign](../other/vpc.md#producer)',
                   '[wrong type](subnet.md#producer)'):
-        with pytest.raises(ValueError, match='differs from acquired'):
+        with warned(resolver, 'differs from acquired'):
             resolver.verify(prop, wrong, 'PENDING_DEPLOY', require_links=False)
-    with pytest.raises(ValueError, match='differs from acquired'):
+    with warned(resolver, 'differs from acquired'):
         resolver.verify(prop, reference, 'PENDING_DEPLOY')
-    with pytest.raises(ValueError, match='no physical identification contract'):
+    with warned(resolver, 'no physical identification contract'):
         resolver.verify('Unknown.Resource.Value', reference, 'PENDING_DEPLOY', require_links=False)
 
 
@@ -174,8 +183,9 @@ def check_append_only_and_later_import(tmp_path):
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     assert verify_values(expansion, expansion, {}, lambda _: {'type': 'string'}, resolver) == []
     changed = {**old, 'desired.row.001-001.value': '[audit-bucket](s3.md#producer)'}
-    with pytest.raises(ValueError, match='existing expanded value'):
-        verify_values(expansion, Expansion(changed, {}, {}), {}, lambda _: {'type': 'string'}, resolver)
+    warnings = []
+    verify_values(expansion, Expansion(changed, {}, {}), {}, lambda _: {'type': 'string'}, resolver, warnings=warnings)
+    assert warnings
     assert old['desired.row.001-001.value'] == '`audit-bucket`'
 
 
@@ -348,15 +358,13 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observe
     document.parent.mkdir(parents=True)
     document.write_text(generate_markdown(document, source, ROOT))
     (document.parent / 's3.md').write_text(generate_markdown(document.parent / 's3.md', bucket, ROOT))
-    errors = []
-    findings = SimpleNamespace(check=lambda condition, message: errors.append(message) if not condition else None,
-                               relative=lambda path: str(path.relative_to(tmp_path)), canonical_root=tmp_path)
+    from validation.findings import Findings
+    findings = Findings(tmp_path)
     check_design_links(identifier_outputs(ROOT), [document], design_index=DesignIndex(ROOT), design_sources={document: source},
                        findings=findings, root=tmp_path, scope=None, definitions_root=ROOT)
-    physical_errors = [error for error in errors if 'physical reference' in error]
-    assert bool(physical_errors) == (wrong and observed), errors
-    if not (wrong and observed):
-        assert not errors, errors
+    physical_warnings = [warning for warning in findings.warnings if 'physical reference' in warning['message']]
+    assert bool(physical_warnings) == (wrong and observed), findings.warnings
+    assert not findings.errors
 
 
 def check_unknown_link_like_aws_data_is_not_inferred(tmp_path):
@@ -364,7 +372,7 @@ def check_unknown_link_like_aws_data_is_not_inferred(tmp_path):
     raw = '[a literal AWS string](foreign.md#something)'
     resolver.verify('Custom.Resource.Configuration.Text', raw, raw)
     assert resolver.metrics['referenceModelReads'] == 0
-    with pytest.raises(ValueError, match='no physical identification contract'):
+    with warned(resolver, 'no physical identification contract'):
         resolver.verify('Custom.Resource.Configuration.Text', raw, 'actual-id')
 
 
@@ -443,7 +451,7 @@ def check_native_array_literals_cannot_evade_matching_model(tmp_path):
         'EventSelectors[].DataResources[].Type': '[["AWS::S3::Object"]]',
         'EventSelectors[].DataResources[].Values': '[[["arn:aws:s3:::audit-bucket/"]]]'}, rid='009')
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
-    with pytest.raises(ValueError, match='requires a reference link'):
+    with warned(resolver, 'requires a reference link'):
         resolver.verify_resource(source, '009')
     # Old literals remain untouched when a producer is imported later.
     resolver.verify_resource(source, '009', require_links=False)
@@ -467,10 +475,10 @@ def check_unobserved_link_requires_typed_target(tmp_path, reference):
         with patch.object(resolver, 'match', side_effect=AssertionError('unobserved physical comparison')):
             resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     else:
-        with pytest.raises(ValueError, match='no unique design target'):
+        with warned(resolver, 'no unique design target'):
             resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     source['desired.row.009-001.property'] = 'CloudTrail.Trail.Unknown'
-    with pytest.raises(ValueError, match='no physical identification contract'):
+    with warned(resolver, 'no physical identification contract'):
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
 
 
@@ -497,20 +505,24 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
     resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     assert source == snapshot
     invalid = {key: value.replace('#producer)', '#absent)') for key, value in source.items()}
-    with pytest.raises(ValueError, match='no unique design target'):
+    with warned(resolver, 'no unique design target'):
         resolver.verify_resource(invalid, '009', require_links=False, observed_only=True)
     for require_links in (True, False):
-        with pytest.raises(ValueError, match='differs from acquired physical reference'):
+        with warned(resolver, 'differs from acquired physical reference'):
             resolver.verify_resource(source, '009', require_links=require_links)
     record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic', 'properties': {}}
-    with pytest.raises(ValueError, match='differs from acquired physical reference'):
+    with pytest.raises(ValueError, match='unacquired Property'):
         verify_values(Expansion({}, {}, {}), Expansion(source, {}, {}), {'009': record},
                       lambda _: {'type': 'string'}, resolver)
     for key in list(source):
         if key.startswith('desired.row.') and key.endswith('.value') and '[' in source[key]:
             source['observed.' + key.removeprefix('desired.')] = 'null'
-    with pytest.raises(ValueError, match='structure differs|Configuration array dimensions differ|differs from acquired'):
-        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    if shape == 'scalar':
+        with warned(resolver, 'differs from acquired'):
+            resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+    else:
+        with pytest.raises(ValueError, match='structure differs|Configuration array dimensions differ'):
+            resolver.verify_resource(source, '009', require_links=False, observed_only=True)
 
 
 @pytest.mark.parametrize('physical', ['audit-bucket', 'wrong-bucket'])
@@ -524,7 +536,7 @@ def check_observed_comparison_in_design_and_import(tmp_path, physical):
         if physical == 'audit-bucket':
             resolver.verify_resource(source, '009', **kwargs)
         else:
-            with pytest.raises(ValueError, match='differs from acquired physical reference'):
+            with warned(resolver, 'differs from acquired physical reference'):
                 resolver.verify_resource(source, '009', **kwargs)
 
 
@@ -537,7 +549,7 @@ def check_unobserved_local_and_identity_self_links(tmp_path):
     resolver.verify_resource(source, '001', require_links=False, observed_only=True)
     resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     source['desired.row.009-001.value'] = '[absent](#missing)'
-    with pytest.raises(ValueError, match='no unique design target'):
+    with warned(resolver, 'no unique design target'):
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
 
 
@@ -551,9 +563,9 @@ def check_design_pending_observation_retains_target_guard(tmp_path, physical):
     if physical == 'PENDING_DEPLOY':
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     else:
-        with pytest.raises(ValueError, match='differs from acquired physical reference'):
+        with warned(resolver, 'differs from acquired physical reference'):
             resolver.verify_resource(source, '009', require_links=False, observed_only=True)
-    with pytest.raises(ValueError, match='differs from acquired physical reference'):
+    with warned(resolver, 'differs from acquired physical reference'):
         resolver.verify_resource(source, '009')
 
 

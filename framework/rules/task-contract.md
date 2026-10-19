@@ -103,8 +103,9 @@ References must match a pair or D→D for a registered destination's derived ree
 Use complete formal numbered Properties and non-root RFC 6901 scalar-leaf pointers.
 Unknown/missing/duplicate keys, duplicate sections/positions, empty/malformed declarations,
 legacy/new mixing, NaN/Infinity and unconsumed section lines fail closed. Existence, typed
-ownership, resolved aliases/overlap and unused declarations are checked against the before
-Model at final validation. Ordinary Goal prose remains unrestricted.
+ownership and operation-position overlap are checked against raw before inputs at final
+validation. Reference-target mismatch, semantic ambiguity and unused reference declarations
+are warnings under [Reference diagnostics](model-information.md#reference-diagnostics). Ordinary Goal prose remains unrestricted.
 
 Legacy Source resource/Destination resource single merges normalize to one pair and no
 references. Single import-delete retains Source resource only; no destination, pairs or
@@ -151,9 +152,10 @@ Properties from `operation_rows` for repeated rows, never a bare ambiguous array
 leaf `pointer`; JSON array/object value containers may also supply `pointer` (zero-based
 JSON array indexes). Complete scalar references only: no partial strings, containers,
 wildcards, structural parentReference or rendered-literal substitutions. Unknown/missing
-keys, duplicate/overlapping/resolver-alias positions, ambiguous/missing resources/Properties,
-before producer mismatch and unused declarations stop. Producers must be distinct existing
-IMPORT Resources of the same type, in the consumer's environment/target. Producers may
+keys, duplicate/overlapping operation positions and invalid operation Resources/Properties
+stop. Before-producer mismatch, reference type mismatch and unused semantic declarations
+are warnings. Declared operation producers must be distinct existing IMPORT Resources
+in the consumer's environment/target. Producers may
 not also be edited consumers. CREATE consumers retain ordinary design validation.
 
 Save all declared changes together through a fresh one-use
@@ -180,7 +182,8 @@ generated views are forbidden. Generation does not prove operation completion.
 Finalize the running parent using the existing Model-only composition: private commit,
 rebase onto latest local base, one classified read-only final candidate validation of
 base→candidate, completion and ff-only merge of that exact HEAD, then cleanup. The final
-meaning check proves every declaration was applied and all else preserved; it requires
+meaning check verifies authorized non-reference preservation and reports reference
+mismatches/unused declarations as warnings; it requires
 neither setting transfer nor source deletion. Independent complete also verifies meaning.
 No failure-approval bypass, automatic regeneration, validation retry, repair or PASS receipt.
 A failed candidate remains retained without merge. IT is governed by the active Human
@@ -209,8 +212,8 @@ reference API. Optional `pointer` selects one JSON document scalar leaf (RFC 690
 without it, the declaration covers that producer's usages at the entire key. Require
 nonempty, unique, nonoverlapping declarations; reject unknown keys, malformed sections,
 invalid JSON, mixed operations and unconsumed lines. All named Resources must exist.
-The dependency must exist before and disappear after; all undeclared dependencies,
-including producer identity, kind, format and JSON position, remain unchanged.
+Report missing-before, remaining-after and undeclared reference differences as warnings;
+none makes the original Model operation incomplete. Non-reference changes remain prohibited.
 
 Keep ordinary Modified files, Allowed paths, service Validation scope, naming and
 issue gates. Include every direct registered consumer of a changed shared template.
@@ -218,7 +221,7 @@ The guard compares all effective Resource/Property values and types, fixed Resou
 and Instance composition, resourceMode/type, anchors/Logical IDs, structural metadata,
 observations and unchanged consumers across those targets/environments. CREATE
 reference changes and structural metadata detach are not authorized by value equality.
-Unresolved references fail with a cause. This declaration grants no AWS permission.
+Unresolved references report their cause as warnings. This declaration grants no AWS permission.
 
 Save complete edited candidates through ordinary design `model_templates.publish`
 (with its existing input snapshot/Task revision and rollback), or `save_parameters`
@@ -231,8 +234,8 @@ final loop on base→candidate, completion and ff-only merge of that exact HEAD,
 No separate pre-finalize completion/final loop, PASS receipt or new integration engine.
 Failure retains the candidate without merge; a failure-approval flag cannot bypass this
 refactor's final verification. Ordinary design Tasks without this declaration retain
-all existing behavior. Each subsequent single-delete Task starts from the integrated
-previous Task; no remaining Resource edit is permitted inside its deletion Task.
+all existing behavior. Dependency repair/refactor completion is not a prerequisite for
+a separately authorized deletion. No remaining Resource edit is permitted inside its deletion Task.
 
 
 ## Controlled deploy repair contract

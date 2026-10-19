@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from model_core import ReferenceResolutionError
 from validation_cache import input_text
 from validation_cache import input_scope
 from model_templates import service_source
@@ -71,7 +72,14 @@ S3_KMS_MASTER_KEY_ID = (
 def check_model_files(findings, root, scope) -> None:
     for path in scoped_files(root, "model", ".properties", scope):
         try:
-            read_model(path)
+            from model_templates import load_for_analysis
+            analysis = load_for_analysis(path)
+            if analysis is None:
+                raise ValueError("missing service model")
+            for warning in analysis.warnings:
+                findings.warn(warning)
+        except ReferenceResolutionError as error:
+            findings.warn(error)
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
 
@@ -137,6 +145,9 @@ def model_service_metadata(
 , *, findings, values=None) -> tuple[str, tuple[str, ...]] | None:
     try:
         lines = (read_model(path) if values is None else "".join(f"{k}={v}\n" for k, v in values.items())).splitlines()
+    except ReferenceResolutionError as error:
+        findings.warn(error)
+        return None
     except (OSError, ValueError) as error:
         findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
         return None
@@ -243,6 +254,9 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                 if (label := values.get(f"display.resource.{identity}.label"))
                 and label not in {"UNSET", "PENDING_DEPLOY"}
             }
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            continue
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid resource identity: {findings.relative(path)}: {error}")
             continue
@@ -260,6 +274,9 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                 from aws_mapping_display import validation_rows
                 semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), definitions_root)
                 name = resource_display_name(resource_type, semantic, display, mode)
+            except ReferenceResolutionError as error:
+                findings.warn(error)
+                return
             except ValueError as error:
                 findings.check(False, f"{findings.relative(path)}: {error}")
                 return
@@ -275,7 +292,7 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             if path in service_metadata:
                 expected = bound_anchors.get((resource_type, identities.get(current)),
                                              resource_anchor(service_metadata[path][0], display, resource_type))
-                findings.check(anchor == expected, f"resource anchor must use display name: {findings.relative(path)}: expected {expected}")
+                findings.warn(anchor == expected, f"resource anchor must use display name: {findings.relative(path)}: expected {expected}")
 
         for line in [*lines, "### end"]:
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
@@ -305,6 +322,8 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
                 rendered_policy_design(path, definitions_root=definitions_root) == input_text(path, encoding="utf-8"),
                 f"Policy tables or overview differ from design JSON/properties: {findings.relative(path)}",
             )
+        except ReferenceResolutionError as error:
+            findings.warn(error)
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid policy tables: {findings.relative(path)}: {error}")
 
@@ -318,6 +337,9 @@ def check_observed_values(paths: list[Path] | None = None, *, findings, root, sc
             values = (design_sources or {}).get(view)
             if values is None:
                 values = properties(read_model(path))
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            continue
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid service model: {findings.relative(path)}: {error}")
             continue

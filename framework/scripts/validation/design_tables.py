@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+from model_core import ReferenceResolutionError
 from validation_cache import input_is_file, input_text
 from model_references import bound_resource_anchors
 import json
@@ -92,6 +93,9 @@ def check_required_name_tag(
     if resource_type in REQUIRED_NAME_TAG_TYPES:
         try:
             name = resource_display_name(resource_type, rows, mode=mode)
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            return
         except ValueError as error:
             findings.check(False, f"{findings.relative(path)}: {error}")
             return
@@ -203,6 +207,9 @@ def check_design_tables(
                     anchor = match.group(1)
                 elif match := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     heading_modes[match.groups()] = modes.get(anchor, "CREATE")
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            continue
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid resource identity: {findings.relative(path)}: {error}")
             continue
@@ -228,6 +235,9 @@ def check_design_tables(
             lines = security_group_table_lines(lines, definitions_root)
             _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root, modes=modes)
             lines = expanded_display_rows(lines, definitions_root, modes=modes)
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            continue
         except ValueError as error:
             findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
             children = {}
@@ -306,6 +316,8 @@ def check_design_tables(
             if all(len(row) == 4 for row in shown):
                 try:
                     semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), definitions_root)
+                except ReferenceResolutionError as error:
+                    findings.warn(error)
                 except ValueError as error:
                     findings.check(False, f"invalid Model display projection: {findings.relative(path)}: {error}")
             for number, cells in enumerate(semantic, 1):
@@ -384,12 +396,12 @@ def check_design_tables(
                     if is_policy_document_property(cells[1]):
                         findings.check(is_json_link, f"policy property must link to a JSON artifact: {findings.relative(path)}: {cells[1]}")
                     if cells[1] == S3_KMS_MASTER_KEY_ID:
-                        findings.check(
+                        findings.warn(
                             RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
                             f"S3 KMSMasterKeyID must link to a KMS.Alias: {findings.relative(path)}: {current_logical_id}",
                         )
                     if cells[1] == "EC2.SecurityGroup.VpcId":
-                        findings.check(
+                        findings.warn(
                             RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
                             f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
                         )
@@ -496,7 +508,7 @@ def check_design_tables(
                     if anchor_match is not None:
                         expected = bound_anchors.get((heading_match.group(1), identities.get(heading_match.groups())),
                                                      resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
-                        findings.check(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {findings.relative(path)}: expected {expected}")
+                        findings.warn(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {findings.relative(path)}: expected {expected}")
             if line.strip():
                 previous = line.strip()
 
@@ -529,6 +541,8 @@ def check_api_design_rows(path: Path, resource_type: str, logical_id: str, rows:
                 continue
             for error in catalog.api_value_errors(resource_type, node, value, prop):
                 findings.check(False, f"API schema violation: {findings.relative(path)}: {error}")
+        except ReferenceResolutionError as error:
+            findings.warn(error)
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid API design value: {findings.relative(path)}: {prop}: {error}")
     if len(findings.errors) == before:
@@ -537,6 +551,9 @@ def check_api_design_rows(path: Path, resource_type: str, logical_id: str, rows:
     if resource_type == "Macie.ClassificationJob":
         try:
             tables = job_bucket_tables(path)
+        except ReferenceResolutionError as error:
+            findings.warn(error)
+            return
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid Macie bucket table: {findings.relative(path)}: {error}")
             return

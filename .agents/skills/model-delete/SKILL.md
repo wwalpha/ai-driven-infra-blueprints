@@ -17,7 +17,8 @@ create a child contract or infer authority, IDs, properties or reference locatio
 Use the common task-aware Issue Gate for the selected parent. A valid `import-delete`
 parent waives only existing-issue stops within its explicit Validation scope; do not
 require Issue remediation or change issues.md. An `import-merge` parent retains the
-ordinary gate. This exception never waives the reference/Model safety checks below.
+ordinary gate for non-reference Issues. Reference-only Issues and diagnostics are warnings
+under [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics).
 
 Read raw source with `model_sources.read_sources`; expansion-based `read_resource`,
 `trace_model`, `find_model` and `load_for_edit` are optional editing aids and may fail
@@ -39,18 +40,14 @@ The thin read-only CLI is `framework/scripts/model_reference_usage.py <address>
 --direction incoming`, run through the registered run-python.py wrapper. Match its
 producer/consumer IDs, key/Property/pointer, kind/format, resolvedValue and source
 location/provenance against raw sources. Do not infer them or treat unresolved errors
-as no dependencies. Display links are not AWS-setting dependencies, but retained
-Resource/service display links still need a separate repair before deletion.
+as no dependencies. Read references/warnings/complete; retained Resource/service links
+are warnings and do not require repair before deletion.
 
-If incoming usages survive this deletion, report their exact locations and values,
-whether deleting an already authorized consumer first resolves the order, and whether
-name generation offers a candidate for a separate value-preserving design Task. The
-parent follows the dependency decision order in 05_update; this leaf never selects or
-executes a detach, changes a surviving Resource, starts another Task or silently
-changes deletion order. Name format alone is no safety proof. Keep the existing
-verify_model_operation final check and single-source import-delete contract unchanged.
-
-Fail if any surviving Resource refers to a source; do not retarget implicitly. Remove
+If incoming usages survive deletion, report exact locations and known prior values.
+Do not retarget, reorder deletions or start a repair Task implicitly. The LLM repairs
+what it can determine within authorized scope and asks about undetermined repairs;
+repair never gates the original deletion. Keep final verify_model_operation and the
+single-source contract. Remaining references do not fail the operation. Remove
 only its Instance, binding, unused inputs and observations. Retain shared Definitions,
 in-use inputs and sibling Resources. Reject a multi-resource source Instance that
 cannot be safely separated; do not add an automatic splitting operation.

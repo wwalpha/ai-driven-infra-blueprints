@@ -21,7 +21,7 @@ from design_layout import resource_mode, resource_name_fields, resource_has_name
 from design_catalog import selected_properties
 from model_design import naming_rule_files, naming_targets, naming_target_matches, NAMING_EXEMPT_PROPERTIES
 from model_references import catalog_outputs
-from model_core import entries
+from model_core import entries, ReferenceResolutionError
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR
@@ -45,23 +45,11 @@ def selected_scope(environment, directory, services):
     return {(environment, directory, service) for service in services}
 
 
-def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None):
+def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None):
     """Reuse service checks/cache/parallelism, without contract/deploy/full-loop execution."""
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     validator_module = module('validate-blueprint.py', 'issues_validator')
-    def model_check(selected):
-        groups = {}
-        for env, target, service in sorted(selected):
-            groups.setdefault((env, target), []).append(service)
-        errors = []
-        import sync_runtime as sync
-        for (env, target), services in groups.items():
-            try:
-                sync.sync(root, False, env, target, services=services, jobs=jobs)
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                errors.append(str(error))
-        return errors
-    validator = validator_module.Validator(root, scope, cache=True, fresh=fresh, workers=jobs, model_check=model_check)
+    validator = validator_module.Validator(root, scope, cache=True, fresh=fresh, workers=jobs)
     validator.schema_catalog = catalog
     output = io.StringIO()
     with redirect_stdout(output):
@@ -78,6 +66,8 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         validator.check_iac_selection()
     if fingerprint_out is not None:
         fingerprint_out.update({'/'.join(entry): key for entry, key in getattr(validator, 'service_keys', {}).items()})
+    if warnings is not None:
+        warnings.extend(validator.warnings)
     return validator.errors, validator.checks, output.getvalue()
 
 
@@ -98,6 +88,8 @@ def naming_materials(comparison):
     rules, names, judgments = {}, [], []
     for service in comparison.services:
         if service not in comparison.models:
+            if service in comparison.reference_unavailable:
+                continue
             judgments.append({'id': identifier([service, 'load-error']), 'service': service, 'kind': 'input-load-error', 'materials': 'model unavailable; validators retain actual diagnostics'})
             continue
         loaded = comparison.model(service)
@@ -183,19 +175,28 @@ def naming_materials(comparison):
             'review_policy': '全名称のpattern/正本component/例外scopeを確認する。human_context_idの注記とrow commentを根拠にし、不足componentを値から推測しない。coverage除外をconvention/値検証除外へ拡大しない。'}, judgments
 
 
-def existing_materials(root, environment, directory, services):
+def existing_materials(root, environment, directory, services, warnings=None):
+    from issue_gate import reference_issue_parts
+    warnings = warnings if warnings is not None else []
     path = root / 'issues' / environment / directory / 'issues.md'
     inventories(root, path)
     if not path.is_file():
         return [], []
     preamble, sections = owned_blocks(root, path, path.read_text(encoding='utf-8'))
     items = []
-    for service, body in sections:
-        if service in services or service is None:
-            _, issues = numbered(body)
-            items.extend({'id': identifier([service, text]), 'service': service, 'message': safe_text(text),
-                          'kind': 'existing-unresolved; preserve unless explicitly revalidated'} for text in issues)
-    human = [line for line in preamble.splitlines() if line.strip() and not line.startswith(('#', '更新日時:', '今回確認した範囲:'))]
+    preamble = re.sub(r'<!-- reference-warnings:start -->.*?<!-- reference-warnings:end -->\s*', '', preamble, flags=re.S)
+    human_prefix, unowned = numbered(preamble)
+    groups = [(None, unowned)] + [(service, numbered(body)[1]) for service, body in sections]
+    for service, issues in groups:
+        if service not in services and service is not None:
+            continue
+        for text in issues:
+            references, errors = reference_issue_parts(text)
+            warnings.extend({'code': 'reference.legacy_issue', 'message': message, 'service': service} for message in references)
+            if errors:
+                items.append({'id': identifier([service, text]), 'service': service, 'message': safe_text('\n'.join(errors)),
+                              'kind': 'existing-unresolved; preserve unless explicitly revalidated'})
+    human = [line for line in human_prefix.splitlines() if line.strip() and not line.startswith(('#', '更新日時:', '今回確認した範囲:'))]
     return items, human
 
 
@@ -241,9 +242,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         doc = root / 'docs/designs' / environment / directory / (service + '.md')
         comparison.track(doc)
     service_keys = {}
+    warnings = list(comparison.warnings)
     before = fingerprint(comparison)
     begin = time.perf_counter()
-    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys)
+    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings)
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     for message in dict.fromkeys(errors):
@@ -253,7 +255,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         (ordinary if owner else judgments).append(candidate)
     naming, naming_judgments = naming_materials(comparison)
     judgments.extend(naming_judgments)
-    existing, human = existing_materials(root, environment, directory, services)
+    existing, human = existing_materials(root, environment, directory, services, warnings)
     judgments.extend({'id': item['id'], 'service': item['service'], 'kind': 'existing-issue-correspondence', 'materials': item} for item in existing)
     for service in services:
         doc = root / 'docs/designs' / environment / directory / (service + '.md')
@@ -270,9 +272,14 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     begin = time.perf_counter()
     try:
         iac = comparison.run()
+    except ReferenceResolutionError as error:
+        warnings.append(error.diagnostic)
+        iac = [{'category': 'uncompared', 'service': service, 'resource': '*', 'property': '*',
+                'reason': str(error), 'cause': {'kind': 'reference-unresolved'}} for service in services]
     except (OSError, ValueError, KeyError, ImportError, TypeError) as error:
         iac = [{'category': 'error', 'service': service, 'resource': '*', 'property': '*', 'reason': safe_text(str(error))}
                for service in services]
+    warnings.extend(w for w in comparison.warnings if w not in warnings)
     iac_seconds = time.perf_counter() - begin
     # Reference models/artifacts discovered during evaluation become guarded inputs too.
     for path, expected_hash in comparison.read_hashes.items():
@@ -284,7 +291,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         raise ValueError('inputs changed during scan')
     artifact = {'version': 1, 'root': str(root), 'environment': environment, 'target': directory,
                 'services': sorted(set(services)), 'executed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'ordinary': ordinary, 'naming': naming, 'judgments': judgments,
-                'human_confirmations': [safe_text(line) for line in human], 'iac': iac, 'fingerprint': after,
+                'warnings': warnings, 'human_confirmations': [safe_text(line) for line in human], 'iac': iac, 'fingerprint': after,
                 'iac_display': comparison.display_differences,
                 'machine_diagnostics': safe_text(diagnostics), 'checks': checks,
                 'service_keys': service_keys,
@@ -303,7 +310,7 @@ def summary(artifact):
             'naming_items': len(artifact.get('naming', {}).get('names', [])), 'iac_differences': counts['difference'],
             'iac_uncompared': counts['uncompared'], 'iac_errors': counts['error'], 'iac_matched': counts['matched'], 'iac_excluded': counts['excluded'], 'iac_status': status,
             'validation_status': 'FAIL' if artifact.get('ordinary') or any('message' in item for item in artifact.get('judgments', [])) else 'checked',
-            'checks': artifact.get('checks')}
+            'checks': artifact.get('checks'), 'warnings': artifact.get('warnings', [])}
 
 
 def save_scan(root, artifact, review):
@@ -322,7 +329,7 @@ def save_scan(root, artifact, review):
                 raise ValueError('diagnostic requires scoped service assignment')
             additions.append(dict(item, service=owner))
     paths = save(root, artifact['environment'], artifact['target'], artifact['services'], artifact['ordinary'], additions,
-                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'), stamp=artifact.get('executed_at'))
+                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'), stamp=artifact.get('executed_at'), warnings=artifact.get('warnings', []))
     return paths
 
 
@@ -383,7 +390,7 @@ def main():
     scanparser.add_argument('--jobs', type=int, choices=(1, 2, 4), default=4)
     detail = commands.add_parser('detail')
     detail.add_argument('--artifact', type=Path, required=True)
-    detail.add_argument('--section', choices=('ordinary', 'naming', 'judgments', 'human_confirmations', 'iac', 'iac_issues', 'machine_diagnostics'), required=True)
+    detail.add_argument('--section', choices=('ordinary', 'naming', 'judgments', 'human_confirmations', 'iac', 'iac_issues', 'machine_diagnostics', 'warnings'), required=True)
     detail.add_argument('--offset', type=int, default=0)
     detail.add_argument('--limit', type=int, default=50)
     detail.add_argument('--category', choices=('要対応', '要判断', '比較未完了', '処理エラー', '原因未確定'), help='IaC classification filter; applied before pagination')

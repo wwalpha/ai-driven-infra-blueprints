@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from model_core import entries, LINK
 from model_sources import json_read, json_text, consumers, source_paths
-from model_templates import load_expansion, parse_template, variables, _reference_inputs
+from model_templates import load_for_analysis as load_expansion, parse_template, variables, _reference_inputs
 from model_parameter_inputs import yaml_read, schema
 from validation_cache import input_scope
 from import_sources import typed_equal
@@ -58,7 +58,9 @@ def preserve_input_additions(before, after, old_definitions, definitions, bindin
             continue
         old = before.get('instances', {}).get(instance, {}).get('parameters', {})
         new = after.get('instances', {}).get(instance, {}).get('parameters', {})
-        if any(key not in new or not typed_equal(value, new[key]) for key, value in old.items()):
+        reference_inputs = {key for key, spec in old_definitions[binding['definition']].parameters.items()
+                            if schema(spec)['type'] == 'reference'}
+        if any(key not in new or not typed_equal(value, new[key]) for key, value in old.items() if key not in reference_inputs):
             raise ValueError('IMPORT preserved instance inputs changed: ' + instance)
         name = binding['definition']
         changed = changed_properties({name: old_definitions[name]}, {name: definitions[name]}).get(name, set())
@@ -69,6 +71,27 @@ def preserve_input_additions(before, after, old_definitions, definitions, bindin
 
 
 from model_reference_usage import _Reference, _symbolic, _walk
+
+
+def reference_equal(left, right):
+    """Compare every non-reference leaf, including literal string affixes."""
+    if isinstance(left, _Reference) or isinstance(right, _Reference):
+        return isinstance(left, _Reference) and isinstance(right, _Reference)
+    if isinstance(left, tuple) and isinstance(right, str):
+        return re.fullmatch(''.join('.*?' if isinstance(p, _Reference) else re.escape(p) for p in left), right, re.DOTALL) is not None
+    if isinstance(right, tuple) and isinstance(left, str):
+        return reference_equal(right, left)
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(reference_equal(value, right[key]) for key, value in left.items())
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(reference_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def operation_warning(warnings, message, **details):
+    warnings.append({'code': 'reference.operation_impact', 'message': message, **details})
 
 
 def _retarget(value, source, destination):
@@ -94,13 +117,14 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
 
     Literal/identity/observed values and structural producer records are compared
     before accepting any evaluated candidate reference result. Existing expansion
-    resolves candidate producers; unresolved, cyclic or ambiguous inputs fail.
+    diagnoses unresolved, cyclic or ambiguous references without blocking the operation.
     """
     if operation.action == 'import-retarget':
         return verify_model_retarget(before, after, operation, sources)
     from import_promotion import changed_properties, property_value
     from import_scope import allowed_source, model_path
     from model_templates import model_paths, validate_local
+    warnings = []
     identity = operation.scope
     pairs = {pair.source.rsplit('/', 1)[1]: pair.destination.rsplit('/', 1)[1] for pair in operation.pairs}
     deleted = set(pairs) if pairs else {operation.delete_source.rsplit('/', 1)[1]}
@@ -117,7 +141,8 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
         new_expanded[scope] = load_expansion(model_path(after, scope))
         if old_expanded[scope] is None or new_expanded[scope] is None:
             raise ValueError('IMPORT operation source does not exist')
-        validate_local(new_expanded[scope].values)
+        warnings.extend(old_expanded[scope].warnings)
+        warnings.extend(new_expanded[scope].warnings)
     resources = dict(entries(old_expanded[identity].values, 'desired.resource.'))
     for rid in deleted | destinations:
         if resources.get(rid, {}).get('resourceMode') != 'IMPORT':
@@ -149,14 +174,23 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
             for rid, resource in entries(expansion.values, 'desired.resource.'):
                 key = (scope[0], scope[1], scope[2], resource['anchor'])
                 if key in index:
-                    raise ValueError('ambiguous Resource anchor')
-                index[key] = '/'.join((*scope, rid))
+                    index[key] = None
+                else:
+                    index[key] = '/'.join((*scope, rid))
         anchors.append(index)
     symbolic = []
     for root, collection, index in zip((before, after), (old_expanded, new_expanded), anchors):
         symbolic.append({scope: _symbolic(model_path(root, scope), expansion,
-                           {(service, anchor): address for (env, target, service, anchor), address in index.items() if (env, target) == scope[:2]})
+                           {(service, anchor): address for (env, target, service, anchor), address in index.items() if (env, target) == scope[:2]}, warnings)
                          for scope, expansion in collection.items()})
+    from model_reference_usage import usage_records, reference_diagnostics
+    previous_records = list(usage_records(before, old_expanded, symbolic[0]))
+    current_records = list(usage_records(after, new_expanded, symbolic[1]))
+    warnings.extend(reference_diagnostics(current_records, previous_records))
+    for record in previous_records:
+        if record['producer'] in {'/'.join((*identity, rid)) for rid in deleted} and record['consumer'] != record['producer']:
+            warnings.append({'code': 'reference.target_removed', 'message': 'operation removes a referenced Resource',
+                             **record, **({'previous_value': record['resolvedValue']} if 'resolvedValue' in record else {})})
     declarations = {(ref.consumer, ref.field, ref.property_name, ref.pointer): ref for ref in operation.references}
     used = set()
 
@@ -165,7 +199,7 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
         matching = [ref for position, ref in declarations.items() if position[:3] == (address, field, prop)]
         refs = list(_walk(left))
         if evaluated is not None and evaluated[0] != evaluated[1] and refs and not matching and not (self_pair and all(ref.producer == self_pair[0] for ref in refs)):
-            raise ValueError('derived reference change requires an explicit declaration: ' + address)
+            operation_warning(warnings, 'derived reference value changed', consumer=address, property=prop, previous_value=evaluated[0], resolvedValue=evaluated[1])
         if not self_pair and origin and any(ref.source == ref.destination for ref in matching):
             scope, old_key, new_key = origin
             old_field = _reference_inputs(model_path(before, scope))[1][5][old_key]
@@ -176,7 +210,7 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
                 return (raw, {name: (schema(definition.parameters[name]), instance['parameters'][name])
                               for name in names if name in definition.parameters})
             if expression(old_field) != expression(new_field):
-                raise ValueError('destination reevaluation must preserve consumer expression/inputs')
+                operation_warning(warnings, 'destination reevaluation changed reference expression', consumer=address, property=prop)
         if self_pair:
             expected = _retarget(expected, *self_pair)
         for position, ref in declarations.items():
@@ -192,15 +226,18 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
                     raise ValueError('reference document pointer must select a scalar leaf')
             refs = list(_walk(target))
             if not isinstance(target, tuple) or len(target) != 3 or target[0] != '' or target[-1] != '' or len(refs) != 1 or refs[0].producer != ref.source:
-                raise ValueError('reference before target does not match declaration')
+                operation_warning(warnings, 'reference before target does not match declaration', consumer=address, property=prop)
+                continue
             updated = _retarget(target, ref.source, ref.destination)
             if parent is not None:
                 parent[key] = updated
             else:
                 expected = updated
             used.add(position)
-        if expected != right:
+        if not reference_equal(expected, right):
             raise ValueError('IMPORT source Property not transferred or unspecified value/reference change: ' + address + '/' + str(prop or field))
+        if expected != right:
+            operation_warning(warnings, 'reference changed', consumer=address, property=prop, key=field)
 
     for scope in sorted(models):
         old, new = old_expanded[scope], new_expanded[scope]
@@ -292,20 +329,21 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
         if scope == identity:
             for rid in deleted | destinations:
                 handled_old.update(operation_values(old.values, rid))
-        if ({k: v for k, v in old_values.items() if k not in handled_old} !=
-                {k: v for k, v in new_values.items() if k not in handled_new}):
+        if not reference_equal({k: v for k, v in old_values.items() if k not in handled_old},
+                               {k: v for k, v in new_values.items() if k not in handled_new}):
             raise ValueError('IMPORT operation changed an unspecified resource or service field')
         for value in new_values.values():
             if any(ref.producer in {'/'.join((*identity, rid)) for rid in deleted} for ref in _walk(value)):
-                raise ValueError('IMPORT removed resource still has an incoming reference')
+                operation_warning(warnings, 'removed resource still has an incoming reference', scope='/'.join(scope))
         # Before anchors also detect links whose producer no longer exists in after.
         for key, value in new.values.items():
             for link in re.finditer(r'\[[^\]]*\]\(([^)]*)\)', value):
                 filename, separator, anchor = link[1].partition('#')
                 if scope[:2] == identity[:2] and separator and anchor in {resources[rid]['anchor'] for rid in deleted} and (filename.removeprefix('./') == identity[2] + '.md' or not filename and scope[2] == identity[2]):
-                    raise ValueError('IMPORT removed resource still has an incoming reference: ' + key)
+                    operation_warning(warnings, 'removed resource still has an incoming reference', scope='/'.join(scope), key=key, reference=link[0])
     if used != declarations.keys():
-        raise ValueError('unused Model reference declaration')
+        operation_warning(warnings, 'unused Model reference declaration')
+    return warnings
 
 
 @input_scope
@@ -343,6 +381,7 @@ def verify_model_refactor(before: Path, after: Path, detaches, sources, validati
         scopes.update(old)
     old_expanded, old_symbols = reference_models(before, scopes)
     new_expanded, new_symbols = reference_models(after, scopes)
+    warnings = [w for group in (old_expanded, new_expanded) for exp in group.values() for w in exp.warnings]
     used = set()
     for declaration in detaches:
         for address in (declaration.consumer, declaration.producer):
@@ -385,13 +424,15 @@ def verify_model_refactor(before: Path, after: Path, detaches, sources, validati
                 value, other = json_read(value), json_read(other)
             elif key.startswith('desired.row.') and key.endswith('.value'):
                 value, other = literal(value), literal(other)
-            if not typed_equal(value, other):
-                fail(scope, key, value, other, 'value/type changed')
             left, right = old_symbols[scope][key], new_symbols[scope][key]
+            if not reference_equal(left, right):
+                fail(scope, key, value, other, 'value/type changed')
+            if not typed_equal(value, other):
+                operation_warning(warnings, 'reference effective value changed', key=key, previous_value=value, resolvedValue=other)
             declared = [d for d in detaches if tuple(d.consumer.split('/')[:3]) == scope and d.key == key]
             if not declared:
                 if left != right:
-                    fail(scope, key, repr(left), repr(right), 'undeclared reference/expression change')
+                    operation_warning(warnings, 'undeclared reference/expression change', scope='/'.join(scope), key=key)
                 continue
             rid = declared[0].consumer.rsplit('/', 1)[1]
             if old_resources[rid].get('resourceMode', 'CREATE') != 'IMPORT':
@@ -405,18 +446,16 @@ def verify_model_refactor(before: Path, after: Path, detaches, sources, validati
                             and (declaration.pointer is None or position[0] == declaration.pointer)]
                 if not selected or any(position[1].producer == declaration.producer
                                        and (declaration.pointer is None or position[0] == declaration.pointer) for position in current):
-                    fail(scope, key, repr(left), repr(right), 'declared dependency missing before or still present after')
+                    operation_warning(warnings, 'declared dependency missing before or still present after', scope='/'.join(scope), key=key)
                 for position in selected:
                     del remaining[position]
                 used.add(declaration)
             if remaining != current:
-                fail(scope, key, repr(left), repr(right), 'undeclared dependency change')
-        for rid in old_resources:
-            left, right = resource_config(old.values, rid), resource_config(new.values, rid)
-            if not typed_equal(left, right):
-                fail(scope, 'desired.resource.' + rid + '.resourceType', left, right, 'effective configuration changed')
+                operation_warning(warnings, 'undeclared dependency change', scope='/'.join(scope), key=key)
+        # Per-leaf symbolic comparisons above retain configuration and observation checks.
     if used != set(detaches):
-        raise ValueError('unused Model dependency detach declaration: ' + repr(set(detaches) - used))
+        operation_warning(warnings, 'unused Model dependency detach declaration: ' + repr(set(detaches) - used))
+    return warnings
 
 
 @input_scope
@@ -466,8 +505,9 @@ def verify_model_retarget(before: Path, after: Path, operation, sources):
                for values, rid in ((a, left[3]), (b, right[3]))):
             raise ValueError('retarget requires existing IMPORT producers')
         if a['desired.resource.' + left[3] + '.resourceType'] != b['desired.resource.' + right[3] + '.resourceType']:
-            raise ValueError('retarget producer resource types differ')
+            pass  # Reference type mismatch is diagnosed by the selected consumer resolver.
 
+    warnings = [w for group in (old_expanded, new_expanded) for exp in group.values() for w in exp.warnings]
     used, editable_fields, editable_inputs = set(), {}, {}
     for scope in sorted(scopes):
         old, new = old_expanded[scope], new_expanded[scope]
@@ -499,8 +539,10 @@ def verify_model_retarget(before: Path, after: Path, operation, sources):
             if ref.pointer is not None:
                 parent, leaf = _pointer(target, ref.pointer)
                 target = parent[leaf]
-            if not isinstance(target, tuple) or len(target) != 3 or target[0] != '' or target[2] != '' or not isinstance(target[1], _Reference) or target[1].producer != ref.source:
-                raise ValueError('retarget before reference mismatch, overlap or non-scalar position')
+            if not isinstance(target, tuple) or len(target) != 3 or target[0] != '' or target[2] != '' or not isinstance(target[1], _Reference):
+                raise ValueError('retarget pointer must select a scalar reference leaf')
+            if target[1].producer != ref.source:
+                operation_warning(warnings, 'retarget before reference mismatch', consumer=ref.consumer, key=key, pointer=ref.pointer)
             updated = _retarget(target, ref.source, ref.destination)
             if parent is None:
                 expected[key] = updated
@@ -529,6 +571,8 @@ def verify_model_retarget(before: Path, after: Path, operation, sources):
                 continue  # Generated document link/hash; compare its authoritative document below.
             if not _retarget_equal(value, current[key]):
                 raise ValueError('retarget undeclared value/type/reference/structure change: ' + '/'.join(scope) + '/' + key)
+            if value != current[key]:
+                operation_warning(warnings, 'retarget reference differs from declaration', scope='/'.join(scope), key=key)
         # Preserve raw inputs too, including unused parameters and definition metadata.
         relative = Path('model/parameters') / '/'.join(scope) / 'parameters.yaml'
         a, b = yaml_read(old_files[relative].decode()), yaml_read(new_files[relative].decode())
@@ -544,7 +588,7 @@ def verify_model_retarget(before: Path, after: Path, operation, sources):
         if not _retarget_equal(a, b):
             raise ValueError('retarget changed unrelated/unused input settings')
     if used != set(operation.references):
-        raise ValueError('retarget unused declarations')
+        operation_warning(warnings, 'retarget unused declarations')
     template_files = set()
     for alias, service in {scope[1:] for scope in scopes}:
         path = Path('model/templates') / alias / (service + '.properties.tpl')
@@ -578,9 +622,12 @@ def verify_model_retarget(before: Path, after: Path, operation, sources):
                 raise ValueError('retarget changed unrelated Definition or reference schema')
     if any(p.parts[:2] == ('model', 'templates') and p not in template_files for p in changed):
         raise ValueError('retarget changed an unused template source')
+    return warnings
 
 
 def _retarget_equal(left, right):
+    if isinstance(left, _Reference) and isinstance(right, _Reference):
+        return True
     if type(left) is not type(right):
         return False
     if isinstance(left, dict):

@@ -63,6 +63,6 @@ def write(path, text):
 
 
 def schema_validator(root):
-    validator = MODULE.Validator(root)
+    validator = MODULE.Validator(root, definitions_root=SCRIPT.parents[2])
     validator.schema_catalog = MODULE.DesignSchemaCatalog(SCRIPT.parents[2])
     return validator

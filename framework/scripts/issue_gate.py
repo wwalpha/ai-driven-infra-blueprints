@@ -38,7 +38,53 @@ def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[
     return result
 
 
-def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
+def reference_issue_parts(text):
+    """Separate only recognized machine diagnostics, keeping mixed real errors blocking."""
+    import json
+    text = re.sub(r'<!-- issue-(?:id|service): [^>]+ -->', '', text).strip()
+    text = re.sub(r'^\d+[.)] +', '', text)
+    text = re.sub(r' 根拠: \[[^\]]+\]\([^)]+\)。$', '', text).strip()
+    messages = [line.strip().removeprefix('- ') for line in text.splitlines() if line.strip()]
+    references, errors = [], []
+    exact = {'broken local parentReference', 'cyclic parentReference', 'broken same-service reference',
+             'duplicate resource anchor', 'unknown external instance reference', 'unknown instance reference',
+             'multiple matching candidates', 'reference producer requires exactly one name',
+             'reference producer requires exactly one matching observed identifier',
+             'reference producer requires a nonempty non-ARN string identifier', 'invalid reference label',
+             'raw name reference cannot override label', 'raw identifier reference cannot override label',
+             'reference producer requires a valid stack name'}
+    patterns = (
+        r'broken design link: [^\s;]+: (?:[^\s;]*\.md(?:#[^\s;]+)?|#[^\s;]+)',
+        r'missing design anchor: [^\s;]+: [^\s;]+',
+        r'unresolved internal Model link: [^\s;]+',
+        r'ambiguous Resource anchor: [^\s;]+',
+        r'cyclic attribute reference: [^;\n]+',
+        r'IMPORT (?:ambiguous physical reference|ambiguous producer physical identifier|explicit link differs from acquired physical reference|explicit link has no unique design target|matching Model requires a reference link|explicit reference has no physical identification contract): [^;\n]+',
+        r'identifier reference does not match observed target: [^;\n]+',
+        r'(?:IAM Role link must display RoleName|design link must not display internal logical ID|nameless resource link must display resource type or observed identifier): [^;\n]+',
+    )
+    for original in messages:
+        message = re.sub(r'^(?:invalid service model|invalid reference observations|invalid IMPORT physical reference): [^\s:]+: ', '', original)
+        recognized = message in exact or any(re.fullmatch(pattern, message) for pattern in patterns)
+        if message.startswith('unresolved reference target: '):
+            try:
+                details = json.loads(message.removeprefix('unresolved reference target: '))
+            except ValueError:
+                details = None
+            recognized = isinstance(details, dict) and details.get('reason') in {
+                'unknown external instance reference', 'unknown instance reference', 'multiple matching candidates',
+                'ambiguous resource/stack reference', 'zero matching candidates: resourceType mismatch',
+                'zero candidates: fixed Resource ID absent or Instance has no active Resources'}
+        (references if recognized else errors).append(original)
+    return references, errors
+
+
+def reference_issue(text):
+    references, errors = reference_issue_parts(text)
+    return bool(references) and not errors
+
+
+def unresolved_services(root: Path, path: Path, *, with_text=False) -> list[tuple[str, set[str]]]:
     """Existing inventories use numbered issues and model/design evidence links."""
     environment, target = path.parent.relative_to(root / "issues").parts
     result = []
@@ -69,7 +115,7 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
                         continue
                     if len(parts) == 3 and parts[:2] == (environment, target) and linked.suffix == suffix:
                         services.add(source.stem)
-        result.append((number, services))
+        result.append((number, services, text) if with_text else (number, services))
 
     for line in contents.splitlines():
         if match := re.match(r"^\s*(`{3,}|~{3,})", line):
@@ -93,11 +139,11 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
             block.append(line)
     flush()
     if not result and contents.strip() and "未解決issueなし" not in contents:
-        result.append(("unknown", set()))
+        result.append(("unknown", set(), contents) if with_text else ("unknown", set()))
     return result
 
 
-def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:
+def issue_errors(root: Path, scope, *, remediation=(), target=None, warnings=None) -> list[str]:
     errors = []
     paths = (input_select(root / "issues", "*/*/issues.md") if scope is None else
              (root / "issues" / env / directory / "issues.md" for env, directory in {entry[:2] for entry in scope}))
@@ -110,7 +156,13 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
         selected = None if scope is None else {service for env, directory, service in scope if (env, directory) == identity}
         if selected == set():
             continue
-        for number, services in unresolved_services(root, path):
+        for number, services, text in unresolved_services(root, path, with_text=True):
+            reference_messages, blocking = reference_issue_parts(text)
+            if warnings is not None:
+                warnings.extend({'code': 'reference.legacy_issue', 'message': message,
+                                 'source': str(path.relative_to(root)), 'issue': number} for message in reference_messages)
+            if reference_messages and not blocking:
+                continue
             if not services:
                 errors.append(f"unresolved issue service is ambiguous: {path.relative_to(root)}: issue {number}; stop target work")
                 continue
@@ -121,7 +173,7 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
     return errors
 
 
-def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None) -> list[str]:
+def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None) -> list[str]:
     """Waive only existing issues for a valid, explicitly scoped deletion contract.
 
     contract_file permits the read-only issue check before a suspended task resumes.
@@ -145,11 +197,15 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
                 task_start_commit(root, name)
             if status(text) != 'completed':
                 return []
-    return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target)
+    return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target, warnings=warnings)
 
 
-def require_no_issues(root: Path, scope, *, target=None, task_file=None, contract_file=None) -> None:
-    errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file)
+def require_no_issues(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None) -> None:
+    diagnostics = [] if warnings is None else warnings
+    errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file, warnings=diagnostics)
+    if warnings is None:
+        from model_core import report_reference_warnings
+        report_reference_warnings(diagnostics)
     if errors:
         raise ValueError("\n- ".join(errors))
 
@@ -180,7 +236,10 @@ def main() -> int:
             contract = active_scope(root)
             if contract is not None and not scope <= contract:
                 raise ValueError("requested services are outside active task validation scope")
-        errors = task_issue_errors(root, scope) if args.task else issue_errors(root, scope)
+        warnings = []
+        errors = task_issue_errors(root, scope, warnings=warnings) if args.task else issue_errors(root, scope, warnings=warnings)
+        from model_core import report_reference_warnings
+        report_reference_warnings(warnings)
     except (OSError, ValueError) as error:
         errors = [str(error)]
     if errors:

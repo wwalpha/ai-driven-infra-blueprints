@@ -27,15 +27,20 @@ permits value/document configuration references only, including explicit JSON sc
 pointers and numbered array Properties. No Subnet associations, parentReference,
 D→D reevaluation, bindings/observed edits or new source structure. The ordinary Issue
 Gate applies to every producer and consumer. The save guard resolves and proves the
-full before/candidate meaning before publication; unlike merge leaves, an incomplete
-standalone candidate cannot be saved. It uses the same one-use context and final
+non-reference before/candidate preservation before publication. Semantic reference
+ambiguity, mismatch or incompleteness is warning-only, including at source save. It uses the same one-use context and final
 snapshot comparison. Return to the parent for generation/finalize; do not perform them here.
 
 ## Operation
 
+Follow [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics).
+Report semantic target/type/label/format or declaration mismatch as warnings without
+blocking save/completion. Repair what is known within scope, ask about undetermined
+repairs, and do not make repair a prerequisite. Keep all non-reference errors and guards.
+
 Accept only an exact subset of the parent's reference changes. Change only the
 registered consumer's complete value, non-root scalar JSON pointer or (merge only) parentReference.
-Use bindings and the existing resolver to prove before source and after destination;
+Use bindings and the existing resolver to diagnose before source and after destination;
 local Instance names resolve to fixed Resources. For destination consumers derive the
 comparison source from the registered pair. Never choose a target from equal strings,
 physical IDs or caller-supplied alternative comparison consumers.

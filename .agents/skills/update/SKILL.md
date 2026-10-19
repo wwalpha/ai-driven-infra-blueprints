@@ -23,12 +23,15 @@ owns the post-rebase final validation/completion/merge sequence.
 
 For an explicit Human single-Model deletion request, follow the prompt's pre-contract
 exception: register and validate the `import-delete` parent before the task-aware Issue
-Gate. Waive only existing-issue stops in its explicit Validation scope; retain reference
-and Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Merge,
+Gate. Waive existing-issue stops in its explicit Validation scope; retain non-reference
+Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Apply
+[Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
+to every Model operation: links, unresolved references and remaining usages are warnings;
+repair/Issue migration is never a prerequisite for update/delete/save/finalization. Merge,
 ordinary updates and later Tasks retain the ordinary pre-task gate.
 
-The separate value-preserving branch first distinguishes deletion ordering from a
-necessary dependency detach using the shared read-only reference API. It uses an
+The separate value-preserving branch uses the shared read-only reference API only for
+an explicitly authorized detach; neither ordering nor detach completion gates deletion. It uses an
 ordinary design Task with explicit detach declarations and ordinary guarded saving;
 it does not enter the operation-only intermediate writer. Each refactor and subsequent
 single deletion is independently validated and integrated as specified by 05_update.

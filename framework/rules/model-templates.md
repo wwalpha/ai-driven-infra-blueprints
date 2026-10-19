@@ -68,8 +68,9 @@ Undeclared fixed display keys, other fields, duplicate declarations/identities a
 collisions with active resource IDs are rejected. Retained display declarations use only existing
 orphan display IDs; they preserve values without inventing resource definitions.
 
-Undeclared local IDs, duplicate output keys/anchors/identities, broken references,
-unknown input keys/definitions/parameters and missing used parameters are errors.
+Undeclared local IDs, duplicate output keys/fixed identities, unknown input keys/Definitions/parameters
+and missing used parameters are errors. Anchor collisions and broken references are warnings
+under [Reference diagnostics](model-information.md#reference-diagnostics).
 Unused definitions require no environment values. Parameter types are `string`,
 `integer`, `number`, `boolean`, `object`, `array`, `null` (booleans are not integers).
 
@@ -133,15 +134,17 @@ candidates with existing domain checks and retained expanded Models, compares al
 consumed inputs once, then publishes validated Markdown/JSON bytes. A rejected candidate
 retains its saved view; only changed reference states require dependent revalidation.
 Successful services retain independent rollback-protected transactions and a failed
-candidate still makes the command fail. Retained-source link warnings are calculated
-on the final candidate stage and displayed only for successfully saved targets.
+candidate with real errors still makes the command fail. Reference warnings are calculated
+on the final candidate stage and include ungenerated/retained views; reference-only
+inability is NOT_RUN and does not block Model completion.
 
 Only changed publication bytes enter the writer, preserving Markdown newline conventions.
 There is no normal post-save full readback, content revalidation, input rescan or
 verification regeneration. Follow [Selection and publication](task-contract.md#selection-and-publication).
 `sync-model.py --write` remains a generation-only compatibility entrypoint with its
 existing target/`--scope`/`--all` selectors and exit meanings. Read-only validation still
-rejects missing/stale Markdown/JSON, extra JSON and reference changes. IMPORT display
+rejects ordinary missing/stale Markdown/JSON and extra JSON. It reports reference changes
+and explicitly retained/unavailable views without converting them back into equality failures. IMPORT display
 recovery and observed writers retain their separate authority/publication workflows.
 `model_files.py <service.properties> --trace <exact-key>` reports definition/key and
 instance/parameter keys on demand; no permanent source map is saved.
@@ -391,7 +394,7 @@ reuse existing consumer-preservation checks and add a Definition rather than cha
 those consumers. For selected captured references, reuse the existing resolver and
 [Selected-resource references](../prompts/codex/08_import.md#selected-resource-references).
 Replace additionally reuses incoming-reference analysis over registered same-target
-services; non-self usages or unresolved analysis reject publication. No unrelated
+services; non-self usages or unresolved analysis return warnings and preserve snapshots. No unrelated
 reference edits or automatic Model-only operations are authorized.
 
 An absent service is distinct from zero Resources. Reuse the New service creation
@@ -418,7 +421,7 @@ The existing I/O rollback covers one write, preserving prior successful leaf sav
 
 Full expansion is optional editing assistance and can fail on intermediate sources.
 Generation prepares/views validates/publishes separately. The final difference checker
-proves all pairs, exact reference changes and preserved consumers at once. Outside the
+proves all pairs and non-reference preservation at once, reporting reference differences as warnings. Outside the
 managed running Model-only boundary, existing completed-candidate IMPORT guards remain.
 Acquisition/addition restrictions above are unchanged.
 
@@ -432,8 +435,11 @@ Property, JSON pointer, typed/link kind, format, role, effective value and sourc
 location/provenance. Selected choice origins follow the chosen expression, including
 JSON positions after optional removals. No expanded-value string matching identifies
 a dependency; equal names do not collapse fixed identities. Only active Instances and
-selected branches participate. Unresolved inputs/links raise a cause; CLI output uses
-status unresolved and a nonzero exit. No model edits, Task writes or generated output.
+selected branches participate. Results are `{references, warnings, complete}`; unresolved
+references retain raw expressions, known identities and provenance. Optional `before`
+uses the existing prior snapshot for removed targets/values. The JSON CLI reports
+incomplete analysis with warnings and exit zero; malformed inputs and I/O remain errors.
+No model edits, Task writes or generated output.
 A pending publication-recovery journal stops this read-only API without recovering it.
 
 Incoming discovery is restricted to the addressed environment/target; outgoing usage

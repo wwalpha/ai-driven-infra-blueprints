@@ -307,8 +307,33 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
     return selected
 
 
-def verify_values(before, after, selected, property_schema, references=None):
+def reference_value_equal(left, right):
+    """Only reference expression spans may differ; structure and other literals stay exact."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(reference_value_equal(v, right[k]) for k, v in left.items())
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(reference_value_equal(a, b) for a, b in zip(left, right))
+    if isinstance(left, str) and isinstance(right, str):
+        import re
+        pattern = r'<<[A-Za-z][A-Za-z0-9_-]*>>|\[[^\]]+\]\([^)]*#[^)]+\)'
+        def matches(expression, value):
+            pieces, start = [], 0
+            for match in re.finditer(pattern, expression):
+                pieces.extend((re.escape(expression[start:match.start()]), '.*?'))
+                start = match.end()
+            if not pieces:
+                return False
+            pieces.append(re.escape(expression[start:]))
+            return re.fullmatch(''.join(pieces), value, re.DOTALL) is not None
+        return left == right or matches(left, right) or matches(right, left)
+    return typed_equal(left, right)
+
+
+def verify_values(before, after, selected, property_schema, references=None, *, warnings=None):
     """Prove every changed real value against its selected acquired Property."""
+    warnings = warnings if warnings is not None else []
+    def warn(message, **details):
+        warnings.append({"code": "reference.import_impact", "message": message, **details})
     old, new = before.values, after.values
     from model_core import validate_model_keys
     validate_model_keys({key: value for key, value in new.items() if old.get(key) != value})
@@ -341,11 +366,14 @@ def verify_values(before, after, selected, property_schema, references=None):
     if old_rows.keys() - new_rows.keys():
         raise ValueError('IMPORT existing Row IDs must be preserved')
     for rid, resource in old_resources.items():
-        if resource != new_resources[rid]:
+        if {k: v for k, v in resource.items() if k != 'parentReference'} != {k: v for k, v in new_resources[rid].items() if k != 'parentReference'}:
             raise ValueError('IMPORT existing identity, placement, mode and parent references must be preserved: ' + rid)
     for key, value in old.items():
         if new.get(key) != value and not (key in new and acquired_key(key)):
-            raise ValueError('IMPORT existing expanded value must be preserved: ' + key)
+            left, right = (json_read(value), json_read(new[key])) if key.endswith('.document') and key in new else (value, new.get(key))
+            if key.startswith('observed.') or not reference_value_equal(left, right):
+                raise ValueError('IMPORT existing expanded value must be preserved: ' + key)
+            warn('existing reference value changed', key=key, previous_value=value, resolvedValue=new.get(key))
     for key in new.keys() - old.keys():
         if acquired_key(key):
             continue
@@ -360,7 +388,7 @@ def verify_values(before, after, selected, property_schema, references=None):
         current = after.provenance.get(key, {})
         reference_state = lambda trace: (trace.get('references', {}), {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'})
         if reference_state(previous) != reference_state(current) and not acquired_key(key):
-            raise ValueError('IMPORT reference declaration or selector changed: ' + key)
+            warn('reference declaration or selector changed', key=key)
     indexed_old, indexed_new = resource_row_index(old), resource_row_index(new)
     changes = []
     for rid in (new_resources.keys() - old_resources.keys()) | updated:
@@ -380,7 +408,12 @@ def verify_values(before, after, selected, property_schema, references=None):
                 raise ValueError('IMPORT candidate uses an unacquired Property: ' + prop)
             schema = property_schema(prop)
             actual = property_values(new, rid, prop, schema, rows=indexed_new)
-            if not typed_equal(actual, capture['value']):
+            desired = typed_row(row, row.get('value', ''), schema)
+            if not reference_value_equal(desired, capture['value']):
+                raise ValueError('IMPORT candidate value differs from the acquired Property: ' + prop)
+            if not typed_equal(desired, capture['value']):
+                warn('reference representation differs from acquired value', property=prop, resource=rid, reference=desired)
+            if actual is not None and not typed_equal(actual, capture['value']) and not reference_value_equal(actual, capture['value']):
                 raise ValueError('IMPORT candidate value differs from the acquired Property: ' + prop)
             if rid in updated and any(r['property'] == prop for _, r in indexed_old.get(rid, [])):
                 previous = property_values(old, rid, prop, schema, rows=indexed_old)
@@ -393,8 +426,10 @@ def verify_values(before, after, selected, property_schema, references=None):
     anchors = {resource.get('anchor') for resource in old_resources.values()}
     for rid in sorted(new_resources.keys() - old_resources.keys()):
         anchor = new_resources[rid].get('anchor')
-        if not anchor or anchor in anchors:
-            raise ValueError('IMPORT new resource requires a new fixed anchor: ' + rid)
+        if not anchor:
+            raise ValueError('IMPORT new resource requires a fixed anchor: ' + rid)
+        if anchor in anchors:
+            warn('ambiguous resource anchor', resource=rid, reference=anchor)
         anchors.add(anchor)
     for rid in (new_resources.keys() - old_resources.keys()) | updated:
         record = selected[rid]
@@ -409,5 +444,5 @@ def verify_values(before, after, selected, property_schema, references=None):
             for _, row in indexed_new.get(rid, []):
                 link = LINK.fullmatch(row['value'])
                 if row['property'] == prop and link and (link[2] or link[3] != new_resources[rid].get('anchor')):
-                    raise ValueError('IMPORT new resource identity link must refer to its own anchor')
+                    warn('identity link does not refer to its own anchor', resource=rid, property=prop, reference=row['value'])
     return changes

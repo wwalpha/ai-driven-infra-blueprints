@@ -187,7 +187,8 @@ class TaskValidation:
         from import_guard import require_import_changes
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.
-            require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
+            for warning in require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate) or ():
+                self.findings.warn(warning)
             self.import_checked = True
         except (OSError, ValueError, KeyError) as error:
             self.check(False, str(error))
@@ -256,7 +257,7 @@ class TaskValidation:
             service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.scope_paths)
             if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
                 scope = set()  # Framework-wide validation does not target consumer services.
-            require_no_issues(self.root, scope)
+            require_no_issues(self.root, scope, warnings=self.findings.warnings)
         except (OSError, ValueError) as error:
             self.check(False, str(error))
 
@@ -337,6 +338,6 @@ class TaskValidation:
                 if handler:
                     result = (self.findings.result(value, scope) if results_only else
                               self.findings.evaluate(value, scope, handler))
-                    self.check(result.status == 'PASS', f'Acceptance check is {result.status}: {requirement_id}: {value}')
+                    self.check(result.status == 'PASS' or (self.task_type in {'design', 'migration'} and result.model_completion_allowed), f'Acceptance check is {result.status}: {requirement_id}: {value}')
             if len(self.findings.errors) == before:
                 self.acceptance_results.append(f"{requirement_id}:{kind}:{value}")

@@ -59,6 +59,8 @@ REF_ATTRIBUTES = {
 }
 
 
+from model_core import ReferenceResolutionError
+
 class Comparison:
     def __init__(self, root, environment, directory, services, *, catalog=None):
         self.root, self.environment, self.directory = root, environment, directory
@@ -74,6 +76,8 @@ class Comparison:
         self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
         self.load_errors = []
+        self.warnings = []
+        self.reference_unavailable = {}
         self.inputs = {root / 'project.json'}
         self.results = []
         self.display_differences = {}
@@ -81,6 +85,15 @@ class Comparison:
         for service in self.services:
             try:
                 self.model(service)
+            except ReferenceResolutionError as error:
+                self.warnings.append({**error.diagnostic, 'service': service})
+                self.reference_unavailable[service] = str(error)
+                from model_templates import load_for_analysis
+                analysis = load_for_analysis(root / 'model' / environment / directory / (service + '.properties'))
+                self.inputs.update(analysis.files)
+                self.read_hashes.update({file: hashlib.sha256(text.encode('utf-8')).hexdigest() for file, text in analysis.files.items()})
+                self.warnings.extend(analysis.warnings)
+                self.resources[service], self.rows[service] = {}, {}
             except (OSError, ValueError) as error:
                 self.load_errors.append((service, str(error)))
                 self.resources[service], self.rows[service] = {}, {}
@@ -91,6 +104,7 @@ class Comparison:
         if service not in self.models:
             path = self.root / 'model' / self.environment / self.directory / (service + '.properties')
             loaded = load_model(path)
+            self.warnings.extend(getattr(loaded, "warnings", ()))
             if service != 'cloudformation-stacks' and loaded.values.get(f'desired.service.{service}.serviceId') != service:
                 raise ValueError(f'mismatched service ID: {path}')
             self.models[service] = loaded
@@ -861,6 +875,8 @@ class Comparison:
     def run(self):
         self.local_comparison = True
         self.symbols.clear()
+        for service, message in self.reference_unavailable.items():
+            self.record('uncompared', service, '*', '*', message, cause={'kind': 'reference-unresolved'})
         for service, error in self.load_errors:
             self.record('error', service, '*', '*', error)
         if self.target['iacEngine'] != 'cloudformation':
@@ -949,6 +965,9 @@ class Comparison:
                     self.compare_rows(service, identity, resource, name, logical, template, definition, document)
                 except (Blocked, KeyError) as error:
                     self.record('uncompared', service, identity, '*', str(error), cause=getattr(error, 'iac_cause', None))
+                except ReferenceResolutionError as error:
+                    self.warnings.append({**error.diagnostic, 'service': service, 'resource': identity})
+                    self.record('uncompared', service, identity, '*', str(error), cause={'kind': 'reference-unresolved'})
                 except (OSError, ValueError, ImportError, TypeError) as error:
                     self.record('error', service, identity, '*', str(error))
         return self.results

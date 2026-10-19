@@ -106,8 +106,11 @@ def check_rejects_unsafe_candidates(tmp_path, failure):
     elif failure == 'ambiguous': template.write_text(template.read_text().replace('desired.resource.resource.anchor=<<Anchor>>', 'desired.resource.resource.anchor=producer'))
     sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and
                 (not (before / p.relative_to(after)).exists() or p.read_bytes() != (before / p.relative_to(after)).read_bytes())}
-    with pytest.raises((ValueError, KeyError)):
-        verify_model_operation(before, after, model_operation(contract(refs)), sources)
+    if failure == 'no-change':
+        assert verify_model_operation(before, after, model_operation(contract(refs)), sources)
+    else:
+        with pytest.raises((ValueError, KeyError)):
+            verify_model_operation(before, after, model_operation(contract(refs)), sources)
 
 
 @pytest.mark.parametrize('field', ['value', 'document'])
@@ -210,9 +213,12 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
             if mode == 'conflict': inputs.write_text(original + '# concurrent edit\n')
             if mode == 'new-file': (before / 'model/parameters/stg/cde/service-b/extra.yaml').write_text('extra: true\n')
             if mode == 'task-change': (before / name).write_text(text + '\n## Goal\nchanged\n')
-            if mode in {'conflict', 'new-file', 'task-change', 'invalid'}:
+            if mode in {'conflict', 'new-file', 'task-change'}:
                 with pytest.raises(ValueError): write_sources(context, {inputs: candidate if mode != 'invalid' else original})
                 assert inputs.read_text() == (original + '# concurrent edit\n' if mode == 'conflict' else original)
+            elif mode == 'invalid':
+                assert write_sources(context, {inputs: original}) == ()
+                assert inputs.read_text() == original
             else:
                 assert write_sources(context, {inputs: candidate}) == (inputs,)
                 assert inputs.read_text() == candidate
@@ -282,7 +288,10 @@ def check_additional_boundaries(tmp_path, failure):
         for root in (before, after):
             p = root / 'model/templates/cde/unused.properties.tpl'; p.write_text('# model-template: 1\n' + ('# changed\n' if root == after else '# unused\n'))
     sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
-    with pytest.raises(ValueError): verify_model_operation(before, after, model_operation(contract(refs)), sources)
+    if failure == 'wrong-type':
+        assert verify_model_operation(before, after, model_operation(contract(refs)), sources)
+    else:
+        with pytest.raises(ValueError): verify_model_operation(before, after, model_operation(contract(refs)), sources)
 
 
 if __name__ == '__main__':

@@ -40,7 +40,7 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitio
     validator = view_validator(stage, root, definitions_root)
     validator.check_design_links(validator.catalog_design_properties()[2], paths, design_index=DesignIndex(root))
     broken = {}
-    for error in validator.errors:
+    for error in [*validator.errors, *(warning['message'] for warning in validator.findings.warnings)]:
         kind, _, reference = error.partition(": ")
         if kind not in {"broken design link", "missing design anchor"}:
             continue

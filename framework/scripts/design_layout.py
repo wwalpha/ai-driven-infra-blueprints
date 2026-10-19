@@ -3,6 +3,8 @@
 from __future__ import annotations
 from validation_cache import input_exists, input_text
 
+from model_core import ReferenceResolutionError
+
 import json
 import re
 from pathlib import Path
@@ -806,7 +808,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
     grouped_tables: set[str] = set()
     anchors = ANCHOR.findall("\n".join(lines))
     if len(anchors) != len(set(anchors)):
-        raise ValueError("duplicate resource anchor")
+        raise ReferenceResolutionError("duplicate resource anchor")
     index = 0
     while index < len(lines):
         line = lines[index]
@@ -907,7 +909,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
                         if prop == active_child["parentProperty"]:
                             reference = re.fullmatch(r"\[[^\]]+\]\(#([^)]*)\)", cells[2])
                             if not reference or reference.group(1) != parent_anchor:
-                                raise ValueError(f"{resource_type}: {active_child['logicalId']}: {prop} must reference enclosing {parent_type}: {parent_id}")
+                                raise ReferenceResolutionError(f"{resource_type}: {active_child['logicalId']}: {prop} must reference enclosing {parent_type}: {parent_id}")
                     active_child["rows"].append(cells)
                 else:
                     if marker or "<!-- logical-id:" in cells[3]:

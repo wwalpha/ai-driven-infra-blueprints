@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from design_document import DesignIndex
 from design_layout import STACK_DESIGN
-from model_core import entries
+from model_core import entries, ReferenceResolutionError
 from model_design import render_validated_model as markdown_for, validate_required_properties, validate_kms_policy_accounts
 from aws_mapping_display import validate_mappings
 from model_references import design_target
@@ -65,7 +65,11 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
     registered_models(root)  # Record the reverse-dependency discovery set, without copying its models.
     def add_model(model):
         if service_source(model) is not None:
-            inputs.update(load_model(model).files)
+            try:
+                inputs.update(load_model(model).files)
+            except ReferenceResolutionError:
+                from model_templates import load_for_analysis
+                inputs.update(load_for_analysis(model).files)
             optional = service_source(model)[2] / 'observed.json'
             if input_is_file(optional):
                 inputs.add(optional)
@@ -124,7 +128,9 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
 
 
 @progress_stage("candidate-generation")
-def generate_views(stage, root, destinations, failures, definitions_root=None):
+def generate_views(stage, root, destinations, failures, definitions_root=None, *, warnings=None, unavailable=None):
+    warnings = warnings if warnings is not None else []
+    unavailable = unavailable if unavailable is not None else {}
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
@@ -134,7 +140,7 @@ def generate_views(stage, root, destinations, failures, definitions_root=None):
         artifacts = {}
         try:
             validate_mappings(values, definitions_root)
-            validate_required_properties(values, definitions_root)
+            warnings.extend(validate_required_properties(values, definitions_root) or ())
             validate_kms_policy_accounts(values, design_target(staged, stage))
             for identity, row in entries(values, "desired.row."):
                 match = JSON_LINK.fullmatch(row.get("value", ""))
@@ -158,6 +164,12 @@ def generate_views(stage, root, destinations, failures, definitions_root=None):
             staged.parent.mkdir(parents=True, exist_ok=True)
             staged.write_text(markdown_for(staged, values, stage, definitions_root=definitions_root), encoding='utf-8', newline='')
             generated[path] = [*artifacts, staged]
+        except ReferenceResolutionError as error:
+            warnings.append({**error.diagnostic, 'source': str(path.relative_to(root))})
+            unavailable[path] = {'reason': 'reference', 'status': 'NOT_RUN',
+                                 'retainedView': str(path.relative_to(root)) if input_is_file(path) else None}
+            generated.pop(path, None)
+            restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
             restore_view(stage, root, path)
@@ -167,6 +179,12 @@ def generate_views(stage, root, destinations, failures, definitions_root=None):
             staged = stage / path.relative_to(root)
             if path.name != STACK_DESIGN:
                 staged.write_text(rendered_design(staged, definitions_root=definitions_root), encoding='utf-8', newline='')
+        except ReferenceResolutionError as error:
+            warnings.append({**error.diagnostic, 'source': str(path.relative_to(root))})
+            unavailable[path] = {'reason': 'reference', 'status': 'NOT_RUN',
+                                 'retainedView': str(path.relative_to(root)) if input_is_file(path) else None}
+            generated.pop(path, None)
+            restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
             failures.append(f"{path.relative_to(root)}: {error}")
             del generated[path]
@@ -231,6 +249,7 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
 def restore_view(stage: Path, root: Path, path: Path) -> None:
     """Discard a failed service's temporary view and retain its saved reference state."""
     staged = stage / path.relative_to(root)
+    staged.parent.mkdir(parents=True, exist_ok=True)
     staged.unlink(missing_ok=True)
     if path.is_file():
         staged.write_bytes(input_bytes(path))
@@ -304,25 +323,34 @@ def _sync(
             if proof['model'] not in {'reflected', 'unchanged'}:
                 raise ValueError('IMPORT display recovery requires a saved Model')
             managed = {root / name for name in proof['ownedArtifacts']}
-            with publication_lock(root):
-                expanded = load_for_edit(model)
-                from import_scope import preserved_reference_view
-                with preserved_reference_view(expanded):
-                    expanded = load_for_edit(model, expanded.files, display=True)
-                inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
-                from import_references import Resolver
-                references = Resolver(root, identity[0], identity[1], definitions_root=definition_root(root), local={identity[2]: expanded})
-                for rid, resource in entries(expanded.values, 'desired.resource.'):
-                    if resource.get('resourceMode') == 'IMPORT':
-                        references.verify_resource(expanded.values, rid, require_links=False)
-                inputs.update({file: text.encode('utf-8') if text is not None else None for file, text in references.files.items()})
-                for file in expanded.files:
-                    if file.name == 'parameters.yaml':
-                        inputs.setdefault(file.parent / 'observed.json', None)
-                output, view_inputs = view_plan(document, expanded.values, root, managed)
-            with publication_lock(root):
-                publish(root, output, inputs={**inputs, **view_inputs}, expected_task=expected_task)
-                finish_import(root, markdown='generated' if output else 'unchanged')
+            try:
+                with publication_lock(root):
+                    expanded = load_for_edit(model)
+                    from import_scope import preserved_reference_view
+                    with preserved_reference_view(expanded):
+                        expanded = load_for_edit(model, expanded.files, display=True)
+                    inputs = {p: text.encode('utf-8') for p, text in expanded.files.items()}
+                    from import_references import Resolver
+                    references = Resolver(root, identity[0], identity[1], definitions_root=definition_root(root), local={identity[2]: expanded})
+                    for rid, resource in entries(expanded.values, 'desired.resource.'):
+                        if resource.get('resourceMode') == 'IMPORT':
+                            references.verify_resource(expanded.values, rid, require_links=False)
+                    from model_core import report_reference_warnings
+                    report_reference_warnings(references.warnings)
+                    inputs.update({file: text.encode('utf-8') if text is not None else None for file, text in references.files.items()})
+                    for file in expanded.files:
+                        if file.name == 'parameters.yaml':
+                            inputs.setdefault(file.parent / 'observed.json', None)
+                    output, view_inputs = view_plan(document, expanded.values, root, managed)
+                with publication_lock(root):
+                    publish(root, output, inputs={**inputs, **view_inputs}, expected_task=expected_task)
+                    finish_import(root, markdown='generated' if output else 'unchanged')
+            except ReferenceResolutionError as error:
+                from model_core import report_reference_warnings
+                report_reference_warnings([{**error.diagnostic, 'scope': '/'.join(identity),
+                    'retainedView': str(document) if document.is_file() else None}])
+                print('Model update: PASS; View generation: NOT_RUN (reference)', file=output_file())
+                return 0
             consumers({identity})
             completed(identity)
             return 0
@@ -498,6 +526,8 @@ class Generation:
     saved: dict = field(default_factory=dict)
     expected_outputs: dict = field(default_factory=dict)
     warnings: dict = field(default_factory=dict)
+    reference_warnings: list = field(default_factory=list)
+    unavailable: dict = field(default_factory=dict)
     candidate: object = field(default_factory=object)
     accounts: object = None
     definitions_root: Path | None = None
@@ -553,9 +583,17 @@ def prepare_generation(root, scope, *, write=True, environment=None, target_dire
                 if snapshot is not None:
                     registered = service_source(path)
                     snapshot.read(registered[2] / 'observed.json')
+                plan.reference_warnings.extend(getattr(loaded, "warnings", ()))
                 plan.destinations[destination] = loaded.values
                 if not write:
                     plan.read_inputs.update({p: text.encode("utf-8") for p, text in loaded.files.items()})
+            except ReferenceResolutionError as error:
+                from model_templates import load_for_analysis
+                analysis = load_for_analysis(path)
+                plan.reference_warnings.extend(analysis.warnings or (error.diagnostic,))
+                plan.unavailable[destination] = {'reason': 'reference', 'status': 'NOT_RUN',
+                    'retainedView': str(destination.relative_to(root)) if input_is_file(destination) else None}
+                plan.read_inputs.update({p: text.encode('utf-8') for p, text in analysis.files.items()})
             except (OSError, ValueError, KeyError, TypeError) as error:
                 plan.failures.append(f'{path.relative_to(root)}: {error}')
         for path in sorted(set(markdown_paths) - {(docs / p.relative_to(models)).with_suffix('.md') for p in model_paths}):
@@ -573,7 +611,7 @@ def prepare_generation(root, scope, *, write=True, environment=None, target_dire
                         plan.read_inputs[path] = data
                         if file.name == 'parameters.yaml' and not (file.parent / 'observed.json').is_file():
                             plan.read_inputs.setdefault(path.parent / 'observed.json', None)
-        plan.generated = generate_views(stage, root, plan.destinations, plan.failures, definitions_root=definitions_root)
+        plan.generated = generate_views(stage, root, plan.destinations, plan.failures, definitions_root=definitions_root, warnings=plan.reference_warnings, unavailable=plan.unavailable)
         return plan
     except BaseException:
         lifetime.close()
@@ -588,14 +626,17 @@ def validate_generation(plan, *, jobs=4, write=True):
         required_common = {'design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'}
         required_service = {'design.names', 'design.tables', 'design.overviews',
                             'design.links', 'design.artifacts', 'design.observed'}
-        if common is None or any(common.result(name, plan.generated_scope).status != 'PASS' for name in required_common):
+        if common is None or any(not common.result(name, plan.generated_scope).model_completion_allowed for name in required_common):
             raise ValueError('required candidate scope validation is FAIL or NOT_RUN')
         for path in plan.generated:
             checked = plan.validation.get(path)
             identity = {(*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem)}
             if checked is None or checked.candidate is not common.candidate or any(
-                    checked.result(name, identity).status != 'PASS' for name in required_service):
+                    not checked.result(name, identity).model_completion_allowed for name in required_service):
                 raise ValueError(f'required candidate validation is FAIL or NOT_RUN: {path}')
+    for checked in plan.validation.values():
+        if checked is not None:
+            plan.reference_warnings.extend(w for w in checked.warnings if w not in plan.reference_warnings)
     if write and plan.validation.get(None) is not None:
         plan.candidate = plan.validation[None].candidate
     for path, files in plan.generated.items():
@@ -673,11 +714,22 @@ def publish_generation(plan):
             plan.warnings = sync_views.broken_design_links(stage, root, [stage / p.relative_to(root) for p in retained], definitions_root=plan.definitions_root)
 
 
+def generation_metadata(plan):
+    return {'complete': not plan.unavailable, 'generated': sorted('/'.join(scope) for scope in plan.generated_scope),
+            'unverified': {'/'.join((*p.relative_to(plan.root / 'docs/designs').parts[:2], p.stem)): info
+                           for p, info in plan.unavailable.items()},
+            'warnings': plan.reference_warnings}
+
+
 def report_generation(plan):
+    for warning in plan.reference_warnings:
+        print('WARNING [' + warning['code'] + '] ' + json.dumps(warning, ensure_ascii=False), file=output_file(error=True))
+    if plan.unavailable:
+        print('View generation: ' + json.dumps(generation_metadata(plan), ensure_ascii=False), file=output_file())
     for reference, target in plan.warnings.items():
         if reference not in plan.baseline_links and target in plan.saved:
             print(f'Design Markdown sync: WARNING ({target.relative_to(plan.root)}: '
-                  f'saved reference needs repair in a separate task: {reference})', file=output_file(error=True))
+                  f'saved reference needs repair: {reference})', file=output_file(error=True))
 
     for path in plan.saved:
         completed((*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem))
@@ -767,7 +819,7 @@ def _compare_generation(plan):
             plan.saved[path] = {}
 
 
-def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None) -> tuple[str, ...]:
+def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None, findings=None) -> tuple[str, ...]:
     """Read-only source/view comparison using the existing generation candidates."""
     if import_selection(root) is not None:
         from import_guard import require_import_changes
@@ -776,6 +828,10 @@ def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None) -> t
     try:
         validate_generation(plan, jobs=jobs, write=False)
         _compare_generation(plan)
+        if findings is not None:
+            for warning in plan.reference_warnings:
+                findings.warn(warning)
+            findings.result('framework.generated-service-model', scope).metadata.update(generation_metadata(plan))
         return tuple(plan.failures)
     finally:
         plan.close()

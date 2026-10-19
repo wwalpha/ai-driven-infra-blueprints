@@ -127,8 +127,8 @@ resource's values. Record the previous physical identity and Model digest below.
 Reject a replacement physical ID already registered to another Resource, including
 CREATE. Read incoming usages with `model_reference_usage.incoming_references()`.
 The publication guard reuses that analysis across registered services of the same
-Environment/Target. Non-self incoming references or unresolved analysis block replace;
-never change their meaning or edit unrelated references. This read-only check is the
+Environment/Target. Non-self incoming references and unresolved analysis produce warnings
+while replace continues; never edit unrelated references implicitly. This read-only check is the
 necessary exception to the usual single-service read boundary, not a write permission.
 If transfer/retarget/delete or dependency detach is necessary, use its existing separate
 Model-only contract/permission procedure only when authorized; no implicit deletion.
@@ -247,7 +247,8 @@ in Id/Arn is not a contract.
   representation with the unchanged acquired value. No EXTERNAL/UNMANAGED flag, dummy
   resource, recursive acquisition or other-environment parameter addition is permitted.
 - Multiple physical matches, a wrong explicit link, or literal fallback despite a
-  unique match rejects publication. Never match only by a logical Resource name or link
+  unique match produces a reference warning without rejecting publication. Actual
+  acquired literal/observed mismatches, types and JSON sibling differences remain errors. Never match only by a logical Resource name or link
   label, across Environments/Targets, or by constructing an ARN. ARN parsing is limited
   to declared identity forms, checking account, Region and partition when applicable.
 - Other-service templates, parameters, bindings and observations are read-only input
@@ -304,7 +305,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py 
 Publish does not access AWS. It verifies the sealed external acquisition, Task/Worktree,
 scope, source hashes, syntax/native types, declared add/refresh/replace correspondence,
 captured changed values, preserved fixed identities and nonselected values/references,
-and direct-consumer preservation. Replace additionally verifies incoming references.
+and direct-consumer preservation. Replace additionally reports incoming-reference impact.
+Apply [Reference diagnostics](../../rules/model-information.md#reference-diagnostics);
+reference warnings never cancel a saved Model or require repair before completion.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
 whole publication; no old plan is applied over concurrent changes.
@@ -313,7 +316,8 @@ The existing publication_lock, publish, journal and rollback save all dependent 
 in one transaction. No partial shared-template/selected-input save is allowed. Next, the
 existing import-specific path generates only the selected service's Markdown/JSON and
 saves them in a separate transaction. Display failure retains saved Model sources and
-is reported separately. No other environment or service is written or generated.
+is reported separately. Reference-only inability retains the existing view or reports
+not-generated/NOT_RUN with warnings and exit zero. No other environment or service is written or generated.
 
 Acquisition values, source before/after contents and correspondence details live in a
 private temporary session outside the repository. The small external

@@ -151,6 +151,7 @@ class ImportValueResolutionTests(unittest.TestCase):
     comparison.resources = {'macie': {'001': {'resourceType': 'Macie.ClassificationJob'}}}
     comparison.results = []
     comparison.load_errors = []
+    comparison.reference_unavailable = {}
     comparison.symbols = {}
     comparison.record = lambda *args, **kwargs: comparison.results.append((args, kwargs))
     comparison.templates = lambda: []

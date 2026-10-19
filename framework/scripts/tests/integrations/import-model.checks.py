@@ -1002,7 +1002,7 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
     assert len(cli.calls) == 2
 
 
-def check_replace_rejects_incoming_references(tmp_path):
+def check_replace_warns_incoming_references(tmp_path):
     from import_guard import digest
     from model_operation_checks import operation_values
     root = tmp_path / 'case'
@@ -1021,9 +1021,9 @@ def check_replace_rejects_incoming_references(tmp_path):
     stage(acquired, {file.relative_to(root).as_posix(): parameter_edit(file.read_text(), parameters),
                     observed_file.relative_to(root).as_posix(): json_text(observed)}, selected, exclusions(acquired, selected))
     original = snapshot(root)
-    with pytest.raises(ValueError, match='incoming references'):
-        publish_fixture(root, acquired, 'vpc')
-    assert snapshot(root) == original
+    result = publish_fixture(root, acquired, 'vpc')
+    assert any(w['code'] == 'reference.replace_impact' for w in result['warnings'])
+    assert snapshot(root) != original
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 

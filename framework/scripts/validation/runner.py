@@ -39,9 +39,11 @@ class Validator:
 
     checks = owned_field("findings", "checks")
     errors = owned_field("findings", "errors")
+    warnings = owned_field("findings", "warnings")
 
     def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False, definitions_root: Path | None = None, final_candidate=None) -> None:
         self.findings = Findings(root)
+        self.warn = self.findings.warn
         self.check = self.findings.check
         self.check_file = self.findings.check_file
         self.relative = self.findings.relative
@@ -201,19 +203,25 @@ class Validator:
             self.findings.bind_candidate(plan.candidate, common_ids)
             # Candidate validation is the content authority for this exact input/final stage.
             def generated():
+                self.warnings.extend(plan.reference_warnings)
                 for error in plan.failures:
                     self.check(False, error)
                 for findings in plan.validation.values():
                     if findings is not None:
                         self.checks += findings.checks
-                return {"inputs": snapshot, "candidates": plan.expected_outputs, "validation": plan.validation}
+                        self.warnings.extend(findings.warnings)
+                return {"inputs": snapshot, "candidates": plan.expected_outputs, "validation": plan.validation,
+                        "complete": not plan.unavailable, "reference_unavailable": plan.unavailable}
             self.findings.evaluate('framework.generated-service-model', self.scope, generated)
             # Reuse the actual scope-wide policy result, never infer it from generation.
             def policy_result():
                 common = plan.validation.get(None)
                 actual = None if common is None else common.result('framework.policy-tables', plan.generated_scope)
-                self.check(actual is not None and actual.status == 'PASS' and
-                           (self.scope is None or actual.scope == frozenset(self.scope)),
+                if actual is None and plan.unavailable and not plan.failures:
+                    from model_core import ReferenceResolutionError
+                    raise ReferenceResolutionError('policy views unavailable because reference resolution failed')
+                self.check(actual is not None and actual.model_completion_allowed and
+                           (self.scope is None or actual.scope == frozenset(plan.generated_scope)),
                            'candidate policy validation is FAIL or NOT_RUN for the required scope')
             self.findings.evaluate('framework.policy-tables', self.scope, policy_result)
             candidate_error_count = len(self.errors)
@@ -261,7 +269,7 @@ class Validator:
                     self.check(False, error)
                 # The original scope's policy/content result belongs to the old candidate.
                 # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
-            if self.cache and self.catalog_pending is not None:
+            if self.cache and self.catalog_pending is not None and not self.warnings and not plan.unavailable:
                 self.cache.save(*self.catalog_pending)
             self.task.changed_paths = self.task.final_paths()
             self.check_task_type_requirements()
@@ -296,9 +304,13 @@ class Validator:
         if missing:
             generator.check_generated_service_models()
             self.errors.extend(generator.errors)
+            self.warnings.extend(generator.warnings)
         # Generated equality is covered by each service record; keep target counts stable.
         self.checks += len({entry[:2] for entry in self.scope})
 
+        unavailable = generator.findings.result('framework.generated-service-model', self.scope).metadata.get('unverified', {})
+        skipped = {tuple(entry.split('/')) for entry in unavailable}
+        missing -= skipped
         from task_contract import selected_task, task_revision
         selected_name, selected_text = task_revision(self.root)
         @selected_task(self.root, selected_name if selected_text is not None else None)
@@ -317,19 +329,24 @@ class Validator:
             results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)])))
         successful = []
         for entry in sorted(self.scope):
+            if entry in skipped:
+                result = self.findings.result('design.service', {entry})
+                result.metadata = {'complete': False, 'reason': 'reference', **unavailable['/'.join(entry)]}
+                continue
             if entry in reused:
                 self.checks += reused[entry]
             else:
                 validator = results[entry]
                 self.checks += validator.checks
                 self.errors.extend(validator.errors)
+                self.warnings.extend(validator.warnings)
             if self.cache and keys[entry] is not None:
                 try:
                     unchanged = keys[entry] == self.cache.service_key(entry)
                 except (OSError, ValueError, KeyError, TypeError):
                     unchanged = False
                 self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(entry)}")
-                if unchanged and entry not in reused and not results[entry].errors and not generator.errors:
+                if unchanged and entry not in reused and not results[entry].errors and not generator.errors and not results[entry].warnings and not generator.warnings and not results[entry].findings.unverified and not unavailable:
                     successful.append((keys[entry], results[entry].checks))
         if self.cache and self.cache.common is not None:
             unchanged = self.cache.common == self.cache.common_key()
@@ -342,10 +359,15 @@ class Validator:
         generation = self.findings.result('framework.generated-service-model', self.scope)
         generation.status = 'FAIL' if generator.errors else 'PASS'
         generation.errors = tuple(generator.errors)
+        generation.warnings = tuple(generator.warnings)
+        generation.metadata = generator.findings.result('framework.generated-service-model', self.scope).metadata
         policy = self.findings.result('framework.policy-tables', self.scope)
         policies = [validator.findings.result('framework.policy-tables', {entry})
                     for entry, validator in results.items()]
-        policy.status = 'FAIL' if any(p.status != 'PASS' for p in policies) else 'PASS'
+        policy.status = 'FAIL' if any(not p.model_completion_allowed for p in policies) else 'NOT_RUN' if skipped or any(p.status == 'NOT_RUN' for p in policies) else 'PASS'
+        if policy.status == 'NOT_RUN':
+            policy.metadata = {'complete': False, 'reason': 'reference', 'unverified': unavailable}
+        policy.warnings = tuple(w for p in policies for w in p.warnings)
         policy.errors = tuple(error for p in policies for error in p.errors)
         self.generated_models_checked = True
 
@@ -367,8 +389,9 @@ class Validator:
         from contextlib import nullcontext
         context = saved_design_validation(self.root, next(iter(self.scope))) if self.scope is not None and len(self.scope) == 1 else nullcontext()
         with context:
-            errors = compare_generation(self.root, self.scope, jobs=self.workers, definitions_root=self.definitions_root)
+            errors = compare_generation(self.root, self.scope, jobs=self.workers, definitions_root=self.definitions_root, findings=self.findings)
         self.check(not errors, '\n'.join(errors) or 'generated service models match')
+        return self.findings.result('framework.generated-service-model', self.scope).metadata
 
 
     def check_catalog(self) -> None:

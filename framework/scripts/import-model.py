@@ -13,7 +13,7 @@ import re
 import task_contract
 from import_guard import (workflow, require_import_changes, record_import, finish_import,
                           acquired, read_acquisition, discard_acquisition, file_hash, text_hash, write_sealed, acquisition_complete)
-from model_core import entries
+from model_core import ReferenceResolutionError, entries
 from model_files import resource_row_index
 from model_parameter_inputs import yaml_read
 from model_templates import publication_lock, json_read, json_text, publish, service_source, load_for_edit
@@ -311,7 +311,7 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
         return {'status': 'acquired' if acquisition_complete(value) else 'incomplete', 'inventory': value['inventory'], 'metrics': dict(ctx.metrics), 'scope': list(identity), 'evidence': str(evidence),
                 'candidates': str(evidence.parent / 'candidates'), 'selection': str(evidence.parent / 'selection.json'),
                 'records': records, 'connection': value['connection'], 'sts': value['sts'],
-                'model': 'unchanged', 'markdown': 'not-run', 'designValidation': 'not-run', 'dryRun': dry_run}
+                'warnings': list(expansion.warnings), 'model': 'unchanged', 'markdown': 'not-run', 'designValidation': 'not-run', 'dryRun': dry_run}
 
 
 def pending_items(selection, selected, values):
@@ -379,7 +379,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
                              after.values.get('desired.service.' + identity[2] + '.serviceId') != identity[2]):
         raise ValueError('IMPORT new service metadata must match the selected service')
     selection = json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8'))
-    warnings = []
+    warnings = [*before.warnings, *after.warnings]
     selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
     consumer_inputs, preserved, shared = preserve_consumers(path, before, output, direct, selected)
     for file in consumer_inputs:
@@ -400,8 +400,9 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             before = load_for_edit(path) or before
             after = load_for_edit(path, after.files)
     references = Resolver(root, identity[0], identity[1], local={identity[2]: after})
-    changes = verify_values(before, after, selected, property_schema, references)
-    incoming_inputs, incoming_services = replacement_inputs(root, identity, selected)
+    changes = verify_values(before, after, selected, property_schema, references, warnings=warnings)
+    warnings.extend(references.warnings)
+    incoming_inputs, incoming_services = replacement_inputs(root, identity, selected, warnings)
     for file, text in incoming_inputs.items():
         checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     # Producers are read dependencies, never candidate writes or display targets.
@@ -483,6 +484,11 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             finish_import(root, markdown='generated' if publication else 'unchanged')
         result['markdown'] = 'generated' if publication else 'unchanged'
         result['files'] = sorted(set(result['files']) | {p.relative_to(root).as_posix() for p in publication})
+    except ReferenceResolutionError as error:
+        result['markdown'] = 'retained' if document.is_file() else 'not-generated'
+        result['warnings'].append({**error.diagnostic, 'scope': '/'.join(identity),
+                                   'retainedView': str(document) if document.is_file() else None})
+        result['viewComplete'] = False
     except Exception as error:
         result['markdown'] = 'failed'
         result['displayError'] = str(error)

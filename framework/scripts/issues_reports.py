@@ -574,10 +574,16 @@ def save_authority(root, environment, directory, services, filenames):
 
 
 @input_scope
-def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None):
+def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None, warnings=()):
     names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
     paths = save_authority(root, environment, directory, services, names)
     contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
+    contents[paths[0]] = re.sub(r'<!-- reference-warnings:start -->.*?<!-- reference-warnings:end -->\s*', '', contents[paths[0]], flags=re.S)
+    if warnings:
+        warning_block = '<!-- reference-warnings:start -->\n## 参照警告（非ブロッキング）\n\n' + '\n'.join(
+            '- WARNING [' + warning['code'] + '] ' + safe_text(json.dumps(warning, ensure_ascii=False)) for warning in warnings) + '\n<!-- reference-warnings:end -->\n\n'
+        header, newline, body = contents[paths[0]].partition('\n')
+        contents[paths[0]] = header + newline + warning_block + body
     if iac is not None:
         contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp)
     if guard:

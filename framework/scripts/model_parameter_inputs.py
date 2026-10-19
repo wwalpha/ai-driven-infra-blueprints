@@ -4,7 +4,7 @@ import copy
 import ipaddress
 import re
 
-from model_core import entries, literal
+from model_core import entries, literal, ReferenceResolutionError
 
 
 def yaml_read(text):
@@ -334,20 +334,23 @@ def select_reference_target(template, item, name, instances, definitions, enviro
             if environment is None:
                 raise ValueError('external reference requires consumer context')
             path = template.parents[3]/'model'/environment/template.parent.name/(spec['service']+'.properties')
+            from model_templates import service_source
+            if service_source(path) is None:
+                raise ReferenceResolutionError('reference service does not exist: ' + spec['service'])
             _, inputs = _reference_inputs(path)
             _, producer_files, _, _, bindings, fields = inputs
             files.update(producer_files)
             if 'instance' in spec:
                 target = bindings['instances'].get(spec['instance'])
                 if target is None:
-                    raise ValueError('unknown external instance reference')
+                    raise ReferenceResolutionError('unknown external instance reference')
                 candidates = list(target['resources'].values())
             else:
                 candidates = [selected] if f'desired.resource.{selected}.resourceType' in fields else []
                 if spec['resourceType'] == 'CloudFormation.Stack' and f'desired.stack.{selected}.name' in fields:
                     details['candidateIds'] = [selected]
                     if candidates:
-                        raise ValueError('ambiguous resource/stack reference')
+                        raise ReferenceResolutionError('ambiguous resource/stack reference')
                     model = reference_values(path, selected, spec['resourceType'], spec.get('format'))
                     files.update(model.files)
                     return selected, 'stack'
@@ -359,7 +362,7 @@ def select_reference_target(template, item, name, instances, definitions, enviro
         else:
             target = next((value for value in instances if value['id'] == selected), None)
             if target is None:
-                raise ValueError('unknown instance reference')
+                raise ReferenceResolutionError('unknown instance reference')
             definition = bound_definition(definitions[target['definition']], target['parameters'])
             candidates = [rid for local, rid in target['resources'].items() if local in definition.resources]
             details['candidateIds'] = candidates
@@ -370,12 +373,12 @@ def select_reference_target(template, item, name, instances, definitions, enviro
         matches = [rid for rid in candidates if details['effectiveResourceTypes'][rid] == spec['resourceType']]
         details['matchingIds'] = matches
         if not matches:
-            raise ValueError('zero matching candidates: resourceType mismatch' if candidates else 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
+            raise ReferenceResolutionError('zero matching candidates: resourceType mismatch' if candidates else 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
         if len(matches) != 1:
-            raise ValueError('multiple matching candidates')
+            raise ReferenceResolutionError('multiple matching candidates')
         return matches[0], 'resource'
-    except (ValueError, OSError, KeyError, TypeError) as error:
-        raise ValueError('unresolved reference target: ' + json_text({**details, 'reason': str(error)})) from error
+    except ReferenceResolutionError as error:
+        raise ReferenceResolutionError('unresolved reference target: ' + json_text({**details, 'reason': str(error)}), **details) from error
 
 
 def parameter_value(template, item, name, instances, bindings, definitions, environment, files, context_for=None):
@@ -404,14 +407,14 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             stack_name = f'desired.stack.{value}.name'
             if target_kind == 'stack':
                 if f'desired.resource.{value}.resourceType' in model.values:
-                    raise ValueError(f'ambiguous resource/stack reference: {value}')
+                    raise ReferenceResolutionError(f'ambiguous resource/stack reference: {value}')
                 if spec.get('format') != 'name':
-                    raise ValueError('stack reference requires format:name')
+                    raise ReferenceResolutionError('stack reference requires format:name')
                 if name in labels:
-                    raise ValueError('raw name reference cannot override label')
+                    raise ReferenceResolutionError('raw name reference cannot override label')
                 raw = model.values[stack_name]
                 if not raw or not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]{0,127}', raw):
-                    raise ValueError('reference producer requires a valid stack name')
+                    raise ReferenceResolutionError('reference producer requires a valid stack name')
                 return raw
             rows = resource_row_index(model.values)
             rid, anchor = value, model.values.get(f'desired.resource.{value}.anchor')
@@ -439,27 +442,27 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             observed = [(row_id, row) for row_id, row in entries(model.values, 'observed.row.')
                         if row_id.rpartition('-')[0] == rid and row.get('property') == prop]
             if len(selected) != 1 or len(observed) != 1 or observed[0][0] != selected[0]:
-                raise ValueError('reference producer requires exactly one matching observed identifier')
+                raise ReferenceResolutionError('reference producer requires exactly one matching observed identifier')
             raw = literal(observed[0][1].get('value', ''))
             if not isinstance(raw, str) or not raw or raw.startswith('arn:') or any(c in raw for c in '\r\n'):
-                raise ValueError('reference producer requires a nonempty non-ARN string identifier')
+                raise ReferenceResolutionError('reference producer requires a nonempty non-ARN string identifier')
             if name in labels:
-                raise ValueError('raw identifier reference cannot override label')
+                raise ReferenceResolutionError('raw identifier reference cannot override label')
             return raw
         default_label = rid
         needs_name = spec.get('format') == 'name' or name not in labels
         if prefix and needs_name and (spec['resourceType'] != 'KMS.Key' or spec.get('format') == 'name'):
             names = [literal(row['value']) for _, row in rows[rid] if row['property'].rsplit('.', 1)[0] == spec['resourceType'] and row['property'].endswith(REFERENCE_NAME_SUFFIXES)]
             if len(names) != 1 or not isinstance(names[0], str) or not names[0]:
-                raise ValueError('reference producer requires exactly one name')
+                raise ReferenceResolutionError('reference producer requires exactly one name')
             default_label = names[0]
         if spec.get('format') == 'name':
             if name in labels:
-                raise ValueError('raw name reference cannot override label')
+                raise ReferenceResolutionError('raw name reference cannot override label')
             return default_label
         label = labels.get(name, default_label)
         if not isinstance(label, str) or not label or any(c in label for c in '[]\r\n'):
-            raise ValueError('invalid reference label')
+            raise ReferenceResolutionError('invalid reference label')
         return f'[{label}]({prefix}#{anchor})'
     elif spec.get('format') == 'literal':
         return '`'+literal(value if isinstance(value, str) else json_text(value))+'`'

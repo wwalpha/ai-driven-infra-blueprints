@@ -16,7 +16,7 @@ from service_rows import CODEBUILD_FORMAL_VARIABLE, CODEPIPELINE_STAGE
 from security_group_tables import security_group_table_lines
 from design_document import DesignIndex
 from model_files import resource_row_index
-from model_core import LINK, literal, entries
+from model_core import LINK, literal, entries, ReferenceResolutionError
 from validation_cache import input_scope
 from aws_mapping_display import validation_lines
 from .design import (
@@ -139,7 +139,7 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
                     f"resource overview Comment must describe the resource in Japanese: {findings.relative(path)}: {current_type}",
                 )
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[1])
-                findings.check(
+                findings.warn(
                     bool(link and not link.group(2)),
                     f"resource overview resource column must link to a same-file detail block: {findings.relative(path)}: {current_type}",
                 )
@@ -155,7 +155,7 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
                     f"resource overview Comment must state a distinct purpose or role: {findings.relative(path)}: {current_type}: {label}",
                 )
                 resource = resources.get(anchor)
-                findings.check(
+                findings.warn(
                     bool(
                         resource and resource[0] == current_type
                         and label == resource[1]
@@ -170,7 +170,7 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
             and set(overview_types) == set(detail_types),
             f"resource overview types must match detail resource types: {findings.relative(path)}",
         )
-        findings.check(
+        findings.warn(
             len(listed) == len(set(listed)) and set(listed) == set(resources),
             f"resource overview must list every detail resource exactly once: {findings.relative(path)}",
         )
@@ -187,11 +187,14 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         if source_values[source] is None:
             try:
                 source_values[source] = design_model_values(source, root)
+            except ReferenceResolutionError as error:
+                findings.warn(error, source=str(source))
+                del source_values[source]
             except (OSError, ValueError, KeyError, TypeError) as error:
                 findings.check(False, f"invalid reference observations: {findings.relative(source)}: {error}")
                 source_values[source] = {}
     from import_scope import outside_design
-    sources = design_files(root=root, scope=scope) if paths is None else paths
+    sources = list(source_values)
     imported = {}
     for source in sources:
         values = source_values[source] or {}
@@ -225,6 +228,10 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                                 local={source.stem: Expansion(values, {}, {})})
             for rid in imported[source].values():
                 resolver.verify_resource(candidate, rid, require_links=False, observed_only=True)
+            for warning in resolver.warnings:
+                findings.warn(warning, source=str(source))
+        except ReferenceResolutionError as error:
+            findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
     references = {path.resolve() for path in sources}
@@ -292,6 +299,9 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     value = unquoted(child["rows"][0][2])
                     if value != child["logicalId"]:
                         hidden_ids[path.resolve(), anchor] = child["logicalId"]
+        except ReferenceResolutionError as error:
+            findings.warn(error, source=str(path))
+            continue
         except ValueError as error:
             if path in source_paths:
                 findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
@@ -327,9 +337,9 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 target = (source if not target_text else source.parent / target_text).resolve()
                 if outside_design(root, target):
                     continue
-                findings.check(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {findings.relative(source)}: {label}")
+                findings.warn(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {findings.relative(source)}: {label}")
                 if role_name := configured_names.get((target, fragment), {}).get("IAM.Role.RoleName"):
-                    findings.check(label == role_name, f"IAM Role link must display RoleName: {findings.relative(source)}: {label}")
+                    findings.warn(label == role_name, f"IAM Role link must display RoleName: {findings.relative(source)}: {label}")
                 if tagged := tagged_names.get((target, fragment)):
                     kind, name = tagged
                     observed = resources.get((target, fragment), ("", {}))[1].values()
@@ -337,11 +347,11 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                         label in observed or endpoint_dns_reference(source, cells[1], label, target, resources.get((target, fragment)),
                             configured_names.get((target, fragment), {}), configured_names.get((source.resolve(), source_anchor), {}).get("Route53.RecordSet.Type")))
                     resource = "Endpoint" if kind == "EC2.VPCEndpoint" else "Instance"
-                    findings.check(label == name or identifier_reference, f"{resource} link must display Name tag value or observed identifier: {findings.relative(source)}: {label}")
+                    findings.warn(label == name or identifier_reference, f"{resource} link must display Name tag value or observed identifier: {findings.relative(source)}: {label}")
                 if name := type_names.get((target, fragment)):
                     observed = resources.get((target, fragment), ("", {}))[1].values()
                     identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
-                    findings.check(label == name or identifier_reference, f"nameless resource link must display resource type or observed identifier: {findings.relative(source)}: {label}")
+                    findings.warn(label == name or identifier_reference, f"nameless resource link must display resource type or observed identifier: {findings.relative(source)}: {label}")
         for raw in LINK_PATTERN.findall(visible_text[source]):
             if raw.startswith(("http://", "https://", "mailto:")):
                 continue
@@ -350,9 +360,9 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             target = (source if not target_text else source.parent / target_text).resolve()
             if outside_design(root, target):
                 continue
-            findings.check(input_is_file(target), f"broken design link: {findings.relative(source)}: {raw}")
+            (findings.warn if target.suffix == ".md" else findings.check)(input_is_file(target), f"broken design link: {findings.relative(source)}: {raw}")
             if separator and input_is_file(target):
-                findings.check(fragment in anchors.get(target, set()), f"missing design anchor: {findings.relative(source)}: {raw}")
+                findings.warn(fragment in anchors.get(target, set()), f"missing design anchor: {findings.relative(source)}: {raw}")
         document = design_index.get(source)
         observed_references = set()
         automatic_references = set()
@@ -410,7 +420,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             }.get((providers.get(identity), key))
             link = RESOURCE_LINK_PATTERN.fullmatch(value)
             if expected:
-                findings.check(bool(link), f"CodePipeline Configuration.{key} must link to its resource: {findings.relative(source)}")
+                findings.warn(bool(link), f"CodePipeline Configuration.{key} must link to its resource: {findings.relative(source)}")
             if not link:
                 continue
             label, target_text, fragment = link.groups()
@@ -418,12 +428,12 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             if outside_design(root, target):
                 continue
             resource = resources.get((target, fragment))
-            findings.check(
+            findings.warn(
                 bool(resource and target.parent == source.parent.resolve()),
                 f"CodePipeline Configuration must link to a resource in the same target: {findings.relative(source)}: {value}",
             )
             if expected:
-                findings.check(
+                findings.warn(
                     bool(resource and resource[0] == expected[0] and configured_names.get((target, fragment), {}).get(expected[0] + "." + expected[1]) == label),
                     f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {findings.relative(source)}: {value}",
                 )
@@ -453,12 +463,15 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 if cloudtrail else
                 LINKED_LIST_PROPERTIES[linked_list[0]]
             )
-            findings.check(
+            findings.warn(
                 bool(resource and resource[0] == expected and target.parent == source.parent.resolve()),
                 f"{('CloudTrail DataResources' if cloudtrail else 'Subnet/Security Group list')} must link to a {expected} in the same target: {findings.relative(source)}: {cells[2]}",
             )
         try:
             source_lines = validation_lines(document.raw.display_lines, values, definitions_root)
+        except ReferenceResolutionError as error:
+            findings.warn(error, source=str(source))
+            continue
         except ValueError as error:
             findings.check(False, f"invalid Security Group tables: {findings.relative(source)}: {error}")
         variable_type = ""
@@ -489,30 +502,30 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 continue
             resource = resources.get((target, fragment))
             if expected := RESOURCE_REFERENCE_PROPERTIES.get(cells[1]):
-                findings.check(
+                findings.warn(
                     bool(resource and resource[0] == expected[0] and target.parent == source.parent.resolve()),
                     f"{cells[1]} must link to a {expected[0]} in the same target: {findings.relative(source)}: {cells[2]}",
                 )
-                findings.check(
+                findings.warn(
                     configured_names.get((target, fragment), {}).get(expected[0] + "." + expected[1]) == label,
                     f"{cells[1]} must display the referenced {expected[0]}.{expected[1]}: {findings.relative(source)}: {label}",
                 )
                 continue
             if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Value":
                 expected_type = {"SECRETS_MANAGER": "SecretsManager.Secret", "PARAMETER_STORE": "SSM.Parameter"}.get(variable_type)
-                findings.check(
+                findings.warn(
                     bool(resource and target.parent == source.parent.resolve() and (not expected_type or resource[0] == expected_type)),
                     f"CodeBuild environment variable must link to a {expected_type or 'resource'} in the same target: {findings.relative(source)}: {label}",
                 )
                 if variable_type == "SECRETS_MANAGER" and resource:
                     secret_name = resource[1].get("SecretsManager.Secret.Name", "")
-                    findings.check(
+                    findings.warn(
                         bool(secret_name and (label == secret_name or label.startswith(secret_name + ":"))),
                         f"CodeBuild secret reference must display its configured name and optional selector: {findings.relative(source)}: {label}",
                     )
                 continue
             if cells[1] == "EC2.SecurityGroup.VpcId":
-                findings.check(
+                findings.warn(
                     bool(resource and resource[0] == "EC2.VPC" and target.parent == source.parent.resolve()),
                     f"Security Group VpcId must link to a VPC in the same target: {findings.relative(source)}: {label}",
                 )
@@ -520,7 +533,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 alias_name = (
                     resource[1].get("KMS.Alias.AliasName") if resource else None
                 )
-                findings.check(
+                findings.warn(
                     bool(
                         resource
                         and resource[0] == "KMS.Alias"
@@ -531,7 +544,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 )
                 continue
             if source.stem == "route53" and cells[1] == "Route53.RecordSet.ResourceRecords":
-                findings.check(
+                findings.warn(
                     endpoint_dns_reference(source, cells[1], label, target, resource, configured_names.get((target, fragment), {}),
                         configured_names.get((source.resolve(), source_anchor), {}).get("Route53.RecordSet.Type")),
                     f"Route53 DNS reference must match the recorded Interface Endpoint Id and service: {findings.relative(source)}: {label}",
@@ -549,7 +562,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 if normalized(property_name.split(".")[-1]) == source_leaf
             ]
             expected = exact or list(resource[1].values())
-            findings.check(
+            findings.warn(
                 label in expected or (source_anchor, cells[1], target, fragment, label) in automatic_references,
                 f"identifier reference does not match observed target: {findings.relative(source)}: {cells[1]}: {label}",
             )

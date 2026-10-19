@@ -19,51 +19,30 @@ Use this prompt to receive diffs manually edited by the human in existing author
 
 ## Dependency analysis and value-preserving refactoring
 
-Before single deletion use `model_reference_usage.incoming_references(root, address)`
-and `outgoing_references(root, address)`. A read-only CLI wraps the same API:
+Use `model_reference_usage.incoming_references(root, address)` and `outgoing_references`
+to inspect reference impact. The CLI uses the same read-only API:
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model_reference_usage.py <environment/target/service/fixed-ID> --direction incoming
 ```
 
-Inspect raw sources and returned fixed producer/consumer IDs, expanded key, formal
-Property, JSON pointer, syntax kind/format, effective value and source/provenance.
-`role` distinguishes configuration, structure and display; a display link is not an
-AWS setting, but surviving links still block deletion. Self usages vanish with the
-resource; service-level links without a Resource owner must also be considered.
-Unknown/ambiguous/cyclic/unexpandable inputs are failures, never an empty dependency
-list. Do not infer Resource IDs, values, dependency meaning or an edit from names.
+Read `references`, `warnings` and `complete`, raw sources, fixed producer/consumer IDs,
+key/Property/pointer, syntax/format/role and source provenance. Removed IDs remain queryable;
+pass the existing before snapshot when prior anchors/Instance identities or values are needed.
+Incomplete analysis is a warning, never an empty successful dependency result.
 
-The LLM decides in this order; Python reports facts and verifies safety:
+Follow [Reference diagnostics](../../rules/model-information.md#reference-diagnostics).
+Normal incoming links, cycles and surviving links do not block the authorized deletion.
+Do not impose deletion ordering, a separate detach Task or reference repair as a prerequisite.
+Do not delete another resource or change surviving resources without authority.
 
-1. If A refers to B in one direction only, delete the explicitly authorized A first,
-   integrate that single-delete Task, then independently delete B. Report any needed
-   deletion outside Human authorization instead of executing it. Do not refactor when
-   ordering suffices, and never implement multiple deletions in one import-delete Task.
-2. For a resource cycle, inspect name/Property-derived dependencies that might be
-   detached while preserving every effective setting. `format: name` alone is not
-   proof. Preserve structural/AWS-setting/identifier constraints; stop with concrete
-   required design changes if preservation cannot be proved.
-3. Reuse existing independent parameters and Definitions. If changing a shared
-   Definition would alter other consumers, isolate only the intended Instance using
-   the existing Definition/binding structure, retaining fixed maps. Do not hardcode an
-   environment-specific value into a shared template or alter another environment.
-4. When necessary, execute a separate design /update Task under
-   [Value-preserving Model refactor](../../rules/task-contract.md#value-preserving-model-refactor).
-   Declare exact dependencies, ordinary paths/scope and forbidden AWS/deploy. Edit raw
-   inputs as the LLM, publish through the ordinary design guard, generate views, and
-   finalize the running worktree Task. Python verifies values, types, structure,
-   declared removals and preserved consumers; it never chooses/fixes the edit.
-5. Only after successful final validation/integration begin the next explicitly
-   authorized single-delete Task against that integrated base. The refactor Task and
-   each deletion have independent final validation and integration. Never change a
-   surviving Resource while executing its neighbor's deletion Task.
-
-CREATE dependency changes require ordinary design review even if values match; they
-cannot succeed as this value-preserving IMPORT detach. A failed guard retains work
-and detailed before/after diagnostics. Do not disable it or auto-approve failure.
-This branch does not enter infrastructure execution below.
-
+For an explicitly requested dependency refactor, reuse the existing
+[Value-preserving Model refactor](../../rules/task-contract.md#value-preserving-model-refactor)
+contract, input editing and guarded publication. Reuse existing parameters/Definitions;
+retain fixed maps and non-reference settings/types/JSON siblings/observations. Report
+reference-derived differences as warnings. The LLM chooses repairs within scope or asks
+about undetermined changes; Python does not invent them. This branch grants no AWS/IaC
+permission and does not enter infrastructure execution below.
 
 ## Standalone Model reference retarget
 
@@ -81,8 +60,9 @@ candidate verification/completion/ff-only integration. Do not invoke transfer/de
 edit generated views, relax other operations, or enter infrastructure execution below.
 Preserve both producers, settings, fixed identities, observations, all undeclared
 references/consumers/environments, types/order and reference format/output/label policy.
-Ambiguity, unused/overlapping/mismatched records, undeclared changes or input conflicts
-stop without auto-regeneration or retry; retain the candidate. No IT requirement is added.
+Reference ambiguity, target mismatch and unused semantic declarations are warnings.
+Malformed/overlapping operation positions, unauthorized non-reference changes and input
+conflicts remain errors; retain the candidate on actual failure. No IT requirement is added.
 
 ## Model-only IMPORT merge or deletion
 
@@ -99,8 +79,8 @@ and first register and validate the `import-delete` contract. After registration
 the common task-aware Issue Gate (`require_no_issues` or `issue_gate.py --task` with the
 same selector), including on resume and before saves/final validation. Only existing
 issue stops within its explicit Validation scope are waived; do not require remediation
-or edit issues.md. All reference/Model safety checks and newly detected errors still
-stop unsafe deletion. Merge and all other operations retain the ordinary pre-task gate.
+or edit issues.md. Non-reference Model/operation/storage errors still stop deletion.
+Known reference-only Issues are warnings for every Model operation; other ordinary Issues retain their gate.
 
 The selected managed worktree is the transaction boundary. Keep the same parent Task
 selector through every operation; include all planned source/view paths and required
@@ -122,7 +102,8 @@ stopping; the following leaves own their exact editing procedures:
    run one read-only final local loop on that actual candidate, consume its successful
    result for completion and ff-only merge, then let the surviving launcher cleanup.
    Final differences must prove complete transfer/removal, exact declared retargets,
-   stable identities, all preserved consumers and absence of remaining source links.
+   stable identities and preserved non-reference consumers. Remaining source links and
+   reference-derived differences are reported as warnings.
 
 Standalone validation/complete retain their own final checking responsibility. Ordinary
 non-managed completed-candidate publication retains its previous IMPORT guard. A failed
@@ -200,7 +181,7 @@ For limited resources, use existing partial reading for both single files and sp
 python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --resource <resource-selector>
 ```
 
-Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model_files.py --resource`. Do not read generated Markdown bodies as fallback. Stop without guessing for unknown reference targets or missing required desired values, stack assignments, or human decisions.
+Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model_files.py --resource`. Do not read generated Markdown bodies as fallback. Report unknown reference targets as warnings without guessing; they do not stop Model saving/completion. Missing non-reference required desired values, deployment stack assignments or human decisions still stop the dependent infrastructure action.
 
 Limit reads to Design scope resources/properties and portions needed for reference resolution. For split models, read only required parts from entry indexes. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 

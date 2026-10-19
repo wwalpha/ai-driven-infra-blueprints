@@ -123,8 +123,13 @@ def check_physical_identity_wins_over_mutable_settings(alias):
 def check_invalid_candidates(key, value):
     old = resource()
     new = {**old, key: value}
-    with pytest.raises(ValueError, match='preserved|existing resource'):
-        verify_values(expansion(old), expansion(new), {'001': record()}, schema_for)
+    if key == 'desired.row.001-001.value':
+        warnings = []
+        verify_values(expansion(old), expansion(new), {'001': record()}, schema_for, warnings=warnings)
+        assert warnings
+    else:
+        with pytest.raises(ValueError, match='preserved|existing resource'):
+            verify_values(expansion(old), expansion(new), {'001': record()}, schema_for)
 
 
 def check_unacquired_and_create_protection():
@@ -204,8 +209,9 @@ def check_new_resource_and_explicit_dispositions():
     assert chosen.keys() == {'009'}
     assert len(verify_values(expansion(old), expansion(new), chosen, schema_for)) == 3
     invalid = {**new, 'desired.row.009-001.value': '[MainVpc](#vpc-main)'}
-    with pytest.raises(ValueError, match='own anchor'):
-        verify_values(expansion(old), expansion(invalid), chosen, schema_for)
+    warnings = []
+    verify_values(expansion(old), expansion(invalid), chosen, schema_for, warnings=warnings)
+    assert any('own anchor' in w['message'] for w in warnings)
     picked['resources'][0]['action'] = 'update'
     with pytest.raises(ValueError, match='add only'):
         selection_records(picked, [acquired], old, new, schema_for)
@@ -429,13 +435,15 @@ def check_new_anchor_and_reference_preservation():
     old = resource()
     new = {**old, **resource('009', identity='vpc-new', cidr='10.11.0.0/23')}
     new['desired.resource.009.anchor'] = old['desired.resource.001.anchor']
-    with pytest.raises(ValueError, match='new fixed anchor'):
-        verify_values(expansion(old), expansion(new), {'009': record('vpc-new')}, schema_for)
+    warnings = []
+    verify_values(expansion(old), expansion(new), {'009': record('vpc-new')}, schema_for, warnings=warnings)
+    assert any('anchor' in w['message'] for w in warnings)
     key = 'desired.row.001-001.value'
     before = Expansion(old, {key: {'references': {'Vpc': {'target': '001'}}}}, {})
     after = Expansion(old, {key: {'references': {'Vpc': {'target': '002'}}}}, {})
-    with pytest.raises(ValueError, match='reference declaration'):
-        verify_values(before, after, {}, schema_for)
+    warnings = []
+    verify_values(before, after, {}, schema_for, warnings=warnings)
+    assert any('reference declaration' in w['message'] for w in warnings)
 
 
 @pytest.mark.parametrize('unknown', [False, True])
@@ -1234,7 +1242,7 @@ def check_explicit_reference_operation(tmp_path, field):
     from model_reference_usage import outgoing_references
     from utils.aws_mappings import mapping_alias
     with mapping_alias(Path(__file__).resolve().parents[4], before):
-        usages = outgoing_references(before, 'stg/cde/vpc/020')
+        usages = outgoing_references(before, 'stg/cde/vpc/020')['references']
     expected_source = 'stg/cde/vpc/' + ('001' if field == 'reevaluation' else '009')
     assert usages and all(item['producer'] == expected_source for item in usages)
     if field == 'identifier':
@@ -1261,12 +1269,12 @@ def check_explicit_reference_operation(tmp_path, field):
     from utils.aws_mappings import mapping_alias
     with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after):
         verify_model_operation(before, after, model_operation(contract), sources)
-    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError):
-        verify_model_operation(before, after, model_operation(contract.split('## Model reference changes')[0]), sources)
+    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after):
+        assert verify_model_operation(before, after, model_operation(contract.split('## Model reference changes')[0]), sources)
     template = after / template.relative_to(before)
     content = template.read_text()
     template.write_text(content.replace('<<Vpc>>', '[001](#vpc-main)'))
-    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError):
+    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError, match='unused parameter declarations'):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
@@ -1321,13 +1329,13 @@ def check_effective_reference_identity(tmp_path, selection, monkeypatch):
     def inspect():
         path = tmp_path / 'model/stg/cde/service-b.properties'
         assert templates.load_expansion(path).values['desired.row.002-001.value'] == 'same-name-stg'
-        first = incoming_references(tmp_path, 'stg/cde/service-a/001')
+        first = incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
         assert len(first) == 1 and first[0]['consumer'] == 'stg/cde/service-b/002'
-        assert incoming_references(tmp_path, 'stg/cde/service-a/003') == []
+        assert incoming_references(tmp_path, 'stg/cde/service-a/003')['references'] == []
         count = len(calls)
-        assert incoming_references(tmp_path, 'stg/cde/service-a/001') == first
+        assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references'] == first
         assert len(calls) == count
-        assert outgoing_references(tmp_path, 'stg/cde/service-b/002')[0]['producer'] == 'stg/cde/service-a/001'
+        assert outgoing_references(tmp_path, 'stg/cde/service-b/002')['references'][0]['producer'] == 'stg/cde/service-a/001'
     inspect()
     assert snapshot == {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     from support.import_model_fixtures import dependency_refactor, dependency_contract
@@ -1359,7 +1367,7 @@ def check_local_reference_effective_identity(tmp_path):
         item['parameters']['Kind'] = 'ServiceA.Resource'
     file.write_text(yaml.safe_dump(data), encoding='utf-8')
     assert load_expansion(tmp_path / 'model/stg/cde/service-a.properties').values['desired.row.001-002.value'] == '[003](#other-producer)'
-    records = outgoing_references(tmp_path, 'stg/cde/service-a/001')
+    records = outgoing_references(tmp_path, 'stg/cde/service-a/001')['references']
     assert len(records) == 1 and records[0]['producer'] == 'stg/cde/service-a/003'
 
 
@@ -1379,11 +1387,11 @@ def check_stack_reference_usage_identity(tmp_path):
     save_service(tmp_path, 'cloudformation-stacks', lines, {'instances': {}},
                  {'instances': {'stack': {'definition': 'Stack', 'resources': {}, 'rows': {}, 'parameters': {}}},
                   'stacks': {'001': 'ExampleStack'}}, environment='stg')
-    outgoing = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    outgoing = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
     stack = next(record for record in outgoing if record['producer'].endswith('/stack/001'))
     assert stack['producer'] == 'stg/cde/cloudformation-stacks/stack/001'
     assert stack['resolvedValue'] == 'ExampleStack' and stack['role'] == 'display'
-    assert len(incoming_references(tmp_path, 'stg/cde/service-a/001')) == 1
+    assert len(incoming_references(tmp_path, 'stg/cde/service-a/001')['references']) == 1
 
 
 @pytest.mark.parametrize('failure', ['missing-id', 'type'])
@@ -1398,15 +1406,15 @@ def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
         file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
         file.write_text(file.read_text().replace('"resourceType":"ServiceA.Resource"', '"resourceType":"Other.Resource"'), encoding='utf-8')
     # Even a Resource unrelated to the invalid reference cannot be declared safe.
-    with pytest.raises(ValueError, match='zero (matching )?candidates') as error:
-        usage.incoming_references(tmp_path, 'stg/cde/service-a/003')
-    message = str(error.value)
+    diagnosis = usage.incoming_references(tmp_path, 'stg/cde/service-a/003')
+    assert not diagnosis['complete'] and diagnosis['warnings']
+    message = json.dumps(diagnosis['warnings'])
     for detail in ('service-b', 'consumer', 'Origin', 'service-a', 'candidateIds', 'expectedResourceType', 'reason'):
         assert detail in message
     monkeypatch.setattr(sys, 'argv', ['model_reference_usage.py', 'stg/cde/service-a/003', '--repository-root', str(tmp_path)])
-    assert usage.main() == 1
+    assert usage.main() == 0
     result = json.loads(capsys.readouterr().out)
-    assert result['status'] == 'unresolved' and result['error'] == message
+    assert result['status'] == 'incomplete' and result['warnings'] == diagnosis['warnings']
 
 
 @pytest.mark.parametrize('broken', [None, 'collision', 'missing', 'type', 'format', 'name', 'shape'])
@@ -1459,11 +1467,14 @@ def check_stack_reference_usage(tmp_path, broken):
         for analyze in (lambda: outgoing_references(before, 'stg/cde/service-b/002'),
                         lambda: incoming_references(before, 'stg/cde/service-a/003'),
                         lambda: _symbolic(path, valid_expansion, {})):
-            with pytest.raises(ValueError):
-                analyze()
+            if broken in {'format', 'shape'}:
+                with pytest.raises(ValueError):
+                    analyze()
+            else:
+                assert analyze()
         return
     snapshot = {p: p.read_bytes() for p in before.rglob('*') if p.is_file()}
-    usages = outgoing_references(before, 'stg/cde/service-b/002')
+    usages = outgoing_references(before, 'stg/cde/service-b/002')['references']
     record, = [item for item in usages if item['producer'] == 'stg/cde/cloudformation-stacks/stack/028']
     assert record['consumer'] == 'stg/cde/service-b/002'
     assert record['key'] == 'desired.row.002-001.document'
@@ -1474,8 +1485,8 @@ def check_stack_reference_usage(tmp_path, broken):
     assert record['sourceLocation']['file'] == template.relative_to(before).as_posix()
     assert template.read_text(encoding='utf-8').splitlines()[record['sourceLocation']['line'] - 1].startswith('desired.row.name.document=')
     assert any(item['producer'] == 'stg/cde/service-a/001' and item['resolvedValue'] == 'same-name-stg' for item in usages)
-    assert incoming_references(before, 'stg/cde/service-a/001')
-    assert incoming_references(before, 'stg/cde/service-a/003') == []
+    assert incoming_references(before, 'stg/cde/service-a/001')['references']
+    assert incoming_references(before, 'stg/cde/service-a/003')['references'] == []
     assert all(p.read_bytes() == value for p, value in snapshot.items())
     shutil.copytree(before, after)
     directory = after / 'model/parameters/stg/cde/service-a'
@@ -1493,7 +1504,7 @@ def check_generic_reference_usage(tmp_path):
     from model_reference_usage import incoming_references, outgoing_references
     dependency_fixture(tmp_path)
     snapshot = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
-    incoming = incoming_references(tmp_path, 'stg/cde/service-a/001')
+    incoming = incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
     assert len(incoming) == 1
     record = incoming[0]
     assert record['consumer'] == 'stg/cde/service-b/002'
@@ -1503,12 +1514,11 @@ def check_generic_reference_usage(tmp_path):
     assert record['sourceLocation']['file'] == 'model/templates/cde/service-b.properties.tpl'
     line = snapshot[tmp_path / record['sourceLocation']['file']].decode().splitlines()[record['sourceLocation']['line'] - 1]
     assert line == 'desired.row.name.value=<<Origin>>'
-    assert incoming_references(tmp_path, 'stg/cde/service-a/003') == []  # Same name, different fixed ID.
-    reverse = outgoing_references(tmp_path, 'stg/cde/service-a/001')
+    assert incoming_references(tmp_path, 'stg/cde/service-a/003')['references'] == []  # Same name, different fixed ID.
+    reverse = outgoing_references(tmp_path, 'stg/cde/service-a/001')['references']
     assert len(reverse) == 1 and reverse[0]['producer'] == 'stg/cde/service-b/002'
     assert all(p.read_bytes() == data for p, data in snapshot.items())
-    with pytest.raises(ValueError, match='unknown Resource'):
-        incoming_references(tmp_path, 'stg/cde/service-a/999')
+    assert incoming_references(tmp_path, 'stg/cde/service-a/999')['references'] == []
 
 
 @pytest.mark.parametrize('selected', [False, True])
@@ -1533,7 +1543,7 @@ def check_reference_active_shapes_and_documents(tmp_path, selected):
         if not selected:
             del value['instances']['consumer']['parameters']['Origin']
         inputs.write_text(yaml.safe_dump(value))
-    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
     assert len(references) == (2 if selected else 1)
     assert sum(item['role'] == 'display' for item in references) == 1
     if selected:
@@ -1553,7 +1563,7 @@ def check_reference_active_shapes_and_documents(tmp_path, selected):
         value = yaml_read(inputs.read_text())
         value['instances']['consumer']['parameters'].update(Origin='001', Keep=False)
         inputs.write_text(yaml.safe_dump(value))
-    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
     document = [item for item in references if item['pointer'] is not None]
     assert len(document) == 1 and document[0]['pointer'] == '/a~1b/0'
     assert document[0]['resolvedValue'] == 'same-name-stg'
@@ -1586,8 +1596,12 @@ def check_reference_fail_closed(tmp_path, broken):
             for item in value['instances'].values():
                 item['parameters']['Name'] = '002'
             inputs.write_text(yaml.safe_dump(value))
-    with pytest.raises((ValueError, FileNotFoundError)):
-        incoming_references(tmp_path, 'stg/cde/service-a/001')
+    if broken == 'missing-input':
+        with pytest.raises((ValueError, FileNotFoundError)):
+            incoming_references(tmp_path, 'stg/cde/service-a/001')
+    else:
+        result = incoming_references(tmp_path, 'stg/cde/service-a/001')
+        assert result['warnings'] and not result['complete']
 
 
 def check_value_preserving_detach_and_single_deletions(tmp_path):
@@ -1602,8 +1616,8 @@ def check_value_preserving_detach_and_single_deletions(tmp_path):
     sources = dependency_refactor(before, after)
     scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
     verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
-    assert incoming_references(after, 'stg/cde/service-a/001') == []
-    assert incoming_references(after, 'dev/cde/service-a/001')
+    assert incoming_references(after, 'stg/cde/service-a/001')['references'] == []
+    assert incoming_references(after, 'dev/cde/service-a/001')['references']
     previous = after
     for service, rid, instance in [('service-a', '001', 'producer'), ('service-b', '002', 'consumer')]:
         candidate = tmp_path / service
@@ -1664,8 +1678,11 @@ def check_refactor_rejects_changes(tmp_path, corrupt):
         file.write_text(yaml.safe_dump(value))
         file = file.with_name('bindings.json')
         file.write_text(file.read_text().replace('Consumer', 'Detached'))
-    with pytest.raises(ValueError):
-        verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+    if corrupt in {'property', 'identity-reference', 'retained', 'undeclared'}:
+        assert verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+    else:
+        with pytest.raises(ValueError):
+            verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
 
 
 def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
@@ -1679,15 +1696,15 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
     foreign = tmp_path / 'model/parameters/dev/cde/service-b/parameters.yaml'
     foreign.write_text('invalid: [')
     calls = []
-    load = usage.load_expansion
+    load = usage.load_for_analysis
     def expand(path):
         calls.append(path.relative_to(tmp_path).as_posix())
         return load(path)
-    monkeypatch.setattr(usage, 'load_expansion', expand)
-    assert outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    monkeypatch.setattr(usage, 'load_for_analysis', expand)
+    assert outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
     assert calls == ['model/stg/cde/service-b.properties']
     calls.clear()
-    assert incoming_references(tmp_path, 'stg/cde/service-a/001')
+    assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
     assert calls == ['model/stg/cde/service-a.properties', 'model/stg/cde/service-b.properties']
     # The API refuses recovery, rather than writing a pending transaction's Model.
     temporary = tmp_path / 'temporary'
@@ -1698,7 +1715,7 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
     journal.write_text('pending recovery')
     before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     with pytest.raises(ValueError, match='read-only analysis stopped'):
-        incoming_references(tmp_path, 'stg/cde/service-a/001')
+        incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
     assert journal.read_text() == 'pending recovery'
     assert all(p.read_bytes() == data for p, data in before.items())
 
@@ -1724,10 +1741,10 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
     with selected_task(tmp_path, name):
         require_no_issues(tmp_path, {('stg', 'cde', 'service-a')})
         if broken_type:
-            with pytest.raises(ValueError, match='resourceType mismatch'):
-                incoming_references(tmp_path, 'stg/cde/service-a/001')
+            result = incoming_references(tmp_path, 'stg/cde/service-a/001')
+            assert any('resourceType mismatch' in w['message'] for w in result['warnings'])
         else:
-            assert incoming_references(tmp_path, 'stg/cde/service-a/001')
+            assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
 
 
 def check_reference_structural_and_remaining_delete(tmp_path):
@@ -1742,7 +1759,7 @@ def check_reference_structural_and_remaining_delete(tmp_path):
     template = before / 'model/templates/cde/service-a.properties.tpl'
     template.write_text(template.read_text().replace('# definition: Producer\n',
         '# definition: Producer\ndesired.resource.resource.parentReference=[other](#other-producer)\n'))
-    refs = outgoing_references(before, 'stg/cde/service-a/001')
+    refs = outgoing_references(before, 'stg/cde/service-a/001')['references']
     structural = next(item for item in refs if item['role'] == 'structure')
     assert structural['producer'] == 'stg/cde/service-a/003' and structural['kind'] == 'link'
     shutil.copytree(before, after)
@@ -1751,16 +1768,16 @@ def check_reference_structural_and_remaining_delete(tmp_path):
     text = dependency_contract().replace('service-b/002', 'service-a/001').replace('service-a/001", "key"', 'service-a/003", "key"').replace('desired.row.002-001.value', 'desired.resource.001.parentReference')
     with pytest.raises(ValueError, match='structure changed|structural metadata'):
         verify_model_refactor(before, after, model_refactor(text), {file.relative_to(after).as_posix()}, {('stg', 'cde', 'service-a'), ('dev', 'cde', 'service-a')})
-    # Existing single-delete rejects an actual surviving name reference.
+    # A surviving name reference is reported without cancelling deletion.
+    file.write_text(template.read_text())
     directory = after / 'model/parameters/stg/cde/service-a'
     for filename in ('parameters.yaml', 'bindings.json'):
         file = directory / filename
         payload = yaml_read(file.read_text()) if filename.endswith('.yaml') else json.loads(file.read_text())
         del payload['instances']['producer']
         file.write_text(yaml.safe_dump(payload) if filename.endswith('.yaml') else json.dumps(payload))
-    with pytest.raises(ValueError):
-        verify_model_operation(before, after, model_operation(operation_contract('import-delete', source='stg/cde/service-a/001')),
-                               {p.relative_to(after).as_posix() for p in directory.iterdir()})
+    assert verify_model_operation(before, after, model_operation(operation_contract('import-delete', source='stg/cde/service-a/001')),
+                                  {p.relative_to(after).as_posix() for p in directory.iterdir()})
 
 
 def check_dependency_json_types_and_exact_detach(tmp_path):
@@ -1785,8 +1802,7 @@ def check_dependency_json_types_and_exact_detach(tmp_path):
     contract = dependency_contract() + '- ' + json.dumps(declaration) + '\n'
     scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
     verify_model_refactor(before, after, model_refactor(contract), sources, scope)
-    with pytest.raises(ValueError, match='undeclared'):
-        verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+    assert verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
     file.write_text(text.replace('"typed":1}', '"typed":true}'))
     with pytest.raises(ValueError, match='value/type changed'):
         verify_model_refactor(before, after, model_refactor(contract), sources, scope)
@@ -1797,7 +1813,7 @@ def check_dependency_json_types_and_exact_detach(tmp_path):
     file.write_text(text.replace('"typed":1}', '"typed":"\\u0000reference0\\u0000"}'))
     from model_reference_usage import outgoing_references
     with pytest.raises(ValueError, match='reserved control character'):
-        outgoing_references(after, 'stg/cde/service-b/002')
+        outgoing_references(after, 'stg/cde/service-b/002')['references']
 
 
 def check_reference_embedded_link_label(tmp_path):
@@ -1807,7 +1823,7 @@ def check_reference_embedded_link_label(tmp_path):
     template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
     template.write_text(template.read_text().replace('display.resource.resource.comment=合成テスト用のリソース',
         'display.resource.resource.comment=[<<Origin>>](service-a.md#other-producer)'))
-    usages = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    usages = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
     links = [item for item in usages if item['role'] == 'display']
     assert {(item['producer'], item['kind']) for item in links} == {
         ('stg/cde/service-a/001', 'typed'), ('stg/cde/service-a/003', 'link')}

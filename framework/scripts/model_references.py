@@ -4,7 +4,7 @@ from validation_cache import input_exists, input_is_file, input_text
 import json
 import re
 from pathlib import Path
-from model_core import properties, entries, validate_bucket_reference, LINK, literal
+from model_core import properties, entries, validate_bucket_reference, LINK, literal, ReferenceResolutionError
 from design_layout import HIDDEN_PROPERTIES
 from validation_cache import memoized
 
@@ -30,12 +30,12 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     resources = [(identity, resource) for identity, resource in entries(values, "desired.resource.")
                  if resource.get("resourceType") == "S3.Bucket" and resource.get("anchor") == link.group(3)]
     if len(resources) != 1:
-        raise ValueError("deployment bucket reference must identify one S3.Bucket")
+        raise ReferenceResolutionError("deployment bucket reference must identify one S3.Bucket")
     rows = entries(values, "desired.row.")
     names = [literal(row.get("value", "")) for identity, row in rows
              if identity.startswith(resources[0][0] + "-") and row.get("property") == "S3.Bucket.BucketName"]
     if len(names) != 1 or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", names[0]) or link.group(1) != names[0]:
-        raise ValueError("deployment bucket requires the matching confirmed BucketName")
+        raise ReferenceResolutionError("deployment bucket requires the matching confirmed BucketName")
     return names[0]
 
 

@@ -60,6 +60,35 @@ parameters.yaml values stay unchanged.
 - Retain existing VPC/Subnet/RouteTable/Flow Log Name tags in the existing `.Name` and Endpoint/Instance tags in formal Tags rows. For IMPORT without a Name tag, omit that row. Use human-confirmed `display.resource.<nnn>.label` for display only when needed; do not copy it into AWS properties or tags. A single resource of the above 6 types named only by Name tags may use the existing type-name display if no label exists either.
 - Retain resourceMode only in authoritative properties; do not generate `resource-mode` comments in Markdown. Ordinary display validation references the same service model by anchor to obtain the CREATE/IMPORT validation category. Do not mix it into AWS property tables or desired.note. Specify identified grouped children independently using their own anchors too. Inline configurations without identity follow their containing resource's category; if a separate category is needed, stop without inferring it.
 
+## Reference diagnostics
+
+Reference existence, changed targets, unresolved/cyclic/ambiguous references, type or
+label mismatches and surviving links are WARNING diagnostics. They do not block Model
+change/delete/replace, source save, final validation, completion or local integration.
+The LLM uses warning locations and authoritative sources to repair what it can determine
+within the authorized scope; ask the Human about undetermined repairs. Repair, warning
+acknowledgement, Issue migration and another Task are never prerequisites for the original
+operation. Do not infer targets or values, add a force/allow-warning flag, or expand authority.
+
+Keep syntax, fixed Resource/Row/Instance IDs, operation targets, non-reference literals,
+observed/acquired values, JSON structure/types, I/O, Task scope, input snapshots and
+publication locks mandatory. Compare every JSON leaf and literal prefix/suffix even when
+another reference is unresolved. Use typed ReferenceResolutionError at semantic resolution
+boundaries; never downgrade generic ValueError/OSError or classify by a reference keyword.
+
+Report stable code/message, known producer/consumer IDs, source line, Model key/Property,
+JSON pointer, raw expression, resolution state and known current/previous value. Unknown
+values remain unknown. JSON CLI carries warnings in stdout JSON; normal CLI emits WARNING.
+Warnings alone exit zero and recur until resolved. Reference analysis returns references,
+warnings and complete; incomplete analysis is not proof of no references. Use existing
+before/after snapshots to diagnose removed IDs and anchors.
+
+Generate and save views that can be produced. For reference-only inability, retain the
+existing Markdown/JSON (or report not-generated), keep saved Model sources, and record the
+unexecuted checks as NOT_RUN with reason reference and the affected scope/retained views.
+Only that identified condition is nonblocking for Model completion; arbitrary NOT_RUN and
+real errors remain blocking. Do not put warning/incomplete results in the PASS cache.
+
 ## IMPORT configuration authority
 
 Explicit standalone reference retarget is a separate narrow `/update` exception under
@@ -80,7 +109,7 @@ except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
 That design branch requires exact source/destination IDs and verifies the actual diff:
 complete source transfer/removal, stable destination identities, unchanged CREATE and
-other consumer values, and no remaining source references. It uses existing source
+other non-reference consumer values; remaining source references produce warnings. It uses existing source
 editing and per-write publication/rollback without AWS or IaC. In a managed worktree,
 independent transfer/retarget/delete may save intermediate sources under the running
 parent contract; generation is separate and final validation proves the whole operation
@@ -90,8 +119,8 @@ Other-environment inputs may receive necessary value-preserving additions only i
 branch. CREATE retains its existing workflow. Explicit value-preserving dependency detach
 uses a separate ordinary design /update Task under
 [Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor):
-prove unchanged effective settings/types/structure and shared consumers, remove only
-declared dependencies, and revalidate the actual rebased candidate before merge.
+prove preserved non-reference settings/types/structure and shared consumers, report
+reference-derived differences and remaining dependencies, and validate the actual rebased candidate before merge.
 It is not an additional Model operation or permission to change IMPORT configuration.
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
@@ -142,7 +171,7 @@ references. Use the existing physical Reference Resolver only for captured Prope
 of selected resources. Do not infer/generated ARNs or persist secrets.
 
 For replace, existing incoming-reference analysis reads registered same-target services
-as preservation evidence and rejects non-self incoming references or unresolved analysis.
+as preservation evidence and returns non-self incoming usages and unresolved analysis as warnings.
 It does not edit them or authorize a Model-only operation; transfer/retarget/delete and
 value-preserving detach retain their separate contracts. No other Environment is edited.
 Acquisition/normalization, Singleton/cache, STS/Region checks, source/evidence hashes,
@@ -163,7 +192,8 @@ Save Model sources
 atomically first. Then generate and atomically save only the selected service's
 Markdown/JSON. Never directly edit generated design Markdown/JSON or use display edits
 as a substitute for Model reflection, including during display-only recovery.
-Display failure rolls back only display writes and is exit 3;
+Reference-only display inability retains views and reports NOT_RUN with warnings, exit 0.
+Other display failure rolls back only display writes and is exit 3;
 it never invalidates completed reflection. Exit 2 includes unreflected items. Report
 Model, display and `Design validation: not-run` separately. Stale views can be refreshed
 without Model changes. Never auto-run issues or repeat AWS acquisition for display failure.
@@ -225,7 +255,7 @@ Retain old `desired.resource.*.logicalId` and hidden logical ID markers only for
 1. Before saving, check whether naming rules exist for resources to create, catalog selections, types/constraints, and unconfirmed values.
 2. Update all confirmed service template/parameters.yaml/bindings.json first. Normally use `desired.service.*`, `desired.resource.*`, formal property `desired.row.*`, and required `observed.row.*`.
 3. Directly validate schema/catalog mandatory root properties from authoritative properties per service. If any are missing, do not proceed even to temporary Markdown/JSON artifact generation; report resources/properties and retain properties and existing generated outputs. Continue processing other services. Temporarily generate Markdown and JSON artifacts only for services with all mandatory items, and check them with existing service display parsers, schema, and reference validation. Retain saved Markdown/JSON and edited models of failed services. If a referenced service failed, revert to saved displays and revalidate references. Do not restore models from Markdown.
-4. Before saving, compute retained-source link warnings on the final candidate stage. Newly broken incoming links remain WARN for the successfully generated target, with the referencing source/link reported for a separate repair task. The selected candidate's own references remain mandatory. A rejected candidate falls back to saved displays; revalidate dependent candidates against that changed state. Write failures retain service rollback/journal recovery and necessary reference revalidation; preserve unrelated successful saves and return a nonzero command-wide result if failures remain.
+4. Before saving, compute reference warnings on the final candidate stage, including the selected service's own links and retained incoming links. Preserve generated views when possible. Reference-only generation inability retains saved views and reports the affected NOT_RUN scope; it neither cancels source saves nor requires a repair Task. Actual write failures retain service rollback/journal recovery and dependent revalidation; preserve unrelated successful saves and return nonzero for real failures.
 5. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` for ordinary Model edits. Common preconditions, all-target candidate generation/content validation, one all-target pre-save input comparison, publication, then output-dependent task/Acceptance checks execute in that validator process. No post-save regeneration, full readback/content validation or full input rescan is required. Independent read-only loops/validators retain saved-view equality checks. Do not overwrite properties.
 
 
