@@ -157,9 +157,9 @@ PATCHES = {
 }
 
 class Offline(m.Context):
-    def __init__(self, root, fault=None):
+    def __init__(self, root, fault=None, target=TARGET):
         session = boto3.Session(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=TARGET['awsRegion'])
-        super().__init__(root, TARGET, session)
+        super().__init__(root, target, session)
         self.stubbers, self.fault = {}, fault
         self.request_count = 0
 

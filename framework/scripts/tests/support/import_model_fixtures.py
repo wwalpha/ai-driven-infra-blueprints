@@ -147,6 +147,16 @@ def build_seed(root):
     kinds = ['EC2.VPC', 'EC2.Subnet', 'Config.ConfigurationRecorder', 'Logs.LogGroup',
              'KinesisFirehose.DeliveryStream', 'QuickSight.DataSource', 'SecurityHub.Hub', 'EC2.TransitGatewayVpcAttachment']
     small_framework(root, SERVICES, kinds)
+    # This seed models only LogGroup; other Logs types have no selected properties.
+    import yaml
+    mapping_path = root / 'framework/mappings/aws/cloudwatch-logs.yaml'
+    mapping = yaml_read(mapping_path.read_text(encoding='utf-8'))
+    mapping['resourceTypes'] = {'Logs.LogGroup': mapping['resourceTypes']['Logs.LogGroup']}
+    mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False), encoding='utf-8')
+    owners_path = root / 'framework/mappings/aws/owners.json'
+    owners = json.loads(owners_path.read_text(encoding='utf-8'))
+    owners_path.write_text(json_text({kind: owner for kind, owner in owners.items()
+        if owner != 'cloudwatch-logs' or kind == 'Logs.LogGroup'}), encoding='utf-8')
     (root / 'project.json').write_text(json_text({'projectName': 'synthetic-import-fixture', 'targets': [
         {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
          'awsProfile': 'confirmed', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}), encoding='utf-8')

@@ -173,6 +173,8 @@ def cli_checks(root):
 ])
 @pytest.mark.parametrize('paginate', [False, True])
 def check_cli_service_names(tmp_path, service, operation, cli_service, paginate):
+    from support.it_workspace import copy_framework
+    copy_framework(tmp_path / 'framework')
     ctx = m.Context(tmp_path, TARGET)
     ctx.verified = True
     with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='{}', stderr='')) as process:
@@ -353,12 +355,10 @@ def common_checks(root):
     unverified = Offline(root)
     expect(ValueError, lambda: unverified.call('s3', 'list_buckets'))
     bad = dict(TARGET, awsAccountId='999999999999')
-    ctx2 = Offline(root)
-    ctx2.target = bad
+    ctx2 = Offline(root, target=bad)
     expect(m.AcquisitionError, ctx2.verify)
     check(not ctx2.verified and set(ctx2.clients) == {'sts'}, 'account mismatch stops all service APIs')
-    split = Offline(root)
-    split.target = dict(TARGET, awsAccountId='999999999999', awsExecutionAccountId=ACCOUNT)
+    split = Offline(root, target=dict(TARGET, awsAccountId='999999999999', awsExecutionAccountId=ACCOUNT))
     split.verify()
     check(split.verified and split.target['awsAccountId'] == '999999999999', 'execution account verification preserves resource account')
     split_resource = split.model(path).resources[0]
@@ -367,8 +367,7 @@ def common_checks(root):
     check(split_resource.resolve_json({'Ref': 'AWS::AccountId'}) == ACCOUNT,
           'live CFN Ref pseudo account uses verified execution account')
     split.finish()
-    wrong_execution = Offline(root)
-    wrong_execution.target = dict(TARGET, awsExecutionAccountId='999999999999')
+    wrong_execution = Offline(root, target=dict(TARGET, awsExecutionAccountId='999999999999'))
     expect(m.AcquisitionError, wrong_execution.verify)
     check(not wrong_execution.verified and set(wrong_execution.clients) == {'sts'}, 'execution mismatch stops all service APIs')
     # Implicit API account contexts use execution IDs; explicit model values stay untouched.
@@ -653,7 +652,10 @@ def fixture_coverage(root):
     (cfn_identity_checks, "cfn-identity"), (fixture_coverage, "coverage"),
 ], ids=["services", "common", "associations", "identity-registry", "batch", "cli", "stacks", "cfn-identity", "coverage"])
 def check_domains(tmp_path, callback, subdirectory):
-    callback(tmp_path / subdirectory)
+    from support.it_workspace import copy_framework
+    root = tmp_path / subdirectory
+    copy_framework(root / 'framework')
+    callback(root)
 
 
 def check_consumer_coverage():

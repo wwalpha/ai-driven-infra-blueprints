@@ -169,10 +169,12 @@ def generate(root, environment, selector, service):
     engine = ('from __future__ import annotations\n'
               'import argparse, hashlib, json, os, re, subprocess, sys\n'
               'from collections import Counter, defaultdict\n'
+              'from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n'
               'from dataclasses import dataclass\nfrom pathlib import Path\nfrom urllib.parse import unquote\n'
               'ROOT = Path("/model-test-snapshot")\n'
               'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
               'def memo_table(): return None\n')
+    engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'iac_values.py', ['unique_object', 'invalid_constant', 'cfn_resource_identity'])
     engine += definitions(scripts / 'model_core.py', ['entries', 'literal'])
     engine += definitions(scripts / 'comparison_rows.py', ['Unresolved', 'select', 'put_row'])
