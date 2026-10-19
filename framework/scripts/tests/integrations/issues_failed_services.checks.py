@@ -50,8 +50,8 @@ def main_checks():
         resource('codebuild', 'Build', 'CodeBuild.Project', {'Name': 'fixture-build'})
         resource('eventbridge', 'Rule', 'Events.Rule', {'Name': 'fixture-rule'})
         resource('athena', 'Workgroup', 'Athena.WorkGroup', {'WorkGroupConfiguration': {'ResultConfiguration': {
-            'EncryptionConfiguration': {'KmsKey': key_id}}}},
-                 [('WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey', '`' + key_id + '`')])
+            'EncryptionConfiguration': {'KmsKey': key_arn}}}},
+                 [('WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey', '`' + key_arn + '`')])
         resource('codepipeline', 'Pipeline', 'CodePipeline.Pipeline', {'ArtifactStore': {'EncryptionKey': {'Id': alias_arn}}},
                  [('ArtifactStore.EncryptionKey.Id', '[alias](kms.md#alias)')])
         resource('glue', 'Security', 'Glue.SecurityConfiguration', {'EncryptionConfiguration': {
@@ -75,6 +75,65 @@ def main_checks():
             comparison, records = fixture.compare(root, list(models))
             selected = [r for r in records if r['service'] in {'athena', 'cloudwatch-logs', 'codepipeline', 'glue'} or r['resource'] == 'QueuePolicy']
             assert selected and all(r['category'] == 'matched' for r in selected), selected
+            # Exercise Model loading and receiving-property attribute selection, not hand-built symbols.
+            path = 'WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey'
+            row = 'desired.row.Workgroup-001.value'
+            kms = template['Resources']['Workgroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']
+            resource('kms', 'OtherKey', 'KMS.Key', {})
+            template['Resources']['Workgroup']['Properties']['State'] = 'ENABLED'
+            models['athena'].update({'desired.row.Workgroup-002.property': 'Athena.WorkGroup.State',
+                                     'desired.row.Workgroup-002.value': '`ENABLED`'})
+
+            def athena(model, iac, category):
+                models['athena'][row] = model
+                kms['KmsKey'] = iac
+                publish()
+                current, rows = fixture.compare(root, ['athena'])
+                # WorkGroupConfiguration is compared as one structured property.
+                record = next(r for r in rows if r.get('property') == 'Athena.WorkGroup.WorkGroupConfiguration')
+                assert record['category'] == category, record
+                assert next(r for r in rows if r.get('property') == 'Athena.WorkGroup.State')['category'] == 'matched'
+                if category == 'uncompared' and record.get('reference_diagnostics'):
+                    assert record['reference_diagnostics'][0]['reason'], record
+                return current, record
+
+            current, _ = athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            assert current.desired_reference('athena', '[key](kms.md#key)', 'Athena.WorkGroup', path)['$attribute'] == 'Arn'
+            athena('[key](kms.md#key)', {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference')
+            athena('`' + key_arn + '`', key_arn, 'matched')
+            athena('`' + key_arn + '`', key_arn[:-1] + '3', 'difference')
+            for invalid in (key_id, 'alias/fixture', alias_arn):
+                for model, iac in ((invalid, key_arn), (key_arn, invalid), (invalid, invalid)):
+                    _, record = athena('`' + model + '`', iac, 'difference')
+                    diagnostic = record['reference_diagnostics'][0]
+                    assert diagnostic['allowed_forms'] == ['KeyArn'] and diagnostic['reason'], diagnostic
+                    assert diagnostic['format']['model'] == ('allowed' if model == key_arn else 'outside allowed forms')
+                    assert diagnostic['format']['iac'] == ('allowed' if iac == key_arn else 'outside allowed forms')
+            athena('[alias](kms.md#alias)', {'Fn::GetAtt': ['Key', 'Arn']}, 'difference')
+            athena('[key](kms.md#key)', key_arn, 'uncompared')
+            athena('`' + key_arn + '`', '{{resolve:secretsmanager:key}}', 'uncompared')
+            athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            stackpath = root / 'model/dev/123456789012/cloudformation-stacks.properties'
+            original_stacks = fixture.read_model(stackpath)
+            fixture.write(stackpath, original_stacks + 'desired.stack.002.name=key-stack\ndesired.stack.002.template=keys.yaml\ndesired.stack.002.parameters=keys.json\ndesired.stack.002.deployOrder=1\n')
+            fixture.write(root / 'infra/cloudformation/parameters/dev/123456789012/keys.json', '[]')
+            fixture.write(root / 'infra/cloudformation/templates/keys.yaml', json.dumps({
+                'Resources': {'Key': template['Resources']['Key'], 'OtherKey': template['Resources']['OtherKey']},
+                'Outputs': {name: {'Value': {'Fn::GetAtt': [name, 'Arn']}, 'Export': {'Name': name + 'Arn'}}
+                            for name in ('Key', 'OtherKey')}}))
+            for name in ('Key', 'OtherKey'):
+                models['kms']['desired.resource.' + name + '.cfn-logicalId'] = 'key-stack-' + name
+                del template['Resources'][name]
+            athena('[key](kms.md#key)', {'Fn::ImportValue': 'KeyArn'}, 'matched')
+            athena('[key](kms.md#key)', {'Fn::ImportValue': 'OtherKeyArn'}, 'difference')
+            athena('[key](kms.md#key)', {'Fn::ImportValue': 'MissingArn'}, 'uncompared')
+            # Restore the single-stack inputs for the existing other-service cases.
+            fixture.write(stackpath, original_stacks)
+            for name in ('Key', 'OtherKey'):
+                models['kms']['desired.resource.' + name + '.cfn-logicalId'] = stack + '-' + name
+                template['Resources'][name] = {'Type': 'AWS::KMS::Key', 'Properties': {}}
+            athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            comparison, _ = fixture.compare(root, list(models))
             key = comparison.evaluate(stack, {'Ref': 'Key'})
             arn = comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']})
             alias = comparison.reference('kms', '[alias](#alias)')
@@ -94,8 +153,8 @@ def main_checks():
                     assert symbolic['$attribute'] == 'AliasArn'
                     assert same(symbolic, arn, reference=callback, path=path) is False
                     assert same(arn, symbolic, reference=callback, path=path) is False
-                    assert same(symbolic, alias_arn, reference=callback, path=path)
-                    assert same(alias_arn, symbolic, reference=callback, path=path)
+                    assert same(symbolic, alias_arn, reference=callback, path=path) is ('AliasArn' in allowed)
+                    assert same(alias_arn, symbolic, reference=callback, path=path) is ('AliasArn' in allowed)
                     assert same(symbolic, alias_arn.replace('123456789012', '999999999999'), reference=callback, path=path) is False
                     assert same(symbolic, alias_arn.replace('ap-northeast-1', 'us-east-1'), reference=callback, path=path) is False
                     assert same(symbolic, alias, reference=callback, path=path) is False

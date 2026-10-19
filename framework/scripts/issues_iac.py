@@ -29,13 +29,13 @@ from iac_values import ResourceReference, Expression, safe_value, same, selected
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-kms-alias.html
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-cloudtrail-trail.html
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-athena-workgroup-encryptionconfiguration.html
-# https://docs.aws.amazon.com/controltower/latest/controlreference/athena-rules.html (KmsKey also accepts alias names)
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-ecr-repository-encryptionconfiguration.html
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-s3-bucket-serversideencryptionbydefault.html
 REFERENCE_FORMS = {
     'KMS.Alias.TargetKeyId': {'KeyId', 'Arn'},
     'CloudTrail.Trail.KMSKeyId': {'KeyId', 'Arn', 'AliasName'},
-    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'KeyId', 'Arn', 'AliasName'},
+    # Framework design/comparison policy: this property requires a key ARN.
+    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'Arn'},
     'ECR.Repository.EncryptionConfiguration.KmsKey': {'KeyId', 'Arn', 'AliasName'},
     'S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': {'KeyId', 'Arn', 'AliasName'},
     # aws-resource-codecommit-repository.html; aws-properties-ec2-instance-ebs.html
