@@ -378,14 +378,14 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             raise ValueError(f'ambiguous/type-mismatched reference: {item["id"]}/{name}: {value}')
         rid, anchor = candidates[0]
         if spec.get('format') == 'identifier':
-            from model_projection import identifier_outputs
+            from utils.aws_catalogs import catalogs_for
+            from model_references import catalog_outputs
             prop = spec['property']
-            from design_catalog import design_material_files
-            from utils.aws_mappings import definition_root
-            catalog_root = definition_root(root)
-            if not any(file.stem.replace('_', '.', 1) == spec['resourceType'] for file in design_material_files(catalog_root)):
-                raise ValueError('reference catalog material missing: ' + spec['resourceType'])
-            if prop not in identifier_outputs(catalog_root).get(spec['resourceType'], set()):
+            catalog = catalogs_for(root)
+            resource_type = spec['resourceType']
+            if catalog.lines(resource_type) is None:
+                raise ValueError('reference catalog material missing: ' + resource_type)
+            if prop not in catalog_outputs(root, resource_type):
                 raise ValueError('reference property is not a catalog identifier output')
             selected = [row_id for row_id, row in rows[rid] if row['property'] == prop]
             observed = [(row_id, row) for row_id, row in entries(model.values, 'observed.row.')

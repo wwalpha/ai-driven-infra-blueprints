@@ -236,6 +236,12 @@ def check_full_validation_dependencies():
 def check_stage_survival_and_definition_sources():
     with TemporaryDirectory() as directory:
         root = fixture(Path(directory) / 'source')
+        from design_layout import HIDDEN_PROPERTIES
+        hidden = next(iter(HIDDEN_PROPERTIES))
+        write(root, 'framework/materials/api/Api_One.properties',
+              'Api.One.Id=IDENTIFIER_OUTPUT\n' + hidden + '=IDENTIFIER_OUTPUT\n')
+        assert catalog_outputs(root, 'Api.One') == {'Api.One.Id'}
+        assert catalogs_for(root).lines('Absent.Resource') is None
         # Alias registration reuses the existing Mapping provider's source identity.
         write(root, 'framework/mappings/aws/owners.json', '{"Test.One":"test"}')
         stage = Path(directory) / 'stage'

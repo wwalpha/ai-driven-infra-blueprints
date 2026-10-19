@@ -79,6 +79,86 @@ def check_stage_definition_sources(generated_policy, tmp_path):
     assert {p: p.read_bytes() for p in definitions} == definitions
     assert values['desired.note.001.text'] in design.read_text()
 
+    # Four IAM candidates resolve KMS identifiers through real cold validation workers.
+    import model_parameter_inputs
+    from model_templates import json_text, source_paths
+    from validation_cache import memo_table
+    project = json.loads((root/'project.json').read_text(encoding='utf-8'))
+    sources, models = {}, []
+    for number in range(4):
+        environment = 'ref' + str(number)
+        project['targets'].append({**project['targets'][0], 'environment': environment})
+        producer = root/'model'/environment/'123456789012/kms.properties'
+        write_model(producer, {
+            'desired.service.kms.serviceId': 'kms',
+            'desired.resource.001.resourceType': 'KMS.Key',
+            'desired.resource.001.anchor': 'kms-key',
+            'desired.row.001-001.property': 'KMS.Key.KeyId',
+            'desired.row.001-001.value': '[key](#kms-key)',
+            'observed.row.001-001.value': '`source-key`',
+        })
+        consumer = producer.with_name('iam.properties')
+        candidate = dict(values)
+        document = json.loads(candidate['desired.row.001-002.document'])
+        document['Statement'][0]['Condition'] = {'StringEquals': {'kms:KeyId': '<<KeyId>>'}}
+        candidate['desired.row.001-002.document'] = json_text(document)
+        write_model(consumer, candidate)
+        _, template, _ = source_paths(consumer)
+        text = template.read_text(encoding='utf-8')
+        declaration = '# reference: KeyId ' + json_text({
+            'service': 'kms', 'resource': '001', 'resourceType': 'KMS.Key',
+            'format': 'identifier', 'property': 'KMS.Key.KeyId'}) + '\n'
+        heading = '# definition: Fixture_' + environment + '\n'
+        template.write_text(text.replace(heading, heading + declaration), encoding='utf-8')
+        destination = root/'docs/designs'/environment/'123456789012/iam.md'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text('', encoding='utf-8')
+        sources[destination] = load_model(consumer).values
+        models.append(consumer)
+    (root/'project.json').write_text(json_text(project) + '\n', encoding='utf-8')
+    results = []
+    original_validate = sync_views.validate_views
+    original_parameter = model_parameter_inputs.parameter_value
+    for jobs in (1, 4):
+        stage = tmp_path/('identifier-stage-' + str(jobs))
+        with mapping_alias(root, stage):
+            sync_runtime.stage_inputs(stage, root, sources, models, list(sources), ['iam'], False)
+            assert not (stage/'framework').exists()
+            for consumer in models:
+                observed = stage/source_paths(consumer.with_name('kms.properties'))[2].relative_to(root)/'observed.json'
+                observed.write_text(json_text({'version': 1, 'values': {
+                    'observed.row.001-001.value': '`stage-key`'}}), encoding='utf-8')
+            candidates = {path: load_model(stage/model.relative_to(root)).values
+                          for path, model in zip(sources, models)}
+            failures = []
+            generated = sync_runtime.generate_views(stage, root, candidates, failures)
+            assert not failures and len(generated) == 4, failures
+            before = {p.relative_to(stage): p.read_bytes() for files in generated.values() for p in files}
+            workers, references = set(), []
+            barrier = threading.Barrier(4) if jobs == 4 else None
+            def validate(*args, **kwargs):
+                assert memo_table() is None, 'candidate must start without expanded Model cache'
+                workers.add(threading.get_ident())
+                if barrier is not None:
+                    barrier.wait(timeout=30)
+                return original_validate(*args, **kwargs)
+            def parameter(template, *args, **kwargs):
+                result = original_parameter(template, *args, **kwargs)
+                if args[1] == 'KeyId':
+                    assert template.is_relative_to(stage)
+                    assert result == 'stage-key'
+                    references.append(result)
+                return result
+            with patch.object(sync_views, 'validate_views', side_effect=validate), \
+                 patch.object(model_parameter_inputs, 'parameter_value', side_effect=parameter):
+                sync_runtime.validate_candidates(stage, root, generated, candidates, failures, jobs, False)
+            assert not failures and len(generated) == 4, failures
+            assert len(workers) == jobs and len(references) >= 4
+            assert before == {p.relative_to(stage): p.read_bytes() for files in generated.values() for p in files}
+            results.append(before)
+    assert results[0] == results[1]
+    assert all('source-key' in load_model(model).values['desired.row.001-002.document'] for model in models)
+
 
 @pytest.mark.parametrize('fault,expected', [
     ('model', 'model service'), ('names', 'resource heading must display resource name'),

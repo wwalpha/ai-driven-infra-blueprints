@@ -28,7 +28,8 @@ def check(root):
     observed = {'version': 1, 'values': {
         'observed.row.001-002.property': 'EC2.VPC.VpcId',
         'observed.row.001-002.value': '`vpc-fixture-one`'}}
-    save_files({root / 'framework/materials/aws/EC2_VPC.properties': (catalog).read_text(encoding="utf-8"),
+    save_files({root / 'framework/mappings/aws/owners.json': '{"EC2.VPC":"vpc"}',
+        root / 'framework/materials/aws/EC2_VPC.properties': (catalog).read_text(encoding="utf-8"),
         ptemplate: '# model-template: 1\n# definition: Vpc\n# resource: vpc\n# row: name vpc\n# row: id vpc\n' +
             '\n'.join(k.replace('resource.001.', 'resource.vpc.').replace('row.001-001.', 'row.name.').replace('row.001-002.', 'row.id.') + '=' + v for k,v in desired.items()) + '\n# end-definition\n',
         producer: ''.join(k+'='+v+'\n' for k,v in {**desired, **observed['values']}.items()),
@@ -65,6 +66,29 @@ def check(root):
         (pdir/'observed.json').write_text(t.json_text(changed))
         assert t.design_source_digest(path) != before
         assert t.json_read(load_model(path).values[key])['Condition']['StringEquals']['aws:SourceVpc'] == raw.strip('`')
+    # Only Model authorities move to the stage; definitions retain their own lifetime.
+    import shutil
+    from utils.aws_mappings import mapping_alias
+    with tempfile.TemporaryDirectory() as staged_directory:
+        stage = Path(staged_directory)
+        shutil.copytree(root/'model', stage/'model')
+        staged_observed = stage/pdir.relative_to(root)/'observed.json'
+        staged_observed.write_text(t.json_text({'version': 1, 'values': {
+            'observed.row.001-002.value': '`vpc-stage-only`'}}), encoding='utf-8')
+        with mapping_alias(root, stage):
+            assert not (stage/'framework').exists()
+            staged = load_model(stage/path.relative_to(root))
+            assert t.json_read(staged.values[key])['Condition']['StringEquals']['aws:SourceVpc'] == 'vpc-stage-only'
+            assert staged_observed in staged.files and pdir/'observed.json' not in staged.files
+        # A separate synthetic definition root lacks the selected resource catalog.
+        missing = stage/'missing-definitions'
+        owners = missing/'framework/mappings/aws/owners.json'
+        owners.parent.mkdir(parents=True)
+        owners.write_text('{"EC2.VPC":"vpc"}', encoding='utf-8')
+        with mapping_alias(missing, stage):
+            rejected(lambda: load_model(stage/path.relative_to(root)),
+                     'reference catalog material missing: EC2.VPC')
+    assert t.json_read(load_model(path).values[key])['Condition']['StringEquals']['aws:SourceVpc'] == 'PENDING_DEPLOY'
     producer_text = ptemplate.read_text()
     for producer_candidate, observed_values in (
         (producer_text.replace('row.id.property=EC2.VPC.VpcId', 'row.id.property=EC2.Subnet.SubnetId'), observed['values']),
