@@ -172,7 +172,7 @@ def record_outputs(root, identity, sources, views, consumers=None):
     environment, target, service = identity
     document = root / 'docs/designs' / environment / target / (service + '.md')
     for file in sources:
-        if not allowed_source(root, file, identity, consumers):
+        if not allowed_source(root, file, identity):
             raise ValueError('IMPORT output is outside selected environment/target/service')
     if any(file != document and not (file.parent == document.with_suffix('') and file.suffix == '.json') for file in views):
         raise ValueError('IMPORT view is outside selected environment/target/service')
@@ -414,7 +414,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     if not dry_run:
         contract_scope(root, {identity})
         require_import_changes(root, generation=True)
-    output = candidate_sources(root, evidence.parent / 'candidates', identity, direct)
+    output = candidate_sources(root, evidence.parent / 'candidates', identity)
     for file in output:
         relative = file.relative_to(root).as_posix()
         checksums.setdefault(relative, acquisition['sources'].get(relative))
@@ -431,16 +431,16 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     if shared and consumers(root, identity[1], identity[2]) != direct:
         raise ValueError('IMPORT registered direct consumers changed after acquisition')
     selection = json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8'))
-    selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema)
+    warnings = []
+    selected = selection_records(selection, acquisition['records'], before.values, after.values, property_schema, warnings)
     changes = verify_values(before, after, selected, property_schema)
     pending = pending_items(selection, selected, after.values)
     result = {'status': 'incomplete' if pending else 'dry-run' if dry_run else 'complete',
               'scope': ['/'.join(identity)], 'model': 'unchanged', 'markdown': 'not-run',
               'designValidation': 'not-run', 'dryRun': dry_run,
-              'resources': {'updated': sum(item['action'] == 'update' for item in selection['resources']),
-                            'added': sum(item['action'] == 'add' for item in selection['resources']),
+              'resources': {'added': sum(item['action'] == 'add' for item in selection['resources']),
                             'excluded': len(selection['excluded']), 'unresolved': sum('property' not in item for item in pending)},
-              'unreflected': pending, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
+              'unreflected': pending, 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
     unchanged(root, checksums)
     if dry_run:

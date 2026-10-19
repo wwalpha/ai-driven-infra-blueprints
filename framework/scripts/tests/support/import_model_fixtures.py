@@ -238,38 +238,11 @@ def fixture(root, service='cloudwatch-logs', register=True):
     return path
 
 
-def shared_retention(root):
-    """Two authored Definitions sharing one input; return a value-preserving move."""
-    fields = {'name': ('LogGroupName', '<<LogGroupName>>'), 'days': ('RetentionInDays', '<<RetentionDays>>'),
-              'protected': ('DeletionProtectionEnabled', '`false`'), 'class': ('LogGroupClass', '`STANDARD`')}
-    lines = ['# model-template: 1', '# input: RetentionDays ' + json_text(spec('integer', source='service'))]
-    lines += metadata('cloudwatch-logs', ['Logs.LogGroup'])
-    for name in ('App', 'Audit'):
-        lines += declaration(name, 'Logs.LogGroup', fields, {'ResourceMode': spec(), 'LogGroupName': spec(format='literal')})
-    bindings = {'instances': {'service': {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}},
-                             'application-log': binding('App', '001', fields, 'cloudwatch-logs-application'),
-                             'create-log': binding('Audit', '002', fields, 'cloudwatch-logs-create')}}
-    output = {}
-    for env in ('dev', 'stg'):
-        params = {'parameters': {'RetentionDays': 30}, 'instances': {
-            'application-log': {'parameters': {'ResourceMode': 'IMPORT' if env == 'dev' else 'CREATE',
-                                               'LogGroupName': 'fixture-001' if env == 'dev' else 'stg-application'}},
-            'create-log': {'parameters': {'ResourceMode': 'CREATE', 'LogGroupName': 'fixture-002'}}}}
-        save_service(root, 'cloudwatch-logs', lines, params, bindings, environment=env)
-        path = root / 'model/parameters' / env / TARGET / 'cloudwatch-logs/parameters.yaml'
-        params['instances']['application-log']['parameters']['AppRetention'] = 90 if env == 'dev' else 30
-        output[path] = parameter_edit(path.read_text(encoding='utf-8'), params)
-    template = root / 'model/templates' / TARGET / 'cloudwatch-logs.properties.tpl'
-    text = template.read_text(encoding='utf-8').replace('# definition: App\n',
-        '# definition: App\n# parameter: AppRetention ' + json_text(spec('integer')) + '\n')
-    output[template] = text.replace('desired.row.days.value=<<RetentionDays>>', 'desired.row.days.value=<<AppRetention>>', 1)
-    return output
-
-
 def aws(service='cloudwatch-logs', *, changed=False, noise=False, profile='confirmed'):
     cli = AwsCli(profile=profile)
     cli.logs = [{'logGroupName': 'fixture-001', 'retentionInDays': 90 if changed else 30, 'deletionProtectionEnabled': False, 'logGroupClass': 'STANDARD'},
                 {'logGroupName': 'fixture-002', 'retentionInDays': 99, 'deletionProtectionEnabled': True, 'logGroupClass': 'STANDARD'}]
+    cli.logs.append({'logGroupName': 'managed-new', 'retentionInDays': 90, 'deletionProtectionEnabled': False, 'logGroupClass': 'STANDARD'})
     vpcs = [{'VpcId': VPC_ID, 'CidrBlock': '10.11.0.0/23' if changed else '10.10.0.0/23', 'Tags': [{'Key': 'Name', 'Value': 'main-vpc'}]}]
     subnets = [{'SubnetId': 'subnet-' + str(n).zfill(17), 'VpcId': VPC_ID, 'CidrBlock': cidr, 'AvailabilityZone': az,
                 'MapPublicIpOnLaunch': False, 'Tags': [{'Key': 'Name', 'Value': name}]} for n, (name, cidr, az) in enumerate(SUBNETS, 2)]
@@ -297,7 +270,7 @@ def stage(acquisition, files, resources=(), excluded=(), pending=()):
     Path(acquisition['selection']).write_text(json_text({'resources': list(resources), 'excluded': list(excluded), 'unreflected': list(pending)}), encoding='utf-8')
 
 
-def correspondence(acquisition, identity, resource='001', action='update', basis=()):
+def correspondence(acquisition, identity, resource='003', action='add', basis=()):
     record = next(r for r in acquisition['records'] if r['identity'] == identity)
     return {'record': record['record'], 'resource': resource, 'action': action,
             'reason': 'Synthetic project membership explicitly supplied by the test', 'basis': list(basis)}
@@ -312,9 +285,15 @@ def logs_edit(root, acquisition, days=90):
     path = root / 'model/parameters/dev' / TARGET / 'cloudwatch-logs/parameters.yaml'
     original = path.read_text(encoding='utf-8')
     params = yaml_read(original)
-    params['instances']['application-log']['parameters']['RetentionDays'] = days
-    files = {path.relative_to(root).as_posix(): parameter_edit(original, params)} if parameter_edit(original, params) != original else {}
-    selected = [correspondence(acquisition, 'fixture-001')]
+    params['instances']['managed-log'] = {'parameters': {'ResourceMode': 'IMPORT', 'LogGroupName': 'managed-new', 'RetentionDays': days}}
+    bindings_file = path.with_name('bindings.json')
+    bindings = json.loads(bindings_file.read_text(encoding='utf-8'))
+    seed = bindings['instances']['application-log']
+    bindings['instances']['managed-log'] = {**copy.deepcopy(seed), 'resources': {'resource': '003'},
+        'rows': {local: number.replace('001-', '003-') for local, number in seed['rows'].items()}, 'parameters': {'Anchor': 'cloudwatch-logs-managed'}}
+    files = {path.relative_to(root).as_posix(): parameter_edit(original, params),
+             bindings_file.relative_to(root).as_posix(): json.dumps(bindings, indent=2) + '\n'}
+    selected = [correspondence(acquisition, 'managed-new')]
     stage(acquisition, files, selected, exclusions(acquisition, selected))
     return files
 

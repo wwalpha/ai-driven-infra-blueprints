@@ -186,8 +186,8 @@ Broken/missing YAML authorities stop, stale generated views fail, and observed w
 only to observed.json. This does not authorize multi-environment deployment.
 
 The import workflow pins one environment/target/service. Its evidence/ownership scope
-may include preservation YAML and necessary fixed bindings for direct shared-Definition users, but never their views
-or recursive dependencies. Import completion checks acquisition/source evidence only;
+includes read-only preservation inputs for direct shared-Definition users, never writes
+to their inputs/views or traversal of recursive dependencies. Import completion checks acquisition/source evidence only;
 it runs no design validation or local loop. This exception does not apply to framework
 implementation changes or ordinary design workflows.
 

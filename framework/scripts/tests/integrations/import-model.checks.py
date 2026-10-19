@@ -8,22 +8,20 @@ if not __debug__:
 
 import copy
 import json
-import os
 import socket
 import subprocess
 from unittest.mock import patch
 
 import pytest
 import import_guard
-import model_templates
 import sync_files
 import sync_runtime
-from import_sources import parameter_edit, equivalent
+from import_sources import parameter_edit
 from model_core import entries
 from model_parameter_inputs import yaml_read
-from model_templates import json_text, load_for_edit, service_source
+from model_templates import json_text, load_for_edit
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    aws, binding, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, snapshot, spec, stage, shared_retention)
+    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, snapshot, spec, stage)
 
 
 @pytest.fixture(autouse=True)
@@ -48,30 +46,17 @@ def source_files(root):
     return {p.relative_to(root): p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file()}
 
 
-def promote_logs(root, acquisition, *, renamed_row=False):
+def promote_logs(root, acquisition):
+    files = logs_edit(root, acquisition)
     template = root / 'model/templates/cde/cloudwatch-logs.properties.tpl'
     text = template.read_text(encoding='utf-8').replace('# definition: LogGroup\n',
-        '# definition: LogGroup\n# parameter: Protection ' + json_text(spec('boolean')) + '\n')
-    text = text.replace('desired.row.protected.value=`false`', 'desired.row.protected.value=<<Protection>>')
-    if renamed_row:
-        text = text.replace('# row: protected resource', '# row: protection resource').replace('desired.row.protected.', 'desired.row.protection.')
-    files = {template.relative_to(root).as_posix(): text}
-    for env in ('dev', 'stg'):
-        path = input_file(root, env=env)
-        original = path.read_text(encoding='utf-8')
-        params = yaml_read(original)
-        for instance in params['instances']:
-            params['instances'][instance]['parameters']['Protection'] = env == 'dev' and instance == 'application-log'
-        params['instances']['application-log']['parameters']['RetentionDays'] = 90 if env == 'dev' else 30
-        files[path.relative_to(root).as_posix()] = parameter_edit(original, params)
-        if renamed_row:
-            path = input_file(root, env=env, name='bindings.json')
-            value = json.loads(path.read_text(encoding='utf-8'))
-            for instance in ('application-log', 'create-log'):
-                rows = value['instances'][instance]['rows']
-                rows['protection'] = rows.pop('protected')
-            files[path.relative_to(root).as_posix()] = json.dumps(value, indent=2) + '\n'
-    selected = [correspondence(acquisition, 'fixture-001')]
+        '# definition: LogGroup\n# parameter: LogClass ' + json_text(spec(required=False, default='STANDARD')) + '\n')
+    files[template.relative_to(root).as_posix()] = text.replace('desired.row.class.value=`STANDARD`', 'desired.row.class.value=`<<LogClass>>`')
+    path = input_file(root).relative_to(root).as_posix()
+    params = yaml_read(files[path])
+    params['instances']['managed-log']['parameters']['LogClass'] = 'INFREQUENT_ACCESS'
+    files[path] = parameter_edit(files[path], params)
+    selected = [correspondence(acquisition, 'managed-new')]
     stage(acquisition, files, selected, exclusions(acquisition, selected))
     return files
 
@@ -91,20 +76,20 @@ def check_logs_roundtrip(tmp_path):
     assert result['model'] == 'reflected' and result['markdown'] == 'generated' and result['status'] == 'complete'
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
     after = load_for_edit(root / 'model/dev/cde/cloudwatch-logs.properties')
-    assert after.values['desired.row.001-002.value'] == '90'
+    assert after.values['desired.row.003-002.value'] == '90'
+    assert all(after.values[k] == v for k, v in before.values.items())
     assert {k: v for k, v in before.values.items() if '.002' in k} == {k: v for k, v in after.values.items() if '.002' in k}
-    assert len(files) == 1 and not Path(acquired['evidence']).parent.exists()
+    assert len(files) == 2 and not Path(acquired['evidence']).parent.exists()
     import_guard.require_import_changes(root)
 
 
 def check_config_sources(tmp_path):
     root, acquired, _ = prepare(tmp_path, 'config', changed=False)
-    selected = [correspondence(acquired, 'actual-recorder')]
-    stage(acquired, {}, selected, exclusions(acquired, selected))
+    stage(acquired, {}, excluded=exclusions(acquired, []))
     result = publish_fixture(root, acquired, 'config')
     assert result['model'] == 'unchanged'
     assert 'AWSServiceRoleForConfig' in load_for_edit(root / 'model/dev/cde/config.properties').values['desired.row.001-007.value']
-    assert all(item['record'] == selected[0]['record'] for item in result['unreflected'])
+    assert result['unreflected'] == []
 
 
 def check_vpc_eight_instances(tmp_path):
@@ -112,15 +97,13 @@ def check_vpc_eight_instances(tmp_path):
     path = fixture(root, 'vpc')
     before = source_files(root)
     acquired = m.acquire(root, 'dev', 'vpc', TARGET, cli_runner=aws('vpc', noise=True))
-    selected = [correspondence(acquired, VPC_ID)]
-    selected += [correspondence(acquired, 'subnet-' + str(n).zfill(17), str(n).zfill(3)) for n in range(2, 9)]
-    stage(acquired, {}, selected, exclusions(acquired, selected))
+    stage(acquired, {}, excluded=exclusions(acquired, []))
     result = publish_fixture(root, acquired, 'vpc')
     assert result['model'] == 'unchanged' and source_files(root) == before
     bindings = json.loads(input_file(root, 'vpc', name='bindings.json').read_text(encoding='utf-8'))
     assert set(bindings['instances']) == {'service', 'main-vpc', *(name for name, _, _ in SUBNETS)}
     assert len(entries(load_for_edit(path).values, 'desired.resource.')) == 8
-    assert result['resources']['excluded'] == 2
+    assert result['resources']['excluded'] == 10
 
 
 def check_quicksight_normalization(tmp_path):
@@ -146,55 +129,72 @@ def check_registry_services(tmp_path):
         import_guard.discard_acquisition(root, acquired['evidence'])
 
 
-def check_managed_subnet_addition(tmp_path):
+@pytest.mark.parametrize('kind,unknown', [('subnet', False), ('vpc', False), ('vpc', True)])
+def check_managed_resource_addition(tmp_path, kind, unknown):
     root = tmp_path / 'case'
     path = fixture(root, 'vpc')
+    observed_file = input_file(root, 'vpc', name='observed.json')
+    observed = json.loads(observed_file.read_text(encoding='utf-8'))
+    if unknown:
+        observed['values'].pop('observed.row.001-001.value')
+        observed_file.write_text(json_text(observed), encoding='utf-8')
+        subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unobserved fixture'], cwd=root, check=True)
     original = load_for_edit(path)
+    foreign = {p: p.read_bytes() for p in (root / 'model/parameters').rglob('*') if p.is_file() and not p.is_relative_to(observed_file.parent)}
     old_bindings = json.loads(input_file(root, 'vpc', name='bindings.json').read_text(encoding='utf-8'))
-    cli = aws('vpc')
-    cli.responses['ec2', 'describe-subnets']['Subnets'].append({'SubnetId': 'subnet-managed-new', 'VpcId': VPC_ID,
-        'CidrBlock': '10.11.0.0/26', 'AvailabilityZone': 'ap-northeast-1a', 'MapPublicIpOnLaunch': False,
-        'Tags': [{'Key': 'Name', 'Value': 'audit-private-1a'}]})
+    cli = aws('vpc', changed=True)
+    if kind == 'subnet':
+        instance, seed_name, identity = 'audit-private-1a', 'dat-private-1a', 'subnet-managed-new'
+        cli.responses['ec2', 'describe-subnets']['Subnets'].append({'SubnetId': identity, 'VpcId': VPC_ID,
+            'CidrBlock': '10.11.0.0/26', 'AvailabilityZone': 'ap-northeast-1a', 'MapPublicIpOnLaunch': False,
+            'Tags': [{'Key': 'Name', 'Value': instance}]})
+        settings = {'CidrBlock': '10.11.0.0/26', 'SubnetName': instance}
+    else:
+        instance, seed_name, identity = 'new-vpc', 'main-vpc', 'vpc-managed-new'
+        cli.responses['ec2', 'describe-vpcs']['Vpcs'].append({'VpcId': identity, 'CidrBlock': '10.11.0.0/23',
+            'Tags': [{'Key': 'Name', 'Value': 'main-vpc'}]})
+        settings = {'CidrBlock': '10.11.0.0/23'}
     acquired = m.acquire(root, 'dev', 'vpc', TARGET, cli_runner=cli)
     parameters_file = input_file(root, 'vpc')
     params = yaml_read(parameters_file.read_text(encoding='utf-8'))
-    params['instances']['audit-private-1a'] = {'parameters': {'CidrBlock': '10.11.0.0/26', 'SubnetName': 'audit-private-1a'}}
+    params['instances'][instance] = {'parameters': settings}
     bindings = copy.deepcopy(old_bindings)
-    seed = bindings['instances']['dat-private-1a']
-    bindings['instances']['audit-private-1a'] = {'definition': seed['definition'], 'resources': {'resource': '009'},
-        'rows': {local: rid.replace('002-', '009-') for local, rid in seed['rows'].items()}, 'parameters': {'Anchor': 'vpc-audit-private-1a'}}
-    observed_file = input_file(root, 'vpc', name='observed.json')
-    observed = json.loads(observed_file.read_text(encoding='utf-8'))
-    observed['values'].update({'observed.row.009-001.value': 'subnet-managed-new', 'observed.row.009-002.value': VPC_ID})
-    selected = [correspondence(acquired, VPC_ID)] + [correspondence(acquired, 'subnet-' + str(n).zfill(17), str(n).zfill(3)) for n in range(2, 9)]
-    selected.append(correspondence(acquired, 'subnet-managed-new', '009', 'add'))
+    seed = bindings['instances'][seed_name]
+    bindings['instances'][instance] = {'definition': seed['definition'], 'resources': {'resource': '009'},
+        'rows': {local: '009-' + rid.rsplit('-', 1)[1] for local, rid in seed['rows'].items()}, 'parameters': {'Anchor': 'vpc-' + instance}}
+    observed['values']['observed.row.009-001.value'] = identity
+    if kind == 'subnet':
+        observed['values']['observed.row.009-002.value'] = VPC_ID
+    selected = [correspondence(acquired, identity, '009')]
     stage(acquired, {parameters_file.relative_to(root).as_posix(): parameter_edit(parameters_file.read_text(encoding='utf-8'), params),
                     input_file(root, 'vpc', name='bindings.json').relative_to(root).as_posix(): json.dumps(bindings, indent=2) + '\n',
-                    observed_file.relative_to(root).as_posix(): json.dumps(observed, indent=2) + '\n'}, selected)
+                    observed_file.relative_to(root).as_posix(): json.dumps(observed, indent=2) + '\n'}, selected, exclusions(acquired, selected))
     result = publish_fixture(root, acquired, 'vpc')
-    assert result['model'] == 'reflected' and result['resources']['added'] == 1
+    assert result['status'] == 'complete' and result['model'] == 'reflected' and result['markdown'] == 'generated'
+    assert result['resources']['added'] == 1 and 'updated' not in result['resources']
+    assert bool(result['warnings']) == unknown
     current = load_for_edit(path)
     assert len(entries(current.values, 'desired.resource.')) == 9
     assert all(current.values[k] == v for k, v in original.values.items())
+    assert current.values['observed.row.009-001.value'] == identity
+    assert current.values['desired.row.009-001.value'] == '[009](#vpc-' + instance + ')'
+    if kind == 'subnet':
+        assert current.values['desired.row.009-002.value'] == '[001](#vpc-main)'
     saved = json.loads(input_file(root, 'vpc', name='bindings.json').read_text(encoding='utf-8'))
     assert all(saved['instances'][name] == item for name, item in old_bindings['instances'].items())
+    assert all(p.read_bytes() == data for p, data in foreign.items())
 
 
-def check_ambiguous_matching(tmp_path):
-    root = tmp_path / 'case'
-    fixture(root, 'vpc')
-    # Deliberately unobserved existing subnet: Name+CIDR cannot replace parent evidence.
-    observed_file = input_file(root, 'vpc', name='observed.json')
-    observed = json.loads(observed_file.read_text(encoding='utf-8'))
-    del observed['values']['observed.row.002-001.value']
-    observed_file.write_text(json_text(observed), encoding='utf-8')
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unobserved subnet fixture'], cwd=root, check=True)
-    acquired = m.acquire(root, 'dev', 'vpc', TARGET, cli_runner=aws('vpc', noise=True))
-    selected = [correspondence(acquired, 'subnet-' + str(2).zfill(17), '002', basis=['EC2.Subnet.Name', 'EC2.Subnet.CidrBlock'])]
+@pytest.mark.parametrize('action', ['update', 'add'])
+def check_existing_resource_selection_rejected(tmp_path, action):
+    root, acquired, _ = prepare(tmp_path)
+    selected = [correspondence(acquired, 'fixture-001', '001', action)]
     stage(acquired, {}, selected, exclusions(acquired, selected))
-    with pytest.raises(ValueError, match='parent VPC'):
-        publish_fixture(root, acquired, 'vpc')
+    before = snapshot(root)
+    with pytest.raises(ValueError, match='add only'):
+        publish_fixture(root, acquired)
+    assert snapshot(root) == before
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 
@@ -216,8 +216,8 @@ def check_explicit_no_profile(tmp_path):
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, no_profile=True)
     assert acquired['connection']['awsProfile'] is None
     assert cli.calls[0][0] == 'sts'
-    logs_edit(root, acquired, 30)
-    assert publish_fixture(root, acquired)['model'] == 'unchanged'
+    logs_edit(root, acquired)
+    assert publish_fixture(root, acquired)['model'] == 'reflected'
 
 
 def check_single_acquisition(tmp_path):
@@ -242,10 +242,12 @@ def check_source_race(tmp_path):
 
 def check_create_definition_reuse(tmp_path):
     root, acquired, _ = prepare(tmp_path)
-    before = input_file(root, name='bindings.json').read_bytes()
+    before = json.loads(input_file(root, name='bindings.json').read_text())
     logs_edit(root, acquired)
     publish_fixture(root, acquired)
-    assert input_file(root, name='bindings.json').read_bytes() == before
+    after = json.loads(input_file(root, name='bindings.json').read_text())
+    assert all(after['instances'][k] == v for k, v in before['instances'].items())
+    assert after['instances']['managed-log']['definition'] == before['instances']['application-log']['definition']
     assert 'Import_' not in (root / 'model/templates/cde/cloudwatch-logs.properties.tpl').read_text(encoding='utf-8')
 
 
@@ -294,10 +296,12 @@ def check_external_reference_preservation(tmp_path):
     subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'external reference fixture'], cwd=root, check=True)
     acquired = m.acquire(root, 'dev', 'config', TARGET, cli_runner=aws('config'))
     role = next(r for r in acquired['records'] if r['kind'] == 'Config.ConfigurationRecorder')['properties']['Config.ConfigurationRecorder.RoleARN']['value']
-    selected = [correspondence(acquired, 'actual-recorder')]
-    stage(acquired, {'model/parameters/dev/cde/config/observed.json': json_text({'version': 1, 'values': {'observed.row.001-007.value': role}})}, selected)
-    result = publish_fixture(root, acquired, 'config')
-    assert result['model'] == 'reflected'
+    stage(acquired, {'model/parameters/dev/cde/config/observed.json': json_text({'version': 1, 'values': {'observed.row.001-007.value': role}})}, excluded=exclusions(acquired, []))
+    before = snapshot(root)
+    with pytest.raises(ValueError, match='existing resource'):
+        publish_fixture(root, acquired, 'config')
+    assert snapshot(root) == before
+    import_guard.discard_acquisition(root, acquired['evidence'])
     assert '[role](iam.md#not-locally-resolved)' in template.read_text(encoding='utf-8')
     assert not any('iam' == r['kind'] for r in acquired['records'])
 
@@ -315,54 +319,38 @@ def check_shared_property_and_bindings(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
     cli = aws(changed=True)
-    cli.logs[0]['deletionProtectionEnabled'] = True
+    cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    stg_path = root / 'model/stg/cde/cloudwatch-logs.properties'
     from import_scope import read_consumers
     with read_consumers({('dev', TARGET, 'cloudwatch-logs'), ('stg', TARGET, 'cloudwatch-logs')}):
-        stg_before = load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values
-    promote_logs(root, acquired, renamed_row=True)
+        stg_before = load_for_edit(stg_path).values
+    foreign = {p: p.read_bytes() for p in (root / 'model/parameters/stg').rglob('*') if p.is_file()}
+    promote_logs(root, acquired)
     result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['preservedConsumers'] == ['stg/cde/cloudwatch-logs']
-    stg_after = load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values
-    assert stg_after.keys() == stg_before.keys()
-    assert all(equivalent(stg_after[k], v) for k, v in stg_before.items())
+    assert load_for_edit(stg_path).values == stg_before
+    assert all(p.read_bytes() == data for p, data in foreign.items())
     assert not (root / 'docs/designs/stg').exists()
-    assert input_file(root, env='stg', name='observed.json').exists() is False
-    assert 'model/parameters/stg/cde/cloudwatch-logs/bindings.json' in result['files']
+    assert not any('/stg/' in p for p in result['files'])
 
 
-@pytest.mark.parametrize('spill', [False, True])
-def check_shared_input_consumers(tmp_path, spill):
-    root = tmp_path / 'case'
-    fixture(root)
-    output = shared_retention(root)
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'shared input fixture'], cwd=root, check=True)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
-    path = input_file(root, env='stg')
-    if spill:
-        params = yaml_read(output[path])
-        params['parameters']['RetentionDays'] = 90
-        output[path] = parameter_edit(output[path], params)
-    selected = [correspondence(acquired, 'fixture-001')]
-    stage(acquired, {p.relative_to(root).as_posix(): text for p, text in output.items()}, selected, exclusions(acquired, selected))
+@pytest.mark.parametrize('relative', ['model/parameters/stg/cde/cloudwatch-logs/parameters.yaml',
+    'model/parameters/stg/cde/cloudwatch-logs/bindings.json', 'model/parameters/stg/cde/cloudwatch-logs/observed.json',
+    'model/parameters/dev/cde/vpc/parameters.yaml', 'model/templates/cde/vpc.properties.tpl'])
+def check_foreign_source_writes_rejected(tmp_path, relative):
+    root, acquired, _ = prepare(tmp_path)
+    logs_edit(root, acquired)
+    source = root / relative
+    text = source.read_text() if source.exists() else '{"version":1,"values":{}}'
+    destination = Path(acquired['candidates']) / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text + '\n')
     before = snapshot(root)
-    if spill:
-        with patch.object(m, 'record_import', side_effect=AssertionError('must reject before recording')), \
-             patch.object(m, 'publish', side_effect=AssertionError('must reject before saving')), \
-             patch.object(sync_runtime, 'view_plan', side_effect=AssertionError('must reject before display')), \
-             pytest.raises(ValueError, match='stg/cde/cloudwatch-logs/create-log/Audit/'):
-            publish_fixture(root, acquired)
-        assert snapshot(root) == before
-        assert not (Path(acquired['evidence']).parent / 'publication.json').exists()
-        import_guard.discard_acquisition(root, acquired['evidence'])
-    else:
-        result = publish_fixture(root, acquired)
-        assert result['status'] == 'complete' and result['model'] == 'reflected'
-        assert result['preservedConsumers'] == ['stg/cde/cloudwatch-logs']
-        stg = load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values
-        assert stg['desired.row.001-002.value'] == stg['desired.row.002-002.value'] == '30'
-        assert not (root / 'docs/designs/stg').exists()
+    with patch.object(m, 'publish', side_effect=AssertionError('must reject before saving')), pytest.raises(ValueError, match='outside'):
+        publish_fixture(root, acquired)
+    assert snapshot(root) == before
+    import_guard.discard_acquisition(root, acquired['evidence'])
 
 
 @pytest.mark.parametrize('service,scenario', [('cloudwatch-logs', 'duplicate'), ('cloudwatch-logs', 'new'),
@@ -371,8 +359,6 @@ def check_add_identity_boundary(tmp_path, service, scenario):
     root = tmp_path / 'case'
     fixture(root, service)
     cli = aws(service, changed=True)
-    if scenario == 'new':
-        cli.logs.append({**cli.logs[0], 'logGroupName': 'managed-new'})
     acquired = m.acquire(root, 'dev', service, TARGET, cli_runner=cli)
     params_file, bindings_file = input_file(root, service), input_file(root, service, name='bindings.json')
     params = yaml_read(params_file.read_text(encoding='utf-8'))
@@ -430,7 +416,7 @@ def check_repeat_without_reformat(tmp_path):
     publish_fixture(root, acquired)
     before = source_files(root)
     second = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
-    logs_edit(root, second)
+    stage(second, {}, excluded=exclusions(second, []))
     result = publish_fixture(root, second)
     assert result['model'] == 'unchanged' and result['markdown'] == 'unchanged' and result['files'] == []
     assert source_files(root) == before
@@ -466,9 +452,9 @@ def check_empty_inventory_preserves_sources(tmp_path):
 def check_partial_reflection(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     files = logs_edit(root, acquired)
-    selected = [correspondence(acquired, 'fixture-001')]
+    selected = [correspondence(acquired, 'managed-new')]
     unresolved = next(r for r in acquired['records'] if r['identity'] == 'fixture-002')
-    stage(acquired, files, selected, pending=[{'record': unresolved['record'], 'reason': 'ownership not confirmed'}])
+    stage(acquired, files, selected, excluded=[item for item in exclusions(acquired, selected) if item['record'] != unresolved['record']], pending=[{'record': unresolved['record'], 'reason': 'ownership not confirmed'}])
     result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['status'] == 'incomplete' and result['unreflected']
     with pytest.raises(ValueError, match='incomplete'):
@@ -480,7 +466,7 @@ def check_native_types_preserved(tmp_path):
     files = logs_edit(root, acquired)
     path = next(iter(files))
     stage(acquired, {path: files[path].replace('RetentionDays: 90', 'RetentionDays: "90"')},
-          [correspondence(acquired, 'fixture-001')], exclusions(acquired, [correspondence(acquired, 'fixture-001')]))
+          [correspondence(acquired, 'managed-new')], exclusions(acquired, [correspondence(acquired, 'managed-new')]))
     with pytest.raises(ValueError, match='type'):
         publish_fixture(root, acquired)
     assert yaml_read(input_file(root).read_text(encoding='utf-8'))['instances']['application-log']['parameters']['RetentionDays'] == 30
@@ -491,7 +477,7 @@ def check_consumer_set_race(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
     cli = aws(changed=True)
-    cli.logs[0]['deletionProtectionEnabled'] = True
+    cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
     promote_logs(root, acquired)
     new_consumer = root / 'model/parameters/prod/cde/cloudwatch-logs'
@@ -505,7 +491,7 @@ def check_source_transaction_rollback(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
     cli = aws(changed=True)
-    cli.logs[0]['deletionProtectionEnabled'] = True
+    cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
     promote_logs(root, acquired)
     original = source_files(root)
@@ -529,7 +515,8 @@ def check_yaml_candidate_edit(tmp_path):
     files = logs_edit(root, acquired)
     publish_fixture(root, acquired)
     current = input_file(root).read_text(encoding='utf-8')
-    assert current == original.replace('RetentionDays: 30', 'RetentionDays: 90', 1)
+    assert current.startswith(original)
+    assert 'managed-log:' in current and 'RetentionDays: 90' in current
     assert next(iter(files.values())) == current
 
 

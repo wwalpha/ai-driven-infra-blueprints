@@ -3,7 +3,7 @@ from model_parameter_inputs import check_type, schema, yaml_read
 from model_templates import (bound_definition, json_read, json_text, parse_template,
                              resolve, service_source, template_document,
                              template_document_text, variables)
-from import_sources import equivalent, preserve_bindings, typed_equal
+from import_sources import preserve_bindings, typed_equal
 
 
 def changed_properties(before, after):
@@ -13,6 +13,8 @@ def changed_properties(before, after):
         if name not in after:
             raise ValueError('IMPORT existing common Definitions must be preserved')
         candidate = after[name]
+        if any(candidate.rows.get(row) != owner for row, owner in definition.rows.items()):
+            raise ValueError('IMPORT existing Definition row owners must be preserved: ' + name)
         parameters = {key for key in definition.parameters.keys() | candidate.parameters.keys()
                       if key not in definition.parameters or key not in candidate.parameters
                       or not typed_equal(definition.parameters[key], candidate.parameters[key])}
@@ -76,12 +78,6 @@ def property_inputs(definition, key):
     return names
 
 
-def input_owner(definition, name, instance):
-    spec = schema(definition.parameters[name])
-    return (('binding', instance, name) if spec.get('internal') else
-            ('service', name) if spec.get('source') == 'service' else ('instance', instance, name))
-
-
 def property_value(definition, key, parameters, binding, instance, environment):
     """Evaluate one Property with only its local inputs and symbolic references."""
     if key not in definition.values:
@@ -105,18 +101,6 @@ def property_value(definition, key, parameters, binding, instance, environment):
     structured = key.endswith('.document') or bool(narrow.optional_json) or any(pointer is not None for _, pointer, _ in choices)
     return (template_document_text(key, resolve(template_document(key, raw), context, structured=True))
             if structured else resolve(raw, context))
-
-
-def changed_inputs(before, after):
-    result = {('service', name) for name in before.get('parameters', {}).keys() | after.get('parameters', {}).keys()
-              if name not in before.get('parameters', {}) or name not in after.get('parameters', {})
-              or not typed_equal(before['parameters'][name], after['parameters'][name])}
-    for instance in before.get('instances', {}).keys() | after.get('instances', {}).keys():
-        old = before.get('instances', {}).get(instance, {}).get('parameters', {})
-        new = after.get('instances', {}).get(instance, {}).get('parameters', {})
-        result |= {('instance', instance, name) for name in old.keys() | new.keys()
-                   if name not in old or name not in new or json_text(old[name]) != json_text(new[name])}
-    return result
 
 
 def verify_input_types(definitions, parameters, bindings, previous=None):
@@ -149,74 +133,34 @@ def preserve_consumers(path, expansion, output, identities):
     before, _ = parse_template(template)
     after, _ = parse_template(template, output)
     changed = changed_properties(before, after)
-    changed_rows = {name: {key.split('.')[2] for key in keys if key.startswith('desired.row.')}
-                    for name, keys in changed.items()}
     selected_bindings = json_read(expansion.files[directory / 'bindings.json'])
     candidate_bindings = json_read(output.get(directory / 'bindings.json', expansion.files[directory / 'bindings.json']))
-    preserve_bindings(selected_bindings, candidate_bindings, new_instances=True)
+    preserve_bindings(selected_bindings, candidate_bindings)
     verify_input_types(after, yaml_read(output.get(directory / 'parameters.yaml', expansion.files[directory / 'parameters.yaml'])), candidate_bindings,
                        (before, yaml_read(expansion.files[directory / 'parameters.yaml']), selected_bindings))
     snapshots, used = {}, set()
     with read_consumers(identities):
         for consumer in sorted(set(identities) - {identity}):
             files = root / 'model/parameters' / '/'.join(consumer)
-            own_output = {p: text for p, text in output.items() if p.parent == files}
+            if any(p.parent == files for p in output):
+                raise ValueError('IMPORT other-environment inputs are read-only')
             if not changed:
-                if own_output:
-                    raise ValueError('IMPORT other-environment inputs require a shared Property change')
                 continue
             binding_file, parameter_file = files / 'bindings.json', files / 'parameters.yaml'
             binding_text = binding_file.read_bytes().decode('utf-8')
             bindings = json_read(binding_text)
             instances = {name: binding for name, binding in bindings['instances'].items() if binding['definition'] in changed}
             if not instances:
-                if own_output:
-                    raise ValueError('IMPORT consumer has no use of the changed shared Property')
                 continue
             used.add(consumer)
             parameter_text = parameter_file.read_bytes().decode('utf-8')
             snapshots.update({binding_file: binding_text.encode('utf-8'), parameter_file: parameter_text.encode('utf-8')})
             parameters = yaml_read(parameter_text)
-            candidate_parameters = yaml_read(output.get(parameter_file, parameter_text))
-            candidate_bindings = json_read(output.get(binding_file, binding_text))
-            preserve_bindings(bindings, candidate_bindings, changed_rows=changed_rows)
-            allowed_inputs = set()
-            inputs = changed_inputs(parameters, candidate_parameters)
-            for instance, binding in bindings['instances'].items():
-                replacement = candidate_bindings['instances'][instance]
-                inputs |= {('binding', instance, n) for n in binding['parameters'].keys() | replacement['parameters'].keys()
-                           if n not in binding['parameters'] or n not in replacement['parameters']
-                           or not typed_equal(binding['parameters'][n], replacement['parameters'][n])}
-            for instance, binding in bindings['instances'].items():
+            for instance, binding in instances.items():
                 name = binding['definition']
-                replacement = candidate_bindings['instances'][instance]
-                keys = set(changed.get(name, set()))
-                old_definition, new_definition = before[name], after[name]
-                for definition in (old_definition, new_definition):
-                    for key in changed.get(name, set()):
-                        allowed_inputs |= {input_owner(definition, parameter, instance)
-                                           for parameter in property_inputs(definition, key) if parameter in definition.parameters}
-                    keys |= {key for key in definition.values
-                             if any(input_owner(definition, parameter, instance) in inputs
-                                    for parameter in property_inputs(definition, key) if parameter in definition.parameters)}
-                def counterpart(key, source, destination):
-                    parts = key.split('.')
-                    if len(parts) == 4 and parts[1] in {'row', 'resource'}:
-                        maps = 'rows' if parts[1] == 'row' else 'resources'
-                        number = source[maps].get(parts[2])
-                        local = next((local for local, fixed in destination[maps].items() if number is not None and fixed == number), parts[2])
-                        parts[2] = local
-                    return '.'.join(parts)
-                pairs = {(key, counterpart(key, binding, replacement)) for key in keys if key in old_definition.values}
-                pairs |= {(counterpart(key, replacement, binding), key) for key in keys if key in new_definition.values}
-                for old_key, new_key in pairs:
-                    left = property_value(old_definition, old_key, parameters, binding, instance, consumer[0])
-                    right = property_value(new_definition, new_key, candidate_parameters, replacement, instance, consumer[0])
-                    if not equivalent(left, right):
-                        raise ValueError('IMPORT direct consumer Property meaning changed: ' + '/'.join(consumer) + '/' + instance + '/' + name + '/' + old_key)
-            if inputs - allowed_inputs:
-                raise ValueError('IMPORT unrelated consumer parameter edit: ' + '/'.join(consumer))
-            for instance in bindings['instances'].keys() - instances.keys():
-                if bindings['instances'][instance] != candidate_bindings['instances'][instance]:
-                    raise ValueError('IMPORT unrelated consumer binding edit')
+                for key in changed[name]:
+                    left = property_value(before[name], key, parameters, binding, instance, consumer[0])
+                    right = property_value(after[name], key, parameters, binding, instance, consumer[0])
+                    if left != right:
+                        raise ValueError('IMPORT direct consumer Property meaning changed: ' + '/'.join(consumer) + '/' + instance + '/' + name + '/' + key)
     return snapshots, used, changed

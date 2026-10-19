@@ -352,21 +352,21 @@ Add only inputs needed to preserve real differences; do not split service source
 
 ## IMPORT Property source edits
 
-The agent executing [08_import](../prompts/codex/08_import.md) chooses correspondence,
-managed additions, changed Properties and parameter names. Python acquires/normalizes
-facts and verifies ordinary edited sources; it never reconstructs Model composition,
-automatically promotes parameters, names public instances or deletes unused inputs.
-Reuse existing input names; edit common templates only when required by meaning.
-Native setting types remain unchanged. Keep common Definitions, fixed IDs and logical
-references, and preserve unchanged YAML comments/order/spacing through local edits.
+The agent executing [08_import](../prompts/codex/08_import.md) chooses managed new
+additions and parameter names. Python acquires/normalizes facts and verifies ordinary
+edited sources; it never reconstructs composition or infers existing update targets.
+Reuse existing Definitions and input names. New instances get new fixed Resource/Row
+IDs, anchors and IMPORT mode. Preserve all existing expanded values, rows, observations,
+bindings and logical references; no existing-resource updates or row additions.
+Preserve unchanged YAML comments/order/spacing through local edits.
 
-For a changed shared Property, use registered direct Definition consumers once and
-preserve that Property's prior values/expressions/references from local inputs. Necessary
-parameters.yaml and bindings.json changes in those consumers belong to the same source
-transaction. Do not change other consumers' observed values, CREATE settings or instance
-sets. Do not traverse recursive consumers or expand foreign Models for comparison.
-An unpreservable dependent change is left pending during agent candidate preparation;
-publish rejects an invalid candidate as a whole, without silently filtering it.
+For a changed shared Property, inspect registered direct Definition consumers and
+preserve their complete values/expressions/references with unchanged inputs. Write only
+the selected service Template/Definition and selected environment's parameters.yaml,
+bindings.json and observed.json. Never compensate with other-environment input edits.
+Do not traverse recursive consumers or expand foreign Models for comparison.
+An unpreservable dependent addition stays unresolved during candidate preparation;
+publish rejects an invalid candidate as a whole without silently filtering it.
 
 The acquisition scope remains one environment/target/service. Source publication checks
 types, syntax, evidence, identities, references, scope, preservation and concurrent

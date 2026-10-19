@@ -1,4 +1,4 @@
-# Import acquired AWS configuration with agent-edited Model sources
+# Append acquired AWS resources with agent-edited Model sources
 
 `/import --environment dev --target cde --service vpc`
 
@@ -61,33 +61,37 @@ retains its separately authorized development tests.
    Use only normalized non-secret captured Properties. Do not save raw responses,
    credentials, secret Properties or new snapshot files in the repository.
 
-## Agent correspondence and source edits
+## Agent selection and append-only source edits
 
-The agent decides existing update, managed new addition, out-of-scope or unresolved.
-Read the existing sources together; a parameters-only view is insufficient.
+The agent decides managed new addition, already registered exclusion, out-of-scope or
+unresolved. Read the existing sources together; a parameters-only view is insufficient.
 
-- Prefer confirmed physical identity. A changed CIDR or Name does not defeat a match
-  with the same physical ID. Without an ID, use multiple independent facts such as
-  Name, parent and existing references; never Name alone or inventory order. Subnets
-  require their parent VPC. Multiple matches remain unresolved. For a type without
-  a mapped identity Property, `$scope` may identify a unique account/Region singleton
-  only when exactly one acquired and one existing resource have that type.
-- Add a resource absent from the Model when the current project scope establishes
-  management. No separate new-addition approval is required. Record the concrete
-  ownership reason; appearance in AWS or a plausible name alone is insufficient.
-- Preserve existing instance names, Resource IDs, Row IDs, anchors, logical IDs,
-  resource modes, placement and logical references. Missing inventory does not
-  authorize deletion. New instances reuse an existing suitable Definition and use
-  meaningful names plus new fixed maps, parameters and acquired observations.
-- Reuse existing input names. For a required new input, choose a descriptive name and
-  edit its declaration, expression and consumer inputs together. A confirmed common
-  value can remain directly in the common template. Do not introduce IsDev/IsStg
-  environment switches or clone Definitions per resource/environment. Preserve the
-  native Boolean/Number/String/List/Object/null types of settings.
-- Do not delete common/AZ parameters merely because they appear unused. Preserve
-  logical references and keep confirmed physical values in observed.json. Never
-  replace a reference because its external producer is inconsistent. Never construct
-  missing ARNs, IDs or unacquired values from account/Region/name fragments.
+- Compare acquired physical IDs with confirmed physical IDs in existing CREATE and
+  IMPORT resources, including observations and Mapping identity aliases. If already
+  registered, put the record in `excluded` with the existing Resource ID and reason.
+  Do not reflect AWS configuration changes into that resource. Never infer an update
+  target from Name, CIDR, parent, inventory order or account/Region singleton scope.
+- Add a resource absent from the confirmed identity set only when the current project
+  scope explicitly establishes management. Record the concrete ownership reason;
+  appearance in AWS or a plausible name alone is insufficient. Unknown management
+  remains `unreflected`. An existing resource with unknown physical ID does not block
+  an explicitly managed addition; report the possible duplication and keep it independent.
+- Allocate a new fixed Resource ID, Row IDs and unique anchor for each added resource,
+  with `resourceMode=IMPORT`. Reuse a suitable existing Definition and input names;
+  add the new instance, parameters, bindings and observations as needed. Do not clone
+  a Definition per resource. Existing resources, rows, observations, bindings, settings,
+  references and expanded values must remain unchanged, including CREATE resources.
+  Adding rows or observations to an existing resource is prohibited. Missing inventory
+  never authorizes deletion. Old-resource deletion is a separate task.
+- For a required new input, choose a descriptive name and edit its declaration,
+  expression and the selected new instance together. A shared Template change is
+  permitted only when existing instances keep their complete expanded values and
+  references without changing any other environment's inputs. Do not introduce
+  environment switches or clone Definitions per resource/environment. Preserve native
+  Boolean/Number/String/List/Object/null setting types.
+- Retain existing common/AZ parameters and logical references. Keep confirmed physical
+  values for new reference rows in observed.json. Never change another service's
+  references or construct missing ARNs, IDs or unacquired values from fragments.
 
 Write only changed source files below the returned `candidates` directory using their
 normal repository-relative paths. Do not first edit authoritative files, copy the
@@ -105,9 +109,9 @@ record identifier with the actual returned identifier):
 {
   "resources": [{
     "record": "<acquired-record-id>",
-    "resource": "001",
-    "action": "update",
-    "reason": "Existing observed VPC ID equals the acquired identity",
+    "resource": "009",
+    "action": "add",
+    "reason": "Explicit project management evidence for this new AWS VPC",
     "basis": []
   }],
   "excluded": [],
@@ -115,10 +119,10 @@ record identifier with the actual returned identifier):
 }
 ```
 
-Use `action: add` for a new fixed Resource ID and state its management evidence in
-`reason`. For an existing resource without physical ID, `basis` lists matching formal
-Properties (e.g. `EC2.Subnet.Name`, `EC2.Subnet.VpcId`). Each acquired record requires
-one resource disposition. Excluded entries have `record` and a concrete `reason`;
+Only `action: add` with a new Resource ID is accepted. State management evidence in
+`reason`; retain `basis` as a list of acquired Property names supporting that evidence
+(or an empty list), never as an existing-resource matching rule. Each acquired record
+requires one disposition. Excluded entries have `record` and a concrete `reason`;
 unresolved entries have `record` and `reason`, optionally a `property` when only that
 Property is pending. Do not use a mutation DSL or ask Python to generate source names.
 
@@ -129,19 +133,17 @@ a common Definition/Property, inspect only its direct users through the existing
 consumer registry and provenance. Use `import_promotion.preserve_consumers` to check
 the candidate; it verifies edits and does not choose promotions or write files.
 
-- Put acquired values into the selected IMPORT instance. Supply other environments
-  with their previous Model values, expressions and reference meanings. Do not copy
-  dev values, substitute environment names or claim AWS retrieval for other environments.
-- Include necessary direct-consumer parameters.yaml and bindings.json changes in the
-  same candidate transaction. Keep their existing instances and fixed IDs. Binding
-  changes must serve the shared Property (including a local row-name change retaining
-  its fixed Row ID), not unrelated additions. Do not update their observed.json.
-- Preserve other-environment CREATE settings even when moving their source structure.
-  The checker evaluates affected Properties and changed input destinations only;
-  it does not expand foreign Models or traverse recursive consumers/services.
-- If an affected shared Property cannot retain its meaning, leave that whole dependent
-  change out of the candidate and report it unresolved. Independent confirmed edits
-  may proceed. Never silently trim an invalid candidate after publish rejects it.
+- Write only the selected service's Template/Definition and the selected
+  Environment/Target/Service's parameters.yaml, bindings.json and observed.json.
+- Direct shared-Definition consumers in other environments are read-only verification
+  inputs. Preserve their prior values, expressions, references and row ownership.
+  Do not include their parameters, bindings or observations in the candidate transaction.
+- The checker evaluates affected Properties using the registered inputs without
+  expanding foreign Models or traversing recursive consumers/services.
+- If a shared change would alter an existing consumer, leave that dependent addition
+  out of the candidate and report it unresolved. Do not repair another environment's
+  inputs to compensate. Independent confirmed additions may proceed. Never silently
+  trim an invalid candidate after publish rejects it.
 
 ## Publication and display
 
@@ -152,17 +154,17 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py 
 ```
 
 Publish does not access AWS. It verifies the sealed external acquisition, Task/Worktree,
-scope, source hashes, syntax/native types, selected record-to-resource correspondence,
-changed actual values, existing identities/references, and direct-consumer preservation.
+scope, source hashes, syntax/native types, new record-to-resource correspondence,
+acquired addition values, unchanged existing expanded values/identities/references, and direct-consumer preservation.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
 whole publication; no old plan is applied over concurrent changes.
 
 The existing publication_lock, publish, journal and rollback save all dependent sources
-in one transaction. No partial shared-template/consumer save is allowed. Next, the
+in one transaction. No partial shared-template/selected-input save is allowed. Next, the
 existing import-specific path generates only the selected service's Markdown/JSON and
 saves them in a separate transaction. Display failure retains saved Model sources and
-is reported separately. Parameter moves in other environments do not generate their views.
+is reported separately. No other environment or service is written or generated.
 
 Acquisition values, source before/after contents and correspondence details live in a
 private temporary session outside the repository. The small ignored
@@ -193,7 +195,7 @@ the same inventory twice as a preview/apply procedure.
 
 Report Model (`reflected` / `unchanged` / `failed`), Markdown/JSON (`generated` /
 `unchanged` / `failed` / `not-run`) and `Design validation: not-run` separately. Include
-scope/connection/STS, selected updates/additions/exclusions, pending resource/Property
+scope/connection/STS, selected additions/exclusions, possible duplicate warnings for unknown existing IDs, pending resource/Property
 counts and reasons, changed sources, consumer preservation and display status. Acquired
 but unreflected Properties are reported, never silently treated as fully reflected.
 

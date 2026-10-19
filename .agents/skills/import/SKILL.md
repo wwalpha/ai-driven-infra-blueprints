@@ -1,6 +1,6 @@
 ---
 name: import
-description: Acquire one AWS service through Python, judge and edit ordinary Model candidates as the agent, then verify/publish sources and generate selected Markdown/JSON. Follow 08_import for the complete workflow.
+description: Acquire one AWS service through Python, append explicitly managed new resources while preserving existing Models, then verify/publish sources and generate selected Markdown/JSON. Follow 08_import for the complete workflow.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute

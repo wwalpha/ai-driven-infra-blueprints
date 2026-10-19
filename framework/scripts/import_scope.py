@@ -266,13 +266,10 @@ def preservation_scope(root, identity, sources):
     return scope
 
 
-def allowed_source(root, file, identity, consumers=()):
-    """Shared source + selected inputs, or necessary direct-consumer YAML/bindings."""
+def allowed_source(root, file, identity):
+    """Only selected service templates and selected environment inputs are writable."""
     import re
     template, parts, parameters = source_paths(identity)
     return (file == root / template or
             file.parent == root / parts and re.fullmatch(r'part-[0-9]{3}\.properties', file.name) is not None or
-            file.parent == root / parameters and file.name in {'parameters.yaml', 'bindings.json', 'observed.json'} or
-            file.name in {'parameters.yaml', 'bindings.json'} and any(
-                item[1:] == identity[1:] and file.parent == root / 'model/parameters' / '/'.join(item)
-                for item in consumers))
+            file.parent == root / parameters and file.name in {'parameters.yaml', 'bindings.json', 'observed.json'})

@@ -75,13 +75,21 @@ temporary acquisition/candidate contents; retain only the ignored completion rec
 persists no Model, displays, contract or completion receipt and cleans its session.
 Never save raw responses. See 08_import for failure/cancellation cleanup.
 
-Preserve CREATE, identities, bindings, unselected inputs and logical reference declarations.
-Save acquired reference values as observations without replacing a conflicting logical
-link. Non-secret acquired IDs/ARNs may persist; inferred/generated ARNs and secrets may
-not. Keep ordinary settings in desired/parameters, never move all settings to observed.
-Agent-selected shared Property edits preserve only that Property's old values in direct users,
-including necessary parameters.yaml and bindings.json changes in the same transaction;
-no recursive reference search or whole-Model comparison. Retain unrelated parameters.
+Import reflection is append-only: add explicitly managed acquired resources with new
+fixed Resource/Row IDs, unique anchors and IMPORT mode, reusing existing Definitions.
+Skip confirmed physical IDs already registered in CREATE or IMPORT. Unknown existing
+physical IDs permit explicitly managed additions with a duplicate-risk report; unknown
+management remains unresolved. No Name/CIDR/order matching or existing-resource update.
+Preserve every existing resource, row, observation, binding, expanded value and reference;
+never add rows to an existing resource. Retain unrelated parameters. New acquired
+reference values may be saved as observations; never replace another service's links.
+Non-secret acquired IDs/ARNs may persist; inferred/generated ARNs and secrets may not.
+Keep ordinary settings in desired/parameters, never move all settings to observed.
+Shared Template edits must preserve direct consumers using their unchanged local inputs.
+Only the selected service Template/Definition and selected environment/target/service
+parameters.yaml, bindings.json and observed.json are writable. Other environments are
+read-only preservation evidence; an incompatible shared change remains unresolved.
+Do not traverse recursive consumers or expand foreign Models for comparison.
 
 Save Model sources atomically first. Then generate and atomically save only the selected
 service's Markdown/JSON. Display failure rolls back only display writes and is exit 3;
