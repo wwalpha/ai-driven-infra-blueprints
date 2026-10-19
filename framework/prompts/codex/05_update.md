@@ -75,9 +75,17 @@ and [IMPORT authority](../../rules/model-information.md#import-configuration-aut
 The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
 defines exact pair/reference syntax and compatibility. Do not infer IDs or require pre-edits.
 
+For an explicit Human deletion request, skip the ordinary pre-contract Issue Gate stop
+and first register and validate the `import-delete` contract. After registration use
+the common task-aware Issue Gate (`require_no_issues` or `issue_gate.py --task` with the
+same selector), including on resume and before saves/final validation. Only existing
+issue stops within its explicit Validation scope are waived; do not require remediation
+or edit issues.md. All reference/Model safety checks and newly detected errors still
+stop unsafe deletion. Merge and all other operations retain the ordinary pre-task gate.
+
 The selected managed worktree is the transaction boundary. Keep the same parent Task
 selector through every operation; include all planned source/view paths and required
-direct consumers in its scope. Apply the issue gate. The parent owns sequencing and
+direct consumers in its scope. Apply the common task-aware issue decision. The parent owns sequencing and
 stopping; the following leaves own their exact editing procedures:
 
 1. For an overall merge request, call [model-transfer](../../../.agents/skills/model-transfer/SKILL.md)

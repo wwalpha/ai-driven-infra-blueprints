@@ -398,6 +398,10 @@ def refresh(root, name, resuming=False):
             raise ValueError("completed task cannot resume")
         validate_contract(root, name, text)
         return
+    if resuming and model_operation(text) is not None:
+        from issue_gate import require_no_issues
+        from validation_scope import active_scope
+        require_no_issues(root, active_scope(root, contract_file=name), contract_file=name)
     text = set_status(text, "running")
     if name != "tasks/active.md" or section(text, "## Modified files"):
         validate_contract(root, name, text)

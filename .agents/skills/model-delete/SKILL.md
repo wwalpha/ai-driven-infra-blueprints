@@ -14,6 +14,11 @@ forbidden AWS/deploy, and the exact requested subset of its normalized operation
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 
+Use the common task-aware Issue Gate for the selected parent. A valid `import-delete`
+parent waives only existing-issue stops within its explicit Validation scope; do not
+require Issue remediation or change issues.md. An `import-merge` parent retains the
+ordinary gate. This exception never waives the reference/Model safety checks below.
+
 Read raw source with `model_sources.read_sources`; expansion-based `read_resource`,
 `trace_model`, `find_model` and `load_for_edit` are optional editing aids and may fail
 for unfinished sources. Use existing YAML editing and resolver helpers. The agent

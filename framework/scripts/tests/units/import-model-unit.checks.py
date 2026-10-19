@@ -505,6 +505,19 @@ def check_model_operation_preserves_consumers(tmp_path, action):
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     sources = operation_candidate(before, after, action)
+    if action == 'import-delete':
+        from issue_gate import require_no_issues, issue_errors
+        from task_contract import start, selected_task
+        name = 'tasks/deletion.md'
+        text = (operation_contract(action) + '## Validation scope\n- `stg/cde/vpc`\n' +
+                f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
+        start(after, name, text)
+        issues = after / 'issues/stg/cde/issues.md'
+        issues.parent.mkdir(parents=True)
+        issues.write_text('### vpc\n1. 削除前の既存Issue\n', encoding='utf-8')
+        with selected_task(after, name):
+            assert issue_errors(after, {('stg', 'cde', 'vpc')})
+            require_no_issues(after, {('stg', 'cde', 'vpc')})
     verify_model_operation(before, after, model_operation(operation_contract(action)), sources)
     dev = 'model/dev/cde/vpc.properties'
     assert load_expansion(before / dev).values == load_expansion(after / dev).values
@@ -1100,7 +1113,8 @@ def check_batch_model_operation(tmp_path):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
-def check_intermediate_source_context(tmp_path, monkeypatch):
+@pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
+def check_intermediate_source_context(tmp_path, monkeypatch, action):
     from unittest.mock import patch
     import worktree_task
     from import_guard import source_write_context
@@ -1113,8 +1127,12 @@ def check_intermediate_source_context(tmp_path, monkeypatch):
     inputs = tmp_path / 'model/parameters/stg/cde/vpc/parameters.yaml'
     name = 'tasks/parent.md'
     listed = '\n'.join('- `' + value + '`' for value in [name, inputs.relative_to(tmp_path).as_posix()])
-    text = operation_contract() + '## Validation scope\n- `stg/cde/vpc`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
+    text = operation_contract(action) + '## Validation scope\n- `stg/cde/vpc`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
     start(tmp_path, name, text)
+    if action == 'import-delete':
+        issues = tmp_path / 'issues/stg/cde/issues.md'
+        issues.parent.mkdir(parents=True)
+        issues.write_text('### vpc\n1. 削除前の既存Issue\n', encoding='utf-8')
     state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
     with patch.object(worktree_task, 'load', return_value=(tmp_path, None, None, state)), \
@@ -1577,6 +1595,33 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
         incoming_references(tmp_path, 'stg/cde/service-a/001')
     assert journal.read_text() == 'pending recovery'
     assert all(p.read_bytes() == data for p, data in before.items())
+
+
+@pytest.mark.parametrize('broken_type', [False, True])
+def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
+    from support.import_model_fixtures import dependency_fixture
+    from model_reference_usage import incoming_references
+    from issue_gate import require_no_issues
+    from task_contract import start, selected_task
+    dependency_fixture(tmp_path)
+    name = 'tasks/deletion.md'
+    text = (operation_contract('import-delete', source='stg/cde/service-a/001') +
+            '## Validation scope\n- `stg/cde/service-a`\n' +
+            f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
+    start(tmp_path, name, text)
+    issues = tmp_path / 'issues/stg/cde/issues.md'
+    issues.parent.mkdir(parents=True)
+    issues.write_text('### service-a\n1. 既存のIssue\n', encoding='utf-8')
+    if broken_type:
+        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+        file.write_text(file.read_text().replace('"resourceType":"ServiceA.Resource"', '"resourceType":"ServiceA.Other"'))
+    with selected_task(tmp_path, name):
+        require_no_issues(tmp_path, {('stg', 'cde', 'service-a')})
+        if broken_type:
+            with pytest.raises(ValueError, match='resourceType mismatch'):
+                incoming_references(tmp_path, 'stg/cde/service-a/001')
+        else:
+            assert incoming_references(tmp_path, 'stg/cde/service-a/001')
 
 
 def check_reference_structural_and_remaining_delete(tmp_path):

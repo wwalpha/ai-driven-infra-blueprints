@@ -7,6 +7,171 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.issue_gate_fixtures import *
+import pytest
+import task_contract as tasks
+from support.import_model_fixtures import operation_contract
+
+
+@pytest.fixture
+def deletion_gate(tmp_path, monkeypatch):
+    name = 'tasks/deletion.md'
+    text = (operation_contract('import-delete') +
+            '## Validation scope\n- `stg/cde/vpc`\n' +
+            f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
+    tasks.start(tmp_path, name, text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    issues = tmp_path / 'issues/stg/cde/issues.md'
+    issues.parent.mkdir(parents=True)
+    issues.write_text('### vpc\n1. 既存のIssue\n', encoding='utf-8')
+    return tmp_path / name, text, issues, {('stg', 'cde', 'vpc')}
+
+
+def check_deletion_gate_and_task_validation(deletion_gate):
+    from validation.findings import Findings
+    from validation.task import TaskValidation
+    path, text, issues, scope = deletion_gate
+    root = path.parent.parent
+    original = issues.read_bytes()
+    for content in (original.decode('utf-8'), '### unknown service\n1. 既存のIssue\n'):
+        issues.write_text(content, encoding='utf-8')
+        assert issue_errors(root, scope), 'inventory analysis must still report unresolved issues'
+        require_no_issues(root, scope)
+        findings = Findings(root)
+        task = TaskValidation(root, findings)
+        task.task_type = 'design'
+        task.check_issue_gate()
+        assert not findings.errors
+    issues.write_bytes(original)
+    assert path.read_text() == text and issues.read_bytes() == original
+
+
+@pytest.mark.parametrize('kind', ['merge', 'update', 'deploy', 'completed', 'missing'])
+def check_ordinary_issue_gate_restored(deletion_gate, kind):
+    path, text, issues, scope = deletion_gate
+    if kind == 'merge':
+        text = text.replace('`import-delete`', '`import-merge`').replace(
+            '- Source resource: `stg/cde/vpc/009`',
+            '- Source resource: `stg/cde/vpc/009`\n- Destination resource: `stg/cde/vpc/001`')
+    elif kind in {'update', 'deploy'}:
+        text = text.replace('- Model operation: `import-delete`\n- Source resource: `stg/cde/vpc/009`\n', '')
+        if kind == 'deploy':
+            text = text.replace('- Task type: `design`', '- Task type: `infrastructure`\n- Infrastructure phase: `deploy`')
+    elif kind == 'completed':
+        text = tasks.set_status(text, 'completed')
+    else:
+        path.unlink()
+    if kind != 'missing':
+        path.write_text(text)
+    with pytest.raises(ValueError):
+        require_no_issues(path.parent.parent, scope)
+
+
+@pytest.mark.parametrize('old,new', [
+    ('`design`', '`infrastructure`'), ('`update`', '`import`'),
+    ('- Source resource: `stg/cde/vpc/009`', '- Source resource: `009`'),
+    ('- AWS API execution: `forbidden`', '- AWS API execution: `allowed`'),
+    ('- deploy/apply: `forbidden`', '- deploy/apply: `allowed`'),
+    ('`import-delete`', '`unknown`'), ('## Modified files', '## Missing files'),
+    ('- `stg/cde/vpc`', '- `stg/cde/ec2`'), ('- `stg/cde/vpc`', '- `all`'),
+])
+def check_deletion_contract_fail_closed(deletion_gate, old, new):
+    path, text, issues, scope = deletion_gate
+    path.write_text(text.replace(old, new))
+    with pytest.raises(ValueError):
+        require_no_issues(path.parent.parent, scope)
+
+
+@pytest.mark.parametrize('scope,target', [(None, None), ({('dev', 'cde', 'vpc')}, None),
+    ({('stg', 'cde', 'vpc'), ('stg', 'cde', 'ec2')}, None),
+    ({('stg', 'cde', 'vpc')}, ('dev', 'cde'))])
+def check_deletion_scope_fail_closed(deletion_gate, scope, target):
+    path, text, issues, _ = deletion_gate
+    with pytest.raises(ValueError, match='matching service Validation scope'):
+        require_no_issues(path.parent.parent, scope, target=target)
+
+
+def check_deletion_task_selection(deletion_gate):
+    import worktree_task
+    path, text, issues, scope = deletion_gate
+    root = path.parent.parent
+    other = 'tasks/ordinary.md'
+    tasks.start(root, other, text.replace('tasks/deletion.md', other).replace(
+        '- Model operation: `import-delete`\n- Source resource: `stg/cde/vpc/009`\n', ''))
+    with tasks.selected_task(root, other), pytest.raises(ValueError, match='unresolved issue'):
+        require_no_issues(root, scope)
+    (root / '.git').mkdir()
+    with mock.patch.object(worktree_task, 'task_start_commit', side_effect=ValueError('selected task does not match managed task_file')):
+        with pytest.raises(ValueError, match='managed task_file'):
+            require_no_issues(root, scope)
+
+
+def check_remediation_still_requires_explicit_scope(deletion_gate):
+    path, text, issues, scope = deletion_gate
+    root = path.parent.parent
+    ordinary = text.replace('- Model operation: `import-delete`\n- Source resource: `stg/cde/vpc/009`\n', '')
+    path.write_text(ordinary + '## Issue remediation\n- `stg/cde/vpc`\n')
+    require_no_issues(root, scope)
+    assert issue_errors(root, scope)
+    path.write_text(ordinary + '## Issue remediation\n- `stg/cde/ec2`\n')
+    with pytest.raises(ValueError, match='within explicit service Validation scope'):
+        require_no_issues(root, scope)
+
+
+@pytest.mark.parametrize('use_task', [False, True])
+def check_deletion_cli_requires_task_opt_in(deletion_gate, use_task):
+    import issue_gate
+    path, text, issues, scope = deletion_gate
+    args = ['issue_gate.py', '--repository-root', str(path.parent.parent), '--environment', 'stg',
+            '--target-directory', 'cde', '--service', 'vpc'] + (['--task'] if use_task else [])
+    with mock.patch.object(sys, 'argv', args):
+        assert issue_gate.main() == (0 if use_task else 1)
+
+
+@pytest.mark.parametrize('deletion', [False, True])
+def check_resume_issue_gate(deletion_gate, deletion):
+    path, text, issues, scope = deletion_gate
+    root, name = path.parent.parent, path.relative_to(path.parent.parent).as_posix()
+    if not deletion:
+        text = text.replace('`import-delete`', '`import-merge`').replace(
+            '- Source resource: `stg/cde/vpc/009`',
+            '- Source resource: `stg/cde/vpc/009`\n- Destination resource: `stg/cde/vpc/001`')
+        path.write_text(text)
+    tasks.suspend(root, name, 'explicit test stop')
+    if deletion:
+        tasks.resume(root, name)
+        assert tasks.status(path.read_text()) == 'running'
+    else:
+        with pytest.raises(ValueError, match='unresolved issue'):
+            tasks.resume(root, name)
+        assert tasks.status(path.read_text()) == 'suspend'
+
+
+@pytest.mark.parametrize('entrypoint', ['cli', 'runtime'])
+def check_generation_uses_deletion_gate(deletion_gate, entrypoint):
+    from contextlib import nullcontext
+    import import_guard
+    import sync_runtime
+    from script_loader import module
+    path, text, issues, scope = deletion_gate
+    root = path.parent.parent
+    runner = module('sync-model.py', 'issue_gate_sync_cli')
+    with mock.patch.object(import_guard, 'require_import_changes'), \
+         mock.patch.object(sync_runtime, 'run_generation', return_value=0) as generate, \
+         mock.patch.object(runner, 'run_generation', generate), \
+         mock.patch.object(runner, 'generation_context', return_value=nullcontext()):
+        if entrypoint == 'cli':
+            assert runner.run(['--write', '--scope', 'stg/cde/vpc'], repository_root=root)[0] == 0
+        else:
+            assert sync_runtime._sync(root, True, 'stg', 'cde', ['vpc']) == 0
+        assert generate.call_args.args[:2] == (root, scope)
+        generate.side_effect = ValueError('new candidate validation error')
+        if entrypoint == 'cli':
+            code, diagnostic = runner.run(['--write', '--scope', 'stg/cde/vpc'], repository_root=root)
+            assert code == 1 and 'new candidate validation error' in diagnostic
+        else:
+            with pytest.raises(ValueError, match='new candidate validation error'):
+                sync_runtime._sync(root, True, 'stg', 'cde', ['vpc'])
+
 
 def check_inventory_parser(tmp_path):
     root = tmp_path

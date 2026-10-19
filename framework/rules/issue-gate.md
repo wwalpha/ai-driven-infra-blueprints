@@ -13,8 +13,30 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 - Every numbered issue (`1. ...`) remaining in the list is unresolved. Remove only issues successfully repaired and revalidated within the explicit repair scope. Retain resolution history in Git; deletion/rewriting of the list alone does not mean repaired. If there are 0 issues, `未解決issueなし` may be written.
 - Identify services by `### <service-id>`, `<!-- issue-service: <service-id> -->`, or an evidence link to the same target's model properties/detailed design Markdown. Do not infer them from AWS service display names alone. Issues with unidentified ownership or invalid lists without numbered issues/a zero-issue declaration stop the entire target.
 - While unresolved issues exist for the target environment/target/service, do not start or continue other tasks such as design consultation, design saving, implement, deploy/apply, scenarios, or target migration. Do not stop other environments, targets, or services. When changing, implementing, or deploying multiple services, explicitly list every related service in Validation scope; stop the task if even one is blocked. Do not confuse overall validation with task targets.
-- Permit only read-only issue investigation, issue repair explicitly requested by the human, and the save-only tasks below. Do not create new task types; retain existing task boundaries such as design/infrastructure and AWS execution authorization. Framework-only governance/catalog-maintenance are not service-targeted tasks, so consumer issues do not stop them.
+- Permit read-only issue investigation, issue repair explicitly requested by the human, the Model deletion exception and the save-only tasks below. Do not create new task types; retain existing task boundaries such as design/infrastructure and AWS execution authorization. Framework-only governance/catalog-maintenance are not service-targeted tasks, so consumer issues do not stop them.
 - Issue investigation/saving and parameter environment comparison/diff saving are `migration` tasks; only the explicit service Validation scope targets' `issues/<environment>/<target-directory>/issues.md` / `iac-issues.md` / `diff.md` and this task's `tasks/<task-name>.md` are Allowed paths and change targets. Save-only tasks meeting these conditions do not apply existing-issue stop decisions and continue investigation, comparison, saving, and local validation. Items in iac-issues.md (non-blocking model → IaC comparison results) and diff.md (environment comparison) are not counted as unresolved issues and do not require repairing existing issues.md or adding Issue remediation. Retain issue gates for ordinary migration, design/model/IaC changes, model saving, and AWS mutation. Actual validation errors detected during investigation must still be reported as FAIL. IaC state files are not save-only output or deletion targets.
+
+## Model deletion exception
+
+For an explicit Human Model deletion request, do not stop at the ordinary pre-contract
+issue check. First register and validate the design /update `import-delete` contract
+with an exact Source resource, forbidden AWS API execution and deploy/apply, and explicit
+service Validation scope containing the source. Keep the same Task selector and managed
+worktree ownership. Then use the common task-aware issue decision (`require_no_issues`,
+or `issue_gate.py --task`) on its declared scope, including resume, source saves,
+generation and final/integration validation. Missing/invalid contracts, unknown operations,
+scope mismatches and mismatched managed Tasks fail closed. The ordinary CLI without
+`--task` retains its pre-contract gate.
+
+Only the existing-issue stop decision is waived within that deletion Task's Validation
+scope. Do not require Issue remediation, delete issues.md or mark existing issues fixed.
+Keep incoming-reference analysis, ambiguity/type/parse failures, surviving-reference and
+final verify_model_operation checks, Model/Properties/Bindings consistency, source
+existence/identity, path/scope/worktree guards, AWS/deploy prohibitions and newly detected
+generation/validation errors. Unsafe deletion still stops. `import-merge`, ordinary
+updates, IaC/deploy and later ordinary Tasks retain the issue gate; completed deletion
+contracts do not grant the exception.
+
 ## Issue remediation
 
 - Record the target issue, cause, and repair scope in the repair task's Goal and Required changes. Place the following section in the same active contract. Entries must be subsets of the explicit Validation scope only; repair exceptions using `all` / `framework` are prohibited. The exception applies only to that service's issue repair and revalidation; do not mix in feature additions, ordinary design, other issue repairs, etc. Do not automatically resume other suspended tasks after the repair task completes.
@@ -27,7 +49,7 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Check timing
 
-- Except for save-only tasks, check the latest issue list when targets are determined, before task start, on resume, before design saving, and before AWS mutation. Before starting, run the following check. This check does not use repair exceptions from old active contracts. For repair requests, confirm the stop reason and create a repair contract limited to the human's requested scope, then handle it with the existing workflow. An existing active contract does not lift issue stops for chat-only design consultation.
+- Except for save-only tasks and the explicit Model deletion exception above, check the latest issue list when targets are determined, before task start, on resume, before design saving, and before AWS mutation. Before starting, run the following check. This check does not use repair exceptions from old active contracts. For repair requests, confirm the stop reason and create a repair contract limited to the human's requested scope, then handle it with the existing workflow. An existing active contract does not lift issue stops for chat-only design consultation.
 
 ```text
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>

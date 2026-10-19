@@ -21,6 +21,12 @@ The Model-only branch composes model-transfer, model-retarget and model-delete u
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
 owns the post-rebase final validation/completion/merge sequence.
 
+For an explicit Human single-Model deletion request, follow the prompt's pre-contract
+exception: register and validate the `import-delete` parent before the task-aware Issue
+Gate. Waive only existing-issue stops in its explicit Validation scope; retain reference
+and Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Merge,
+ordinary updates and later Tasks retain the ordinary pre-task gate.
+
 The separate value-preserving branch first distinguishes deletion ordering from a
 necessary dependency detach using the shared read-only reference API. It uses an
 ordinary design Task with explicit detach declarations and ordinary guarded saving;

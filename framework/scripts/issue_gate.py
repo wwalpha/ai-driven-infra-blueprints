@@ -8,14 +8,14 @@ import sys
 
 from validation_scope import active_scope
 from model_files import service_model_path
-from task_contract import task_path
+from task_contract import task_path, contract_path, model_operation, validate_contract, status
 
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 
-def remediation_scope(root: Path, *, task_file=None) -> set[tuple[str, str, str]]:
-    path = task_path(root, selected=task_file)
+def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]]:
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
     if not input_is_file(path):
         return set()
     result = set()
@@ -32,7 +32,7 @@ def remediation_scope(root: Path, *, task_file=None) -> set[tuple[str, str, str]
                 raise ValueError("duplicate Issue remediation entry")
             result.add(entry)
     if result:
-        scope = active_scope(root, task_file=task_file)
+        scope = active_scope(root, task_file=task_file, contract_file=contract_file)
         if scope is None or not result <= scope:
             raise ValueError("Issue remediation must be within explicit service Validation scope")
     return result
@@ -121,8 +121,35 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
     return errors
 
 
-def require_no_issues(root: Path, scope, *, target=None, task_file=None) -> None:
-    errors = issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file), target=target)
+def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None) -> list[str]:
+    """Waive only existing issues for a valid, explicitly scoped deletion contract.
+
+    contract_file permits the read-only issue check before a suspended task resumes.
+    Model/reference validation and write authorization remain at their own boundaries.
+    """
+    if task_file is not None and contract_file is not None:
+        raise ValueError('select either an executing task or a read-only contract')
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
+    if input_is_file(path):
+        text = input_text(path, encoding='utf-8')
+        operation = model_operation(text)
+        if operation is not None and operation.action == 'import-delete':
+            name = path.relative_to(root).as_posix()
+            validate_contract(root, name, text)
+            declared = active_scope(root, task_file=task_file, contract_file=contract_file)
+            if (scope is None or declared is None or operation.scope not in declared or
+                    not scope <= declared or target is not None and not any(entry[:2] == target for entry in scope)):
+                raise ValueError('IMPORT deletion issue exception requires explicit matching service Validation scope')
+            if (root / '.git').exists():
+                from worktree_task import task_start_commit
+                task_start_commit(root, name)
+            if status(text) != 'completed':
+                return []
+    return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target)
+
+
+def require_no_issues(root: Path, scope, *, target=None, task_file=None, contract_file=None) -> None:
+    errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file)
     if errors:
         raise ValueError("\n- ".join(errors))
 
@@ -142,7 +169,7 @@ def main() -> int:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--target-directory", required=True)
     parser.add_argument("--service", action="append", required=True)
-    parser.add_argument("--task", action="store_true", help="Recheck the current task, including explicit remediation scope")
+    parser.add_argument("--task", action="store_true", help="Recheck the selected task, including remediation and validated Model deletion exceptions")
     args = parser.parse_args()
     if any(not re.fullmatch(SERVICE, value) for value in [args.environment, args.target_directory, *args.service]):
         parser.error("invalid environment/target/service")
@@ -153,7 +180,7 @@ def main() -> int:
             contract = active_scope(root)
             if contract is not None and not scope <= contract:
                 raise ValueError("requested services are outside active task validation scope")
-        errors = issue_errors(root, scope, remediation=remediation_scope(root) if args.task else ())
+        errors = task_issue_errors(root, scope) if args.task else issue_errors(root, scope)
     except (OSError, ValueError) as error:
         errors = [str(error)]
     if errors:
