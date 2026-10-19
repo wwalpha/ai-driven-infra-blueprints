@@ -914,7 +914,14 @@ def reference_values(path, identity, kind, mode, _context=None):
             if 'stacks' in bindings and any(bound == name and key != identity for key, bound in bindings['stacks'].items()):
                 raise ValueError('conflicting fixed stack binding')
             return LoadedModel('', values, {}, files)
-        if type_key not in fields or field_value(type_key) != kind:
+        if type_key not in fields:
+            return LoadedModel('', values, {}, files)
+        if mode != 'type':
+            typed = reference_values(path, identity, kind, 'type')
+            values.update(typed.values)
+            files.update(typed.files)
+        actual_kind = field_value(type_key)
+        if mode == 'type' or actual_kind != kind:
             return LoadedModel('', values, {}, files)
         if isinstance(mode, tuple) and mode[0] == 'physical':
             from model_core import LINK

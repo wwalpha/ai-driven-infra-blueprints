@@ -5,7 +5,7 @@ import re
 from model_core import entries, LINK
 from model_sources import json_read
 from model_templates import load_expansion, resolve, template_document, _reference_inputs, model_paths
-from model_parameter_inputs import parameter_value, schema
+from model_parameter_inputs import parameter_value, schema, select_reference_target
 from validation_cache import input_scope
 
 @dataclass(frozen=True)
@@ -34,24 +34,10 @@ def _symbolic(path, expansion, anchors):
         return marker
 
     def producer(item, name, spec):
-        selected = item['parameters'][name]
-        selected_service = spec.get('service', service)
-        other_path = root / 'model' / env / target / (selected_service + '.properties')
-        _, producer_inputs = _reference_inputs(other_path)
-        _, _, _, _, producer_bindings, producer_fields = producer_inputs
-        instance = spec.get('instance') if 'service' in spec else selected
-        if instance is not None:
-            binding = producer_bindings['instances'].get(instance)
-            if binding is None:
-                raise ValueError('unknown reference Instance')
-            candidates = [rid for rid in binding['resources'].values()
-                          if producer_fields['desired.resource.' + rid + '.resourceType'][2] == spec['resourceType']]
-        else:
-            candidates = [selected] if ('desired.resource.' + selected + '.resourceType' in producer_fields and
-                           producer_fields['desired.resource.' + selected + '.resourceType'][2] == spec['resourceType']) else []
-        if len(candidates) != 1:
-            raise ValueError('ambiguous/type-mismatched fixed reference target')
-        return '/'.join((env, target, selected_service, candidates[0]))
+        rid, kind = select_reference_target(template, item, name, normalized['instances'], definitions, env, {})
+        parts = (env, target, spec.get('service', service))
+        # Stack identities must never compare equal to a Resource with the same fixed ID.
+        return '/'.join((*parts, 'stack', rid) if kind == 'stack' else (*parts, rid))
 
     def reserved(value):
         if isinstance(value, str):
@@ -160,6 +146,7 @@ def _anchor_reference(path, anchors, service, anchor):
         if not key.startswith('desired.resource.') or not key.endswith('.resourceType'):
             continue
         rid = key.split('.')[2]
+        kind = reference_values(producer, rid, None, 'type').values[key]
         value = reference_values(producer, rid, kind, 'anchor').values[key.removesuffix('resourceType') + 'anchor']
         address = '/'.join((path.parent.parent.name, path.parent.name, service, rid))
         previous = anchors.setdefault((service, value), address)

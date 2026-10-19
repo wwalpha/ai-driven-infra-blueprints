@@ -316,13 +316,74 @@ def bind_instances(template, parameters, bindings, definitions, environment, che
     return {'version': 1, 'instances': result}, files
 
 
+def select_reference_target(template, item, name, instances, definitions, environment, files, context_for=None):
+    """Select one active fixed identity; leave display and value resolution to callers."""
+    from model_templates import _reference_inputs, reference_values, bound_definition, resolve, json_text
+    selected = item['parameters'][name]
+    declaration = definitions[item['definition']].parameters[name]
+    service = template.name.removesuffix('.properties.tpl')
+    details = {'consumerService': service, 'consumerInstance': item['id'], 'parameter': name,
+               'producerService': declaration.get('service', service) if isinstance(declaration, dict) else service,
+               'target': selected, 'expectedResourceType': declaration.get('resourceType') if isinstance(declaration, dict) else None,
+               'candidateIds': [], 'matchingIds': [], 'effectiveResourceTypes': {}}
+    try:
+        spec = schema(declaration)
+        if spec['type'] != 'reference':
+            raise ValueError('target selection requires a reference parameter')
+        if 'service' in spec:
+            if environment is None:
+                raise ValueError('external reference requires consumer context')
+            path = template.parents[3]/'model'/environment/template.parent.name/(spec['service']+'.properties')
+            _, inputs = _reference_inputs(path)
+            _, producer_files, _, _, bindings, fields = inputs
+            files.update(producer_files)
+            if 'instance' in spec:
+                target = bindings['instances'].get(spec['instance'])
+                if target is None:
+                    raise ValueError('unknown external instance reference')
+                candidates = list(target['resources'].values())
+            else:
+                candidates = [selected] if f'desired.resource.{selected}.resourceType' in fields else []
+                if spec['resourceType'] == 'CloudFormation.Stack' and f'desired.stack.{selected}.name' in fields:
+                    details['candidateIds'] = [selected]
+                    if candidates:
+                        raise ValueError('ambiguous resource/stack reference')
+                    model = reference_values(path, selected, spec['resourceType'], spec.get('format'))
+                    files.update(model.files)
+                    return selected, 'stack'
+            details['candidateIds'] = candidates
+            for rid in candidates:
+                model = reference_values(path, rid, spec['resourceType'], 'type')
+                files.update(model.files)
+                details['effectiveResourceTypes'][rid] = model.values[f'desired.resource.{rid}.resourceType']
+        else:
+            target = next((value for value in instances if value['id'] == selected), None)
+            if target is None:
+                raise ValueError('unknown instance reference')
+            definition = bound_definition(definitions[target['definition']], target['parameters'])
+            candidates = [rid for local, rid in target['resources'].items() if local in definition.resources]
+            details['candidateIds'] = candidates
+            for local, rid in target['resources'].items():
+                if rid in candidates:
+                    raw = definition.values[f'desired.resource.{local}.resourceType']
+                    details['effectiveResourceTypes'][rid] = resolve(raw, context_for(target, raw) if context_for else target['parameters'])
+        matches = [rid for rid in candidates if details['effectiveResourceTypes'][rid] == spec['resourceType']]
+        details['matchingIds'] = matches
+        if not matches:
+            raise ValueError('zero matching candidates: resourceType mismatch' if candidates else 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
+        if len(matches) != 1:
+            raise ValueError('multiple matching candidates')
+        return matches[0], 'resource'
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise ValueError('unresolved reference target: ' + json_text({**details, 'reason': str(error)})) from error
+
+
 def parameter_value(template, item, name, instances, bindings, definitions, environment, files, context_for=None):
     from model_templates import json_text, REFERENCE_NAME_SUFFIXES, bound_definition
     definition = definitions[item['definition']]
     value = item['parameters'][name]
     maps = bindings['instances']
     labels = maps[item['id']].get('labels', {})
-    by_id = {instance['id']: instance for instance in instances}
     spec = schema(definition.parameters[name])
     if spec['type'] == 'reference':
         if 'service' in spec:
@@ -335,25 +396,13 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             with create_reference(template, item, name, definitions, environment):
                 root = template.parents[3]
                 path = root/'model'/environment/template.parent.name/(spec['service']+'.properties')
-                if 'instance' in spec:
-                    from model_templates import _reference_inputs
-                    _, producer = _reference_inputs(path)
-                    _, producer_files, _, _, producer_bindings, fields = producer
-                    target = producer_bindings['instances'].get(spec['instance'])
-                    if target is None:
-                        raise ValueError(f'unknown external instance reference: {spec["service"]}/{spec["instance"]}')
-                    candidates = [rid for rid in target['resources'].values()
-                                  if fields[f'desired.resource.{rid}.resourceType'][2] == spec['resourceType']]
-                    if len(candidates) != 1:
-                        raise ValueError(f'ambiguous/type-mismatched external instance reference: {spec["service"]}/{spec["instance"]}: expected exactly one {spec["resourceType"]}, found {len(candidates)}')
-                    value = candidates[0]
-                    files.update(producer_files)
+                value, target_kind = select_reference_target(template, item, name, instances, definitions, environment, files, context_for)
                 mode = spec.get('format')
                 if mode is None and name in labels:
                     mode = 'anchor'
                 model = reference_values(path, value, spec['resourceType'], mode); files.update(model.files)
             stack_name = f'desired.stack.{value}.name'
-            if spec['resourceType'] == 'CloudFormation.Stack' and stack_name in model.values:
+            if target_kind == 'stack':
                 if f'desired.resource.{value}.resourceType' in model.values:
                     raise ValueError(f'ambiguous resource/stack reference: {value}')
                 if spec.get('format') != 'name':
@@ -365,22 +414,17 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
                     raise ValueError('reference producer requires a valid stack name')
                 return raw
             rows = resource_row_index(model.values)
-            candidates = [(rid, resource.get('anchor')) for rid, resource in entries(model.values, 'desired.resource.')
-                          if rid == value and resource['resourceType'] == spec['resourceType']]
+            rid, anchor = value, model.values.get(f'desired.resource.{value}.anchor')
             prefix = spec['service']+'.md'
         else:
-            target = by_id.get(value)
-            if target is None:
-                raise ValueError(f'unknown instance reference: {item["id"]}/{name}: {value}')
+            rid, _ = select_reference_target(template, item, name, instances, definitions, environment, files, context_for)
+            target = next(instance for instance in instances if instance['id'] == value)
             target_def = bound_definition(definitions[target['definition']], target['parameters'])
-            candidates = [(rid, target_def.values[f'desired.resource.{local}.anchor']) for local, rid in target['resources'].items()
-                          if target_def.values[f'desired.resource.{local}.resourceType'] == spec['resourceType']]
+            local = next(local for local, fixed in target['resources'].items() if fixed == rid)
+            anchor = target_def.values[f'desired.resource.{local}.anchor']
             from model_templates import resolve
-            candidates = [(rid, resolve(anchor, context_for(target, anchor) if context_for else target['parameters'])) for rid, anchor in candidates]
+            anchor = resolve(anchor, context_for(target, anchor) if context_for else target['parameters'])
             prefix = ''
-        if len(candidates) != 1:
-            raise ValueError(f'ambiguous/type-mismatched reference: {item["id"]}/{name}: {value}')
-        rid, anchor = candidates[0]
         if spec.get('format') == 'identifier':
             from utils.aws_catalogs import catalogs_for
             from model_references import catalog_outputs

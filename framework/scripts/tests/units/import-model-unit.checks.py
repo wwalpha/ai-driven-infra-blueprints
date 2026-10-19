@@ -1226,6 +1226,144 @@ def check_explicit_reference_operation(tmp_path, field):
 
 
 
+@pytest.mark.parametrize('selection', ['fixed', 'instance'])
+def check_effective_reference_identity(tmp_path, selection, monkeypatch):
+    import yaml
+    import model_templates as templates
+    from support.import_model_fixtures import dependency_fixture, spec
+    from model_reference_usage import incoming_references, outgoing_references
+    from validation_cache import input_scope
+    dependency_fixture(tmp_path)
+    producer = tmp_path / 'model/templates/cde/service-a.properties.tpl'
+    text = producer.read_text(encoding='utf-8').replace('desired.resource.resource.resourceType=ServiceA.Resource',
+        '# parameter: Kind ' + json.dumps(spec()) + '\ndesired.resource.resource.resourceType=<<Kind>>')
+    producer.write_text(text, encoding='utf-8')
+    for env in ('dev', 'stg'):
+        file = tmp_path / 'model/parameters' / env / 'cde/service-a/parameters.yaml'
+        data = yaml_read(file.read_text(encoding='utf-8'))
+        for item in data['instances'].values():
+            item['parameters']['Kind'] = 'ServiceA.Resource'
+        file.write_text(yaml.safe_dump(data), encoding='utf-8')
+    if selection == 'instance':
+        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+        original = spec('reference', service='service-a', resourceType='ServiceA.Resource', format='name')
+        replacement = {'service': 'service-a', 'instance': 'producer', 'resourceType': 'ServiceA.Resource', 'format': 'name'}
+        file.write_text(file.read_text().replace('# parameter: Origin ' + json.dumps(original, ensure_ascii=False, separators=(',', ':')), '# reference: Origin ' + json.dumps(replacement)), encoding='utf-8')
+        for env in ('dev', 'stg'):
+            file = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
+            data = yaml_read(file.read_text())
+            del data['instances']['consumer']['parameters']['Origin']
+            file.write_text(yaml.safe_dump(data), encoding='utf-8')
+    @input_scope
+    def selected_attributes():
+        path = tmp_path / 'model/stg/cde/service-a.properties'
+        with patch.object(templates, 'load_expansion', side_effect=AssertionError('whole producer expansion')), \
+             patch.object(templates, 'resolve', wraps=templates.resolve) as resolve:
+            typed = templates.reference_values(path, '001', 'ServiceA.Resource', 'type')
+            assert typed.values == {'desired.resource.001.resourceType': 'ServiceA.Resource'}
+            templates.reference_values(path, '001', 'ServiceA.Resource', 'name')
+            templates.reference_values(path, '001', 'ServiceA.Resource', 'anchor')
+            assert sum(call.args[0] == '<<Kind>>' for call in resolve.call_args_list) == 1
+    selected_attributes()
+    snapshot = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    parsed = templates.parse_template
+    calls = []
+    def parse(path, *args, **kwargs):
+        calls.append(path)
+        return parsed(path, *args, **kwargs)
+    monkeypatch.setattr(templates, 'parse_template', parse)
+    @input_scope
+    def inspect():
+        path = tmp_path / 'model/stg/cde/service-b.properties'
+        assert templates.load_expansion(path).values['desired.row.002-001.value'] == 'same-name-stg'
+        first = incoming_references(tmp_path, 'stg/cde/service-a/001')
+        assert len(first) == 1 and first[0]['consumer'] == 'stg/cde/service-b/002'
+        assert incoming_references(tmp_path, 'stg/cde/service-a/003') == []
+        count = len(calls)
+        assert incoming_references(tmp_path, 'stg/cde/service-a/001') == first
+        assert len(calls) == count
+        assert outgoing_references(tmp_path, 'stg/cde/service-b/002')[0]['producer'] == 'stg/cde/service-a/001'
+    inspect()
+    assert snapshot == {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    from support.import_model_fixtures import dependency_refactor, dependency_contract
+    from model_operation_checks import verify_model_refactor
+    from task_contract import model_refactor
+    after = tmp_path / 'after'
+    sources = dependency_refactor(tmp_path, after)
+    verify_model_refactor(tmp_path, after, model_refactor(dependency_contract()), sources,
+                          {('dev', 'cde', 'service-b'), ('stg', 'cde', 'service-b')})
+
+
+def check_local_reference_effective_identity(tmp_path):
+    import yaml
+    from support.import_model_fixtures import dependency_fixture, spec
+    from model_reference_usage import outgoing_references
+    from model_templates import load_expansion
+    dependency_fixture(tmp_path)
+    path = tmp_path / 'model/templates/cde/service-a.properties.tpl'
+    old = spec('reference', service='service-b', resourceType='ServiceB.Resource')
+    new = spec('reference', resourceType='ServiceA.Resource')
+    text = path.read_text().replace(json.dumps(old, ensure_ascii=False, separators=(',', ':')), json.dumps(new))
+    text = text.replace('desired.resource.resource.resourceType=ServiceA.Resource',
+                        '# parameter: Kind ' + json.dumps(spec()) + '\ndesired.resource.resource.resourceType=<<Kind>>')
+    path.write_text(text, encoding='utf-8')
+    file = tmp_path / 'model/parameters/stg/cde/service-a/parameters.yaml'
+    data = yaml_read(file.read_text())
+    data['instances']['producer']['parameters']['Peer'] = 'same-name'
+    for item in data['instances'].values():
+        item['parameters']['Kind'] = 'ServiceA.Resource'
+    file.write_text(yaml.safe_dump(data), encoding='utf-8')
+    assert load_expansion(tmp_path / 'model/stg/cde/service-a.properties').values['desired.row.001-002.value'] == '[003](#other-producer)'
+    records = outgoing_references(tmp_path, 'stg/cde/service-a/001')
+    assert len(records) == 1 and records[0]['producer'] == 'stg/cde/service-a/003'
+
+
+def check_stack_reference_usage_identity(tmp_path):
+    from support.import_model_fixtures import dependency_fixture, save_service
+    from model_reference_usage import outgoing_references, incoming_references
+    dependency_fixture(tmp_path)
+    template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+    text = template.read_text().replace('desired.row.name.comment=合成テストの取得設定',
+        'desired.row.name.comment=合成テストの取得設定\n'
+        '# reference: Stack {"service":"cloudformation-stacks","resource":"001","resourceType":"CloudFormation.Stack","format":"name"}\n'
+        'display.resource.resource.label=<<Stack>>')
+    template.write_text(text, encoding='utf-8')
+    lines = ['# model-template: 1', '# definition: Stack', 'desired.stack.001.name=ExampleStack',
+             'desired.stack.001.template=example.yaml', 'desired.stack.001.parameters=example.json',
+             'desired.stack.001.deployOrder=1', '# end-definition']
+    save_service(tmp_path, 'cloudformation-stacks', lines, {'instances': {}},
+                 {'instances': {'stack': {'definition': 'Stack', 'resources': {}, 'rows': {}, 'parameters': {}}},
+                  'stacks': {'001': 'ExampleStack'}}, environment='stg')
+    outgoing = outgoing_references(tmp_path, 'stg/cde/service-b/002')
+    stack = next(record for record in outgoing if record['producer'].endswith('/stack/001'))
+    assert stack['producer'] == 'stg/cde/cloudformation-stacks/stack/001'
+    assert stack['resolvedValue'] == 'ExampleStack' and stack['role'] == 'display'
+    assert len(incoming_references(tmp_path, 'stg/cde/service-a/001')) == 1
+
+
+@pytest.mark.parametrize('failure', ['missing-id', 'type'])
+def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
+    from support.import_model_fixtures import dependency_fixture
+    import model_reference_usage as usage
+    dependency_fixture(tmp_path)
+    if failure == 'missing-id':
+        file = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
+        file.write_text(file.read_text().replace("'001'", "'999'"), encoding='utf-8')
+    else:
+        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
+        file.write_text(file.read_text().replace('"resourceType":"ServiceA.Resource"', '"resourceType":"Other.Resource"'), encoding='utf-8')
+    # Even a Resource unrelated to the invalid reference cannot be declared safe.
+    with pytest.raises(ValueError, match='zero (matching )?candidates') as error:
+        usage.incoming_references(tmp_path, 'stg/cde/service-a/003')
+    message = str(error.value)
+    for detail in ('service-b', 'consumer', 'Origin', 'service-a', 'candidateIds', 'expectedResourceType', 'reason'):
+        assert detail in message
+    monkeypatch.setattr(sys, 'argv', ['model_reference_usage.py', 'stg/cde/service-a/003', '--repository-root', str(tmp_path)])
+    assert usage.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'unresolved' and result['error'] == message
+
+
 def check_generic_reference_usage(tmp_path):
     from support.import_model_fixtures import dependency_fixture
     from model_reference_usage import incoming_references, outgoing_references
