@@ -194,3 +194,17 @@ Only `changed:`, `exists:`, `absent:`, and validator-registered `check:` are per
 - Do not suppress failing checks to obtain a pass.
 
 Human review that uniformly stops every deployment after validate/plan is not required. Plan-specific human confirmation for unapproved delete/replacement and Codex sandbox/OS permission control are separate mechanisms; operations requiring permission follow platform control regardless of repository rules.
+
+## Reviewed governance recovery
+
+After explicit Human authorization to repair a retained, verified governance task,
+`worktree_task.py recover --task-id <id> --expected-commit <full-old-hash>
+--expected-base <full-current-base-hash>` reopens its completed contract and prepares
+only declared corrections. It pins both hashes and preserves a recovery receipt;
+normal finalize is blocked until recovery finishes. A failed rebase is aborted.
+After reviewing conflicts, rebase manually onto that exact base, resolve and continue,
+then run the same command with `--finish-recovery`. This accepts only a clean linear
+candidate on the unchanged base, with the expected commit count and declared paths.
+No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
+validation PASS. Run the required IT and Full checks, complete the contract, and use
+normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.

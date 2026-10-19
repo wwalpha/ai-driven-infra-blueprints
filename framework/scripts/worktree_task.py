@@ -387,10 +387,69 @@ def _prepare_commit(root, path, state, target, approval):
     return latest
 
 
+def recover(where, task_id, expected_commit, expected_base, finish=False):
+    """Explicit reviewed recovery; pin old task/base and never merge or validate."""
+    root, _, path, state = load(where, task_id)
+    with lifecycle_lock(root):
+        target = task_worktree(root, state)
+        base = base_worktree(root, state)
+        if not all(re.fullmatch(r"[0-9a-f]{40}", value or "") for value in (expected_commit, expected_base)):
+            raise Blocked("recovery requires full expected commit/base hashes")
+        if state['merged'] or state.get('validation_failure_approval') or not state['verified']:
+            raise Blocked("recovery requires an unmerged verified task without failure approval")
+        if output(base, 'rev-parse', 'HEAD') != expected_base:
+            raise Blocked("recovery base changed")
+        text = (target / state['task_file']).read_text(encoding='utf-8')
+        tasks.validate_contract(target, state['task_file'], text)
+        if '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
+            raise Blocked("reviewed recovery is limited to governance tasks")
+        if finish:
+            recovery = state.get('recovery')
+            if not recovery or (recovery['commit'], recovery['base']) != (expected_commit, expected_base):
+                raise Blocked("recovery receipt does not match expected commit/base")
+            head = output(target, 'rev-parse', 'HEAD')
+            if (changed_paths(target) or tasks.status(text) != 'running' or
+                    git(target, 'merge-base', '--is-ancestor', expected_base, head, check=False).returncode != 0 or
+                    output(target, 'rev-list', '--count', expected_base + '..' + head) != recovery['count'] or
+                    output(target, 'rev-list', '--merges', expected_base + '..' + head)):
+                raise Blocked("recovery candidate is dirty, unfinished or has unexpected history")
+            changed = paths(target, 'diff', '--name-only', '--no-renames', '-z', expected_base, head)
+            declared = tasks.paths_in(text, '## Modified files')
+            allowed = tasks.paths_in(text, '## Allowed paths')
+            if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
+                raise Blocked("recovery candidate is outside the exact task contract")
+            state.update(tip=head, commit=head, verified=True)
+            del state['recovery']
+            save(path, state)
+            return state
+        if state.get('recovery') or state['commit'] != expected_commit or state['tip'] != expected_commit or output(target, 'rev-parse', 'HEAD') != expected_commit:
+            raise Blocked("recovery task commit changed or recovery already started")
+        if tasks.status(text) not in {'completed', 'running'}:
+            raise Blocked("resume suspended tasks before recovery")
+        if git(target, 'merge-base', '--is-ancestor', state['start'], expected_base, check=False).returncode:
+            raise Blocked("recovery base history was rewritten")
+        count = int(output(target, 'rev-list', '--count', expected_base + '..' + expected_commit))
+        changed = bool(changed_paths(target))
+        state['recovery'] = dict(commit=expected_commit, base=expected_base, count=str(count + changed))
+        tasks.atomic_files({target / state['task_file']: tasks.set_status(text, 'running')}, staging_directory=target)
+        # Permit only this explicitly pinned correction commit; normal finalize guards stay closed.
+        if changed:
+            state['commit'] = None
+        try:
+            _prepare_commit(root, path, state, target, None)
+        except Blocked as error:
+            if str(error).startswith('rebase failed and was aborted'):
+                save(path, state)
+            raise
+        return state
+
+
 def finalize(where, task_id, human_approved_validation_failure=None):
     if human_approved_validation_failure is not None and not human_approved_validation_failure.strip():
         raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
+    if state.get("recovery"):
+        raise Blocked("finish reviewed recovery and rerun validation before finalize")
     if not state['merged'] and human_approved_validation_failure is None and not state.get('validation_failure_approval'):
         target = task_worktree(root, state)
         text = (target / state['task_file']).read_text(encoding='utf-8')
@@ -534,19 +593,25 @@ def _integrate_model(where, task_id):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "setup", "finalize", "cleanup"))
+    parser.add_argument("command", choices=("create", "setup", "finalize", "cleanup", "recover"))
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--human-approved-validation-failure", metavar="APPROVAL",
                         help="Finalize a suspended task only after explicit human approval of named validation failures")
+    parser.add_argument("--expected-commit")
+    parser.add_argument("--expected-base")
+    parser.add_argument("--finish-recovery", action="store_true")
     args = parser.parse_args()
     if args.human_approved_validation_failure is not None and args.command != "finalize":
         parser.error("--human-approved-validation-failure is only valid with finalize")
+    if args.command != "recover" and (args.expected_commit or args.expected_base or args.finish_recovery):
+        parser.error("recovery arguments require recover")
     where = args.repository_root
     try:
         if args.command != "create":
             where = load(where, args.task_id)[0]  # Keep diagnostics usable after task checkout removal.
-        state = (finalize(where, args.task_id, args.human_approved_validation_failure)
+        state = (recover(where, args.task_id, args.expected_commit, args.expected_base, args.finish_recovery)
+                 if args.command == "recover" else finalize(where, args.task_id, args.human_approved_validation_failure)
                  if args.command == "finalize" else globals()[args.command](where, args.task_id))
         print(json.dumps({"status": "ok", **state}, ensure_ascii=False))
         return 0

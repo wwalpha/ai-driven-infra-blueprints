@@ -112,3 +112,15 @@ python3 -B framework/scripts/worktree_task.py cleanup --task-id <task-id>
 ```
 
 Different worktrees still share AWS resources. Cross-worktree AWS mutation locking is a separate responsibility; this skill adds none and does not relax existing deployment controls.
+
+## Human-reviewed governance conflict recovery
+
+For an explicitly authorized retained governance repair, use
+[Reviewed governance recovery](../../../framework/rules/task-contract.md#reviewed-governance-recovery).
+Run `recover` from the checkout containing the reviewed helper with full expected
+commit/base hashes. It reopens only that contract, pins the recovery, and retains the
+normal finalize guards. After its aborted rebase, the authorized manual rebase may
+resolve the reviewed conflicts; `--finish-recovery` registers the clean exact-base
+candidate through the helper. Do not hand-edit metadata. Then execute the required
+IT/Full validation before completing and finalizing. This is not a failed-validation
+integration exception and does not apply to Model tasks.

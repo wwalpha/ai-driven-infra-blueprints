@@ -146,6 +146,30 @@ def check_ahead_and_rebase_conflict():
                 assert (target / "file.txt").read_text() == "task\n"
                 wt.idle_git(target)
                 assert git(target, "status", "--porcelain") == ""
+                import pytest
+                old = result['commit']
+                with pytest.raises(wt.Blocked, match='commit changed'):
+                    wt.recover(root, 'example', '0' * 40, latest)
+                with pytest.raises(wt.Blocked, match='base changed'):
+                    wt.recover(root, 'example', old, '0' * 40)
+                with pytest.raises(wt.Blocked, match='aborted'):
+                    wt.recover(root, 'example', old, latest)
+                assert tasks.status((target / state['task_file']).read_text()) == 'running'
+                assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
+                assert wt.git(target, 'rebase', latest, check=False).returncode
+                (target / 'file.txt').write_text('base update\ntask\n')
+                git(target, 'add', 'file.txt')
+                git(target, 'rebase', '--continue')
+                (target / 'file.txt').write_text('dirty\n')
+                with pytest.raises(wt.Blocked, match='dirty'):
+                    wt.recover(root, 'example', old, latest, finish=True)
+                (target / 'file.txt').write_text('base update\ntask\n')
+                recovered = wt.recover(root, 'example', old, latest, finish=True)
+                assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
+                assert 'recovery' not in recovered
+                finish_contract(target, state)
+                assert cli(root, 'finalize')['cleaned']
+                assert (root / 'file.txt').read_text() == 'base update\ntask\n'
             else:
                 assert git(root, "rev-parse", "HEAD^") == latest
                 assert (root / "base.txt").read_text() == "base update\n"
