@@ -55,6 +55,7 @@ REFERENCE_PROPERTIES = {
     'EC2.SecurityGroupEgress.GroupId': ('EC2.SecurityGroup', 'GroupId'),
     'EC2.SecurityGroupEgress.DestinationSecurityGroupId': ('EC2.SecurityGroup', 'GroupId'),
     'EC2.Subnet.VpcId': ('EC2.VPC', 'VpcId'),
+    'EC2.TransitGatewayVpcAttachment.VpcId': ('EC2.VPC', 'VpcId'),
     'EC2.SubnetRouteTableAssociation.RouteTableId': ('EC2.RouteTable', 'RouteTableId'),
     'EC2.RouteTable.VpcId': ('EC2.VPC', 'VpcId'),
     'EC2.FlowLog.LogGroupName': ('Logs.LogGroup', 'LogGroupName'),

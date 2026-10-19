@@ -52,6 +52,7 @@ CASES = [
     ('CloudTrail.Trail.S3BucketName', 'S3.Bucket', {'BucketName': 'audit-bucket'}, 'audit-bucket'),
     ('KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN', 'S3.Bucket', {'BucketName': 'audit-bucket'}, 'arn:aws:s3:::audit-bucket'),
     ('EC2.SecurityGroup.VpcId', 'EC2.VPC', {'VpcId': 'vpc-confirmed'}, 'vpc-confirmed'),
+    ('EC2.TransitGatewayVpcAttachment.VpcId', 'EC2.VPC', {'VpcId': 'vpc-confirmed'}, 'vpc-confirmed'),
     ('CodeBuild.Project.VpcConfig.Subnets[]', 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'}, 'subnet-confirmed'),
     ('Lambda.Function.VpcConfig.SecurityGroupIds[]', 'EC2.SecurityGroup', {'GroupId': 'sg-confirmed'}, 'sg-confirmed'),
     ('Glue.Job.Role', 'IAM.Role', {'RoleName': 'glue-role'}, 'glue-role'),
