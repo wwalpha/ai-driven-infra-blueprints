@@ -84,8 +84,8 @@ def check(root):
     assert expanded[retained] == '[PENDING_DEPLOY](lambda.md#lambda-app-preview-two)'
     write_model(producer, original)
     for bad, phrase in [
-        (original.replace('resourceType=Lambda.Function', 'resourceType=S3.Bucket'), 'type-mismatched'),
-        (original.replace('052', '053'), 'type-mismatched'),
+        (original.replace('resourceType=Lambda.Function', 'resourceType=S3.Bucket'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('052', '053'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace('Lambda.Function.FunctionName', 'Lambda.Function.Description'), 'exactly one name'),
         (original.replace('`app-preview-one`', '``'), 'exactly one name'),
         (original + 'desired.row.052-004.property=Lambda.Function.FunctionName\n'

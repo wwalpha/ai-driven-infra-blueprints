@@ -160,9 +160,9 @@ def check_fixed_label(root):
     binding_path.write_text(t.json_text(binding), encoding='utf-8')
     content = template.read_bytes()
     template.write_bytes(content.replace(b'"resource":"001"', b'"resource":"999"'))
-    rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+    rejected(root, lambda: load_model(consumer), 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
     template.write_bytes(content.replace(b'"resourceType":"CloudTrail.Trail"', b'"resourceType":"IAM.Role"'))
-    rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+    rejected(root, lambda: load_model(consumer), 'zero matching candidates: resourceType mismatch')
     template.write_bytes(content)
 
 
@@ -212,9 +212,9 @@ def check_stack(root):
         assert load_model(consumer) == pinned and pinned.files[inputs].encode() == original
     snapshot(); inputs.write_bytes(original)
     template.write_text(content.replace('"resource":"001"', '"resource":"999"'), encoding='utf-8')
-    rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+    rejected(root, lambda: load_model(consumer), 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
     template.write_text(content.replace('"resourceType":"CloudFormation.Stack"', '"resourceType":"IAM.Role"'), encoding='utf-8')
-    rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+    rejected(root, lambda: load_model(consumer), 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
     template.write_text(content.replace(',"format":"name"', ''), encoding='utf-8')
     rejected(root, lambda: load_model(consumer), 'stack reference requires format:name')
     template.write_text(content, encoding='utf-8')
@@ -306,9 +306,9 @@ def check():
         assert t.json_read(load_model(consumer).values['desired.note.config.document'])['name'] == 'cloudtrail-original'
         before = template.read_bytes()
         template.write_bytes(before.replace(b'"resource":"001"', b'"resource":"999"'))
-        rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+        rejected(root, lambda: load_model(consumer), 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
         template.write_bytes(before.replace(b'"resourceType":"CloudTrail.Trail"', b'"resourceType":"IAM.Role"'))
-        rejected(root, lambda: load_model(consumer), 'ambiguous/type-mismatched')
+        rejected(root, lambda: load_model(consumer), 'zero matching candidates: resourceType mismatch')
     print('Attribute references: PASS (one-way, reciprocal services, true attribute cycle with route, strict rejection/write=0, YAML inputs, producer change/hash/trace/impact, immutable snapshot)')
 
 

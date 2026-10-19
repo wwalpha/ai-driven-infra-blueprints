@@ -63,8 +63,8 @@ def check(root):
     assert json.loads(updated[key])['bucketDefinitions'][0]['buckets'][0]=='app-preview-RAW-two'
     assert updated['desired.row.003-002.value']=='[PENDING_DEPLOY](s3.md#s3-raw-name)'
     assert t.design_source_digest(path)!=digest
-    for bad,phrase in [(original.replace('resourceType=S3.Bucket','resourceType=IAM.Role'),'type-mismatched'),
-        (original.replace('017','018'),'type-mismatched'),
+    for bad,phrase in [(original.replace('resourceType=S3.Bucket','resourceType=IAM.Role'),'zero matching candidates: resourceType mismatch'),
+        (original.replace('017','018'),'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace('S3.Bucket.BucketName','S3.Bucket.Description'),'exactly one name'),
         (original.replace('`app-preview-RAW-one`','``'),'exactly one name'),
         (original+'desired.row.017-002.property=S3.Bucket.BucketName\ndesired.row.017-002.value=`duplicate`\n','exactly one name')]:

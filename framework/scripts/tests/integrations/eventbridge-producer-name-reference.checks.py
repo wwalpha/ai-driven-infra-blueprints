@@ -87,8 +87,8 @@ def check(root, service, kind, property_name):
     assert t.json_read(load_model(path).values['desired.note.raw.document'])['name'] == 'Renamed'
     assert t.affected(root, [producer.relative_to(root)]) == {('preview', 'team', service), ('preview', 'team', 'eventbridge')}
     for bad, message in [
-        (original.replace('resourceType=' + kind, 'resourceType=EC2.VPC'), 'type-mismatched'),
-        (original.replace('052', '054'), 'type-mismatched'),
+        (original.replace('resourceType=' + kind, 'resourceType=EC2.VPC'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('052', '054'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace(kind + '.' + property_name, kind + '.Description'), 'exactly one name'),
         (original.replace('`Original-Case_01`', '``'), 'exactly one name'),
         (original + 'desired.row.052-003.property=' + kind + '.' + property_name + '\ndesired.row.052-003.value=`duplicate`\n', 'exactly one name'),

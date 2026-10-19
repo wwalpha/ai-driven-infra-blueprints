@@ -72,8 +72,8 @@ def check(root):
         write_model(producer, updated)
         assert t.design_source_digest(path) != digest
         assert load_model(path).values['desired.row.003-001.value'] == ('`audit-next-archive`' if 'audit-next' in updated else '`audit-preview-archive`')
-    for bad, phrase in [(original.replace('resourceType=CloudTrail.Trail', 'resourceType=S3.Bucket'), 'type-mismatched'),
-        (original.replace('017', '018'), 'type-mismatched'),
+    for bad, phrase in [(original.replace('resourceType=CloudTrail.Trail', 'resourceType=S3.Bucket'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('017', '018'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace('CloudTrail.Trail.TrailName', 'CloudTrail.Trail.Description'), 'exactly one name'),
         (original.replace('`audit-preview`', '``'), 'exactly one name'),
         (original + 'desired.row.017-004.property=CloudTrail.Trail.TrailName\ndesired.row.017-004.value=`duplicate`\n', 'exactly one name')]:

@@ -260,16 +260,16 @@ def check_resource_reading(root):
         assert after == before, (flag, before, after)
         assert memo_table() is None
         assert all(max(counts.values(), default=0) <= 1 for counts in bodies_after.values()), bodies_after
-        assert sum(bodies_after['reference_values'].values()) == 2
+        assert sum(bodies_after['reference_values'].values()) == 3
         assert sum(bodies_after['_reference_inputs'].values()) == 1
-        assert sum(bodies_before['reference_values'].values()) == 3
-        assert sum(bodies_before['_reference_inputs'].values()) == 3
-        assert hits_before['reference_values'] == hits_after['reference_values'] == 3
-        assert hits_before['_parse_template'] == 4 and hits_after['_parse_template'] == 2
-        assert sum(bodies_before['_parse_template'].values()) == 4
+        assert sum(bodies_before['reference_values'].values()) == 9
+        assert sum(bodies_before['_reference_inputs'].values()) == 12
+        assert (hits_before['reference_values'], hits_after['reference_values']) == (9, 8)
+        assert hits_before['_parse_template'] == 13 and hits_after['_parse_template'] == 2
+        assert sum(bodies_before['_parse_template'].values()) == 13
         assert sum(bodies_after['_parse_template'].values()) == 2
-    print('CLI synthetic reuse: reference lookups=3->3, reference bodies=3->2, '
-          'producer preparation bodies=3->1, parser bodies=4->2; output/exit unchanged')
+    print('CLI synthetic reuse: reference lookups=9->8, reference bodies=9->3 (type/name/link), '
+          'producer preparation bodies=12->1, parser bodies=13->2; output/exit unchanged')
 
     @input_scope
     def inherited():

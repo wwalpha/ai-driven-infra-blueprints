@@ -109,7 +109,7 @@ def check(root):
         (pdir/'observed.json').write_text(t.json_text({'version':1,'values':change}))
         rejected(lambda: load_model(path), phrase)
     (pdir/'observed.json').write_text(t.json_text(observed))
-    for change, phrase in [({'resource':'002'},'type-mismatched'), ({'resourceType':'EC2.Subnet','property':'EC2.Subnet.SubnetId'},'type-mismatched'), ({'property':'EC2.VPC.Name'},'not a catalog identifier')]:
+    for change, phrase in [({'resource':'002'},'zero candidates: fixed Resource ID absent or Instance has no active Resources'), ({'resourceType':'EC2.Subnet','property':'EC2.Subnet.SubnetId'},'zero matching candidates: resourceType mismatch'), ({'property':'EC2.VPC.Name'},'not a catalog identifier')]:
         template.write_text(text.replace(t.json_text(ref),t.json_text({**ref, **change})))
         rejected(lambda: load_model(path), phrase)
     template.write_text(text)

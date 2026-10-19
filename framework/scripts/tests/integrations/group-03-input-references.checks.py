@@ -91,8 +91,8 @@ def check(root, service, kind, name_property):
     assert t.design_source_digest(path) != digest and load_model(path).values[retained].startswith('[changed-label]')
     binding_path.write_text(t.json_text(bindings), encoding='utf-8')
     for bad, phrase in [
-        (original.replace('resourceType=' + kind, 'resourceType=S3.Bucket'), 'type-mismatched'),
-        (original.replace('052', '053'), 'type-mismatched'),
+        (original.replace('resourceType=' + kind, 'resourceType=S3.Bucket'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('052', '053'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
     ]:
         write_model(producer, bad)
         rejected(lambda: load_model(path), phrase)
@@ -117,9 +117,9 @@ def check(root, service, kind, name_property):
         for target in ['missing', 'app-preview-one']:
             bad = copy.deepcopy(selected)
             bad['instances']['default-label']['parameters']['Producer'] = target
-            rejected(lambda: t.expand(template, bad, observed, bindings, 'preview'), 'type-mismatched')
+            rejected(lambda: t.expand(template, bad, observed, bindings, 'preview'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources')
         write_model(producer, original.replace('resourceType=KMS.Key', 'resourceType=KMS.Alias'))
-        rejected(lambda: t.expand(template, selected, observed, bindings, 'preview'), 'type-mismatched')
+        rejected(lambda: t.expand(template, selected, observed, bindings, 'preview'), 'zero matching candidates: resourceType mismatch')
         write_model(producer, original)
         template.write_text(fixed, encoding='utf-8')
     t.source_paths(producer)[2].joinpath('parameters.yaml').unlink()

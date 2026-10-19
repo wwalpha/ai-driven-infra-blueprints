@@ -114,7 +114,7 @@ def check_human(root):
     template.write_text(corrected)
     ambiguous=corrected.replace('# definition: VPC','# definition: VPC\n# resource: extra\ndesired.resource.extra.resourceType=EC2.VPC\ndesired.resource.extra.anchor=second-vpc')
     template.write_text(ambiguous);bad=copy.deepcopy(bindings);bad['instances']['main-vpc']['resources']['extra']='099';binding_path.write_text(t.json_text(bad))
-    rejected(lambda:load_model(path),'ambiguous/type-mismatched');template.write_text(corrected);binding_path.write_text(good_binding)
+    rejected(lambda:load_model(path),'multiple matching candidates');template.write_text(corrected);binding_path.write_text(good_binding)
     selectable=corrected.replace('# reference: Vpc '+t.json_text({'instance':'main-vpc','resourceType':'EC2.VPC'}),declaration('Vpc','reference',resourceType='EC2.VPC'))
     template.write_text(selectable);selected=copy.deepcopy(params)
     for identity,item in selected['instances'].items():
@@ -122,7 +122,7 @@ def check_human(root):
     source.write_text(parameter_text(selected,t.parse_template(template)[0],bindings));assert load_model(path).values==before['preview']
     for target_name in ('missing','private-c'):
         selected['instances']['private-a']['parameters']['Vpc']=target_name;source.write_text(parameter_text(selected,t.parse_template(template)[0],bindings))
-        rejected(lambda:load_model(path),'unknown instance reference' if target_name=='missing' else 'type-mismatched')
+        rejected(lambda:load_model(path),'unknown instance reference' if target_name=='missing' else 'zero matching candidates: resourceType mismatch')
     template.write_text(corrected);source.write_text(good_yaml)
     # Fixed cross-service ID resolves the producer's authoritative name, including its own suffix.
     target=root/'model/preview/team/iam.properties';target.parent.mkdir(parents=True,exist_ok=True)
@@ -147,11 +147,11 @@ def check_human(root):
         if bindings['instances'][identity]['definition']=='Subnet':item['parameters']['Vpc']='011'
     source.write_text(parameter_text(selected,t.parse_template(template)[0],bindings));assert '[app-preview-role-one]' in load_model(path).values['desired.row.042-004.value']
     selected['instances']['private-a']['parameters']['Vpc']='app-preview-role-one';source.write_text(parameter_text(selected,t.parse_template(template)[0],bindings))
-    rejected(lambda:load_model(path),'type-mismatched');template.write_text(external);source.write_text(good_yaml)
+    rejected(lambda:load_model(path),'zero candidates: fixed Resource ID absent or Instance has no active Resources');template.write_text(external);source.write_text(good_yaml)
     extdigest=t.design_source_digest(path);write_model(target,read_model(target).replace('app-preview-role-one','app-preview-role-two'))
     with redirect_stdout(io.StringIO()):sync_runtime.sync(root,True,'preview','team',services=['iam']);sync_runtime.sync(root,False,'preview','team',services=['iam'])
     assert t.design_source_digest(path)!=extdigest and '[app-preview-role-two]' in load_model(path).values['desired.row.042-004.value']
-    write_model(target,read_model(target).replace('IAM.Role','IAM.User'));rejected(lambda:load_model(path),'type-mismatched')
+    write_model(target,read_model(target).replace('IAM.Role','IAM.User'));rejected(lambda:load_model(path),'zero matching candidates: resourceType mismatch')
     t.source_paths(target)[2].joinpath('parameters.yaml').unlink();rejected(lambda:load_model(path),'missing')
     template.write_text(corrected);binding_path.write_text(good_binding)
     for mutate,phrase in [
@@ -301,7 +301,7 @@ def check_kms_alias(root):
     assert load_model(path).values[key]=='[alias/app-preview-material-two](kms.md#kms-alias-app-preview-material-two)'
     assert t.design_source_digest(path)!=old_digest
     for bad,phrase in [
-        (original.replace('KMS.Alias','KMS.Key'),'type-mismatched'),
+        (original.replace('KMS.Alias','KMS.Key'),'zero matching candidates: resourceType mismatch'),
         (original.replace('KMS.Alias.AliasName','KMS.Alias.TargetKeyId'),'exactly one name'),
         (original+'desired.row.012-003.property=KMS.Alias.AliasName\ndesired.row.012-003.value=`alias/duplicate`\n','exactly one name'),
     ]:
@@ -374,9 +374,9 @@ def check_external_instances(root):
     rejected(lambda: load_model(path), 'unknown external instance reference')
     template.write_text(text, encoding='utf-8')
     producer('dev', '017', 'wrong-type', 'Glue.SecurityConfiguration')
-    rejected(lambda: load_model(path), 'type-mismatched external instance reference')
+    rejected(lambda: load_model(path), 'zero matching candidates: resourceType mismatch')
     producer('dev', '017', 'duplicate', duplicate=True)
-    rejected(lambda: load_model(path), 'expected exactly one SecretsManager.Secret, found 2')
+    rejected(lambda: load_model(path), '"expectedResourceType":"SecretsManager.Secret","candidateIds":["017","099"],"matchingIds":["017","099"]')
     from model_parameter_inputs import reference_schema
     rejected(lambda: reference_schema({**selector, 'resource': '017'}), 'template reference requires')
     rejected(lambda: reference_schema({**selector, 'instance': '../escape'}), 'invalid template reference target')

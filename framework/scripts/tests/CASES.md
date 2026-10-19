@@ -2,6 +2,8 @@
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 
+共通参照target選択の診断は、欠落ID・型不一致・複数候補を区別して関連ITで検証する。model_filesのcache検証はtype/name/linkの各解決を1回に限定し、出力・終了コード一致と入力準備・parse再利用のassertを維持する。
+
 ## 数え方
 
 `units/validation_checks/design.py::check_cidr_pending_deploy` は既存VPC fixtureで識別情報失敗の回帰も検証する。`resource_logical_ids` のValueError、`design_model_values` のOSErrorを単独ファイル／後続正常サービスありの各条件で注入し、元診断・ファイルパスの完全一致、当該ファイルの後続展開停止、正常サービスのName検証到達、集約結果FAILを確認する。CREATE正常／Name欠落、IMPORTのName省略と両展開関数へのmodes伝達も確認する。実Model・AWS・ITは使用しない。

@@ -91,8 +91,8 @@ def check(root):
     assert expanded[retained] == '[PENDING_DEPLOY](security-group.md#security-group-app-preview-two)'
     write_model(producer, original)
     for bad, phrase in [
-        (original.replace('resourceType=EC2.SecurityGroup', 'resourceType=EC2.Subnet'), 'type-mismatched'),
-        (original.replace('052', '053'), 'type-mismatched'),
+        (original.replace('resourceType=EC2.SecurityGroup', 'resourceType=EC2.Subnet'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('052', '053'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace('EC2.SecurityGroup.GroupName', 'EC2.SecurityGroup.GroupDescription'), 'exactly one name'),
         (original.replace('`app-preview-one`', '``'), 'exactly one name'),
         (original + 'desired.row.052-004.property=EC2.SecurityGroup.GroupName\n'

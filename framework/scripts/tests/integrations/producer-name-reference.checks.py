@@ -133,8 +133,8 @@ def check(root):
     assert trace['references']['ExecutionRole']['format'] == 'name'
     write_model(producer, original)
     for bad, phrase in [
-        (original.replace('resourceType=IAM.Role', 'resourceType=IAM.Policy'), 'type-mismatched'),
-        (original.replace('054', '055'), 'type-mismatched'),
+        (original.replace('resourceType=IAM.Role', 'resourceType=IAM.Policy'), 'zero matching candidates: resourceType mismatch'),
+        (original.replace('054', '055'), 'zero candidates: fixed Resource ID absent or Instance has no active Resources'),
         (original.replace('IAM.Role.RoleName', 'IAM.Role.Path'), 'exactly one name'),
         (original.replace('IAM.Role.RoleName', 'Glue.SecurityConfiguration.Name'), 'exactly one name'),
         (original.replace('`venusinf-preview-IfInbound1802Role-Case_01`', '``'), 'exactly one name'),
