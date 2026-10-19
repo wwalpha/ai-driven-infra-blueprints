@@ -1708,3 +1708,5 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `import-resource-consolidation::check_model_only_publication` | `check_model_only_publication` | IT | [integrations/import-model.checks.py:590](integrations/import-model.checks.py#L590) | pytest / 6 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_import_snapshot_evidence` | `check_import_snapshot_evidence` | IT | [integrations/blueprint-loop.checks.py:829](integrations/blueprint-loop.checks.py#L829) | pytest / 2 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_operation_integration` | `check_model_operation_integration` | IT | [integrations/worktree_task.checks.py:457](integrations/worktree_task.checks.py#L457) | direct / 1 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
+
+| `sync attachment staging` | `check_linked_attachments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_linked_attachments) | pytest / 2 | ローカル添付のバイト保持、欠落リンク失敗、復元と入力変更検出 | 新規 |

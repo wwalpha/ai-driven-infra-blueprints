@@ -29,6 +29,21 @@ from sync_progress import stage as progress_stage, phase, advance, consumers, co
 from import_scope import selected as import_selection, scoped as import_scoped
 
 
+def local_design_links(root, path, texts):
+    """Existing local link targets, read through the generation input recorder."""
+    result = set()
+    for text in texts:
+        for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
+            if raw.startswith(('https://', 'http://', 'mailto:')):
+                continue
+            target = raw.partition('#')[0]
+            linked = (path.parent / target if target else path).resolve()
+            if linked.is_relative_to(root / 'docs/designs') and input_is_file(linked):
+                safe(root, path.parent / target if target else path)
+                result.add(linked)
+    return result
+
+
 @progress_stage("stage-placement/dependency-models")
 def stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write, snapshot=None, definitions_root=None):
     """Copy the consumed project dependencies; definitions always stay at their source."""
@@ -37,16 +52,7 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
     targets = {p.parent.relative_to(docs) for p in destinations}
     index = DesignIndex(root)
     def links(path, texts):
-        result = set()
-        for text in texts:
-            for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
-                if raw.startswith(('https://', 'http://', 'mailto:')):
-                    continue
-                target = raw.partition('#')[0]
-                linked = (path.parent / target if target else path).resolve()
-                if linked.suffix == '.md' and linked.is_relative_to(docs) and input_is_file(linked):
-                    result.add(linked)
-        return result
+        return {linked for linked in local_design_links(root, path, texts) if linked.suffix == '.md'}
     for path, values in destinations.items():
         views.update(links(path, values.values()))
     # Discover incoming links without copying every scanned Markdown file.
@@ -84,6 +90,9 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
             for model in registered_models(root, environment, target):
                 add_model(model)
     inputs.update(views)
+    for path, texts in [(p, values.values()) for p, values in destinations.items()] + [
+            (p, [index.get(p).text]) for p in views]:
+        inputs.update(linked for linked in local_design_links(root, path, texts) if linked.suffix != '.md')
     # Include existing JSONs only for selected services: extra artifacts still fail validation.
     for view in set(markdown_paths) | destinations.keys():
         inputs.update(input_select(view.with_suffix(''), '*.json', recursive=True, kinds=('file', 'symlink')))
@@ -223,11 +232,14 @@ def restore_view(stage: Path, root: Path, path: Path) -> None:
     if path.is_file():
         staged.write_bytes(input_bytes(path))
     shutil.rmtree(staged.with_suffix(""), ignore_errors=True)
-    if path.with_suffix("").is_dir():
-        for file in input_select(path.with_suffix(''), '*.json', recursive=True, kinds=('file', 'symlink')):
-            destination = stage / file.relative_to(root)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(input_bytes(file))
+    files = set(input_select(path.with_suffix(''), '*.json', recursive=True, kinds=('file', 'symlink')))
+    if input_is_file(path):
+        files.update(linked for linked in local_design_links(root, path, [input_bytes(path).decode('utf-8')])
+                     if linked.suffix != '.md')
+    for file in files:
+        destination = stage / file.relative_to(root)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(input_bytes(file))
 
 
 def selected(

@@ -240,6 +240,73 @@ def check_stage_dependency_selection(tmp_path):
     inputs.close()
 
 
+@pytest.mark.parametrize('write', [False, True])
+def check_linked_attachments(tmp_path, write):
+    from validation_cache import recording_inputs
+    from contextlib import nullcontext
+    from validation.design_links import check_design_links
+    from validation.findings import Findings
+    root, stage = tmp_path/'root', tmp_path/'stage'
+    design = root/'docs/designs/dev/team/service.md'
+    reference = design.with_name('reference.md')
+    payloads = {
+        design.parent/'service/code.zip': b'PK\x03\x04\x00\xff\x80',
+        design.parent/'service/nested/requirements.txt': b'package==1\r\n',
+        design.parent/'shared/opaque': b'\x00\xfe',
+        design.parent/'reference/attachment.bin': b'\x81\x00',
+        design.parent/'service/extra.json': b'{}\n',
+    }
+    for path, data in payloads.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    saved = '[zip](service/code.zip) [txt](service/nested/requirements.txt)\n'
+    design.write_text(saved, encoding='utf-8')
+    reference.write_text('[attachment](reference/attachment.bin)\n', encoding='utf-8')
+    values = {'note': saved + '[opaque](shared/opaque) [reference](reference.md) '
+              '[missing](service/missing.txt) [web](https://example.com/file.zip)'}
+    unrelated = design.parent/'service/unreferenced.bin'
+    unrelated.write_bytes(b'unused')
+    snapshot = sync_runtime.GenerationInputs(root) if write else None
+    if snapshot:
+        snapshot.stage = stage
+    try:
+        with recording_inputs(snapshot) if write else nullcontext():
+            with patch.object(sync_runtime, 'registered_models', return_value=[]), \
+                 patch.object(sync_views, 'broken_design_links', return_value={}):
+                sync_runtime.stage_inputs(stage, root, {design: values}, [], [design], ['service'], write, snapshot)
+            for path, data in payloads.items():
+                assert (stage/path.relative_to(root)).read_bytes() == data
+            assert not (stage/unrelated.relative_to(root)).exists()
+            staged = stage/design.relative_to(root)
+            staged.write_text(values['note'], encoding='utf-8')
+            findings = Findings(stage)
+            check_design_links({}, [staged], design_sources={staged: {}}, findings=findings,
+                               root=stage, scope=None)
+            assert len(findings.errors) == 1 and 'broken design link' in findings.errors[0], findings.errors
+            assert 'service/missing.txt' in findings.errors[0]
+            generated = staged.with_suffix('')/'generated.json'
+            generated.write_bytes(b'{}')
+            sync_runtime.restore_view(stage, root, design)
+            assert staged.read_bytes() == design.read_bytes()
+            assert not generated.exists()
+            for path, data in payloads.items():
+                assert (stage/path.relative_to(root)).read_bytes() == data
+            findings = Findings(stage)
+            check_design_links({}, [staged], design_sources={staged: {}}, findings=findings,
+                               root=stage, scope=None)
+            assert not findings.errors, findings.errors
+            if snapshot:
+                snapshot.seal()
+                snapshot.verify()
+                attachment = design.parent/'service/code.zip'
+                attachment.write_bytes(b'changed')
+                with pytest.raises(ValueError, match='inputs changed before publication'):
+                    snapshot.verify()
+    finally:
+        if snapshot:
+            snapshot.close()
+
+
 @pytest.mark.parametrize('baseline,final,index,committed', [
     ('start', {'view.md'}, set(), {'view.md'}),
     ('start', set(), {'view.md'}, {'view.md'}),
