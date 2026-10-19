@@ -275,8 +275,7 @@ def cleanup_state(root, path, state):
         managed_venv = python_env.venv_directory(target)
         # Preserve user artifacts before removing the owned environment or checkout.
         ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-        proof = ".blueprint/import/" + state["task_id"] + ".json"
-        extras = {p for p in ignored if p not in {state["task_file"], proof}
+        extras = {p for p in ignored if p != state["task_file"]
                   and not (managed_venv.exists() and Path(p).parts[0] == ".venv")
                   and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
         if extras:
@@ -289,6 +288,8 @@ def cleanup_state(root, path, state):
             raise Blocked("temporary branch changed or is unmerged; cleanup refused")
         # -d checks against HEAD when no upstream exists. Use the verified base worktree.
         git(base_worktree(root, state), "branch", "-d", state["branch"])
+    from import_guard import discard_import_proof
+    discard_import_proof(target, state['task_file'])
     path.unlink()
     return {**state, "cleaned": True}
 
@@ -315,9 +316,19 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         integration_task(target, state, approval)
         changed = changed_paths(target)
         model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
-        if any(p.startswith('model/') or p == 'project.json' for p in model_changes):
+        contract = (target / state['task_file']).read_text(encoding='utf-8')
+        if '- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes):
             from import_guard import require_import_changes
-            require_import_changes(target)
+            previous = os.environ.get(tasks.SELECTOR)
+            try:
+                os.environ[tasks.SELECTOR] = state['task_file']
+                require_import_changes(target)
+            finally:
+                if previous is None:
+                    os.environ.pop(tasks.SELECTOR, None)
+                else:
+                    os.environ[tasks.SELECTOR] = previous
+            changed = changed_paths(target)  # Valid legacy receipts may have migrated.
         if any(p.startswith("tasks/") for p in changed):
             raise Blocked("contracts must remain ignored; nothing committed")
         head = output(target, "rev-parse", "HEAD")

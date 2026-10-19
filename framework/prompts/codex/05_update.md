@@ -1,5 +1,5 @@
 # Manual Design Update and Deployment Prompt
-IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 [Service Model sources](../../rules/model-templates.md) define the YAML-only input
@@ -16,6 +16,85 @@ or AWS permission.
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
+
+## Model-only IMPORT merge or deletion
+
+Use this branch only for an explicit human request naming Environment, Target, Service,
+source fixed Resource ID and, for a merge, destination fixed Resource ID. Example:
+`stg/cde/vpc/009 -> stg/cde/vpc/001`; deletion names only `stg/cde/vpc/009`.
+No pre-existing manual diff is required. Both merge resources must already be IMPORT,
+of the same type and in the same environment/target/service. Never infer a destination
+from names, physical IDs or row numbers. CREATE is not eligible.
+
+Read Task transition/boundary/Acceptance, issue-gate, Model templates and IMPORT
+configuration authority. Use the ordinary source reader and trace, direct consumer
+registry, Property dependencies and reference analysis. This is a `design` task,
+with no Infrastructure phase. Register the exact human request in Goal and these fields:
+
+```md
+## Task contract
+- Task type: `design`
+- Task status: `running`
+- Workflow: `update`
+- Model operation: `import-merge`
+- Source resource: `stg/cde/vpc/009`
+- Destination resource: `stg/cde/vpc/001`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
+```
+
+For deletion use `import-delete` and omit Destination resource. Include every direct
+shared consumer in Validation scope and exact changed source/view paths in Modified files.
+Apply the ordinary issue gate to that scope. Contract text records the instruction; it
+is not cryptographic human approval. The publication, validation, completion and worktree
+boundaries compare the actual operation with the versioned baseline.
+
+Prepare only changed ordinary source files in a temporary candidate directory outside
+the repository, preserving their repository-relative paths. Read templates, inputs,
+bindings and observations together. Do not save a partial merge to authoritative files.
+Use the existing source-editing and YAML patch helpers; do not construct another Model
+reflection engine or duplicate Definitions per environment.
+
+- Transfer all source resource settings, formal Property/array values, JSON documents,
+  needed references and observations. Preserve destination Instance/Resource IDs, logical
+  IDs, anchor and internal identity bindings. Match rows by formal Property and array
+  membership/order, corroborated by Definition/local ownership; never by equal Row IDs.
+  Preserve the destination ID of each corresponding existing row. New rows receive new
+  fixed IDs. Unrepresentable or ambiguous correspondence stops the entire candidate.
+- Change existing instance inputs first. For differing fixed fields, declare existing
+  `# parameter` inputs; use `# optional`, `# choice` and `# optional-json` for shape
+  differences. Other consumers may receive only necessary public input additions which
+  preserve their complete expanded values, references, observations, mode and IDs.
+  Do not change their bindings/observations or existing input values. Never overwrite a
+  shared fixed field with the selected environment's value.
+- Remove only the source Instance, maps, input values, bindings and observations after
+  preparing the complete transfer. Keep shared Definitions and in-use inputs. A source
+  Instance containing additional resources is rejected when it cannot be safely isolated.
+  Deletion performs the same ownership/reference/preservation checks without a transfer.
+- Existing references to the source block both operations. Do not retarget another
+  service, change IaC, acquire AWS values or mutate AWS. Preserve destination links;
+  use the ordinary reference/display validators for names and anchors.
+
+Publish the whole checked source candidate with the existing Model publication journal:
+
+```console
+BLUEPRINT_TASK_FILE=tasks/<task-name>.md python3 -B framework/scripts/run-python.py -B framework/scripts/model_templates.py --environment stg --alias cde --service vpc --publish-edit <external-candidates-directory>
+```
+
+For removal of the last observation, supply `{"version":1,"values":{}}`; the existing
+transaction removes the empty optional observed file. The guard requires exact source
+removal, complete destination transfer, stable identities and unchanged other consumers.
+A mismatch, concurrent input change or save failure rejects/rolls back all source writes.
+
+Then run the ordinary scoped generation/validation once:
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
+```
+
+Finish only after source, display and validation success. Report changed IDs/paths,
+consumer preservation and any rejected references. Stop here: do not enter the ordinary
+IaC/preflight/deployment procedure below. `/import` remains append-only and unchanged.
 
 ## Check applicability and finish point first
 

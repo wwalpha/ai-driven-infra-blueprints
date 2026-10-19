@@ -1,5 +1,5 @@
 # Observed Values Rules
-IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 ## Dedicated import boundary
@@ -18,6 +18,7 @@ restore property/comment from desired metadata. Markdown and external JSON are g
 - Observed values are the minimum necessary machine-readable values obtained from the current deployment, not scenario evidence.
 - Environment/service observed.json is the authority for observed values; generate detailed design catalog `IDENTIFIER_OUTPUT` rows and all references from it.
 - Update observed.json values first and regenerate Markdown with `framework/scripts/sync-model.py` only after AWS mutation in a successful `infrastructure` task or read-only retrieval of existing resources selected by the human in a `design` task.
+- The explicit Model-only `/update` merge/delete branch may transfer already recorded observations or remove only the selected IMPORT observations, under its exact-diff guard; it performs no retrieval.
 - `scenario-test` tasks may read runtime Models and authoritative source inputs but must not change them.
 - Collect only values needed for follow-up configuration, links, connections, operations, and future task inputs.
 - Valid examples include actually needed VPC IDs, Subnet IDs, Route Table IDs, Security Group IDs, EC2 Instance IDs, private/public IPs, DNS names, endpoint addresses, and hosted zone IDs.

@@ -1,6 +1,6 @@
 ---
 name: update
-description: Use when reflecting Human changes to existing AWS detailed design into model, IaC, and AWS according to the existing 05_update workflow.
+description: Use for explicit Model-only IMPORT merge/delete or reflecting Human design changes into IaC and AWS, following the separate branches of 05_update.
 ---
 
 [Service Model source authority](../../../framework/rules/model-templates.md) applies
@@ -15,4 +15,4 @@ Read `framework/prompts/codex/05_update.md` at the repository root in full and e
 
 The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.
 
-IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](../../../framework/rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../../framework/rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.

@@ -494,6 +494,279 @@ def check_foreign_candidate_scope(tmp_path, relative):
         candidate_sources(root, directory, ('dev', 'cde', 'vpc'))
 
 
+from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
+
+
+@pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
+def check_model_operation_preserves_consumers(tmp_path, action):
+    from import_promotion import verify_model_operation
+    from task_contract import model_operation
+    from model_templates import load_expansion
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    operation_fixture(before)
+    sources = operation_candidate(before, after, action)
+    verify_model_operation(before, after, model_operation(operation_contract(action)), sources)
+    dev = 'model/dev/cde/vpc.properties'
+    assert load_expansion(before / dev).values == load_expansion(after / dev).values
+    stg = load_expansion(after / 'model/stg/cde/vpc.properties').values
+    assert 'desired.resource.009.resourceType' not in stg
+    assert stg['desired.resource.001.resourceMode'] == 'IMPORT'
+    assert stg['observed.row.001-001.value'] == ('vpc-source' if action == 'import-merge' else 'vpc-stg')
+    assert not (after / '.blueprint').exists()
+
+
+@pytest.mark.parametrize('change', ['cidr', 'observation', 'mode', 'row-id', 'dev', 'binding', 'missing-row', 'extra-delete', 'reference'])
+def check_model_operation_rejects_unproved_changes(tmp_path, change):
+    from import_promotion import verify_model_operation
+    from task_contract import model_operation
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    operation_fixture(before)
+    sources = operation_candidate(before, after)
+    directory = after / 'model/parameters/stg/cde/vpc'
+    if change in {'cidr', 'mode', 'dev'}:
+        file = directory / 'parameters.yaml' if change != 'dev' else after / 'model/parameters/dev/cde/vpc/parameters.yaml'
+        text = file.read_text()
+        file.write_text(text.replace('10.9.0.0/16', '10.8.0.0/16') if change == 'cidr' else text.replace('IMPORT', 'CREATE') if change == 'mode' else text.replace('10.1.0.0/16', '10.2.0.0/16'))
+    elif change == 'observation':
+        file = directory / 'observed.json'
+        file.write_text(file.read_text().replace('vpc-source', 'fabricated'))
+    elif change in {'row-id', 'binding', 'extra-delete'}:
+        file = directory / 'bindings.json'
+        data = json.loads(file.read_text())
+        if change == 'row-id':
+            data['instances']['main-vpc']['rows']['cidr'] = '001-099'
+        elif change == 'binding':
+            data['instances']['main-vpc']['parameters']['Anchor'] = 'new-anchor'
+        else:
+            del data['instances']['service']
+        file.write_text(json.dumps(data))
+    else:
+        file = after / 'model/templates/cde/vpc.properties.tpl'
+        text = file.read_text()
+        text = text.replace('desired.row.cidr.property=EC2.VPC.CidrBlock', 'desired.row.cidr.property=EC2.VPC.Other', 1) if change == 'missing-row' else text.replace('display.service.title=', 'desired.note.001.text=[009](#vpc-imported)\ndisplay.service.title=')
+        file.write_text(text)
+    with pytest.raises(ValueError):
+        verify_model_operation(before, after, model_operation(operation_contract()), sources)
+
+
+@pytest.mark.parametrize('change', ['cross-env', 'same-id', 'missing-target', 'normal-task', 'aws', 'create-source', 'create-destination', 'wrong-source'])
+def check_model_operation_contract_scope(tmp_path, change):
+    from task_contract import model_operation
+    from import_promotion import verify_model_operation
+    text = operation_contract()
+    if change == 'cross-env':
+        text = text.replace('stg/cde/vpc/001', 'dev/cde/vpc/001')
+    elif change == 'same-id':
+        text = text.replace('stg/cde/vpc/001', 'stg/cde/vpc/009')
+    elif change == 'missing-target':
+        text = text[:text.index('- Destination resource:')]
+    elif change == 'normal-task':
+        text = text.replace('- Workflow: `update`', '- Workflow: `ordinary`')
+    elif change == 'aws':
+        text = text.replace('`forbidden`', '`allowed`')
+    else:
+        before, after = tmp_path / 'before', tmp_path / 'after'
+        operation_fixture(before)
+        if change in {'create-source', 'create-destination'}:
+            file = before / 'model/parameters/stg/cde/vpc/parameters.yaml'
+            file.write_text(file.read_text().replace('IMPORT', 'CREATE', 1) if change == 'create-destination' else file.read_text().replace('IMPORT', 'CREATE'))
+        action = 'import-merge' if change == 'create-destination' else 'import-delete'
+        sources = operation_candidate(before, after, action)
+        with pytest.raises(ValueError):
+            verify_model_operation(before, after, model_operation(operation_contract(action, source='stg/cde/vpc/' + ('001' if change == 'wrong-source' else '009'))), sources)
+        return
+    with pytest.raises(ValueError):
+        model_operation(text)
+
+
+def check_model_operation_row_correspondence():
+    from import_promotion import operation_rows
+    values = resource()
+    values.update({'desired.row.001-010.property': 'EC2.VPC.Tags[].Key', 'desired.row.001-010.value': '`A`',
+                   'desired.row.001-011.property': 'EC2.VPC.Tags[].Value', 'desired.row.001-011.value': '`one`',
+                   'desired.row.001-020.property': 'EC2.VPC.Tags[].Key', 'desired.row.001-020.value': '`B`',
+                   'desired.row.001-021.property': 'EC2.VPC.Tags[].Value', 'desired.row.001-021.value': '`two`'})
+    rows = operation_rows(values, '001')
+    assert rows['EC2.VPC.Tags[1].Value'][0] == '001-011'
+    assert rows['EC2.VPC.Tags[2].Key'][0] == '001-020'
+    values['desired.row.001-030.property'] = 'EC2.VPC.CidrBlock'
+    values['desired.row.001-030.value'] = '`10.3.0.0/16`'
+    with pytest.raises(ValueError, match='ambiguous'):
+        operation_rows(values, '001')
+
+
+
+@pytest.mark.parametrize('shape', ['optional', 'choice', 'optional-json', 'document', 'untransferred'])
+def check_model_operation_shape_preservation(tmp_path, shape):
+    from support.import_model_fixtures import spec
+    from import_promotion import verify_model_operation
+    from task_contract import model_operation
+    from model_templates import json_text, load_expansion
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    operation_fixture(before)
+    template = before / 'model/templates/cde/vpc.properties.tpl'
+    text = template.read_text()
+    if shape in {'optional-json', 'document', 'untransferred'}:
+        for definition, value in [('Vpc', '{"Version":"2012-10-17","Statement":[]}'),
+                                  ('ImportedVpc', '{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}')]:
+            start = text.index('# definition: ' + definition + '\n')
+            end = text.index('# end-definition', start)
+            text = text[:end] + ('# row: document resource\ndesired.row.document.property=EC2.VPC.Document\n'
+                'desired.row.document.value=[JSON](vpc/' + definition + '.json)\ndesired.row.document.document=' + value + '\n'
+                'desired.row.document.comment=構造比較の合成入力\n') + text[end:]
+        for env in ('dev', 'stg'):
+            file = before / 'model/parameters' / env / 'cde/vpc/bindings.json'
+            bindings = json.loads(file.read_text())
+            bindings['instances']['main-vpc']['rows']['document'] = '001-010'
+            if env == 'stg':
+                bindings['instances']['imported-vpc']['rows']['document'] = '009-020'
+            file.write_text(json.dumps(bindings))
+    else:
+        start = text.index('# definition: ImportedVpc\n')
+        end = text.index('# end-definition', start)
+        text = text[:end] + ('# row: hostnames resource\ndesired.row.hostnames.property=EC2.VPC.EnableDnsHostnames\n'
+                            'desired.row.hostnames.value=`true`\ndesired.row.hostnames.comment=追加取得値\n') + text[end:]
+        file = before / 'model/parameters/stg/cde/vpc/bindings.json'
+        bindings = json.loads(file.read_text())
+        bindings['instances']['imported-vpc']['rows']['hostnames'] = '009-050'
+        file.write_text(json.dumps(bindings))
+    template.write_text(text)
+    sources = operation_candidate(before, after)
+    template = after / template.relative_to(before)
+    text = template.read_text()
+    if shape != 'untransferred':
+        begin = text.index('# definition: Vpc\n')
+        end = text.index('# end-definition', begin)
+        body = text[begin:end]
+        if shape in {'optional', 'choice'}:
+            body += '# parameter: HasHostnames ' + json_text(spec('boolean')) + '\n# row: hostnames resource\n'
+            for field, value in [('property', 'EC2.VPC.EnableDnsHostnames'), ('value', '`true`'), ('comment', '追加取得値')]:
+                body += '# optional: desired.row.hostnames.' + field + ' HasHostnames\n'
+                body += 'desired.row.hostnames.' + field + '=' + value + '\n'
+            selector = 'HasHostnames'
+            if shape == 'choice':
+                body = body.replace('desired.row.dns.value=<<DnsSupport>>', 'desired.row.dns.value=`false`\n# choice: desired.row.dns.value {"parameter":"HasHostnames","value":"<<DnsSupport>>"}')
+        elif shape == 'optional-json':
+            selector = 'HasStatement'
+            body += '# parameter: HasStatement ' + json_text(spec('boolean')) + '\n'
+            body += '# optional-json: desired.row.document.document /Statement/0 HasStatement\n'
+            body = body.replace('"Statement":[]', '"Statement":[{"Effect":"Allow"}]')
+        else:
+            selector = 'Document'
+            body += '# parameter: Document ' + json_text(spec('object')) + '\n'
+            body = body.replace('desired.row.document.document={"Version":"2012-10-17","Statement":[]}', 'desired.row.document.document="<<Document>>"')
+        text = text[:begin] + body + text[end:]
+        template.write_text(text)
+        for env in ('dev', 'stg'):
+            file = after / 'model/parameters' / env / 'cde/vpc/parameters.yaml'
+            parameters = yaml_read(file.read_text())
+            parameters['instances']['main-vpc']['parameters'][selector] = ({'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow'}] if env == 'stg' else []} if shape == 'document' else env == 'stg')
+            if shape == 'choice' and env == 'dev':
+                del parameters['instances']['main-vpc']['parameters']['DnsSupport']
+            file.write_text(parameter_edit(file.read_text(), parameters))
+        if shape in {'optional', 'choice'}:
+            file = after / 'model/parameters/stg/cde/vpc/bindings.json'
+            bindings = json.loads(file.read_text())
+            bindings['instances']['main-vpc']['rows']['hostnames'] = '001-090'
+            file.write_text(json.dumps(bindings))
+    if shape == 'untransferred':
+        with pytest.raises(ValueError, match='not transferred'):
+            verify_model_operation(before, after, model_operation(operation_contract()), sources)
+    else:
+        verify_model_operation(before, after, model_operation(operation_contract()), sources)
+        assert load_expansion(before / 'model/dev/cde/vpc.properties').values == load_expansion(after / 'model/dev/cde/vpc.properties').values
+
+
+
+@pytest.mark.parametrize('failure', ['none', 'tamper', 'missing', 'expired', 'task', 'base', 'scope'])
+def check_external_completion_proof(tmp_path, monkeypatch, failure):
+    from datetime import datetime, timedelta, timezone
+    root = tmp_path / 'repository'
+    root.mkdir()
+    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
+    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
+             'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
+             'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
+             'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    if failure == 'expired':
+        proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    elif failure in {'task', 'base'}:
+        proof[failure] = 'wrong'
+    elif failure == 'scope':
+        proof['scope'] = ['dev', 'cde', 'vpc']
+    file = import_guard.proof_path(root)
+    assert not file.is_relative_to(root)
+    import_guard.write_sealed(root, file, proof)
+    if failure == 'tamper':
+        file.write_text(file.read_text().replace('verified', 'fabricated'))
+    elif failure == 'missing':
+        file.unlink()
+    if failure != 'none':
+        with pytest.raises(ValueError, match='no verified'):
+            import_guard.read_proof(root)
+    else:
+        assert import_guard.read_proof(root) == proof
+        import_guard.discard_import_proof(root, 'tasks/example.md')
+        assert not file.exists()
+    assert not (root / '.blueprint').exists()
+
+
+@pytest.mark.parametrize('mixed', [False, True])
+def check_legacy_proof_migration(tmp_path, monkeypatch, mixed):
+    from datetime import datetime, timezone
+    root = tmp_path / 'repository'
+    root.mkdir()
+    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
+    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
+             'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
+             'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
+             'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    legacy = root / '.blueprint/import/example.json'
+    legacy.parent.mkdir(parents=True)
+    import_guard.write_sealed(root, legacy, proof)
+    other = legacy.parent / 'unowned.txt'
+    if mixed:
+        other.write_text('preserve')
+    assert import_guard.read_proof(root) == proof
+    assert not legacy.exists() and import_guard.proof_path(root).exists()
+    assert (root / '.blueprint').exists() == mixed
+    if mixed:
+        assert other.read_text() == 'preserve'
+    import_guard.discard_import_proof(root, 'tasks/example.md')
+
+
+def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    root, snapshot = tmp_path / 'repository', tmp_path / 'snapshot'
+    root.mkdir(); snapshot.mkdir()
+    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
+    monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
+    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
+    proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
+             'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
+             'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
+             'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+    import_guard.copy_import_proof(root, snapshot)
+    assert import_guard.read_proof(snapshot) == proof
+    assert import_guard.proof_path(root).read_bytes() != import_guard.proof_path(snapshot).read_bytes()
+    import_guard.discard_import_proof(snapshot, 'tasks/example.md')
+    assert not import_guard.proof_path(snapshot).exists() and import_guard.read_proof(root) == proof
+    assert not (root / '.blueprint').exists() and not (snapshot / '.blueprint').exists()
+    import_guard.discard_import_proof(root, 'tasks/example.md')
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

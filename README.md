@@ -123,8 +123,12 @@ selected service's displays are generated in a second transaction.
 [IMPORT configuration authority](framework/rules/model-information.md#import-configuration-authority)
 is enforced at saving, generation, Task completion and Worktree integration. Temporary
 acquisition/candidate contents stay outside Git and are cleaned after publication;
-`.blueprint/import/<task-name>.json` keeps a small sealed completion receipt for recovery.
-aws-check only compares; update/ordinary design delegate substantive IMPORT changes.
+`evidence_store(root)/<task-name>.json` keeps a small sealed completion receipt outside
+the repository. No repository-root `.blueprint` is created. Verified legacy receipts
+migrate on use; unknown/mixed data is retained. Receipts expire after seven days.
+aws-check only compares. [Model-only update](framework/prompts/codex/05_update.md#model-only-import-merge-or-deletion)
+permits explicit IMPORT merge/delete with exact IDs, complete transfer and preservation
+checks; other existing IMPORT updates remain forbidden. No AWS or IaC is changed.
 A local integrity seal detects accidental/tampered evidence through these entrypoints;
 direct Git/filesystem manipulation can bypass checks that are not executed.
 

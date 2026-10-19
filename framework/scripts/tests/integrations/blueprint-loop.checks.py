@@ -825,6 +825,39 @@ def main():
     return run(__file__, message='blueprint-loop: PASS')
 
 
+@pytest.mark.parametrize('result', [0, 1])
+def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
+    from datetime import datetime, timezone
+    import import_guard
+    root = tmp_path / 'source'
+    scripts = root / 'framework/scripts'
+    scripts.mkdir(parents=True)
+    (root / 'tasks').mkdir()
+    selected = 'tasks/snapshot.md'
+    (root / selected).write_text('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `import`\n## Modified files\n- `tasks/snapshot.md`\n## Allowed paths\n- `tasks/snapshot.md`\n')
+    monkeypatch.setenv('BLUEPRINT_TASK_FILE', selected)
+    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
+    monkeypatch.setattr(import_guard, 'read_proof', lambda root: import_guard.read_sealed(root, import_guard.proof_path(root)))
+    # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
+    (scripts / 'blueprint-loop.py').write_text('raise SystemExit(' + str(result) + ')\n')
+    MODULE.git(root, 'init', '-q')
+    MODULE.git(root, 'add', '.')
+    MODULE.git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
+    proof = {'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+    saved = import_guard.proof_path(root).read_bytes()
+    directory = tmp_path / 'logs'
+    directory.mkdir()
+    args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, affected=False, profile=False)
+    assert MODULE.staged_snapshot(root, args, directory, MODULE.utf8_environment()) == result
+    snapshot = directory / 'repository'
+    assert not import_guard.evidence_store(snapshot, create=False).exists()
+    assert import_guard.proof_path(root).read_bytes() == saved
+    assert not (root / '.blueprint').exists() and not (snapshot / '.blueprint').exists()
+    import_guard.discard_import_proof(root, selected)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

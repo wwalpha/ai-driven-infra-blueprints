@@ -78,7 +78,7 @@ def typed_equal(left, right):
     return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
 
 
-def candidate_sources(root, directory, identity):
+def candidate_sources(root, directory, identity, *, preservation_consumers=()):
     from import_scope import allowed_source
     from model_templates import safe
     directory = Path(directory).absolute()
@@ -92,7 +92,9 @@ def candidate_sources(root, directory, identity):
         relative = path.relative_to(directory).as_posix()
         destination = root / relative
         safe(root, destination)
-        if not path.is_file() or not allowed_source(root, destination, identity):
+        preservation_input = any(destination == root / 'model/parameters' / '/'.join(item) / 'parameters.yaml'
+                                 for item in preservation_consumers)
+        if not path.is_file() or not (allowed_source(root, destination, identity) or preservation_input):
             raise ValueError('IMPORT candidate source is outside the selected environment/target/service: ' + relative)
         text = path.read_bytes().decode('utf-8')
         if destination.is_file() and destination.read_bytes() == text.encode('utf-8'):

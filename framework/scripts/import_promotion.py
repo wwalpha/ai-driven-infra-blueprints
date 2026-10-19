@@ -82,7 +82,6 @@ def property_value(definition, key, parameters, binding, instance, environment):
     """Evaluate one Property with only its local inputs and symbolic references."""
     if key not in definition.values:
         return None
-    names = property_inputs(definition, key)
     choices = {choice: raw for choice, raw in definition.choices.items() if choice[0] == key}
     context = {}
     def value(name):
@@ -90,14 +89,16 @@ def property_value(definition, key, parameters, binding, instance, environment):
             anchor = definition.values['desired.resource.' + name.removeprefix('Anchor_') + '.anchor']
             return resolve(anchor, {n: value(n) for n in variables(anchor)})
         return input_value(definition, name, parameters, binding, instance, environment)
-    context.update({name: value(name) for name in names})
     narrow = definition._replace(values={key: definition.values[key]},
         optional={k: v for k, v in definition.optional.items() if k == key},
         optional_json={k: v for k, v in definition.optional_json.items() if k[0] == key}, choices=choices)
+    selectors = set(narrow.optional.values()) | set(narrow.optional_json.values()) | {flag for _, _, flag in choices}
+    context.update({name: value(name) for name in selectors})
     selected = bound_definition(narrow, context)
     if key not in selected.values:
         return None
     raw = selected.values[key]
+    context.update({name: value(name) for name in variables(raw)})
     structured = key.endswith('.document') or bool(narrow.optional_json) or any(pointer is not None for _, pointer, _ in choices)
     return (template_document_text(key, resolve(template_document(key, raw), context, structured=True))
             if structured else resolve(raw, context))
@@ -164,3 +165,191 @@ def preserve_consumers(path, expansion, output, identities):
                     if left != right:
                         raise ValueError('IMPORT direct consumer Property meaning changed: ' + '/'.join(consumer) + '/' + instance + '/' + name + '/' + key)
     return snapshots, used, changed
+
+
+def operation_rows(values, number):
+    """Formal Property and array position identify rows, never matching row numbers."""
+    from array_display import numbered_property
+    from model_files import resource_row_index
+    result, states = {}, {}
+    for rid, row in resource_row_index(values)[number]:
+        key = numbered_property(row['property'], states)
+        if key in result:
+            raise ValueError('IMPORT ambiguous Property correspondence: ' + key)
+        result[key] = rid, row
+    return result
+
+
+def operation_values(values, number):
+    from model_files import resource_row_index
+    rows = {rid for rid, _ in resource_row_index(values)[number]}
+    return {key: value for key, value in values.items()
+            if key.startswith(('desired.resource.' + number + '.', 'display.resource.' + number + '.'))
+            or key.startswith(('desired.row.', 'observed.row.')) and key.split('.')[2] in rows}
+
+
+def merged_row(values, number, rid, row):
+    """Self links keep the destination identity; JSON content and observations move intact."""
+    from model_core import LINK
+    anchor = values['desired.resource.' + number + '.anchor']
+    def normalize(value):
+        if isinstance(value, dict):
+            return {key: normalize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        match = LINK.fullmatch(value) if isinstance(value, str) else None
+        return {'self': True} if match and not match[2] and match[3] == anchor else value
+    payload = {key: normalize(json_read(value) if key == 'document' else value)
+               for key, value in row.items() if key not in {'comment', 'artifactSha256'}
+               and not (key == 'value' and 'document' in row)}
+    observed = 'observed.row.' + rid + '.value'
+    if observed in values:
+        payload['observed'] = values[observed]
+    return payload
+
+
+def preserve_input_additions(before, after, old_definitions, definitions, bindings, exempt=()):
+    """Only newly needed public inputs may be added to preserved instances."""
+    for instance, binding in bindings['instances'].items():
+        if instance in exempt:
+            continue
+        old = before.get('instances', {}).get(instance, {}).get('parameters', {})
+        new = after.get('instances', {}).get(instance, {}).get('parameters', {})
+        if any(key not in new or not typed_equal(value, new[key]) for key, value in old.items()):
+            raise ValueError('IMPORT preserved instance inputs changed: ' + instance)
+        name = binding['definition']
+        changed = changed_properties({name: old_definitions[name]}, {name: definitions[name]}).get(name, set())
+        needed = set().union(*(property_inputs(definitions[name], key) for key in changed))
+        if set(new) - set(old) - needed:
+            raise ValueError('IMPORT unrelated preservation input addition: ' + instance)
+
+
+def verify_model_operation(before, after, operation, sources):
+    """Prove the exact /update merge/delete against the versioned ordinary Model sources."""
+    from model_core import entries
+    from model_templates import consumers, load_expansion, model_paths, validate_local
+    from model_impact import references
+    from import_scope import allowed_source, model_path
+    action, identity, source, destination = operation
+    path = model_path(before, identity)
+    original = load_expansion(path)
+    if original is None:
+        raise ValueError('IMPORT operation source does not exist')
+    resources = dict(entries(original.values, 'desired.resource.'))
+    for rid in (source, destination) if destination else (source,):
+        if resources.get(rid, {}).get('resourceMode') != 'IMPORT':
+            raise ValueError('IMPORT operation requires existing IMPORT resources: ' + rid)
+    if destination and resources[source]['resourceType'] != resources[destination]['resourceType']:
+        raise ValueError('IMPORT merge resource types differ')
+    direct = consumers(before, identity[1], identity[2])
+    if consumers(after, identity[1], identity[2]) != direct:
+        raise ValueError('IMPORT operation cannot add/remove service consumers')
+    for relative in sources:
+        file = after / relative
+        foreign_parameters = any(file == after / 'model/parameters' / '/'.join(item) / 'parameters.yaml'
+                                 for item in direct - {identity})
+        if not allowed_source(after, file, identity) and not foreign_parameters:
+            raise ValueError('IMPORT operation source is outside its exact scope: ' + relative)
+    template = service_source(path)[1]
+    old_definitions, _ = parse_template(template)
+    definitions, _ = parse_template(after / template.relative_to(before))
+    if definitions.keys() != old_definitions.keys():
+        raise ValueError('IMPORT operation must reuse existing Definitions')
+    changed = changed_properties(old_definitions, definitions)
+    selected_bindings = json_read(original.files[service_source(path)[2] / 'bindings.json'])['instances']
+    editable = {binding['definition'] for binding in selected_bindings.values()
+                if destination and destination in binding['resources'].values()}
+    if changed.keys() - editable:
+        raise ValueError('IMPORT operation changed an unrelated Definition')
+    for consumer in sorted(direct):
+        old_path, new_path = model_path(before, consumer), model_path(after, consumer)
+        old = original if consumer == identity else load_expansion(old_path)
+        new = load_expansion(new_path)
+        validate_local(new.values)
+        old_dir, new_dir = service_source(old_path)[2], service_source(new_path)[2]
+        old_bindings = json_read(old.files[old_dir / 'bindings.json'])
+        bindings = json_read(new.files[new_dir / 'bindings.json'])
+        old_inputs = yaml_read(old.files[old_dir / 'parameters.yaml'])
+        inputs = yaml_read(new.files[new_dir / 'parameters.yaml'])
+        if consumer != identity:
+            if old.values != new.values or old_bindings != bindings:
+                raise ValueError('IMPORT shared consumer values/identities changed: ' + '/'.join(consumer))
+            if not typed_equal(old_inputs.get('parameters', {}), inputs.get('parameters', {})):
+                raise ValueError('IMPORT other-environment shared inputs changed')
+            preserve_input_additions(old_inputs, inputs, old_definitions, definitions, old_bindings)
+            for instance, binding in bindings['instances'].items():
+                name = binding['definition']
+                for key in changed.get(name, ()):
+                    left = property_value(old_definitions[name], key, old_inputs, old_bindings['instances'][instance], instance, consumer[0])
+                    right = property_value(definitions[name], key, inputs, binding, instance, consumer[0])
+                    if left != right:
+                        raise ValueError('IMPORT shared consumer reference meaning changed')
+            continue
+        new_resources = dict(entries(new.values, 'desired.resource.'))
+        if set(new_resources) != set(resources) - {source}:
+            raise ValueError('IMPORT operation must delete only the specified source')
+        owners = [name for name, binding in old_bindings['instances'].items() if source in binding['resources'].values()]
+        if len(owners) != 1 or len(old_bindings['instances'][owners[0]]['resources']) != 1:
+            raise ValueError('IMPORT source cannot safely be separated from its multi-resource Instance')
+        source_instance = owners[0]
+        destination_instance = next((name for name, binding in old_bindings['instances'].items()
+                                     if destination in binding['resources'].values()), None) if destination else None
+        expected_instances = set(old_bindings['instances']) - {source_instance}
+        if set(bindings['instances']) != expected_instances or source_instance in inputs['instances']:
+            raise ValueError('IMPORT source Instance/bindings/inputs were not removed exactly')
+        for name in expected_instances:
+            left, right = old_bindings['instances'][name], bindings['instances'][name]
+            if name == destination_instance:
+                for field in ('definition', 'resources'):
+                    if left[field] != right[field]:
+                        raise ValueError('IMPORT destination fixed identity changed: ' + field)
+                for field in ('parameters', 'labels'):
+                    if any(key not in right.get(field, {}) or right[field][key] != value for key, value in left.get(field, {}).items()):
+                        raise ValueError('IMPORT destination internal identity changed: ' + field)
+            elif left != right:
+                raise ValueError('IMPORT unrelated bindings changed: ' + name)
+        preserve_input_additions(old_inputs, inputs, old_definitions, definitions, old_bindings,
+                                 {source_instance, destination_instance})
+        removed = operation_values(old.values, source)
+        previous = operation_values(old.values, destination) if destination else {}
+        current = operation_values(new.values, destination) if destination else {}
+        if ({k: v for k, v in old.values.items() if k not in removed and k not in previous}
+                != {k: v for k, v in new.values.items() if k not in current}):
+            raise ValueError('IMPORT operation changed an unspecified resource or service field')
+        if not destination:
+            continue
+        for field in ('resourceMode', 'resourceType', 'anchor', 'logicalId', 'cfn-logicalId'):
+            if resources[destination].get(field) != new_resources[destination].get(field):
+                raise ValueError('IMPORT destination identity/mode changed: ' + field)
+        identity_fields = {'resourceMode', 'resourceType', 'anchor', 'logicalId', 'cfn-logicalId'}
+        if ({k: v for k, v in resources[source].items() if k not in identity_fields}
+                != {k: v for k, v in new_resources[destination].items() if k not in identity_fields}):
+            raise ValueError('IMPORT source Resource settings were not fully transferred')
+        incoming = operation_rows(old.values, source)
+        existing = operation_rows(old.values, destination)
+        transferred = operation_rows(new.values, destination)
+        if incoming.keys() != transferred.keys():
+            raise ValueError('IMPORT source Properties were not fully transferred')
+        all_old_rows = {key.split('.')[2] for key in old.values if key.startswith('desired.row.')}
+        for prop, (rid, row) in transferred.items():
+            if prop in existing and rid != existing[prop][0] or prop not in existing and rid in all_old_rows:
+                raise ValueError('IMPORT destination Row ID was changed or reused: ' + prop)
+            source_rid, source_row = incoming[prop]
+            if merged_row(old.values, source, source_rid, source_row) != merged_row(new.values, destination, rid, row):
+                raise ValueError('IMPORT source Property/observation was not transferred: ' + prop)
+    # Declared references and literal links to the removed identity both block deletion.
+    # Only this environment/target needs incoming-reference inspection.
+    import re
+    anchor = resources[source]['anchor']
+    for consumer_path in model_paths(before, *identity[:2]):
+        candidate = after / consumer_path.relative_to(before)
+        expanded = load_expansion(candidate)
+        for key, value in expanded.values.items():
+            for link in re.finditer(r'\[[^\]]*\]\(([^)]*)\)', value):
+                target, separator, fragment = link[1].partition('#')
+                if separator and fragment == anchor and (target == identity[2] + '.md' or not target and candidate.stem == identity[2]):
+                    raise ValueError('IMPORT removed resource still has an incoming reference: ' + str(candidate) + ':' + key)
+        # Raw name/identifier references have no rendered link.
+        for (_, name), (item, spec) in references(candidate).items():
+            if spec.get('service') == identity[2] and (item['parameters'].get(name) == source or spec.get('instance') == source_instance):
+                raise ValueError('IMPORT removed resource still has a declared reference')

@@ -289,15 +289,13 @@ def check_cleanup_failure_and_retry():
         assert "ignored files" in cli(root, "cleanup", success=False)["error"]
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
-        evidence = target / '.blueprint/import'
-        evidence.mkdir(parents=True)
-        own = evidence / 'example.json'
-        other = evidence / 'other.json'
-        own.write_text('{}')
-        other.write_text('preserve')
-        assert 'ignored files' in cli(root, 'cleanup', success=False)['error']
-        assert own.exists() and other.read_text() == 'preserve'
-        other.rename(root.parent / 'saved-evidence.json')
+        from import_guard import evidence_store, write_sealed
+        evidence = evidence_store(target)
+        own, other = evidence / 'example.json', evidence / 'other.json'
+        write_sealed(target, own, {'task': state['task_file']})
+        write_sealed(target, other, {'task': 'tasks/other.md'})
+        other_before = other.read_bytes()
+        assert not (target / '.blueprint').exists()
 
         git(root, "branch", "feature", "HEAD^")
         git(root, "checkout", "-q", "feature")
@@ -310,6 +308,8 @@ def check_cleanup_failure_and_retry():
         result = cli(root, "cleanup")
         assert result["cleaned"] and git(root, "rev-parse", "HEAD") == saved["merged"]
         assert not wt.branch_exists(root, state["branch"])
+        assert not own.exists() and other.read_bytes() == other_before
+        other.unlink()
     print("Cleanup failure/retry/ignored data/merged history preserved: PASS")
 
 
@@ -443,7 +443,7 @@ def check_real_loop_integration():
 
 
 def main():
-    for check in (check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
+    for check in (check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,
@@ -451,6 +451,46 @@ def main():
                   check_human_approved_validation_failure, check_real_loop_integration):
         check()
     print("worktree-task: PASS (isolated lifecycle and failure retention)")
+
+
+@it_case
+def check_model_operation_integration():
+    import shutil
+    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
+    from utils.aws_mappings import mapping_alias
+    for action, corrupt in (("import-merge", False), ("import-delete", False), ("import-merge", True)):
+        with fixture() as root:
+            operation_fixture(root)
+            git(root, "add", "model", "project.json")
+            git(root, "commit", "-qm", "model fixture")
+            with tempfile.TemporaryDirectory() as directory:
+                candidate = Path(directory) / "candidate"
+                sources = operation_candidate(root, candidate, action)
+                target, state = start(root, files=tuple(sorted(sources)))
+                text = operation_contract(action)
+                for heading in ("Modified files", "Allowed paths"):
+                    text += "\n## " + heading + "\n" + "".join("- `" + name + "`\n" for name in sorted(sources | {state['task_file']}))
+                text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
+                (target / state['task_file']).write_text(text)
+                tasks.refresh(target, state['task_file'])
+                for name in sources:
+                    shutil.copyfile(candidate / name, target / name)
+                with mapping_alias(SCRIPT.parents[2], target):
+                    finish_contract(target, state)
+                    if corrupt:
+                        file = target / 'model/parameters/stg/cde/vpc/parameters.yaml'
+                        file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
+                        before = git(root, 'rev-parse', 'HEAD')
+                        try:
+                            wt.finalize(root, 'example')
+                            raise AssertionError('corrupted merge was accepted')
+                        except ValueError as error:
+                            assert 'transferred' in str(error)
+                        retained(root, target, state, before)
+                    else:
+                        assert wt.finalize(root, 'example')['cleaned']
+                        assert not target.exists()
+    print('Model-only merge/delete integration and post-completion guard: PASS')
 
 
 if __name__ == "__main__":

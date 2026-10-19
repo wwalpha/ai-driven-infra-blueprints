@@ -107,6 +107,7 @@ def status(text, legacy=False):
 def validate_contract(root, name, text, legacy=False, *, check_paths=True):
     """Validate the selected contract declaration."""
     status(text, legacy)
+    model_operation(text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -118,6 +119,39 @@ def validate_contract(root, name, text, legacy=False, *, check_paths=True):
             raise ValueError(f"task cannot modify another contract: {name}: {value}")
         if value not in allowed and not any(matches(value, pattern) for pattern in allowed):
             raise ValueError(f"Modified file is outside Allowed paths: {name}: {value}")
+
+
+def model_operation(text):
+    """Exact Model-only update request; actual differences must still prove the operation."""
+    lines = section(text, '## Task contract')
+    fields = ('Model operation', 'Source resource', 'Destination resource')
+    if not any(line.startswith('- ' + field + ':') for line in lines for field in fields):
+        return None
+    def field(name, required=True):
+        selected = [line for line in lines if line.startswith('- ' + name + ':')]
+        if not selected and not required:
+            return None
+        match = re.fullmatch(r'- ' + re.escape(name) + r': `([^`]+)`', selected[0]) if len(selected) == 1 else None
+        if match is None:
+            raise ValueError('Model-only update requires exactly one ' + name)
+        return match[1]
+    if field('Task type') != 'design' or field('Workflow') != 'update':
+        raise ValueError('Model-only IMPORT operations require the design /update workflow')
+    if field('AWS API execution') != 'forbidden' or field('deploy/apply') != 'forbidden':
+        raise ValueError('Model-only IMPORT operations forbid AWS and deploy/apply')
+    action = field('Model operation')
+    if action not in {'import-merge', 'import-delete'}:
+        raise ValueError('unknown Model-only IMPORT operation')
+    source = field('Source resource')
+    destination = field('Destination resource', action == 'import-merge')
+    pattern = r'(?:[a-z0-9]+(?:[-_][a-z0-9]+)*/){3}[0-9]{3,}'
+    if not re.fullmatch(pattern, source) or destination is not None and not re.fullmatch(pattern, destination):
+        raise ValueError('IMPORT operation requires exact environment/target/service/fixed Resource IDs')
+    if action == 'import-delete' and destination is not None:
+        raise ValueError('IMPORT deletion has no destination')
+    if destination is not None and (source == destination or source.rsplit('/', 1)[0] != destination.rsplit('/', 1)[0]):
+        raise ValueError('IMPORT merge requires distinct resources in the same environment/target/service')
+    return action, tuple(source.split('/')[:3]), source.split('/')[-1], destination.split('/')[-1] if destination else None
 
 
 def task_path(root, selected=None):
@@ -190,7 +224,7 @@ def complete(root, name):
     text = selected_text(root, records, name)
     if status(text, name == "tasks/active.md") != "running":
         raise ValueError("only a running task can complete")
-    if "- Workflow: `import`" in section(text, "## Task contract"):
+    if "- Workflow: `import`" in section(text, "## Task contract") or model_operation(text) is not None:
         from import_guard import require_import_changes
         previous = os.environ.get(SELECTOR)
         try:

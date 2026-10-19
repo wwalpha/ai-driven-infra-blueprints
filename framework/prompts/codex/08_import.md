@@ -167,8 +167,8 @@ saves them in a separate transaction. Display failure retains saved Model source
 is reported separately. No other environment or service is written or generated.
 
 Acquisition values, source before/after contents and correspondence details live in a
-private temporary session outside the repository. The small ignored
-`.blueprint/import/<task-name>.json` completion receipt retains hashes, scope, connection
+private temporary session outside the repository. The small external
+`evidence_store(root)/<task-name>.json` completion receipt retains hashes, scope, connection
 and statuses, protected by a local integrity seal. Successful publication (including
 reported pending items or display failure) removes the temporary session. Failed normal
 publication retains it for diagnosis/re-editing; if sources changed, discard it and

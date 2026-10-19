@@ -76,8 +76,6 @@ class AwsCli:
 
 
 def small_framework(root, services, kinds):
-    with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
-        ignored.write("\n/.blueprint/import/\n")
     from cloudformation_schema import REGION
     kinds = set(kinds) | {kind for service in services for kind in m.yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
     schema = Path('framework/materials/cloudformation-schema') / REGION
@@ -304,3 +302,62 @@ def publish_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False)
 
 def snapshot(root):
     return {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts}
+
+
+def operation_fixture(root):
+    from support.import_model_fixtures import metadata, declaration, binding, save_service, spec
+    fields = {'id': ('VpcId', '[<<Id_resource>>](#<<Anchor>>)'),
+              'cidr': ('CidrBlock', '<<CidrBlock>>'), 'dns': ('EnableDnsSupport', '`false`')}
+    incoming = {'dns': ('EnableDnsSupport', '`true`'), 'cidr': fields['cidr'], 'id': fields['id']}
+    params = {'CidrBlock': spec(format='literal'), 'ResourceMode': spec()}
+    template = ['# model-template: 1'] + metadata('vpc', ['EC2.VPC'])
+    template += declaration('Vpc', 'EC2.VPC', fields, params)
+    template += declaration('ImportedVpc', 'EC2.VPC', incoming, params)
+    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
+    for env in ('dev', 'stg'):
+        parameters = {'instances': {'main-vpc': {'parameters': {'CidrBlock': '10.1.0.0/16', 'ResourceMode': 'CREATE' if env == 'dev' else 'IMPORT'}}}}
+        bindings = {'instances': {'service': empty, 'main-vpc': binding('Vpc', '001', fields, 'vpc-main')}}
+        observed = {'observed.row.001-001.value': 'vpc-' + env}
+        if env == 'stg':
+            parameters['instances']['imported-vpc'] = {'parameters': {'CidrBlock': '10.9.0.0/16', 'ResourceMode': 'IMPORT'}}
+            bindings['instances']['imported-vpc'] = binding('ImportedVpc', '009', incoming, 'vpc-imported')
+            observed['observed.row.009-003.value'] = 'vpc-source'
+        save_service(root, 'vpc', template, parameters, bindings, observed, environment=env)
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': env, 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
+
+
+def operation_candidate(before, after, action='import-merge'):
+    import shutil
+    from support.import_model_fixtures import spec
+    from model_templates import json_text
+    shutil.copytree(before, after)
+    directory = after / 'model/parameters/stg/cde/vpc'
+    params_file, bindings_file, observed_file = [directory / name for name in ('parameters.yaml', 'bindings.json', 'observed.json')]
+    parameters = yaml_read(params_file.read_text())
+    bindings, observed = [json.loads(file.read_text()) for file in (bindings_file, observed_file)]
+    del parameters['instances']['imported-vpc']
+    del bindings['instances']['imported-vpc']
+    observed['values'].pop('observed.row.009-003.value')
+    if action == 'import-merge':
+        parameters['instances']['main-vpc']['parameters'].update(CidrBlock='10.9.0.0/16', DnsSupport=True)
+        observed['values']['observed.row.001-001.value'] = 'vpc-source'
+        template = after / 'model/templates/cde/vpc.properties.tpl'
+        text = template.read_text().replace('# definition: Vpc\n', '# definition: Vpc\n# parameter: DnsSupport ' + json_text(spec('boolean', format='literal')) + '\n')
+        text = text.replace('desired.row.dns.value=`false`', 'desired.row.dns.value=<<DnsSupport>>')
+        template.write_text(text)
+        foreign = after / 'model/parameters/dev/cde/vpc/parameters.yaml'
+        inputs = yaml_read(foreign.read_text())
+        inputs['instances']['main-vpc']['parameters']['DnsSupport'] = False
+        foreign.write_text(parameter_edit(foreign.read_text(), inputs))
+    params_file.write_text(parameter_edit(params_file.read_text(), parameters))
+    bindings_file.write_text(json.dumps(bindings))
+    observed_file.write_text(json.dumps(observed))
+    return {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
+
+
+def operation_contract(action='import-merge', source='stg/cde/vpc/009', destination='stg/cde/vpc/001'):
+    return ('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n'
+            '- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
+            '- Model operation: `' + action + '`\n- Source resource: `' + source + '`\n'
+            + ('- Destination resource: `' + destination + '`\n' if action == 'import-merge' else ''))

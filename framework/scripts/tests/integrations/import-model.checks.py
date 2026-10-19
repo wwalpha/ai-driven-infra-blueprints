@@ -75,6 +75,7 @@ def check_logs_roundtrip(tmp_path):
     result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['markdown'] == 'generated' and result['status'] == 'complete'
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
+    assert not (root / '.blueprint').exists()
     after = load_for_edit(root / 'model/dev/cde/cloudwatch-logs.properties')
     assert after.values['desired.row.003-002.value'] == '90'
     assert all(after.values[k] == v for k, v in before.values.items())
@@ -581,6 +582,69 @@ def check_evidence_and_display_recovery(tmp_path):
     with patch.object(m, 'import_context', side_effect=AssertionError('recovery must not acquire')):
         assert sync_runtime.sync(root, True, 'dev', TARGET, ['cloudwatch-logs']) == 0
     assert source_files(root) == before and import_guard.read_proof(root)['markdown'] == 'generated'
+    assert not (root / '.blueprint').exists()
+
+
+
+@pytest.mark.parametrize('failure', ['none', 'rollback', 'race', 'wrong-target', 'ordinary', 'ordinary-delete'])
+def check_model_only_publication(tmp_path, monkeypatch, failure):
+    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
+    from model_templates import publish_edit, load_expansion
+    from task_contract import start, complete
+    from utils.aws_mappings import mapping_alias
+    root, candidate, edited = tmp_path / 'repository', tmp_path / 'candidates', tmp_path / 'edited'
+    operation_fixture(root)
+    sources = operation_candidate(root, edited, 'import-delete' if failure == 'ordinary-delete' else 'import-merge')
+    for name in sources:
+        file = candidate / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes((edited / name).read_bytes())
+    (root / '.gitignore').write_text('tasks/**\n')
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'baseline'], cwd=root, check=True)
+    selected = 'tasks/import-fixture.md'
+    text = operation_contract(destination='stg/cde/vpc/008' if failure == 'wrong-target' else 'stg/cde/vpc/001')
+    if failure in {'ordinary', 'ordinary-delete'}:
+        text = '## Task contract\n- Task type: `design`\n- Task status: `running`\n'
+    files = sources | {selected}
+    for heading in ('Modified files', 'Allowed paths'):
+        text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(files))
+    text += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
+    start(root, selected, text)
+    before = source_files(root)
+    if failure == 'rollback':
+        real_save = sync_files.save_files
+        def fail_save(output):
+            real_save(dict(list(output.items())[:1]))
+            raise OSError('injected source publication failure')
+        monkeypatch.setattr(sync_files, 'save_files', fail_save)
+    elif failure == 'race':
+        import import_promotion
+        original = import_promotion.verify_model_operation
+        def race(*args):
+            original(*args)
+            file = root / 'model/parameters/dev/cde/vpc/parameters.yaml'
+            file.write_text(file.read_text() + '# concurrent human input\n')
+        monkeypatch.setattr(import_promotion, 'verify_model_operation', race)
+    with mapping_alias(m.ROOT, root):
+        if failure != 'none':
+            with pytest.raises((ValueError, OSError)):
+                publish_edit(root, candidate)
+            if failure != 'race':
+                assert source_files(root) == before
+            else:
+                actual = source_files(root)
+                altered = Path('model/parameters/dev/cde/vpc/parameters.yaml')
+                assert actual.pop(altered) is not None
+                assert actual == {k: v for k, v in before.items() if k != altered}
+            return
+        assert set(publish_edit(root, candidate)) == sources
+        import_guard.require_import_changes(root)
+        assert load_expansion(root / 'model/stg/cde/vpc.properties').values['observed.row.001-001.value'] == 'vpc-source'
+        complete(root, selected)
+        import_guard.require_import_changes(root)
+    assert not (root / '.blueprint').exists()
 
 
 if __name__ == '__main__':

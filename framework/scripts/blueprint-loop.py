@@ -340,52 +340,63 @@ def staged_snapshot(root, args, directory, environment):
     (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
-    if any('- Workflow: `import`' in text for text in contracts(root).values()):
-        from import_guard import copy_import_proof
-        copy_import_proof(root, snapshot)
-    metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
-    (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-    print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
-    command = [sys.executable, "-X", "utf8", str(snapshot / "framework/scripts/blueprint-loop.py"),
-               "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
-               "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
-               *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
-               *(["--profile"] if args.profile else [])]
-    if os.name == "nt":
-        # Never dispatch an older staged entrypoint that predates the password gate.
-        for name in ("blueprint-loop.py", "regression_guard.py"):
-            source = root / "framework/scripts" / name
-            saved = snapshot / "framework/scripts" / name
-            if not saved.is_file() or saved.read_bytes() != source.read_bytes():
-                raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
-    # .lock is local configuration, outside the staged task tree.
-    source_lock = root / ".lock"
-    if source_lock.is_symlink():
-        raise ValueError("repo .lock must be a regular file")
-    saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
-    if saved_lock is not None:
-        (snapshot / ".lock").write_bytes(saved_lock)
-    process = subprocess.Popen(command, cwd=snapshot, env=environment,
-                               **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
+    selected = task_path(snapshot).relative_to(snapshot).as_posix()
+    import_task = '- Workflow: `import`' in contracts(snapshot).get(selected, '')
     try:
-        result = process.wait()
-    except KeyboardInterrupt:
-        process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)
+        if import_task:
+            from import_guard import copy_import_proof
+            copy_import_proof(root, snapshot)
+        metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
+        (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
+        command = [sys.executable, "-X", "utf8", str(snapshot / "framework/scripts/blueprint-loop.py"),
+                   "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
+                   "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
+                   *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
+                   *(["--profile"] if args.profile else [])]
+        if os.name == "nt":
+            # Never dispatch an older staged entrypoint that predates the password gate.
+            for name in ("blueprint-loop.py", "regression_guard.py"):
+                source = root / "framework/scripts" / name
+                saved = snapshot / "framework/scripts" / name
+                if not saved.is_file() or saved.read_bytes() != source.read_bytes():
+                    raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
+        # .lock is local configuration, outside the staged task tree.
+        source_lock = root / ".lock"
+        if source_lock.is_symlink():
+            raise ValueError("repo .lock must be a regular file")
+        saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
+        if saved_lock is not None:
+            (snapshot / ".lock").write_bytes(saved_lock)
+        process = subprocess.Popen(command, cwd=snapshot, env=environment,
+                                   **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
         try:
-            process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        raise
-    current_tree = index_tree(root, directory)
-    current_lock = source_lock.read_bytes() if source_lock.is_file() else None
-    unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
-    metadata.update(returncode=result, source_unchanged=unchanged)
-    (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-    if not unchanged:
-        print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
-        return 1
-    return result
+            result = process.wait()
+        except KeyboardInterrupt:
+            process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
+        current_tree = index_tree(root, directory)
+        current_lock = source_lock.read_bytes() if source_lock.is_file() else None
+        unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
+        metadata.update(returncode=result, source_unchanged=unchanged)
+        (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        if not unchanged:
+            print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
+            return 1
+        return result
+    finally:
+        if import_task:
+            from import_guard import discard_import_proof, evidence_store
+            discard_import_proof(snapshot, selected)
+            store = evidence_store(snapshot)
+            # This freshly created snapshot owns its seal; source evidence is retained.
+            (store / 'seal.key').unlink(missing_ok=True)
+            store.rmdir()
 
 
 def suspend_selected(root, selected, reason):

@@ -7,7 +7,7 @@ import hmac
 import os
 import secrets
 import stat
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import shutil
@@ -51,8 +51,7 @@ def workflow(root):
 
 
 def proof_path(root):
-    from task_contract import safe_path
-    return safe_path(root, '.blueprint/import/' + task_path(root).stem + '.json')
+    return evidence_store(root) / (task_path(root).stem + '.json')
 
 
 def base_revision(root):
@@ -224,7 +223,8 @@ def changes(root, sources, output=None, include_create=False):
                 left = resource_config(old, number, old_path if identity else None) if previous else None
                 right = resource_config(new, number, new_path if identity else None) if current else None
                 if left != right:
-                    found['/'.join((env, target, service, number))] = {'before': digest(left), 'after': digest(right), 'mode': 'IMPORT' if imported else 'CREATE'}
+                    found['/'.join((env, target, service, number))] = {'before': digest(left), 'after': digest(right), 'mode': 'IMPORT' if imported else 'CREATE',
+                        'action': 'add' if left is None else 'delete' if right is None else 'update'}
         return base, found
 
 
@@ -236,7 +236,20 @@ def require_import_changes(root, supplied=None, output=None, generation=False):
     if output:
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
     selected = task_path(root).relative_to(root).as_posix()
-    import_task = '- Workflow: `import`' in section(contracts(root).get(selected, ''), '## Task contract')
+    text = contracts(root).get(selected, '')
+    from task_contract import model_operation
+    operation = model_operation(text)
+    if operation is not None:
+        if not sources and generation:
+            return
+        base = base_revision(root)
+        if base is None:
+            raise ValueError('IMPORT Model-only operation requires a versioned baseline')
+        from import_promotion import verify_model_operation
+        with snapshots(root, base, output or {}) as (before, after):
+            verify_model_operation(before, after, operation, sources)
+        return
+    import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:
         if not sources and generation:
             return
@@ -260,11 +273,15 @@ def require_import_changes(root, supplied=None, output=None, generation=False):
 
 def read_proof(root):
     from import_scope import selected
+    from task_contract import safe_path
     file = proof_path(root)
+    legacy = safe_path(root, '.blueprint/import/' + task_path(root).stem + '.json')
     try:
-        if file.is_symlink():
+        source = file if file.exists() else legacy
+        if file.is_symlink() or source.is_symlink():
             raise ValueError('symlink import evidence')
-        proof = read_sealed(root, file)
+        proof = read_sealed(root, source)
+        require_fresh_acquisition(proof)
         if (proof['version'] != 3
                 or proof['task'] != workflow(root) or proof['base'] != base_revision(root)
                 or proof['scope'] != list(selected(root)) or not proof['acquisition']
@@ -274,13 +291,22 @@ def read_proof(root):
                 or proof['markdown'] not in {'not-run', 'failed', 'generated', 'unchanged'}
                 or not isinstance(proof['ownedArtifacts'], list)):
             raise ValueError('stale import evidence')
-        from task_contract import safe_path
         for relative, checksum in proof['sources'].items():
             safe_path(root, relative)
             if checksum is not None and (not isinstance(checksum, str) or len(checksum) != 64):
                 raise ValueError('invalid source checksum')
         for relative in proof['ownedArtifacts']:
             safe_path(root, relative)
+        if legacy.exists():
+            if any(file_hash(safe_path(root, relative)) != checksum for relative, checksum in proof['sources'].items()):
+                raise ValueError('legacy IMPORT sources differ from acquired change plan')
+            if read_sealed(root, legacy) != proof:
+                raise ValueError('conflicting legacy import evidence')
+            write_sealed(root, file, proof)
+            legacy.unlink()
+            for directory in (legacy.parent, legacy.parent.parent):
+                if not any(directory.iterdir()):
+                    directory.rmdir()
         return proof
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError('IMPORT change has no verified /import evidence; flags and contract declarations are insufficient') from error
@@ -327,14 +353,24 @@ def finish_import(root, model=None, markdown=None):
 
 def copy_import_proof(root, snapshot):
     """Carry only currently valid evidence into an existing staged validation snapshot."""
-    source = proof_path(root)
-    if not source.is_file():
-        return
     require_import_changes(root)
     proof = read_proof(root)
     destination = proof_path(snapshot)
     destination.parent.mkdir(parents=True, exist_ok=True)
     write_sealed(snapshot, destination, proof)
+
+
+def discard_import_proof(root, task_name):
+    """Remove only this task's sealed receipt after verified integration/snapshot use."""
+    from task_contract import TASK_NAME
+    if not TASK_NAME.fullmatch(task_name):
+        raise ValueError('invalid evidence task identity')
+    file = evidence_store(root, create=False) / (Path(task_name).stem + '.json')
+    if file.exists() or file.is_symlink():
+        proof = read_sealed(root, file)
+        if proof.get('task') != task_name:
+            raise ValueError('IMPORT evidence belongs to another task')
+        file.unlink()
 
 
 def text_hash(text):
@@ -345,11 +381,13 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
-def evidence_store(root):
+def evidence_store(root, *, create=True):
     """Private local seal, outside Git; not AWS credentials or a response snapshot."""
     base = Path(tempfile.gettempdir()).resolve() / ('blueprint-import-' + digest(str(Path.home()))[:16])
     directory = base / digest(str(root.resolve()))
     for path in (base, directory):
+        if not create and not path.exists() and not path.is_symlink():
+            return directory
         path.mkdir(mode=0o700, exist_ok=True)
         info = path.lstat()
         if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
@@ -425,6 +463,7 @@ def read_acquisition(root, file, identity, dry_run):
     if file.name != 'acquisition.json' or file.parent.parent != store or not file.parent.name.startswith('session-') or file.parent.is_symlink():
         raise ValueError('IMPORT acquisition must use its original external evidence identifier')
     value = read_sealed(root, file)
+    require_fresh_acquisition(value)
     if (value.get('version') != 1 or value.get('root') != str(root.resolve())
             or value.get('scope') != list(identity) or value.get('dryRun') is not dry_run
             or value.get('base') != base_revision(root) or value.get('status') != 'acquired'
@@ -432,6 +471,16 @@ def read_acquisition(root, file, identity, dry_run):
             or value.get('sts', {}).get('verified') is not True):
         raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
     return value
+
+
+def require_fresh_acquisition(value):
+    """A receipt cannot indefinitely authorize replay against an unchanged Git baseline."""
+    acquired_at = datetime.fromisoformat(value['acquiredAt'])
+    if acquired_at.tzinfo is None:
+        raise ValueError('IMPORT evidence time must include its timezone')
+    age = datetime.now(timezone.utc) - acquired_at
+    if age < -timedelta(minutes=5) or age > timedelta(days=7):
+        raise ValueError('IMPORT acquisition evidence expired')
 
 
 def discard_acquisition(root, file):

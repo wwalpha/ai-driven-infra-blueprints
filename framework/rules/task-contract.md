@@ -1,5 +1,5 @@
 # Task Contract Rules
-IMPORT desired configuration changes are exclusive to `/import`; follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Ordinary design, aws-check and update must delegate substantive IMPORT changes to import and cannot bypass the mechanical evidence guard.
+IMPORT acquisition/addition is exclusive to append-only `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
 ## Dedicated import boundary
@@ -69,7 +69,7 @@ IMPORT and other authority writers retain their dedicated publication checks and
   Model templates; unproven or unresolved dependencies remain conservative. Source
   impact never expands Deployment scope or AWS permission. Design may edit
   template/parameters/fixed bindings; infrastructure observed writers may edit observed.json
-  and generated views. Destroy cannot edit templates/parameters/bindings. Update treats
+  and generated views. Destroy cannot edit templates/parameters/bindings. Infrastructure update treats
   human service input diffs as immutable intended-design inputs; retain generated-view
   equality checks and reject ambiguous/multiple deployment target handoffs.
 
@@ -83,6 +83,18 @@ IMPORT and other authority writers retain their dedicated publication checks and
 - Do not save non-scenario task validation/deployment results under `tests/results/**`. As a rule, verification output belongs only in the completion report.
 - Place only independent contracts in `tasks/`; do not save task history or evidence. Task status is `running`, `suspend`, or `completed`. The current stop reason may be recorded in a suspended contract. Change only this contract to completed after the required final validation succeeds under [Validation policy](loop-engineering.md#validation-policy). Retain suspended contracts for resume; retain completed contracts only while their uncommitted diffs remain, and delete them when the diff disappears.
 - Track earlier scenario evidence versions in Git history; do not add directories per execution or timestamp.
+
+## Model-only IMPORT operation contract
+
+The existing `/update` Model-only branch is a design task with `Workflow: update`,
+`Model operation: import-merge` or `import-delete`, and exact `Source resource` in
+`environment/target/service/fixed-ID` form. Merge also requires `Destination resource`
+in the same scope; deletion forbids that field. AWS API execution and deploy/apply are
+`forbidden`. Record the human's request in Goal; do not infer IDs or require manual
+pre-edits. The contract never overrides actual-diff verification at publication,
+generation, task completion or worktree integration. Preserve all other effective
+Models; declare necessary value-preserving input additions and direct consumer scope.
+This narrow branch can transfer/remove existing observations without AWS retrieval.
 
 ## Controlled deploy repair contract
 

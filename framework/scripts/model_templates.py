@@ -140,8 +140,6 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
     if text is not None and status(text, name == 'tasks/active.md') != 'running':
         raise ValueError('completed task cannot write')
     with publication_lock(root) as journal:
-        if inputs is not None and any((p.read_bytes() if p.is_file() else None) != data for p, data in inputs.items()):
-            raise ValueError('Model sources changed after validation; rerun generation/migration')
         paths = set(output) | set(obsolete)
         for path in paths:
             safe(root, path)
@@ -150,6 +148,12 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
             require_import_changes(root, output={**output, **{p: None for p in obsolete}})
         if task_revision(root) != expected_task:
             raise ValueError("task scope changed after planning; rerun generation")
+        from validation_cache import input_recorder
+        snapshot = input_recorder(root)
+        if snapshot is not None:
+            snapshot.verify()
+        elif inputs is not None and any((p.read_bytes() if p.is_file() else None) != data for p, data in inputs.items()):
+            raise ValueError('Model sources changed after validation; rerun generation/migration')
         def finish():
             if verify is not None:
                 verify()
@@ -323,6 +327,42 @@ def create_service(path):
         raise ValueError(f'new service requires explicit YAML inputs: {path}')
     with publication_lock(paths[0]):
         return load_model(path)
+
+
+@input_scope
+def publish_edit(root, directory):
+    """Publish ordinary agent-edited sources for the exact Model-only update contract."""
+    from import_sources import candidate_sources
+    from task_contract import model_operation, task_path, paths_in
+    from issue_gate import require_no_issues
+    from sync_runtime import GenerationInputs
+    from validation_cache import input_context, recording_inputs
+    root = root.resolve()
+    text = task_path(root).read_text(encoding='utf-8')
+    operation = model_operation(text)
+    if operation is None:
+        raise ValueError('source publication requires an explicit Model-only /update operation')
+    identity = operation[1]
+    with input_context(), publication_lock(root):
+        snapshot = GenerationInputs(root)
+        try:
+            with recording_inputs(snapshot):
+                direct = consumers(root, identity[1], identity[2])
+                output = candidate_sources(root, directory, identity, preservation_consumers=direct)
+                declared = paths_in(text, '## Modified files')
+                if {file.relative_to(root).as_posix() for file in output} - declared:
+                    raise ValueError('Model-only candidate is absent from Modified files')
+                from validation_scope import active_scope
+                if active_scope(root) is None or not direct <= active_scope(root):
+                    raise ValueError('include every shared consumer in Model-only Validation scope')
+                require_no_issues(root, direct)
+                for file, content in list(output.items()):
+                    if file.name == 'observed.json' and json_read(content) == {'version': 1, 'values': {}}:
+                        output[file] = None
+                publish(root, output, inputs=snapshot.contents, expected_task=snapshot.expected_task)
+                return sorted(file.relative_to(root).as_posix() for file in output)
+        finally:
+            snapshot.close()
 
 
 class Definition(NamedTuple):
@@ -1122,11 +1162,21 @@ def main():
     mode.add_argument('--affected',action='store_true')
     mode.add_argument('--create',action='store_true',help='validate YAML/bindings for a new service; absent observed means unobserved')
     mode.add_argument('--inputs',action='store_true',help='show human input definitions, current values and traced Model destinations')
+    mode.add_argument('--publish-edit', type=Path, help='publish changed source candidates for a Model-only update contract')
     parser.add_argument('--environment')
     args=parser.parse_args()
     for name in (args.alias,args.service):
         if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*',name):
             parser.error('invalid alias/service')
+    if args.publish_edit is not None:
+        from task_contract import model_operation, task_path
+        root = args.repository_root.resolve()
+        operation = model_operation(task_path(root).read_text(encoding='utf-8'))
+        if operation is None or operation[1] != (args.environment, args.alias, args.service):
+            parser.error('publish-edit selectors must match the exact Model-only update contract')
+        for file in publish_edit(root, args.publish_edit):
+            print(file)
+        return 0
     if args.create:
         if not args.environment or not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', args.environment):
             parser.error('--create requires a valid --environment')

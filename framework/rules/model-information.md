@@ -48,10 +48,16 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 
 ## IMPORT configuration authority
 
-AWS actual configuration is authoritative for IMPORT. Only the dedicated [import
-workflow](../prompts/codex/08_import.md) may change substantive IMPORT settings.
-Ordinary design, aws-check and update must delegate these changes to import. CREATE
-and value-preserving source refactors retain their existing workflow and validation.
+AWS actual configuration is authoritative for IMPORT. The dedicated [import
+workflow](../prompts/codex/08_import.md) adds newly acquired resources only. Existing
+IMPORT configuration updates remain forbidden except explicit Model-only merge/delete
+through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
+That design branch requires exact source/destination IDs and verifies the actual diff:
+complete source transfer/removal, stable destination identities, unchanged CREATE and
+other consumer values, and no remaining source references. It uses existing source
+editing, publication/rollback and ordinary generation/validation without AWS or IaC.
+Other-environment inputs may receive necessary value-preserving additions only in this
+branch. CREATE and value-preserving source refactors retain their existing workflows.
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
@@ -70,10 +76,16 @@ Acquisition evidence is a private sealed temporary session outside the repositor
 binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
 source hashes and the direct consumer set across acquire/publish processes. The agent
 records correspondence and ordinary edited sources there. After publication, remove
-temporary acquisition/candidate contents; retain only the ignored completion receipt at
-`<execution-root>/.blueprint/import/<task-name>.json` for the selected task. Dry-run
+temporary acquisition/candidate contents; retain only a sealed task receipt at
+`evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
 persists no Model, displays, contract or completion receipt and cleans its session.
-Never save raw responses. See 08_import for failure/cancellation cleanup.
+Never save raw responses. Acquisition/receipt timestamps expire after seven days;
+future timestamps beyond five minutes are rejected. Existing legacy receipts are verified
+before migration, then only the owned file and empty ancestor directories are removed.
+Mixed or unverified legacy data is retained. Snapshot receipts are re-signed for their
+private root and removed in finally; source evidence remains retryable. Worktree evidence
+is removed only after verified integration and successful checkout/branch cleanup.
+See 08_import for failure/cancellation cleanup.
 
 Import reflection is append-only: add explicitly managed acquired resources with new
 fixed Resource/Row IDs, unique anchors and IMPORT mode, reusing existing Definitions.
