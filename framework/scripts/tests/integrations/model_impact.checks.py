@@ -99,6 +99,8 @@ desired.row.name.value=<<UnusedProducer>>
 
 
 def baseline(root):
+    from support.it_workspace import copy_framework
+    copy_framework(root/'framework/mappings', relative='mappings')
     git(root,'init'); git(root,'config','user.name','Fixture'); git(root,'config','user.email','fixture@example.invalid')
     git(root,'add','model'); git(root,'commit','-m','Baseline')
     return git(root,'rev-parse','HEAD')

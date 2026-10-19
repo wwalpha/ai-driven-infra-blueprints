@@ -105,7 +105,7 @@ def model_for(path: Path, root: Path | None = None, *, source: dict[str, str] | 
                 f'{key}.deployOrder={stack["deployOrder"]}',
             ))
         return "\n".join(output) + "\n"
-    catalog_outputs = identifier_outputs(root or Path(__file__).resolve().parents[2])
+    catalog_outputs = identifier_outputs(definitions_root or root or Path(__file__).resolve().parents[2])
     design_index = design_index or DesignIndex(root)
     document = design_index.get(path)
     lines = document.lines

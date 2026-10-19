@@ -9,6 +9,7 @@ if not __debug__:
 import io
 import os
 import pytest
+from support.pytest_cli import run
 from unittest.mock import patch
 from contextlib import redirect_stdout
 from support.sync_model_fixtures import MODULE, generated_policy

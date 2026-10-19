@@ -154,7 +154,7 @@ def check_stage_definition_errors(generated_policy, tmp_path, definition):
                 elif definition == 'schema':
                     sync_views.view_validator(stage, root)
                 else:
-                    model_design.markdown_for(staged, values, stage, definitions_root=root)
+                    model_design.markdown_for(staged, values, stage, definitions_root=definition_root(root))
     assert not (stage / 'framework').exists()
 
 
@@ -175,7 +175,7 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
     values = values | {'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-iam-AppRole'}
     write_model(model, values)
     expected = design.read_bytes()
-    expected_stack = model_design.markdown_for(stack_design, stacks, root).encode('utf-8')
+    expected_stack = model_design.markdown_for(stack_design, stacks, root, definitions_root=definition_root(root)).encode('utf-8')
     stack_design.write_bytes(expected_stack)
     stage = tmp_path / 'candidates'
     staged = stage / design.relative_to(root)
@@ -210,7 +210,7 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
         # Only the staged stack authority changes; the saved stack remains valid.
         write_model(stage / stack_model.relative_to(root), stacks | {'desired.stack.001.name': 'cfn-stack-other-dev-iam'})
         with pytest.raises(ValueError, match='undeclared stack'):
-            model_design.markdown_for(staged, values, stage, definitions_root=root)
+            model_design.markdown_for(staged, values, stage, definitions_root=definition_root(root))
         validator = sync_views.view_validator(stage, root)
         validator.scope = {('dev', '123456789012', 'cloudformation-stacks')}
         validator.check_project_topology()
@@ -400,7 +400,7 @@ def check_unchanged_sidecar_path_safety(generated_policy):
     external.write_bytes(artifact.read_bytes())
     artifact.unlink()
     artifact.symlink_to(external)
-    with patch.dict(os.environ, env), pytest.raises(ValueError, match='unsafe Model source path'):
+    with patch.dict(os.environ, env), pytest.raises(ValueError, match=r'unsafe generation input \(symlink\)'):
         MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
     assert artifact.is_symlink()
 
@@ -437,7 +437,7 @@ def check_failure_counts(framework_root) -> None:
 
     # Retained references warn without adding a failed service or failure diagnostics.
     broken = {f"reference-{number}": docs / "service-09.md" for number in range(5)}
-    def context(stage, source, generated, destinations, accounts=None):
+    def context(stage, source, generated, destinations, accounts=None, definitions_root=None):
         findings = Findings(stage)
         scope = {(*p.relative_to(root / 'docs/designs').parts[:2], p.stem) for p in generated}
         for name in ('design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'):
@@ -490,10 +490,11 @@ def check_incoming_reference_models(framework_root, tmp_path, write) -> None:
         (docs / f"{service}.md").write_text(f"# {service}\n### {service}\n", encoding="utf-8")
     selected = docs / "s3.md"
     incoming = docs / "kms.md"
+    incoming.write_text("# kms\n### kms\n[S3](s3.md#s3)\n", encoding="utf-8")
     stage = tmp_path / "stage"
     stage.mkdir()
 
-    def check_snapshot(stage, root, paths):
+    def check_snapshot(stage, root, paths, *, definitions_root=None):
         assert stage / incoming.relative_to(root) in paths
         assert read_model(stage / (models / "kms.properties").relative_to(root)) == read_model(models / "kms.properties")
         return {}

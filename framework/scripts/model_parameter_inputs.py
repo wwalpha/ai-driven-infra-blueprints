@@ -381,9 +381,11 @@ def parameter_value(template, item, name, instances, bindings, definitions, envi
             from model_projection import identifier_outputs
             prop = spec['property']
             from design_catalog import design_material_files
-            if not any(file.stem.replace('_', '.', 1) == spec['resourceType'] for file in design_material_files(root)):
+            from utils.aws_mappings import definition_root
+            catalog_root = definition_root(root)
+            if not any(file.stem.replace('_', '.', 1) == spec['resourceType'] for file in design_material_files(catalog_root)):
                 raise ValueError('reference catalog material missing: ' + spec['resourceType'])
-            if prop not in identifier_outputs(root).get(spec['resourceType'], set()):
+            if prop not in identifier_outputs(catalog_root).get(spec['resourceType'], set()):
                 raise ValueError('reference property is not a catalog identifier output')
             selected = [row_id for row_id, row in rows[rid] if row['property'] == prop]
             observed = [(row_id, row) for row_id, row in entries(model.values, 'observed.row.')

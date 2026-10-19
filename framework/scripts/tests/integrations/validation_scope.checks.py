@@ -150,7 +150,7 @@ def check_template_consumers(root):
         assert generate.call_count == 1, generate.call_args_list
         arguments = generate.call_args.args[0]
         assert arguments == ['--jobs', '1', '--scope', 'dev/team/config', '--scope', 'stg/team/config'], arguments
-        assert generate.call_args.kwargs == {'repository_root': root}
+        assert generate.call_args.kwargs == {'repository_root': root, 'definitions_root': root}
         assert partial.checks == cold.checks
         with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
             warm = validate()

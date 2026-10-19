@@ -224,7 +224,7 @@ def restore_view(stage: Path, root: Path, path: Path) -> None:
         staged.write_bytes(input_bytes(path))
     shutil.rmtree(staged.with_suffix(""), ignore_errors=True)
     if path.with_suffix("").is_dir():
-        for file in input_select(path.with_suffix(''), '*.json', recursive=True, kinds=('file',)):
+        for file in input_select(path.with_suffix(''), '*.json', recursive=True, kinds=('file', 'symlink')):
             destination = stage / file.relative_to(root)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(input_bytes(file))
@@ -484,6 +484,7 @@ class Generation:
         self.lifetime.close()
 
 
+@progress_stage("snapshot")
 def prepare_generation(root, scope, *, write=True, environment=None, target_directory=None, snapshot=None, definitions_root=None):
     """Prepare every selected target in a single disposable stage."""
     if scope == set():
