@@ -48,7 +48,6 @@ class Resolver:
         self.indexes[kind] = result
         if service is None:
             return result
-        path = self.root / 'model' / self.environment / self.target / (service + '.properties')
         properties = attributes_for(kind)
         mapping = mappings_for(self.definitions_root).get(service)
         aliases = {prop: {prop} | {key for key, item in mapping.properties.items()
@@ -57,6 +56,12 @@ class Resolver:
                                   and item.transform == mapping.properties[prop].transform}
                    for prop in properties if prop in mapping.properties}
         selected_properties = tuple(sorted(set(properties) | {alias for group in aliases.values() for alias in group}))
+        local_services = [name for name, model in self.local.items()
+                          if any(resource.get('resourceType') == kind for _, resource in entries(model.values, 'desired.resource.'))]
+        if len(local_services) > 1:
+            raise ValueError('IMPORT ambiguous local producer service: ' + kind)
+        service = local_services[0] if local_services else service
+        path = self.root / 'model' / self.environment / self.target / (service + '.properties')
         if service in self.local:
             models = [self.local[service]]
         else:
@@ -89,7 +94,7 @@ class Resolver:
                         continue
                     raw = values.get('observed.row.' + row_id + '.value', row.get('value', ''))
                     value = literal(raw)
-                    if known(value):
+                    if known(value) or value == 'PENDING_DEPLOY':
                         physical.setdefault(row['property'].removeprefix(kind + '.'), set()).add(value)
                         for prop, group in aliases.items():
                             if row['property'] in group:
@@ -156,6 +161,15 @@ class Resolver:
             if not typed_equal(literal(raw) if isinstance(raw, str) else raw, physical):
                 raise ValueError('IMPORT literal differs from acquired physical value: ' + prop)
         expected = self.match(prop, physical, context, contracts=contracts)
+        if reference and physical == 'PENDING_DEPLOY' and not require_links:
+            # Destruction clears both identifiers; validate the explicit pending target only.
+            candidates = {identity: candidate for kind, forms in declared.items() for form in forms
+                          for identity, candidate in self.index(kind).get((form, physical), {}).items()
+                          if (reference[2], reference[3]) in {
+                              (candidate['service'] + '.md', candidate['anchor']),
+                              ('', candidate['anchor']) if candidate['service'] in self.local else (None, None)}}
+            if len(candidates) == 1:
+                expected = next(iter(candidates.values()))
         if reference:
             if not declared:
                 raise ValueError('IMPORT explicit reference has no physical identification contract: ' + prop)

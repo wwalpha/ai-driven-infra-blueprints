@@ -77,6 +77,7 @@ def check_firehose_import_pending_roundtrip(root, project):
         validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
         validator.check_design_tables({}, *catalog)
         validator.check_design_links(catalog[2])
+        validator.check_generated_service_models()
         return validator.errors
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"
@@ -110,6 +111,7 @@ def check_config_import_pending_roundtrip(root, project):
         validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
         validator.check_design_tables({}, *catalog)
         validator.check_design_links(catalog[2])
+        validator.check_generated_service_models()
         return validator.errors
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"

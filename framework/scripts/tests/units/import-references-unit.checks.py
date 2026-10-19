@@ -138,6 +138,33 @@ def check_observed_and_reused_index(tmp_path):
     assert resolver.match('EC2.SecurityGroup.VpcId', 'PENDING_DEPLOY') is None
 
 
+@pytest.mark.parametrize('physical', ['PENDING_DEPLOY', 'vpc-confirmed', 'UNSET'])
+@pytest.mark.parametrize('local', [None, 'vpc', 'ec2'])
+def check_pending_explicit_reference_after_destroy(tmp_path, physical, local):
+    source = values('EC2.VPC', {'VpcId': physical})
+    source['desired.row.001-001.value'] = '[Producer](#producer)'
+    source['observed.row.001-001.value'] = physical
+    write_model(tmp_path / 'model/dev/cde/vpc.properties', source)
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT,
+                        local={local: Expansion(source, {}, {})} if local else None)
+    prop = 'EC2.Subnet.VpcId'
+    reference = '[Producer](' + ('' if local else 'vpc.md') + '#producer)'
+    assert resolver.match(prop, 'PENDING_DEPLOY') is None
+    if physical == 'PENDING_DEPLOY':
+        resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
+    else:
+        with pytest.raises(ValueError, match='differs from acquired'):
+            resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
+    for wrong in ('[missing](vpc.md#absent)', '[foreign](../other/vpc.md#producer)',
+                  '[wrong type](subnet.md#producer)'):
+        with pytest.raises(ValueError, match='differs from acquired'):
+            resolver.verify(prop, wrong, 'PENDING_DEPLOY', require_links=False)
+    with pytest.raises(ValueError, match='differs from acquired'):
+        resolver.verify(prop, reference, 'PENDING_DEPLOY')
+    with pytest.raises(ValueError, match='no physical identification contract'):
+        resolver.verify('Unknown.Resource.Value', reference, 'PENDING_DEPLOY', require_links=False)
+
+
 def check_append_only_and_later_import(tmp_path):
     prop = 'CloudTrail.Trail.S3BucketName'
     old = values('CloudTrail.Trail', {'S3BucketName': 'audit-bucket'})

@@ -21,13 +21,13 @@ def check_projection(sync):
              patch.object(documents, "expanded_design", wraps=documents.expanded_design) as expands:
             projection = model_projection.model_for(source, Path(__file__).resolve().parents[4], design_index=index)
             assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
-            assert expands.call_count == 4  # Source, two parents, and empty unresolved view.
+            assert expands.call_count == 3, expands.call_count  # Source and two parents; missing anchors need no expansion.
             assert model_projection.linked_resource(source, "[alias/two](kms.md#kms-aliastwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
             assert model_projection.linked_resource(source, "[key](kms.md#kms-keyone)", design_index=index) == ("KMS.Key", "KeyHidden")
             assert model_projection.linked_resource(source, "[missing](kms.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "[missing](absent.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "literal", design_index=index) is None
-            assert expands.call_count == 4
+            assert expands.call_count == 3, expands.call_count
         # Captured from the pre-index implementation, including unresolved-link fallbacks.
         assert hashlib.sha256(projection.encode()).hexdigest() == "4e56a48f9624ff229f0d6821d294924422d8c94cd6dc88d477e2c81c8fb7f1e9"
         assert index.get(source).headings.expanded is index.get(source).view(projection=True).expanded
