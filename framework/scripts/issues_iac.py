@@ -231,7 +231,8 @@ class Comparison:
         expected_attribute = reference_attribute(resource['resourceType'], expected_attribute)
         # The link label is never a physical ID, including PENDING_DEPLOY.
         readonly = self.catalog.schema(resource['resourceType']).get('readOnlyProperties', [])
-        if expected_attribute not in attributes and '/properties/' + expected_attribute not in primary + readonly:
+        alias_arn = resource['resourceType'] == 'KMS.Alias' and expected_attribute == 'AliasArn'
+        if not alias_arn and expected_attribute not in attributes and '/properties/' + expected_attribute not in primary + readonly:
             raise Blocked(f'reference attribute not confirmed: {expected_attribute}')
         if resource_mode(resource) == 'IMPORT':
             observed = [literal(self.models[refservice].values.get(f'observed.row.{rid}.value', 'PENDING_DEPLOY'))
@@ -518,6 +519,27 @@ class Comparison:
 
     def reference_same(self, left, right, kind, path, diagnostics=None):
         """Compare proven identities under a property contract, retaining form/alias intent."""
+        if (self.local_comparison and kind == 'CodeBuild.Project' and
+                path == 'Environment.EnvironmentVariables[].Value'):
+            if isinstance(left, Expression) or isinstance(right, Expression):
+                try:
+                    values = [self.reference_literal(value) if isinstance(value, (Expression, ResourceReference)) else value
+                              for value in (left, right)]
+                    return same(*values)
+                except (Blocked, ValueError, KeyError, TypeError, OSError):
+                    return None
+            if isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
+                return same(left, right)
+            if isinstance(left, ResourceReference) != isinstance(right, ResourceReference):
+                symbol, other = (left, right) if isinstance(left, ResourceReference) else (right, left)
+                if isinstance(other, str):
+                    forms = self.kms_format(symbol), self.kms_format(other)
+                    if all(form not in {None, 'invalid'} for form in forms) and forms[0] != forms[1]:
+                        return False
+                    try:
+                        return same(self.reference_literal(symbol), other)
+                    except (Blocked, ValueError, KeyError, TypeError, OSError):
+                        return None
         allowed = KMS_COMPARISON_FORMS.get(kind + '.' + path) if self.local_comparison else None
         if allowed:
             forms = self.kms_format(left), self.kms_format(right)
@@ -666,7 +688,9 @@ class Comparison:
                 if variable_type == 'SECRETS_MANAGER':
                     expected_kind, attribute = 'SecretsManager.Secret', 'Id'
                 elif variable_type == 'PLAINTEXT':
-                    expected_kind = ('S3.Bucket', 'KMS.Alias')
+                    if attribute is None:
+                        # Preserve the existing bucket-name link; arbitrary strings have no default attribute.
+                        expected_kind, attribute = 'S3.Bucket', 'BucketName'
                 else:
                     raise Blocked('reference property contract unproven: CodeBuild environment Type is required')
             elif contract:
@@ -726,6 +750,18 @@ class Comparison:
                 return [references(child, field, operands, path + '[]', context) for child in item]
             if isinstance(item, dict):
                 if self.local_comparison:
+                    if (kind == 'CodeBuild.Project' and path == 'Environment.EnvironmentVariables[].Value'
+                            and {'$resource', '$attribute'} & item.keys()):
+                        if (set(item) != {'$resource', '$attribute'} or not context or context.get('Type') != 'PLAINTEXT'
+                                or not all(isinstance(part, str) and part for part in item.values())
+                                or not LINK.fullmatch(item['$resource'])):
+                            raise Blocked('Model environment reference requires PLAINTEXT, an explicit resource link and attribute')
+                        symbol = self.desired_reference(service, item['$resource'], kind, path, item['$attribute'], context)
+                        target_service, identity = symbol['$resource']
+                        target_kind = self.resources[target_service][identity]['resourceType']
+                        if not (target_kind == 'KMS.Alias' and symbol['$attribute'] == 'AliasArn') and self.catalog.property_schema(target_kind, symbol['$attribute']).get('type') != 'string':
+                            raise Blocked('Model environment reference attribute must be a proven string')
+                        return symbol
                     intrinsic = next((key for key in item if key == 'Ref' or key.startswith('Fn::')), None)
                     if intrinsic:
                         if kind == 'SQS.QueuePolicy' and intrinsic == 'Fn::GetAtt' and len(item) == 1 and stack is not None:
@@ -747,7 +783,18 @@ class Comparison:
                     context = item
                 return {key: references(child, field if operands else key, operands, path + '.' + key, context) for key, child in item.items()}
             return item
-        return references(value, path=row['property'].removeprefix(kind + '.'))
+        path = row['property'].removeprefix(kind + '.')
+        if (self.local_comparison and kind == 'CodeBuild.Project' and
+                re.sub(r'\[\d+\]', '[]', path) == 'Environment.EnvironmentVariables[].Value'
+                and isinstance(value, str) and value.startswith('{')):
+            try:
+                selector = strict_json(value)
+            except ValueError:
+                selector = None
+            if isinstance(selector, dict) and {'$resource', '$attribute'} & selector.keys():
+                value = selector
+                path = re.sub(r'\[\d+\]', '[]', path)
+        return references(value, path=path)
 
     def templates(self):
         if self._templates is not None:

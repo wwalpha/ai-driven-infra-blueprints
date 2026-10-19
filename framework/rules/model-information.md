@@ -274,6 +274,23 @@ Restore CodePipeline `Stages[N]` and `Actions[M]`, including single actions, to 
 
 During display validation, expand the single-row display `CodeBuild.Project.Environment.Variables[N].<Name>` into 3 formal `EnvironmentVariables[].Name`, `Type`, and `Value` rows of the same array element. For literals, use Type=PLAINTEXT and retain Value as-is. For resource links, restore Type from the hidden `codebuild-variable-type` marker at the start of `Source / Comment`. Retain Value resource links, confirmed display-text names/selectors, and literal `:` losslessly; do not convert to identifier output references or separate into observed. Do not save display-only `Variables.<Name>` or Type markers in models.
 
+For local Model → IaC comparison of `CodeBuild.Project.Environment.EnvironmentVariables[].Value`
+with `Type=PLAINTEXT`, explicitly select the resource and string attribute with
+`{"$resource":"[Key](kms.md#kms-key)","$attribute":"Arn"}`. This object may appear
+in a row's JSON `document`, including an EnvironmentVariables array document, or as
+the JSON text of a formal Value row. The target is an ordinary same-target Model
+anchor link; the selector has exactly these two fields. It reuses the common logical
+reference resolver and never stores a generated ARN or queries AWS. KMS Key uses
+`Arn` or `KeyId`; KMS Alias uses `AliasArn` or `AliasName`. `AliasArn` is the existing
+comparison's semantic alias ARN attribute, not a CloudFormation Alias GetAtt attribute.
+IaC GetAtt/Ref/ImportValue/Sub are evaluated using their actual return semantics.
+Alias and Key identities and attributes remain distinct, even for the same underlying
+key. Neither PLAINTEXT nor a variable name ending in `_ARN` selects an ARN attribute.
+Legacy bare S3 links retain `BucketName`; other bare resource links require explicit
+attributes. Unproven targets/attributes/exports remain uncompared. An Export name
+literal is not its exported value. This receiving-property comparison policy does
+not add an IMPORT acquisition contract or permit consumer source changes.
+
 During display validation, restore one-resource-per-row displays of `CodeBuild.Project.VpcConfig.Subnets[N]`/`SecurityGroupIds[N]` to multiple rows of formal `VpcConfig.Subnets`/`VpcConfig.SecurityGroupIds`, respectively, retaining resource links and order. Do not save display-only `N` as a model property.
 
 Apply Subnet listing `[N]` displays commonly to all targets in `detailed-design.md`. Replace formal property suffix `[]` only for display, and restore per-element resource-link rows to multiple rows of the same formal property. Retain existing per-element separation rules for desired logical references and observed current identifiers; do not change order or row membership.

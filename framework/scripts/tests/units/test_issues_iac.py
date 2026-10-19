@@ -5,12 +5,95 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 
 import unittest
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
+import tempfile
 
 import issues_iac
 
 
 class ImportValueResolutionTests(unittest.TestCase):
+  def test_codebuild_plaintext_resource_attributes(self):
+    # Authored identities and templates only; no consumer inputs or physical identifiers.
+    with tempfile.TemporaryDirectory() as directory:
+      comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+      comparison.root = Path(directory)
+      comparison.environment, comparison.directory = 'fixture', 'team'
+      comparison.catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+      comparison.local_comparison = comparison.reference_models_loaded = True
+      comparison.reference_formats, comparison.symbols = {}, {}
+      comparison._index = None
+      comparison.resources = {'kms': {}, 's3': {}}
+      comparison.rows = {'kms': {}, 's3': {}}
+      comparison.models = {}
+      definitions = {}
+      for service, identity, kind, logical in [
+          ('kms', '001', 'KMS.Key', 'Key'), ('kms', '002', 'KMS.Alias', 'Alias'),
+          ('kms', '003', 'KMS.Key', 'OtherKey'), ('s3', '001', 'S3.Bucket', 'Bucket')]:
+        resource = {'resourceType': kind, 'anchor': logical.lower(), 'cfn-logicalId': 'producer-' + logical}
+        if kind == 'KMS.Alias':
+          resource['parentReference'] = '[Key](#key)'
+        comparison.resources[service][identity] = resource
+        comparison.rows[service][identity] = []
+        definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
+      definitions['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
+      definitions['Bucket']['Properties'] = {'BucketName': 'fixture-bucket'}
+      for service, resources in comparison.resources.items():
+        comparison.models[service] = SimpleNamespace(values={
+            f'desired.resource.{identity}.{key}': value
+            for identity, resource in resources.items() for key, value in resource.items()})
+      producer = {'Resources': definitions}
+      pseudo = {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}
+      comparison.stack_inputs = {'producer': (producer, {}, pseudo), 'build': ({}, {}, pseudo)}
+      comparison.templates = lambda: [('001', {'name': 'producer'})]
+      comparison.stack = lambda unit: (Path('producer.yaml'), comparison.stack_inputs['producer'])
+      alias_value = {'Fn::Sub': ['arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}', {'Alias': {'Ref': 'Alias'}}]}
+      comparison.exports = {'key-export': [('producer', {'Fn::GetAtt': ['Key', 'Arn']})],
+                            'alias-export': [('producer', alias_value)]}
+      comparison.export_failures = []
+      prop = 'Environment.EnvironmentVariables[].Value'
+      def desired(logical, attribute=None, name='VALUE'):
+        link = f'[{logical}]({"s3" if logical == "Bucket" else "kms"}.md#{logical.lower()})'
+        value = {'$resource': link, '$attribute': attribute} if attribute else link
+        return comparison.desired_value('codebuild', {
+            'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
+            'document': json.dumps([{'Name': name, 'Type': 'PLAINTEXT', 'Value': value}])}, 'CodeBuild.Project')[0]['Value']
+      def equal(left, right):
+        return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
+      with patch('issues_iac.catalog_outputs', return_value=set()):
+        key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
+        for model, actual, exported in [
+            (key, {'Fn::GetAtt': ['Key', 'Arn']}, 'key-export'), (alias, alias_value, 'alias-export')]:
+          self.assertTrue(equal(model, comparison.evaluate('producer', actual)))
+          self.assertTrue(equal(model, comparison.evaluate('build', {'Fn::ImportValue': exported})))
+          self.assertIsNot(equal(model, exported), True)
+        self.assertFalse(equal(key, alias))
+        self.assertFalse(equal(key, comparison.evaluate('producer', alias_value)))
+        self.assertFalse(equal(key, desired('OtherKey', 'Arn')))
+        self.assertFalse(equal(key, desired('Key', 'KeyId')))
+        self.assertFalse(equal(alias, desired('Alias', 'AliasName')))
+        self.assertTrue(equal(desired('Bucket'), comparison.evaluate('producer', {'Ref': 'Bucket'})))
+        self.assertFalse(equal(desired('Bucket'), desired('Bucket', 'Arn')))
+        self.assertEqual(desired('Key', 'KeyId', name='KEY_ARN')['$attribute'], 'KeyId')
+        for logical, attribute in [('Key', None), ('Alias', None), ('Missing', 'Arn'), ('Key', 'AliasArn')]:
+          with self.subTest(logical=logical, attribute=attribute), self.assertRaises((issues_iac.Blocked, KeyError)):
+            desired(logical, attribute)
+        with self.assertRaises(issues_iac.Blocked):
+          comparison.evaluate('build', {'Fn::ImportValue': 'unknown-export'})
+        self.assertIsNone(equal(key, issues_iac.Expression('Sub', ['${Unknown}', {}])))
+        unknown = issues_iac.Expression('Sub', ['${Unknown}', {}])
+        self.assertIsNone(equal(unknown, unknown))
+        row = {'property': 'CodeBuild.Project.' + prop, 'value': '`' + json.dumps({
+            '$resource': '[Key](kms.md#key)', '$attribute': 'Arn'}) + '`'}
+        self.assertEqual(comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}), key)
+        for selector in [{'$resource': '[Key](kms.md#key)'},
+                         {'$resource': 'key-export', '$attribute': 'Arn'},
+                         {'$resource': '[Key](kms.md#key)', '$attribute': 'Arn', 'extra': 'x'},
+                         {'$resource': '[Key](kms.md#key)', '$attribute': 3}]:
+          row['value'] = '`' + json.dumps(selector) + '`'
+          with self.subTest(selector=selector), self.assertRaises(issues_iac.Blocked):
+            comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'})
+
   def test_formal_pipeline_membership_and_configuration_context(self):
     comparison = Mock()
     comparison.root = Path(__file__).resolve().parents[4]
