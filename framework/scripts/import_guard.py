@@ -1,5 +1,7 @@
 """Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
 from contextlib import contextmanager, ExitStack
+from collections.abc import Iterator
+from model_sources import SourceWriteContext
 from contextvars import ContextVar
 import hashlib
 import io
@@ -228,11 +230,12 @@ def changes(root, sources, output=None, include_create=False):
         return base, found
 
 
-def require_import_changes(root, supplied=None, output=None, generation=False):
+def require_import_changes(root, supplied=None, output=None, generation=False, *, final_candidate=None):
     root = root.resolve()
     if not (root / '.git').exists():
         return  # Disposable generator stages have no Git baseline; the calling boundary is guarded.
-    sources = changed_sources(root, supplied)
+    sources = ({p for p in final_candidate.changed_paths if p.startswith(('model/', 'project.json'))}
+               if final_candidate is not None else changed_sources(root, supplied))
     if output:
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
     selected = task_path(root).relative_to(root).as_posix()
@@ -240,12 +243,12 @@ def require_import_changes(root, supplied=None, output=None, generation=False):
     from task_contract import model_operation
     operation = model_operation(text)
     if operation is not None:
-        if not sources and generation:
-            return
-        base = base_revision(root)
+        if generation:
+            return  # Source/view generation does not decide final Model operation meaning.
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root)
         if base is None:
             raise ValueError('IMPORT Model-only operation requires a versioned baseline')
-        from import_promotion import verify_model_operation
+        from model_operation_checks import verify_model_operation
         with snapshots(root, base, output or {}) as (before, after):
             verify_model_operation(before, after, operation, sources)
         return
@@ -511,3 +514,106 @@ def discard_acquisition(root, file):
     if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
         raise ValueError('IMPORT refusing to remove an unknown temporary directory')
     shutil.rmtree(file.parent)
+
+
+def managed_source_write(root: Path, task_file: str) -> bool:
+    """Select the guarded intermediate path only for a real managed Model operation."""
+    from task_contract import model_operation, task_revision
+    from worktree_task import task_start_commit
+    _, text = task_revision(root, selected=task_file)
+    return bool(text and model_operation(text) is not None and task_start_commit(root, task_file) is not None)
+
+
+@contextmanager
+def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteContext]:
+    """Authorize one raw save in the selected running, unmerged Model-only worktree.
+
+    Records raw registered input bytes/file sets only, after journal recovery. Raises
+    ValueError/OSError on task, worktree, scope or input changes. No expansion/staging,
+    generation, final verification or task status changes occur here.
+    """
+    from model_sources import SourceWriteContext, read_sources, source_paths, consumers, publication_lock, safe
+    from sync_runtime import GenerationInputs
+    from task_contract import task_revision, validate_contract, model_operation, status, paths_in, matches, safe_path
+    from validation_scope import active_scope
+    from validation_cache import input_context, recording_inputs
+    from issue_gate import require_no_issues
+    from worktree_task import load, task_worktree
+    root = root.resolve()
+    name, text = task_revision(root, selected=task_file)
+    if name != task_file or text is None or status(text) != 'running':
+        raise ValueError('source write requires an explicit running parent task')
+    validate_contract(root, name, text)
+    operation = model_operation(text)
+    if operation is None:
+        raise ValueError('source write requires a Model-only update operation')
+
+    def current_worktree():
+        _, _, _, state = load(root, Path(name).stem)
+        if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
+            raise ValueError('source write task/worktree is mismatched or merged')
+        if task_worktree(root, state) != root:
+            raise ValueError('source write requires its managed worktree')
+        return state
+
+    current_worktree()
+    with input_context(), publication_lock(root):
+        snapshot = GenerationInputs(root, task_file=name)
+        context = None
+        try:
+            writable, path_scopes = set(), {}
+            with recording_inputs(snapshot):
+                scope = active_scope(root, task_file=name)
+                selected = {operation.scope} | {tuple(ref.consumer.split('/')[:3]) for ref in operation.references}
+                if scope is None or not selected <= scope:
+                    raise ValueError('source write requires exact service Validation scope')
+                require_no_issues(root, selected, task_file=name)
+                for identity in sorted(selected):
+                    env, alias, service = identity
+                    model = root / 'model' / env / alias / (service + '.properties')
+                    _, template, directory = source_paths(model)
+                    files = read_sources(model, read_context=snapshot)
+                    direct = consumers(root, alias, service)
+                    for path in files:
+                        if path.is_relative_to(root / 'model/templates'):
+                            writable.add(path)
+                            path_scopes[path] = direct
+                        elif identity == operation.scope or path.name == 'parameters.yaml':
+                            writable.add(path)
+                            path_scopes[path] = {identity}
+                    for consumer in direct - {identity}:
+                        cenv, calias, cservice = consumer
+                        others = read_sources(root / 'model' / cenv / calias / (cservice + '.properties'), read_context=snapshot)
+                        for path in others:
+                            if path.name == 'parameters.yaml':
+                                writable.add(path)
+                                path_scopes[path] = {consumer}
+                # Incoming sources are read dependencies only, never write authority.
+                for directory in snapshot.select(root / 'model/parameters' / operation.scope[0] / operation.scope[1]):
+                    safe(root, directory)
+                    if snapshot.kind(directory) != 'dir':
+                        raise ValueError('invalid registered Model service directory')
+                    read_sources(root / 'model' / operation.scope[0] / operation.scope[1] / (directory.name + '.properties'), read_context=snapshot)
+            declared = paths_in(text, '## Modified files')
+            allowed = paths_in(text, '## Allowed paths')
+
+            def require_current(changes):
+                if task_revision(root, selected=name) != (name, text):
+                    raise ValueError('parent task changed before source publication')
+                current_worktree()
+                for path in changes:
+                    relative = path.relative_to(root).as_posix()
+                    safe_path(root, relative)
+                    if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
+                        raise ValueError('source write is outside Modified files/Allowed paths: ' + relative)
+                    if not path_scopes[path] <= scope:
+                        raise ValueError('changed source requires all direct consumers in Validation scope')
+
+            context = SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable))
+        except BaseException:
+            snapshot.close()
+            raise
+    try:
+        yield context
+    finally:
+        context.close()

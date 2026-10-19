@@ -177,6 +177,9 @@ def generate_views(stage, root, destinations, failures, definitions_root=None):
 @progress_stage("candidate-validation")
 def validate_candidates(stage, root, generated, destinations, failures, jobs, write, validation=None, accounts=None, definitions_root=None):
     # A rejected view falls back to its saved state; recheck dependent services.
+    from task_contract import selected_task
+    name, text = task_revision(root)
+    @selected_task(root, name if text is not None else None)
     def validate(path):
         try:
             from import_scope import view_scope
@@ -352,7 +355,7 @@ def sync(root, write, environment=None, target_directory=None, services=None, jo
 
 class GenerationInputs:
     """Invocation-owned record of consumed raw bytes, kinds and selections."""
-    def __init__(self, root, definitions_root=None):
+    def __init__(self, root, definitions_root=None, *, task_file=None):
         self.root = root
         self.runtime_root = Path(__file__).resolve().parents[2]
         self.definitions_root = definitions_root or definition_root(root)
@@ -363,7 +366,7 @@ class GenerationInputs:
         self.sealed = False
         self.lifetime = ExitStack()
         self.stage = None
-        selected_task = task_path(root)
+        selected_task = task_path(root, selected=task_file)
         raw_task = self.read(selected_task)
         self.expected_task = (selected_task.relative_to(root).as_posix(),
                               None if raw_task is None else raw_task.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'))
@@ -657,13 +660,14 @@ def publish_generation(plan):
         if save_failed:
             retained = [p for p in plan.saved_paths if p not in plan.saved]
             plan.warnings = sync_views.broken_design_links(stage, root, [stage / p.relative_to(root) for p in retained], definitions_root=plan.definitions_root)
-    for reference, target in plan.warnings.items():
-        if reference not in plan.baseline_links and target in plan.saved:
-            print(f'Design Markdown sync: WARNING ({target.relative_to(root)}: '
-                  f'saved reference needs repair in a separate task: {reference})', file=output_file(error=True))
 
 
 def report_generation(plan):
+    for reference, target in plan.warnings.items():
+        if reference not in plan.baseline_links and target in plan.saved:
+            print(f'Design Markdown sync: WARNING ({target.relative_to(plan.root)}: '
+                  f'saved reference needs repair in a separate task: {reference})', file=output_file(error=True))
+
     for path in plan.saved:
         completed((*path.relative_to(plan.root / 'docs/designs').parts[:2], path.stem))
         print(f'Design Markdown sync: PASS ({path.relative_to(plan.root)})', file=output_file())
@@ -682,16 +686,7 @@ def run_generation(root, scope, *, write=True, environment=None, target_director
         if write:
             publish_generation(plan)
         else:
-            changed = [p for p, data in plan.read_inputs.items() if (p.read_bytes() if p.is_file() else None) != data]
-            if changed:
-                raise ValueError('generation inputs changed before comparison: ' + ', '.join(str(p) for p in changed))
-            for path, expected in plan.expected_outputs.items():
-                stale = [str(p.relative_to(root)) for p, text in expected.items()
-                         if not p.is_file() or p.read_bytes() != text.encode('utf-8')]
-                if stale:
-                    plan.failures.append('generated Markdown is stale or missing: ' + ', '.join(stale))
-                else:
-                    plan.saved[path] = {}
+            _compare_generation(plan)
         report_generation(plan)
         return 0
     finally:
@@ -745,3 +740,31 @@ def view_plan(path, values, root, managed):
         raise ValueError('unowned JSON output collision')
     inputs.update({file: file.read_bytes() if file.is_file() else None for file in files if file not in inputs})
     return {**changed_files(files), **{file: None for file in managed - files.keys() if file.is_file()}}, inputs
+
+
+def _compare_generation(plan):
+    root = plan.root
+    changed = [p for p, data in plan.read_inputs.items() if (p.read_bytes() if p.is_file() else None) != data]
+    if changed:
+        raise ValueError('generation inputs changed before comparison: ' + ', '.join(str(p) for p in changed))
+    for path, expected in plan.expected_outputs.items():
+        stale = [str(p.relative_to(root)) for p, text in expected.items()
+                 if not p.is_file() or p.read_bytes() != text.encode('utf-8')]
+        if stale:
+            plan.failures.append('generated Markdown is stale or missing: ' + ', '.join(stale))
+        else:
+            plan.saved[path] = {}
+
+
+def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None) -> tuple[str, ...]:
+    """Read-only source/view comparison using the existing generation candidates."""
+    if import_selection(root) is not None:
+        from import_guard import require_import_changes
+        require_import_changes(root, generation=True)
+    plan = prepare_generation(root, scope, write=False, definitions_root=definitions_root)
+    try:
+        validate_generation(plan, jobs=jobs, write=False)
+        _compare_generation(plan)
+        return tuple(plan.failures)
+    finally:
+        plan.close()

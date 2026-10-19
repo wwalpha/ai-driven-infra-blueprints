@@ -86,15 +86,38 @@ IMPORT and other authority writers retain their dedicated publication checks and
 
 ## Model-only IMPORT operation contract
 
-The existing `/update` Model-only branch is a design task with `Workflow: update`,
-`Model operation: import-merge` or `import-delete`, and exact `Source resource` in
-`environment/target/service/fixed-ID` form. Merge also requires `Destination resource`
-in the same scope; deletion forbids that field. AWS API execution and deploy/apply are
-`forbidden`. Record the human's request in Goal; do not infer IDs or require manual
-pre-edits. The contract never overrides actual-diff verification at publication,
-generation, task completion or worktree integration. Preserve all other effective
-Models; declare necessary value-preserving input additions and direct consumer scope.
-This narrow branch can transfer/remove existing observations without AWS retrieval.
+The parent uses Task type design, Workflow update, Model operation import-merge or
+import-delete, running status during editing, and forbidden AWS API execution/deploy/apply.
+Transfer/retarget/delete are internal operations, not new Task types or operation names.
+Declare exact sources, generated views, permission paths, requirements and Validation scope.
+Do not switch contracts between leaves. The parent alone controls status/completion.
+
+For merge, use nonempty `## Model merge pairs` with JSON object lines containing exactly
+source/destination complete environment/target/service/fixed-ID addresses. Sources and
+destinations must be unique, disjoint and in one service scope; cycles/chains are rejected.
+Optional `## Model reference changes` records contain consumer/field/source/destination,
+plus property for value/document, and pointer only for document. parentReference has neither.
+The consumer remains in the same environment/target, including explicit other services.
+References must match a pair or D→D for a registered destination's derived reevaluation.
+Use complete formal numbered Properties and non-root RFC 6901 scalar-leaf pointers.
+Unknown/missing/duplicate keys, duplicate sections/positions, empty/malformed declarations,
+legacy/new mixing, NaN/Infinity and unconsumed section lines fail closed. Existence, typed
+ownership, resolved aliases/overlap and unused declarations are checked against the before
+Model at final validation. Ordinary Goal prose remains unrestricted.
+
+Legacy Source resource/Destination resource single merges normalize to one pair and no
+references. Single import-delete retains Source resource only; no destination, pairs or
+references. `task_contract.model_operation` returns immutable named MergePair,
+ReferenceChange and ModelOperation data for every consumer of the contract.
+
+Managed worktree intermediate saves enforce running Task/worktree ownership, revision,
+raw registered paths, scope, syntax and input bytes/file sets without requiring expansion
+or complete transfer/deletion. Each context is one-use; each leaf takes a new snapshot.
+Final validation, independent completion and integration still prove the entire operation
+against versioned before. Rebase integration uses latest base→candidate, not creation start.
+The normal Model-only finalize accepts running/completed tasks, validates after private
+commit/rebase, then completes only running tasks and merges the exact validated HEAD.
+No persistent PASS receipt, public skip flag, automatic repair or workflow rollback exists.
 
 ## Controlled deploy repair contract
 

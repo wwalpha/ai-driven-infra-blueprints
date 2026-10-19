@@ -35,7 +35,7 @@ def load(name, module_name=None):
         return module
 
 
-MODULE = load("validate-blueprint")
+from validation import runner as MODULE
 
 
 @contextmanager

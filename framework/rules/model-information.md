@@ -55,7 +55,11 @@ through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deleti
 That design branch requires exact source/destination IDs and verifies the actual diff:
 complete source transfer/removal, stable destination identities, unchanged CREATE and
 other consumer values, and no remaining source references. It uses existing source
-editing, publication/rollback and ordinary generation/validation without AWS or IaC.
+editing and per-write publication/rollback without AWS or IaC. In a managed worktree,
+independent transfer/retarget/delete may save intermediate sources under the running
+parent contract; generation is separate and final validation proves the whole operation
+after rebase before integration. Declared references alone may be retargeted, retaining
+their structural meaning; D→D reevaluation is explicit.
 Other-environment inputs may receive necessary value-preserving additions only in this
 branch. CREATE and value-preserving source refactors retain their existing workflows.
 

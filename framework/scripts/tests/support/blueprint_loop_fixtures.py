@@ -43,11 +43,9 @@ import task_contract as tasks
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'blueprint-loop.py')
 
-SPEC = importlib.util.spec_from_file_location("blueprint_loop", SCRIPT)
-
-MODULE = importlib.util.module_from_spec(SPEC)
-
-SPEC.loader.exec_module(MODULE)
+from validation import loop as MODULE
+from script_loader import module
+CLI = module("blueprint-loop.py", "blueprint_loop_cli")
 
 from support.it_workspace import copy_framework
 
@@ -64,4 +62,4 @@ def make_framework_fixture(source, root):
     (root / "docs/system-overview.md").write_text("# Fixture\n", encoding="utf-8")
 
 
-__all__ = ['MODULE', 'Path', 'SCRIPT', 'SPEC', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_framework_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']
+__all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_framework_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']

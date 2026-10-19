@@ -25,8 +25,9 @@ TASK_TYPES = {
 
 
 class TaskValidation:
-    def __init__(self, root, findings):
+    def __init__(self, root, findings, *, final_candidate=None):
         self.root = root
+        self.final_candidate = final_candidate
         self.findings = findings
         self.check = findings.check
         self.relative = findings.relative
@@ -58,6 +59,10 @@ class TaskValidation:
 
 
     def fix_baseline(self):
+        if self.final_candidate is not None:
+            self.baseline = self.final_candidate.base_commit
+            self.baseline_fixed = True
+            return
         if self.baseline_fixed:
             return
         from worktree_task import task_start_commit, git, output
@@ -77,6 +82,8 @@ class TaskValidation:
         self.baseline_fixed = True
 
     def final_paths(self):
+        if self.final_candidate is not None:
+            return set(self.final_candidate.changed_paths)
         self.fix_baseline()
         untracked = self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])
         if self.baseline is None:
@@ -96,6 +103,8 @@ class TaskValidation:
             self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])) - {'.lock'}
         if self.baseline is not None:
             self.permission_paths |= self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, 'HEAD', '--']) - {'.lock'}
+        if self.final_candidate is not None:
+            self.permission_paths = set(self.final_candidate.changed_paths)
         if not self.permission_paths and (not input_is_file(prompt) or
                 '- Task type:' not in input_text(prompt, encoding='utf-8')):
             return
@@ -178,7 +187,7 @@ class TaskValidation:
         from import_guard import require_import_changes
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.
-            require_import_changes(self.root, self.scope_paths)
+            require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
             self.import_checked = True
         except (OSError, ValueError, KeyError) as error:
             self.check(False, str(error))
@@ -267,7 +276,7 @@ class TaskValidation:
                 from import_guard import require_import_changes
                 try:
                     if not self.import_checked:
-                        require_import_changes(self.root, self.scope_paths)
+                        require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
                     design_sources |= {path for path in changed if path.startswith('model/parameters/') and Path(path).name == 'observed.json'}
                 except (OSError, ValueError) as error:
                     self.check(False, str(error))

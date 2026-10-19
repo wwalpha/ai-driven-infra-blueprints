@@ -442,8 +442,64 @@ def check_real_loop_integration():
     print("Real Task Contract + child local loop success/failure/approved failure integration: PASS")
 
 
+@it_case
+def check_final_candidate_staleness():
+    from types import SimpleNamespace
+    from validation import loop
+    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
+    import shutil
+    for change in ('base', 'head', 'task', 'dirty', 'none'):
+        with fixture() as root:
+            operation_fixture(root)
+            git(root, 'add', 'model', 'project.json')
+            git(root, 'commit', '-qm', 'model fixture')
+            with tempfile.TemporaryDirectory() as temporary:
+                candidate = Path(temporary) / 'candidate'
+                sources = operation_candidate(root, candidate)
+                target, state = start(root, files=tuple(sorted(sources)))
+                text = operation_contract()
+                for heading in ('Modified files', 'Allowed paths'):
+                    text += '\n## ' + heading + '\n' + ''.join('- `' + value + '`\n' for value in sorted(sources | {state['task_file']}))
+                text += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
+                (target / state['task_file']).write_text(text)
+                for name in sources:
+                    shutil.copyfile(candidate / name, target / name)
+                (root / 'unrelated.txt').write_text('new base\n')
+                git(root, 'add', 'unrelated.txt'); git(root, 'commit', '-qm', 'unrelated base')
+                latest = git(root, 'rev-parse', 'HEAD')
+                final = wt.prepare_integration(root, 'example')
+                assert final.base_commit == latest and 'unrelated.txt' not in final.changed_paths
+                assert not wt.changed_paths(target) and final.changed_paths == sources
+                def validate(root, options, *, final_candidate):
+                    assert not wt.metadata_directory(Path(state['primary'])).joinpath('lifecycle.lock').exists()
+                    return 0
+                with patch.object(loop, 'run_loop', side_effect=validate) as checked:
+                    result = wt.validate_final_candidate(final)
+                    checked.assert_called_once()
+                if change == 'base':
+                    (root / 'unrelated.txt').write_text('advanced\n')
+                    git(root, 'add', 'unrelated.txt'); git(root, 'commit', '-qm', 'advance')
+                elif change == 'head':
+                    git(target, 'commit', '--allow-empty', '-qm', 'unexpected')
+                elif change == 'task':
+                    file = target / state['task_file']; file.write_text(file.read_text() + '\n## Goal\nchanged\n')
+                elif change == 'dirty':
+                    (target / 'file.txt').write_text('changed\n')
+                base_head = git(root, 'rev-parse', 'HEAD')
+                if change != 'none':
+                    try:
+                        wt.merge_validated_candidate(result)
+                        raise AssertionError('stale candidate merged')
+                    except ValueError:
+                        retained(root, target, state, base_head)
+                else:
+                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                    assert tasks.status((target / state['task_file']).read_text()) == 'completed'
+                    assert wt.cleanup(root, 'example')['cleaned']
+
+
 def main():
-    for check in (check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
+    for check in (check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,
@@ -480,16 +536,28 @@ def check_model_operation_integration():
                     if corrupt:
                         file = target / 'model/parameters/stg/cde/vpc/parameters.yaml'
                         file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
-                        before = git(root, 'rev-parse', 'HEAD')
-                        try:
-                            wt.finalize(root, 'example')
-                            raise AssertionError('corrupted merge was accepted')
-                        except ValueError as error:
-                            assert 'transferred' in str(error)
-                        retained(root, target, state, before)
-                    else:
-                        assert wt.finalize(root, 'example')['cleaned']
-                        assert not target.exists()
+                    base_head = git(root, 'rev-parse', 'HEAD')
+                    final = wt.prepare_integration(root, 'example')
+                    from import_guard import require_import_changes
+                    from validation import loop
+                    def validate(root, options, *, final_candidate):
+                        assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+                        with tasks.selected_task(root, final_candidate.task_file):
+                            require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+                        return 0
+                    with patch.object(loop, 'run_loop', side_effect=validate):
+                        if corrupt:
+                            try:
+                                wt.validate_final_candidate(final)
+                                raise AssertionError('corrupted merge was accepted')
+                            except ValueError as error:
+                                assert 'transferred' in str(error)
+                            retained(root, target, state, base_head)
+                        else:
+                            result = wt.validate_final_candidate(final)
+                            assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                            assert wt.cleanup(root, 'example')['cleaned']
+                            assert not target.exists()
     print('Model-only merge/delete integration and post-completion guard: PASS')
 
 

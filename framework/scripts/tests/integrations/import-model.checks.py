@@ -699,6 +699,104 @@ def check_generic_acquisition_roundtrip(tmp_path):
     assert result['status'] == 'dry-run' and source_files(root) == before and len(cli.calls) == count
 
 
+def check_intermediate_model_sources(monkeypatch):
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    import base64
+    from unittest.mock import patch
+    from support.worktree_task_fixtures import fixture, git, start
+    from support.import_model_fixtures import operation_fixture, operation_contract
+    from import_guard import source_write_context
+    from model_sources import read_sources, write_sources, publication_lock
+    from model_templates import load_expansion
+    import sync_files
+    with fixture() as root:
+        operation_fixture(root)
+        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'model sources')
+        relative = 'model/parameters/stg/cde/vpc/parameters.yaml'
+        target, state = start(root, files=(relative,))
+        text = operation_contract() + '\n## Validation scope\n- `stg/cde/vpc`\n'
+        for heading in ('Modified files', 'Allowed paths'):
+            text += '\n## ' + heading + '\n- `' + state['task_file'] + '`\n- `' + relative + '`\n'
+        (target / state['task_file']).write_text(text)
+        logical = target / 'model/stg/cde/vpc.properties'
+        path = target / relative
+        original = path.read_bytes()
+        with source_write_context(target, state['task_file']) as context:
+            write_sources(context, {path: 'instances: {}\n'})
+        assert read_sources(logical)[path] == 'instances: {}\n'
+        try:
+            load_expansion(logical)
+            raise AssertionError('intermediate fixture unexpectedly expanded')
+        except ValueError:
+            pass
+        with source_write_context(target, state['task_file']) as context:
+            with patch.object(sync_files, 'save_files', side_effect=OSError('second leaf failed')):
+                try:
+                    write_sources(context, {path: original.decode()})
+                    raise AssertionError('save failure was ignored')
+                except OSError:
+                    pass
+        assert path.read_text() == 'instances: {}\n'
+        assert (root / relative).read_bytes() == original
+        with publication_lock(target) as journal:
+            journal.write_text(json.dumps({'root': str(target.resolve()), 'originals': {relative: base64.b64encode(original).decode()}}))
+            path.write_text('interrupted write')
+        with source_write_context(target, state['task_file']) as context:
+            assert context.snapshot.read(path) == original
+            assert write_sources(context, {path: original.decode()}) == ()
+        assert path.read_bytes() == original
+
+
+def check_batch_leaf_saves(monkeypatch):
+    import tempfile
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    import yaml
+    from support.worktree_task_fixtures import fixture, git, start
+    from support.import_model_fixtures import batch_operation_fixture
+    from import_guard import source_write_context
+    from model_sources import write_sources
+    from model_operation_checks import verify_model_operation
+    from model_templates import load_expansion
+    from task_contract import model_operation
+    with fixture() as root, tempfile.TemporaryDirectory() as temporary:
+        candidate = Path(temporary) / 'candidate'
+        contract, sources = batch_operation_fixture(root, candidate)
+        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'batch Model fixture')
+        target, state = start(root, files=tuple(sorted(sources)))
+        for heading in ('Modified files', 'Allowed paths'):
+            contract += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
+        contract += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
+        (target / state['task_file']).write_text(contract)
+        final = {target / name: (candidate / name).read_text() for name in sources}
+        transfer = dict(final)
+        directory = 'model/parameters/stg/cde/vpc/'
+        operation = model_operation(contract)
+        deleted = {pair.source.rsplit('/', 1)[1] for pair in operation.pairs}
+        for filename, reader in [('parameters.yaml', yaml_read), ('bindings.json', json.loads), ('observed.json', json.loads)]:
+            path = target / directory / filename
+            before, after = reader(path.read_text()), reader(final[path])
+            if filename == 'observed.json':
+                after['values'].update({key: value for key, value in before['values'].items() if key.split('.')[2].rpartition('-')[0] in deleted})
+            else:
+                after['instances'].update({key: value for key, value in before['instances'].items() if key.startswith('imported-vpc')})
+            transfer[path] = yaml.safe_dump(after) if filename.endswith('.yaml') else json.dumps(after)
+        with source_write_context(target, state['task_file']) as context:
+            write_sources(context, transfer)
+        model = target / 'model/stg/cde/vpc.properties'
+        for source in deleted:
+            assert 'desired.resource.' + source + '.resourceType' in load_expansion(model).values
+        with source_write_context(target, state['task_file']) as context:
+            assert write_sources(context, {}) == ()  # This fixture has no declared retarget positions.
+        for source in deleted:
+            assert 'desired.resource.' + source + '.resourceType' in load_expansion(model).values
+        with source_write_context(target, state['task_file']) as context:
+            write_sources(context, final)
+        for source in deleted:
+            assert 'desired.resource.' + source + '.resourceType' not in load_expansion(model).values
+        verify_model_operation(root, target, operation, sources)
+        assert git(root, 'rev-parse', 'HEAD') == state['start']
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -176,7 +176,7 @@ def check_unit_dispatch(tmp_path):
         path.write_text("# Selection fixture; never executed\n", encoding="utf-8")
     runner = scripts / "blueprint-loop.py"
     with patch.dict(os.environ, {}, clear=True), \
-         patch.object(MODULE, "__file__", str(runner)), \
+         patch.object(CLI, "__file__", str(runner)), \
          patch.object(MODULE, "active_scope", side_effect=lambda root, all_: None if all_ else {"framework"}), \
          patch.object(MODULE, "changed_paths", return_value={"README.md"}) as changes, \
          patch.object(MODULE, "authorize_full_regression") as authorize, \
@@ -188,7 +188,7 @@ def check_unit_dispatch(tmp_path):
                      ["--mode", "task", "--all"], ["--mode", "task", "--affected"]):
             authorize.reset_mock()
             with patch.object(sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]):
-                assert MODULE.main() == 0
+                assert CLI.main() == 0
             commands = dispatch.call_args.args[1]
             assert [Path(command[1]).name for command in commands[1:-2]] == ["a.checks.py", "test_extra.py"]
             assert all("integrations" not in command[1] for command in commands)
@@ -199,12 +199,12 @@ def check_unit_dispatch(tmp_path):
             authorize.assert_called_once_with(root)
         changes.return_value = set()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--log-dir", str(tmp_path / "logs")]):
-            assert MODULE.main() == 0
+            assert CLI.main() == 0
         assert len(dispatch.call_args.args[1]) == 3  # No forced UT for non-regression scope.
         dispatch.reset_mock()
         authorize.reset_mock()
         with patch.object(sys, "argv", [str(runner), "--mode", "full", "--staged", "--base", "HEAD", "--log-dir", str(tmp_path / "logs")]):
-            assert MODULE.main() == 0
+            assert CLI.main() == 0
         staged.assert_called_once()
         dispatch.assert_not_called()
         authorize.assert_not_called()  # The pinned snapshot performs its own authorization.
@@ -495,7 +495,7 @@ def check_write_validator_stops_followups(tmp_path, write):
 def check_staged_write_rejected():
     with patch.object(sys, 'argv', [str(SCRIPT), '--mode', 'task', '--write', '--staged', '--base', 'HEAD']), \
          pytest.raises(SystemExit) as error:
-        MODULE.main()
+        CLI.main()
     assert error.value.code == 2
 
 

@@ -71,6 +71,15 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Complete and integrate
 
+For a normal Model-only /update task, finalize is the final validation composition:
+keep the parent running after leaf/view saves and invoke finalize directly. It prepares
+the private commit/rebase, validates the actual latest-base candidate once in registered
+Python, completes from that result and merges that exact HEAD. Completed Model-only tasks
+also undergo that post-rebase check. The ordinary launcher cleans up after the child exits.
+No separate pre-finalize complete or duplicate final loop is required in this branch.
+Failure retains the candidate; never auto-regenerate, amend or retry it. The commands
+below describe other workflows and independent completion, not Model-only sequencing.
+
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 
 ```console

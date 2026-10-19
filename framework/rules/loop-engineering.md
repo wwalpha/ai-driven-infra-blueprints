@@ -213,8 +213,9 @@ When Validation scope has no service targets, skip repository `project.json` and
 Explicit service/all validation retains its required Model directories and project checks.
 
 
-`framework/scripts/validate-blueprint.py` remains the CLI, ordered runner, cache/worker
-coordinator and compatibility entrypoint for selective callers. Its internal `validation/`
+`framework/scripts/validate-blueprint.py` remains the compatibility CLI;
+`validation/runner.py` owns the importable Validator and cache/worker coordinator.
+`validation/loop.py` owns the existing scheduler and calls run_validation directly. Its internal `validation/`
 modules separate Task/Acceptance state (`task.py`), framework contracts, Project topology/scope,
 Model/Design ownership/naming, table/schema checks, overview/link/artifact checks,
 CloudFormation/IaC inputs, and Scenario/Result records. Domains receive explicit inputs and
@@ -384,3 +385,17 @@ Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate
 Follow [task-contract](task-contract.md#retry-and-stop) for stopping/retry and authorization scope.
 
 When a local loop is required, its PASS displays executed Requirement IDs, Acceptance check count, task type, and framework regression script count. Do not substitute generic validation for that required evidence. For classifications completed without a loop, confirm their required checks and Acceptance requirements; report that no local loop ran.
+
+## Model-only final integration
+
+The running /update Model-only parent prepares source and generated views, then finalize
+creates its private candidate commit and rebases onto latest local base. Run the existing
+classified read-only final loop once on that candidate. Pass its immutable in-call
+FinalCandidate explicitly through run_loop/run_validation/TaskValidation/import checks;
+UT selection, Full guard, Acceptance and whitespace checks all use base→candidate.
+The final meaning check runs once in TaskValidation, not again through source/view sync.
+Standalone complete retains its own check; integration consumes the successful result
+for status and merge without another loop. The validation interval holds no lifecycle
+lock. Recheck base, HEAD, clean state and exact permitted status transition before merge.
+On FAIL retain candidate/worktree; no auto-regeneration/amend/retry. Cleanup runs in the
+surviving ordinary-Python parent after the registered-runtime child exits.

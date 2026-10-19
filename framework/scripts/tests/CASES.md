@@ -102,7 +102,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `sync-model runner` | `check_internal_sync_real_diagnostics` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足と生成差分の実診断をValidatorへ伝達 | 新規 |
 | `sync-model runner` | `check_internal_sync_concurrent_output` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_concurrent_output) | pytest / 1 | 並行呼び出しのmemo・診断・heartbeat分離と後片付け | 新規 |
 | `sync-model runner` | `check_internal_sync_arguments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_arguments) | pytest / 4 | help・usage・引数エラーと終了状態、出力漏れ防止 | 新規 |
-| `Validator runner` | `check_internal_generation_dispatch` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#check_internal_generation_dispatch) | pytest / 4 | scope順序・workers・重複防止・空scope・hook優先 | 新規 |
+| `Validator runner` | `check_internal_generation_dispatch` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#check_internal_generation_dispatch) | pytest / 4 | 比較APIへのscope・workers・definitions_root引継ぎ、エラー伝達・重複防止・空scope・hook優先・subprocess禁止 | 新規 |
 | `unknown/aws_mapping.checks.py:274` | `check_payload_selection` | UT | [units/aws_mapping-unit.checks.py:11](units/aws_mapping-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/aws_mapping.checks.py:54` | `check_v3_registry` | UT | [units/aws_mapping-unit.checks.py:49](units/aws_mapping-unit.checks.py#L49) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
 | `unknown/aws_mapping.checks.py:97` | `check_registry_cache` | UT | [units/aws_mapping-unit.checks.py:91](units/aws_mapping-unit.checks.py#L91) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
@@ -1731,3 +1731,34 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `import-inventory::check_unknown_acquired_identity_rejected` | `check_unknown_acquired_identity_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
 
 Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integrations/issues_failed_services.checks.py::main_checks` uses synthetic Model loading, Key Arn selection, GetAtt/ImportValue, same/different keys, rejected KeyId/AliasName/AliasArn on either/both sides, and unresolved form/identity cases. Other KMS contracts retain their existing expectations.
+
+## Atomic Model operation contracts and API boundaries
+
+- `units/task-contract-unit.checks.py::check_batch_operation_contract`: five pairs,
+  immutable normalized contract, legacy merge/delete compatibility, duplicate/mixed/
+  missing/malformed declarations and JSON/pointer/scope rejection.
+- `units/import-model-unit.checks.py::check_batch_model_operation`: simultaneous five-pair
+  semantic comparison and failure for a single missing observed transfer.
+- `units/import-model-unit.checks.py::check_intermediate_source_context`: explicit parent
+  despite a different environment selector, raw read/save without expansion or staging,
+  one-use/no-op/fresh context behavior, concurrent input change and path/syntax rejection.
+- Existing operation preservation/rejection cases retain their assertions; verification
+  moved from import_promotion to model_operation_checks. Existing loop scheduler tests
+  import validation.loop and exercise the compatibility CLI separately. Validator shared
+  fixture imports validation.runner; no test cases were deleted for module movement.
+- Production source helpers now live at `framework/scripts/model_sources.py`; the existing
+  fixture stays `framework/scripts/tests/support/model_sources.py`. Shared dependency
+  changes conservatively select all UTs through the existing mapping fallback.
+
+| Original case | Case | Class | Current location | Execution / count | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `atomic/worktree_task` | `check_final_candidate_staleness` | IT | [worktree candidate](integrations/worktree_task.checks.py) | direct / 1 | Real Git latest-base commit/rebase and stale base/HEAD/Task/dirty rejection; isolated loop callback | Added |
+| `atomic/import-model` | `check_intermediate_model_sources` | IT | [source writes](integrations/import-model.checks.py) | pytest / 1 | Real managed raw writes, prior-leaf retention on I/O error and pending journal recovery before snapshot | Added |
+
+`units/import-model-unit.checks.py::check_explicit_reference_operation` (6 parameter cases)
+covers typed local value/JSON/parentReference, external name/identifier and explicit D→D
+reevaluation; undeclared changes and reference literalization fail. Existing test bodies
+are retained. New IT cases use the existing Framework IT discovery/receipt runner;
+no new runner or live AWS/consumer inputs are introduced.
+
+| `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/import-model.checks.py) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |

@@ -28,106 +28,16 @@ REFERENCE_NAME_SUFFIXES = ('.Name', '.RoleName', '.LogGroupName', '.BucketName',
                          '.QueueName', '.UserName', '.RepositoryName')
 TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool,
          "object": dict, "array": list, "null": type(None)}
-_locks = {}
-_guard = threading.Lock()
 _local = threading.local()
 
 
 from import_scope import scoped_read
-
-def json_text(value):
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-
-
-def json_read(text):
-    return json.loads(text, object_pairs_hook=unique_object, parse_constant=invalid_constant)
-
-
-def exact(value, keys, label):
-    if not isinstance(value, dict) or set(value) != set(keys):
-        raise ValueError(f"{label} requires exactly {sorted(keys)}")
-
+from model_sources import (json_text, json_read, exact, source_paths, safe, publication_lock,
+                           _publish_transaction, parameter_files, consumers)
 
 def digest(values):
     # Include JSON types and array order; Properties keys themselves are unordered.
     return hashlib.sha256(json_text(sorted(values.items())).encode("utf-8")).hexdigest()
-
-
-def source_paths(path):
-    path = path.absolute()
-    if (len(path.parents) < 4 or path.parents[2].name != "model" or
-            path.suffix != '.properties' or path.parents[1].name in {'parameters', 'templates'}):
-        return None
-    root = path.parents[3]
-    env, alias, filename = path.relative_to(root / "model").parts
-    if any(not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', item) for item in (env, alias, path.stem)):
-        return None
-    directory = root / "model/parameters" / env / alias / path.stem
-    return root, root / "model/templates" / alias / (filename + ".tpl"), directory
-
-
-def safe(root, path):
-    if not path.is_relative_to(root) or any(input_is_symlink(p) for p in [path, *path.parents] if p.is_relative_to(root)):
-        raise ValueError(f"unsafe Model source path: {path}")
-
-
-@contextmanager
-def publication_lock(root):
-    """OS releases the lock on process exit; restore an interrupted batch before reads."""
-    key = str(root.resolve())
-    with _guard:
-        lock = _locks.setdefault(key, threading.RLock())
-    with thread_lock(lock):
-        depths = getattr(_local, 'depths', {})
-        _local.depths = depths
-        if key in depths:
-            yield depths[key]
-            return
-        directory = Path(tempfile.gettempdir()) / 'blueprint-model-publication'
-        directory.mkdir(parents=True, exist_ok=True)
-        name = hashlib.sha256(key.encode()).hexdigest()
-        journal = directory / (name + '.json')
-        with (directory / (name + '.lock')).open('a+b') as stream:
-            if os.name == 'nt':
-                import msvcrt
-                stream.seek(0); stream.write(b'0'); stream.flush(); stream.seek(0)
-                try:
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-                except OSError:
-                    with phase("publication-lock", status="lock-wait"):
-                        msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                try:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    with phase("publication-lock", status="lock-wait"):
-                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-            depths[key] = journal
-            try:
-                if journal.is_file():
-                    record = json_read(journal.read_text(encoding='utf-8'))
-                    exact(record, {'root', 'originals'}, 'publication journal')
-                    if record['root'] != key:
-                        raise ValueError('publication journal root mismatch')
-                    originals = {}
-                    for relative, data in record['originals'].items():
-                        candidate = root / relative
-                        if Path(relative).is_absolute() or '..' in Path(relative).parts:
-                            raise ValueError('unsafe publication journal')
-                        safe(root, candidate)
-                        originals[candidate] = None if data is None else base64.b64decode(data, validate=True)
-                    sync_files.restore_files(originals)
-                    if memo_table() is not None:
-                        memo_table().clear()
-                    journal.unlink()
-                yield journal
-            finally:
-                del depths[key]
-                if os.name == 'nt':
-                    stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_task=None):
@@ -139,6 +49,17 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
     name, text = expected_task
     if text is not None and status(text, name == 'tasks/active.md') != 'running':
         raise ValueError('completed task cannot write')
+    from import_guard import managed_source_write, source_write_context
+    raw_paths = set(output) | obsolete
+    if text is not None and raw_paths and all(p.relative_to(root).as_posix().startswith(('model/templates/', 'model/parameters/')) for p in raw_paths) and managed_source_write(root, name):
+        from model_sources import write_sources
+        with source_write_context(root, name) as context:
+            if context.snapshot.expected_task != expected_task:
+                raise ValueError('task scope changed after planning; rerun publication')
+            if inputs is not None and any((p.read_bytes() if p.is_file() else None) != data for p, data in inputs.items()):
+                raise ValueError('Model sources changed after planning')
+            write_sources(context, {**output, **{p: None for p in obsolete}})
+        return
     with publication_lock(root) as journal:
         paths = set(output) | set(obsolete)
         for path in paths:
@@ -146,7 +67,7 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
         if any(p.relative_to(root).as_posix().startswith(('model/templates/', 'model/parameters/')) for p in paths):
             from import_guard import require_import_changes
             require_import_changes(root, output={**output, **{p: None for p in obsolete}})
-        if task_revision(root) != expected_task:
+        if task_revision(root, selected=name if text is not None else None) != expected_task:
             raise ValueError("task scope changed after planning; rerun generation")
         from validation_cache import input_recorder
         snapshot = input_recorder(root)
@@ -162,44 +83,9 @@ def publish(root, output, obsolete=(), inputs=None, *, verify=None, expected_tas
                 expected_inputs.update({p: None for p in obsolete})
                 if any((p.read_bytes() if p.is_file() else None) != data for p, data in expected_inputs.items()):
                     raise ValueError('generation inputs changed during publication')
-            if task_revision(root) != expected_task:
+            if task_revision(root, selected=name if text is not None else None) != expected_task:
                 raise ValueError('task scope changed during publication; rerun generation')
         _publish_transaction(root, output, obsolete, journal, finish=finish)
-
-
-def _publish_transaction(root, output, obsolete, journal, *, originals=None, finish=None):
-    """Journal and rollback shared by guarded publication and validated generation plans.
-
-    The caller holds publication_lock and owns authorization/input validation. A supplied
-    originals map is the already compared generation plan, including only changed files.
-    """
-    planned = originals is not None
-    if originals is None:
-        originals = {p: p.read_bytes() if p.is_file() else None for p in set(output) | set(obsolete)}
-    record = {'root': str(root.resolve()), 'originals': {p.relative_to(root).as_posix():
-              None if data is None else base64.b64encode(data).decode() for p, data in originals.items()}}
-    temporary = journal.with_suffix('.pending')
-    with temporary.open('w', encoding='utf-8') as stream:
-        stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
-    os.replace(temporary, journal)
-    if memo_table() is not None:
-        memo_table().clear()
-    try:
-        if planned:
-            for path, content in output.items():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content, encoding='utf-8', newline='')
-        else:
-            sync_files.save_files(output)
-        for path in obsolete:
-            path.unlink(missing_ok=True)
-        if finish is not None:
-            finish()
-    except (OSError, ValueError):
-        sync_files.restore_files(originals)
-        journal.unlink()
-        raise
-    journal.unlink()
 
 
 def service_source(path):
@@ -270,12 +156,6 @@ def input_snapshot(path):
     return result
 
 
-def parameter_files(directory):
-    if input_exists(directory/'parameters.json'):
-        raise ValueError(f'unsupported JSON Model inputs: {directory / "parameters.json"}')
-    return [directory/'parameters.yaml', directory/'bindings.json']
-
-
 def model_paths(root, environment=None, alias=None):
     """Enumerate service directories, including incomplete sources, without projections."""
     from import_scope import selected, model_path, readable
@@ -305,6 +185,14 @@ def save_parameters(path, parameters):
     root = registered[0]
     from task_contract import task_revision
     expected_task = task_revision(root)
+    from import_guard import managed_source_write, source_write_context
+    if managed_source_write(root, expected_task[0]):
+        from model_sources import write_sources
+        from import_sources import parameter_edit
+        with source_write_context(root, expected_task[0]) as context:
+            target = registered[2] / 'parameters.yaml'
+            write_sources(context, {target: parameter_edit(context.snapshot.read(target).decode('utf-8'), parameters)})
+        return
     with publication_lock(root):
         _, template, directory = service_source(path)
         from model_files import load_model
@@ -342,7 +230,21 @@ def publish_edit(root, directory):
     operation = model_operation(text)
     if operation is None:
         raise ValueError('source publication requires an explicit Model-only /update operation')
-    identity = operation[1]
+    identity = operation.scope
+    from import_guard import managed_source_write, source_write_context
+    name = task_path(root).relative_to(root).as_posix()
+    if managed_source_write(root, name):
+        from model_sources import write_sources
+        directory = Path(directory).absolute()
+        if directory.is_relative_to(root) or directory.is_symlink() or not directory.is_dir():
+            raise ValueError('IMPORT candidates must be a temporary directory outside the repository')
+        with source_write_context(root, name) as context:
+            output = {}
+            for file in sorted(directory.rglob('*')):
+                safe(directory, file)
+                if file.is_file():
+                    output[root / file.relative_to(directory)] = file.read_bytes().decode('utf-8')
+            return [p.relative_to(root).as_posix() for p in write_sources(context, output)]
     with input_context(), publication_lock(root):
         snapshot = GenerationInputs(root)
         try:
@@ -1117,17 +1019,6 @@ def source_inputs(path):
         return files
 
 
-def consumers(root, alias, service):
-    result = set()
-    for path in input_select(root / 'model/parameters', '*/' + alias + '/' + service):
-        safe(root, path)
-        environment = path.parent.parent.name
-        if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', environment) or not input_is_dir(path):
-            raise ValueError('invalid registered Model consumer')
-        result.add((environment, alias, service))
-    return result
-
-
 @input_scope
 def affected(root, changed, *, before=None):
     changed = {Path(raw) for raw in changed}
@@ -1172,7 +1063,7 @@ def main():
         from task_contract import model_operation, task_path
         root = args.repository_root.resolve()
         operation = model_operation(task_path(root).read_text(encoding='utf-8'))
-        if operation is None or operation[1] != (args.environment, args.alias, args.service):
+        if operation is None or operation.scope != (args.environment, args.alias, args.service):
             parser.error('publish-edit selectors must match the exact Model-only update contract')
         for file in publish_edit(root, args.publish_edit):
             print(file)

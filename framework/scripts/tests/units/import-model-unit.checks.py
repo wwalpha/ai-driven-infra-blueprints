@@ -1084,6 +1084,137 @@ def check_unknown_acquired_identity_rejected():
     assert import_guard.acquisition_complete({'version': 1})
 
 
+def check_batch_model_operation(tmp_path):
+    import json
+    from model_operation_checks import verify_model_operation
+    from task_contract import model_operation
+    from support.import_model_fixtures import batch_operation_fixture
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    contract, sources = batch_operation_fixture(before, after)
+    verify_model_operation(before, after, model_operation(contract), sources)
+    observed_file = after / 'model/parameters/stg/cde/vpc/observed.json'
+    observed = json.loads(observed_file.read_text())
+    observed['values']['observed.row.013-001.value'] = 'not-transferred'
+    observed_file.write_text(json.dumps(observed))
+    with pytest.raises(ValueError, match='not transferred'):
+        verify_model_operation(before, after, model_operation(contract), sources)
+
+
+def check_intermediate_source_context(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    import worktree_task
+    from import_guard import source_write_context
+    from model_sources import read_sources, write_sources
+    from sync_runtime import GenerationInputs
+    from task_contract import start
+    operation_fixture(tmp_path)
+    path = tmp_path / 'model/stg/cde/vpc.properties'
+    raw = read_sources(path)
+    inputs = tmp_path / 'model/parameters/stg/cde/vpc/parameters.yaml'
+    name = 'tasks/parent.md'
+    listed = '\n'.join('- `' + value + '`' for value in [name, inputs.relative_to(tmp_path).as_posix()])
+    text = operation_contract() + '## Validation scope\n- `stg/cde/vpc`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
+    start(tmp_path, name, text)
+    state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
+    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
+    with patch.object(worktree_task, 'load', return_value=(tmp_path, None, None, state)), \
+         patch.object(worktree_task, 'task_worktree', return_value=tmp_path), \
+         patch('model_templates.load_expansion', side_effect=AssertionError('raw save cannot expand')), \
+         patch('model_templates.affected', side_effect=AssertionError('raw save cannot calculate expanded impact')), \
+         patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('raw save cannot stage')):
+        with source_write_context(tmp_path, name) as first:
+            assert write_sources(first, {inputs: 'instances: {}\n'}) == (inputs,)
+            with pytest.raises(ValueError, match='closed'):
+                write_sources(first, {})
+        assert read_sources(path)[inputs] == 'instances: {}\n'
+        with source_write_context(tmp_path, name) as second:
+            assert write_sources(second, {inputs: 'instances: {}\n'}) == ()
+        with source_write_context(tmp_path, name) as third:
+            inputs.write_text('instances: {} # outside edit\n')
+            with pytest.raises(ValueError, match='inputs changed'):
+                write_sources(third, {inputs: raw[inputs]})
+        assert inputs.read_text() == 'instances: {} # outside edit\n'
+        with source_write_context(tmp_path, name) as fourth:
+            with pytest.raises(ValueError, match='unregistered'):
+                write_sources(fourth, {tmp_path / 'project.json': '{}'})
+        with source_write_context(tmp_path, name) as fifth:
+            with pytest.raises(ValueError, match='YAML'):
+                write_sources(fifth, {inputs: 'instances: [\n'})
+        assert inputs.read_text() == 'instances: {} # outside edit\n'
+
+
+@pytest.mark.parametrize('field', ['value', 'document', 'parentReference', 'name', 'identifier', 'reevaluation'])
+def check_explicit_reference_operation(tmp_path, field):
+    import json
+    import yaml
+    from support.import_model_fixtures import declaration, binding, spec
+    from model_operation_checks import verify_model_operation
+    from task_contract import model_operation
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    operation_fixture(before)
+    external = field in {'name', 'identifier', 'reevaluation'}
+    if external:
+        template = before / 'model/templates/cde/vpc.properties.tpl'
+        text = template.read_text()
+        for definition in ('Vpc', 'ImportedVpc'):
+            text = text.replace('# definition: ' + definition + '\n', '# definition: ' + definition + '\n# parameter: Name ' + json.dumps(spec(format='literal')) + '\n')
+        text = text.replace('desired.row.cidr.property=', '# row: name resource\ndesired.row.name.property=EC2.VPC.Name\ndesired.row.name.value=<<Name>>\ndesired.row.name.comment=name\ndesired.row.cidr.property=')
+        template.write_text(text)
+        for env in ('dev', 'stg'):
+            directory = before / 'model/parameters' / env / 'cde/vpc'
+            bindings_file, inputs_file = directory / 'bindings.json', directory / 'parameters.yaml'
+            bindings, inputs = json.loads(bindings_file.read_text()), yaml_read(inputs_file.read_text())
+            for instance, rid in [('main-vpc', '001'), ('imported-vpc', '009')]:
+                if instance in bindings['instances']:
+                    bindings['instances'][instance]['rows']['name'] = rid + '-004'
+                    inputs['instances'][instance]['parameters']['Name'] = 'source-name' if rid == '009' else 'destination-name'
+            bindings_file.write_text(json.dumps(bindings)); inputs_file.write_text(yaml.safe_dump(inputs))
+    fields = {'vpc': ('VpcId', '<<Vpc>>'), 'cidr': ('CidrBlock', '`10.2.0.0/24`')}
+    if field == 'document':
+        fields['vpc'] = ('Policy', '[JSON](vpc/policy.json)')
+    lines = declaration('Subnet', 'EC2.Subnet', fields,
+                        {'Vpc': spec('reference', resourceType='EC2.VPC', **({'service': 'vpc', 'format': 'identifier', 'property': 'EC2.VPC.VpcId'} if field == 'identifier' else {'service': 'vpc', 'format': 'name'} if external else {})), 'ResourceMode': spec()})
+    if field == 'document':
+        lines.insert(-1, 'desired.row.vpc.document={"Vpc":"<<Vpc>>","Sibling":true}')
+    if field == 'parentReference':
+        lines.insert(-1, 'desired.resource.resource.parentReference=<<Vpc>>')
+    template = before / 'model/templates/cde/vpc.properties.tpl'
+    template.write_text(template.read_text() + '\n'.join(lines) + '\n')
+    directory = before / 'model/parameters/stg/cde/vpc'
+    bindings_file, inputs_file = directory / 'bindings.json', directory / 'parameters.yaml'
+    bindings, inputs = json.loads(bindings_file.read_text()), yaml_read(inputs_file.read_text())
+    bindings['instances']['subnet'] = binding('Subnet', '020', fields, 'subnet-keep')
+    inputs['instances']['subnet'] = {'parameters': {'Vpc': ('001' if field == 'reevaluation' else '009') if external else 'imported-vpc', 'ResourceMode': 'CREATE'}}
+    bindings_file.write_text(json.dumps(bindings)); inputs_file.write_text(yaml.safe_dump(inputs))
+    sources = operation_candidate(before, after)
+    inputs_file = after / inputs_file.relative_to(before)
+    inputs = yaml_read(inputs_file.read_text())
+    inputs['instances']['subnet']['parameters']['Vpc'] = '001' if external else 'main-vpc'
+    if external:
+        inputs['instances']['main-vpc']['parameters']['Name'] = 'source-name'
+    inputs_file.write_text(yaml.safe_dump(inputs))
+    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n' + '- ' + json.dumps({'source': 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}) + '\n'
+    reference = {'consumer': 'stg/cde/vpc/020', 'field': 'value' if external else field, 'source': 'stg/cde/vpc/001' if field == 'reevaluation' else 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}
+    if field != 'parentReference':
+        reference['property'] = 'EC2.Subnet.Policy' if field == 'document' else 'EC2.Subnet.VpcId'
+    if field == 'document':
+        reference['pointer'] = '/Vpc'
+    references = [reference]
+    if field == 'parentReference':
+        references.append({**reference, 'field': 'value', 'property': 'EC2.Subnet.VpcId'})
+    contract += '## Model reference changes\n' + ''.join('- ' + json.dumps(ref) + '\n' for ref in references)
+    from utils.aws_mappings import mapping_alias
+    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after):
+        verify_model_operation(before, after, model_operation(contract), sources)
+    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError):
+        verify_model_operation(before, after, model_operation(contract.split('## Model reference changes')[0]), sources)
+    template = after / template.relative_to(before)
+    content = template.read_text()
+    template.write_text(content.replace('<<Vpc>>', '[001](#vpc-main)'))
+    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError):
+        verify_model_operation(before, after, model_operation(contract), sources)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

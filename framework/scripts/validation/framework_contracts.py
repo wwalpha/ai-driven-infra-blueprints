@@ -225,7 +225,7 @@ def check_framework_task_type_dispatch(findings, task_type):
 
 
 def check_framework_focused_check_runner(findings, root):
-    loop = input_text(root / "framework" / "scripts" / "blueprint-loop.py", encoding="utf-8")
+    loop = input_text(root / "framework" / "scripts" / "validation" / "loop.py", encoding="utf-8")
     findings.check('glob("*.checks.py")' in loop, "local loop does not discover focused checks")
     findings.check("PYTHONDONTWRITEBYTECODE" in loop, "focused checks may write bytecode into the repository")
 

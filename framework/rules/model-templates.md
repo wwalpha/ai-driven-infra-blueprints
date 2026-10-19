@@ -403,3 +403,20 @@ types, syntax, evidence, identities, references, scope, preservation and concurr
 changes under the existing journal transaction. Only selected-service Markdown/JSON is
 then published separately. Display failure retains saved Model. Explicit issues remains
 responsible for design constraints and generated consistency checks.
+
+## Model-only intermediate sources
+
+The explicit /update parent may run model-transfer, model-retarget and model-delete
+independently in its managed worktree. Their skill bodies own the editing procedures.
+`model_sources.read_sources` reads raw registered template/parts, YAML inputs, bindings
+and optional observed without expansion; entering the publication lock may recover an
+existing interrupted journal. `source_write_context` pins the explicit parent and raw
+input set after recovery. `write_sources` saves only authorized supplied text/deletions,
+then consumes the context even on no-op/failure. It never completes/generates/merges.
+The existing I/O rollback covers one write, preserving prior successful leaf saves.
+
+Full expansion is optional editing assistance and can fail on intermediate sources.
+Generation prepares/views validates/publishes separately. The final difference checker
+proves all pairs, exact reference changes and preserved consumers at once. Outside the
+managed running Model-only boundary, existing completed-candidate IMPORT guards remain.
+Acquisition/addition restrictions above are unchanged.

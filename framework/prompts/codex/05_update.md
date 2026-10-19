@@ -19,82 +19,41 @@ Use this prompt to receive diffs manually edited by the human in existing author
 
 ## Model-only IMPORT merge or deletion
 
-Use this branch only for an explicit human request naming Environment, Target, Service,
-source fixed Resource ID and, for a merge, destination fixed Resource ID. Example:
-`stg/cde/vpc/009 -> stg/cde/vpc/001`; deletion names only `stg/cde/vpc/009`.
-No pre-existing manual diff is required. Both merge resources must already be IMPORT,
-of the same type and in the same environment/target/service. Never infer a destination
-from names, physical IDs or row numbers. CREATE is not eligible.
+Use this branch for an explicit human Model-only request. Register one running design
+Task with Workflow update, Model operation import-merge/import-delete, forbidden AWS
+and deploy/apply. Read [Task transition, boundary and Acceptance](../../rules/task-contract.md),
+[issue gate](../../rules/issue-gate.md), [Model sources](../../rules/model-templates.md)
+and [IMPORT authority](../../rules/model-information.md#import-configuration-authority).
+The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
+defines exact pair/reference syntax and compatibility. Do not infer IDs or require pre-edits.
 
-Read Task transition/boundary/Acceptance, issue-gate, Model templates and IMPORT
-configuration authority. Use the ordinary source reader and trace, direct consumer
-registry, Property dependencies and reference analysis. This is a `design` task,
-with no Infrastructure phase. Register the exact human request in Goal and these fields:
+The selected managed worktree is the transaction boundary. Keep the same parent Task
+selector through every operation; include all planned source/view paths and required
+direct consumers in its scope. Apply the issue gate. The parent owns sequencing and
+stopping; the following leaves own their exact editing procedures:
 
-```md
-## Task contract
-- Task type: `design`
-- Task status: `running`
-- Workflow: `update`
-- Model operation: `import-merge`
-- Source resource: `stg/cde/vpc/009`
-- Destination resource: `stg/cde/vpc/001`
-- AWS API execution: `forbidden`
-- deploy/apply: `forbidden`
-```
+1. For an overall merge request, call [model-transfer](../../../.agents/skills/model-transfer/SKILL.md)
+   with the registered pairs, then [model-retarget](../../../.agents/skills/model-retarget/SKILL.md)
+   with registered references, then [model-delete](../../../.agents/skills/model-delete/SKILL.md)
+   with the normalized sources. For deletion call only model-delete. An explicitly
+   requested single leaf returns after that operation. No per-step reapproval for an
+   already requested overall integration.
+2. Each successful leaf may save raw sources in the worktree, leaving an unfinished
+   intermediate Model. Stop on failure and retain prior successful saves; the parent
+   may use the existing suspend transition. Never auto-rollback the whole workflow.
+3. Use existing prepare_generation/validate_generation/publish_generation to prepare,
+   validate and save the required views. Generation does not decide merge completeness.
+4. Use worktree finalize: prepare the private commit and rebase onto latest local base,
+   run one read-only final local loop on that actual candidate, consume its successful
+   result for completion and ff-only merge, then let the surviving launcher cleanup.
+   Final differences must prove complete transfer/removal, exact declared retargets,
+   stable identities, all preserved consumers and absence of remaining source links.
 
-For deletion use `import-delete` and omit Destination resource. Include every direct
-shared consumer in Validation scope and exact changed source/view paths in Modified files.
-Apply the ordinary issue gate to that scope. Contract text records the instruction; it
-is not cryptographic human approval. The publication, validation, completion and worktree
-boundaries compare the actual operation with the versioned baseline.
-
-Prepare only changed ordinary source files in a temporary candidate directory outside
-the repository, preserving their repository-relative paths. Read templates, inputs,
-bindings and observations together. Do not save a partial merge to authoritative files.
-Use the existing source-editing and YAML patch helpers; do not construct another Model
-reflection engine or duplicate Definitions per environment.
-
-- Transfer all source resource settings, formal Property/array values, JSON documents,
-  needed references and observations. Preserve destination Instance/Resource IDs, logical
-  IDs, anchor and internal identity bindings. Match rows by formal Property and array
-  membership/order, corroborated by Definition/local ownership; never by equal Row IDs.
-  Preserve the destination ID of each corresponding existing row. New rows receive new
-  fixed IDs. Unrepresentable or ambiguous correspondence stops the entire candidate.
-- Change existing instance inputs first. For differing fixed fields, declare existing
-  `# parameter` inputs; use `# optional`, `# choice` and `# optional-json` for shape
-  differences. Other consumers may receive only necessary public input additions which
-  preserve their complete expanded values, references, observations, mode and IDs.
-  Do not change their bindings/observations or existing input values. Never overwrite a
-  shared fixed field with the selected environment's value.
-- Remove only the source Instance, maps, input values, bindings and observations after
-  preparing the complete transfer. Keep shared Definitions and in-use inputs. A source
-  Instance containing additional resources is rejected when it cannot be safely isolated.
-  Deletion performs the same ownership/reference/preservation checks without a transfer.
-- Existing references to the source block both operations. Do not retarget another
-  service, change IaC, acquire AWS values or mutate AWS. Preserve destination links;
-  use the ordinary reference/display validators for names and anchors.
-
-Publish the whole checked source candidate with the existing Model publication journal:
-
-```console
-BLUEPRINT_TASK_FILE=tasks/<task-name>.md python3 -B framework/scripts/run-python.py -B framework/scripts/model_templates.py --environment stg --alias cde --service vpc --publish-edit <external-candidates-directory>
-```
-
-For removal of the last observation, supply `{"version":1,"values":{}}`; the existing
-transaction removes the empty optional observed file. The guard requires exact source
-removal, complete destination transfer, stable identities and unchanged other consumers.
-A mismatch, concurrent input change or save failure rejects/rolls back all source writes.
-
-Then run the ordinary scoped generation/validation once:
-
-```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
-```
-
-Finish only after source, display and validation success. Report changed IDs/paths,
-consumer preservation and any rejected references. Stop here: do not enter the ordinary
-IaC/preflight/deployment procedure below. `/import` remains append-only and unchanged.
+Standalone validation/complete retain their own final checking responsibility. Ordinary
+non-managed completed-candidate publication retains its previous IMPORT guard. A failed
+final check retains the private commit/worktree without merge, automatic regeneration,
+amend or loop retry. Report leaf saves and final validation/integration separately.
+Do not enter the infrastructure branch below. /import remains append-only and unchanged.
 
 ## Check applicability and finish point first
 

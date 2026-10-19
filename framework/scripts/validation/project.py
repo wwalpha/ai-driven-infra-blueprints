@@ -19,7 +19,7 @@ def check_target_file(path: Path, base: Path, *, accounts, findings) -> tuple[st
     return target
 
 
-def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths, *, candidates=False):
+def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths, *, candidates=False, before=None):
     if task_iac_paths is not None:
         for changed in sorted(changed_paths):
             if changed.startswith("infra/"):
@@ -30,7 +30,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
         if candidates:
             from model_templates import affected
             try:
-                return affected(root, changed_paths)
+                return affected(root, changed_paths, before=before)
             except (OSError, ValueError) as error:
                 findings.check(False, f'invalid Model source scope: {error}')
         return
@@ -50,7 +50,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
     from model_templates import affected
     impact = set()
     try:
-        impact = affected(root, changed_paths) if scope else set()
+        impact = affected(root, changed_paths, before=before) if scope else set()
         for entry in impact:
             findings.check(entry in scope, f"template source change requires affected validation scope: {'/'.join(entry)}")
     except (OSError, ValueError) as error:

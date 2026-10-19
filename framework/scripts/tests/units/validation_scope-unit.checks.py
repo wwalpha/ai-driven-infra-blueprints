@@ -13,18 +13,15 @@ import pytest
 @pytest.mark.parametrize('scope', [None, {('stg', 'team', 'config'), ('dev', 'team', 'config')}])
 @pytest.mark.parametrize('workers', [1, 4])
 def check_internal_generation_dispatch(tmp_path, scope, workers):
-    from script_loader import module
-    runner = module('sync-model.py', 'blueprint_sync_model')
-    expected = ['--jobs', str(workers)] + (['--all'] if scope is None else
-        [arg for entry in sorted(scope) for arg in ('--scope', '/'.join(entry))])
-    with patch.object(runner, 'run', return_value=(1, 'consumer missing: stg/team/config')) as run, \
+    import sync_runtime
+    with patch.object(sync_runtime, 'compare_generation', return_value=('consumer missing: stg/team/config',)) as compare, \
          patch.object(subprocess, 'run', side_effect=AssertionError('Python subprocess')):
         validator = VALIDATOR.Validator(tmp_path, scope, workers=workers, definitions_root=tmp_path/'external-definitions')
         validator.check_generated_service_models()
         validator.check_generated_service_models()
-    run.assert_called_once_with(expected, repository_root=tmp_path, definitions_root=tmp_path/'external-definitions')
+    compare.assert_called_once_with(tmp_path, scope, jobs=workers, definitions_root=tmp_path/'external-definitions')
     assert any('consumer missing: stg/team/config' in error for error in validator.errors)
-    with patch.object(runner, 'run', side_effect=AssertionError('hook bypassed')):
+    with patch.object(sync_runtime, 'compare_generation', side_effect=AssertionError('hook bypassed')):
         empty = VALIDATOR.Validator(tmp_path, set())
         empty.check_generated_service_models()
         assert not empty.errors

@@ -12,39 +12,7 @@ from validation_cache import input_scope, memoized
 from import_scope import scoped_read
 
 
-MAX_LINES = 600
-PART_LINES = 550
-INDEX_HEADER = "# model-index: 1"
-PART_PREFIX = "# part: "
-
-
-def model_parts(path: Path, *, text: str | None = None) -> list[Path]:
-    if input_is_symlink(path) or input_is_symlink(path.with_suffix("")):
-        raise ValueError(f"model files must not use symlinks: {path}")
-    lines = (input_text(path, encoding="utf-8") if text is None else text).splitlines()
-    indexed = bool(lines and lines[0] == INDEX_HEADER)
-    if any(line.startswith(("# model-index:", PART_PREFIX)) for line in lines) and not indexed:
-        raise ValueError(f"invalid model index: {path}")
-    parts = []
-    if indexed:
-        if len(lines) > MAX_LINES or any(line.strip() and not line.startswith("#") for line in lines):
-            raise ValueError(f"model index must contain comments only, at most {MAX_LINES} lines: {path}")
-        for line in lines[1:]:
-            if not line.startswith(PART_PREFIX):
-                continue
-            expected = f"{path.stem}/part-{len(parts) + 1:03d}.properties"
-            if line.removeprefix(PART_PREFIX) != expected:
-                raise ValueError(f"invalid or duplicate model part; expected {expected}: {path}")
-            part = path.parent / expected
-            if input_is_symlink(part) or not input_is_file(part):
-                raise ValueError(f"missing or unsafe model part: {part}")
-            parts.append(part)
-        if not parts:
-            raise ValueError(f"model index has no parts: {path}")
-    extras = set(input_select(path.with_suffix(""), "*.properties", recursive=True)) - set(parts)
-    if extras:
-        raise ValueError(f"unlisted model parts: {sorted(str(part) for part in extras)}")
-    return parts if indexed else [path]
+from model_sources import MAX_LINES, PART_LINES, INDEX_HEADER, PART_PREFIX, model_parts
 
 
 class LoadedModel(NamedTuple):
@@ -169,6 +137,38 @@ def resource_keys(text: str, selector: str) -> set[str]:
 
 
 @input_scope
+def read_resource(model_path: Path, selector: str) -> dict[str, tuple[Path, int, str]]:
+    """Return selected group keys with source locations/values; expansion errors propagate."""
+    loaded = load_model(model_path.absolute())
+    keys = resource_keys(loaded.text, selector)
+    return {key: (*loaded.locations[key], value) for key, value in loaded.values.items() if key in keys}
+
+
+@input_scope
+@scoped_read
+def trace_model(model_path: Path, key: str, _context=None) -> dict:
+    """Return existing expansion provenance for one key; missing keys raise KeyError."""
+    from model_templates import load_expansion
+    from model_sources import source_paths, publication_lock
+    path = model_path.absolute()
+    location = source_paths(path)
+    if location is None:
+        raise ValueError(f'Model requires a YAML service source: {path}')
+    with publication_lock(location[0]):
+        expanded = load_expansion(path)
+        if expanded is None:
+            raise ValueError(f'YAML Model inputs missing: {path}')
+        return dict(expanded.provenance[key])
+
+
+@input_scope
+def find_model(model_path: Path, query: str) -> dict[str, tuple[Path, int]]:
+    """Return matching key locations using existing expanded values; no writes."""
+    loaded = load_model(model_path.absolute())
+    return {key: loaded.locations[key] for key, value in loaded.values.items() if query in key + '=' + value}
+
+
+@input_scope
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path, help="Logical model/<environment>/<target>/<service>.properties identifier; no file is stored")
@@ -181,29 +181,13 @@ def main() -> int:
         path = args.model.absolute()
         if args.trace is not None:
             import json
-            from model_templates import source_paths, publication_lock, load_expansion
-
-            @scoped_read
-            def trace_model(path, _context=None):
-                paths = source_paths(path)
-                if paths is None:
-                    raise ValueError(f'Model requires a YAML service source: {path}')
-                with publication_lock(paths[0]):
-                    expanded = load_expansion(path)
-                    if expanded is None:
-                        raise ValueError(f'YAML Model inputs missing: {path}')
-                    return expanded
-
-            expanded = trace_model(path)
-            print(json.dumps(expanded.provenance[args.trace], ensure_ascii=False))
+            print(json.dumps(trace_model(path, args.trace), ensure_ascii=False))
             return 0
-        loaded = load_model(path)
-        keys = resource_keys(loaded.text, args.resource) if args.resource is not None else {k for k,v in loaded.values.items() if args.find in k + '=' + v}
-        for key in loaded.values:
-            if key in keys:
-                file, number = loaded.locations[key]
-                value = '=' + loaded.values[key] if args.resource is not None else ''
-                print(f'{file}:{number}: {key}{value}')
+        records = read_resource(path, args.resource) if args.resource is not None else find_model(path, args.find)
+        for key, record in records.items():
+            file, number = record[:2]
+            value = '=' + record[2] if args.resource is not None else ''
+            print(f'{file}:{number}: {key}{value}')
         return 0
     except (OSError, ValueError, IndexError, KeyError) as error:
         print(f"Service model files: FAIL: {error}", file=sys.stderr)

@@ -6,10 +6,10 @@ import re
 from task_contract import task_path, contracts
 
 
-def active_scope(root: Path, full: bool = False) -> set[tuple[str, str, str]] | None:
+def active_scope(root: Path, full: bool = False, *, task_file=None) -> set[tuple[str, str, str]] | None:
     if full:
         return None
-    path = task_path(root)
+    path = task_path(root, selected=task_file)
     if not input_is_file(path):
         if contracts(root):
             return set()  # All registered tasks are completed; retain shared idle checks.

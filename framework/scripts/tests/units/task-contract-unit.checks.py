@@ -192,5 +192,49 @@ def check_scope_change_during_planning(tmp_path, monkeypatch):
     assert not (tmp_path / 'file.txt').exists()
 
 
+def check_batch_operation_contract():
+    import json
+    from dataclasses import FrozenInstanceError
+    base = ('## Task contract\n- Task type: `design`\n- Workflow: `update`\n'
+            '- Model operation: `import-merge`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n')
+    pairs = [{'source': 'test/primary/network/' + left, 'destination': 'test/primary/network/' + right}
+             for left, right in [('022', '009'), ('023', '010'), ('024', '011'), ('025', '012'), ('028', '013')]]
+    pair_text = '## Model merge pairs\n' + ''.join('- ' + json.dumps(pair) + '\n' for pair in pairs)
+    reference = {'consumer': 'test/primary/subnet/020', 'field': 'document', 'property': 'EC2.Subnet.Policy',
+                 'pointer': '/Statement/0/Resource', **pairs[0]}
+    ref_text = '## Model reference changes\n- ' + json.dumps(reference) + '\n'
+    operation = tasks.model_operation(base + pair_text + ref_text)
+    assert operation.scope == ('test', 'primary', 'network') and len(operation.pairs) == 5
+    assert operation.references[0].pointer == '/Statement/0/Resource'
+    with pytest.raises(FrozenInstanceError):
+        operation.action = 'import-delete'
+    legacy = base + '- Source resource: `test/primary/network/022`\n- Destination resource: `test/primary/network/009`\n'
+    assert tasks.model_operation(legacy).pairs == operation.pairs[:1]
+    deletion = legacy.replace('import-merge', 'import-delete').replace('- Destination resource: `test/primary/network/009`\n', '')
+    assert tasks.model_operation(deletion).delete_source == pairs[0]['source']
+    malformed = [
+        base + '## Model merge pairs\n',
+        base + pair_text + pair_text,
+        legacy + pair_text,
+        pair_text,
+        base + pair_text + 'trailing junk\n',
+        base + pair_text.replace('"022"', '"009"') + ref_text + ref_text,
+        base + pair_text.replace('network/023', 'network/009'),
+        base + pair_text.replace('network/023', 'network/022'),
+        base + pair_text.replace('network/010', 'network/009'),
+        base + pair_text.replace('"source":', '"source": null, "source":', 1),
+        base + pair_text.replace('"source":', '"extra": NaN, "source":', 1),
+        base + pair_text + ref_text.replace('/Statement/0/Resource', ''),
+        base + pair_text + ref_text.replace('/Statement/0/Resource', '/bad~2'),
+        base + pair_text + ref_text.replace('subnet/020', 'network/022'),
+        deletion + '## Model reference changes\n',
+        base.replace('- Model operation:', '- Model operation :') + pair_text,
+    ]
+    for text in malformed:
+        with pytest.raises(ValueError):
+            tasks.model_operation(text)
+    assert tasks.model_operation('## Goal\nFree prose with Model merge pairs is unrestricted.\n') is None
+
+
 if __name__ == '__main__':
     raise SystemExit(run(__file__))

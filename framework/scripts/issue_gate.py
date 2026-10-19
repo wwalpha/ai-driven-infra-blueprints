@@ -14,8 +14,8 @@ from task_contract import task_path
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 
-def remediation_scope(root: Path) -> set[tuple[str, str, str]]:
-    path = task_path(root)
+def remediation_scope(root: Path, *, task_file=None) -> set[tuple[str, str, str]]:
+    path = task_path(root, selected=task_file)
     if not input_is_file(path):
         return set()
     result = set()
@@ -32,7 +32,7 @@ def remediation_scope(root: Path) -> set[tuple[str, str, str]]:
                 raise ValueError("duplicate Issue remediation entry")
             result.add(entry)
     if result:
-        scope = active_scope(root)
+        scope = active_scope(root, task_file=task_file)
         if scope is None or not result <= scope:
             raise ValueError("Issue remediation must be within explicit service Validation scope")
     return result
@@ -121,8 +121,8 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
     return errors
 
 
-def require_no_issues(root: Path, scope, *, target=None) -> None:
-    errors = issue_errors(root, scope, remediation=remediation_scope(root), target=target)
+def require_no_issues(root: Path, scope, *, target=None, task_file=None) -> None:
+    errors = issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file), target=target)
     if errors:
         raise ValueError("\n- ".join(errors))
 

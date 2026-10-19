@@ -1,6 +1,9 @@
 """Select task contracts and manage their ordinary status transitions."""
 
 import argparse
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 import fnmatch
 import os
 from pathlib import Path, PurePosixPath
@@ -121,12 +124,53 @@ def validate_contract(root, name, text, legacy=False, *, check_paths=True):
             raise ValueError(f"Modified file is outside Allowed paths: {name}: {value}")
 
 
-def model_operation(text):
-    """Exact Model-only update request; actual differences must still prove the operation."""
+@dataclass(frozen=True)
+class MergePair:
+    source: str
+    destination: str
+
+
+@dataclass(frozen=True)
+class ReferenceChange:
+    consumer: str
+    field: str
+    source: str
+    destination: str
+    property_name: str | None = None
+    pointer: str | None = None
+
+
+@dataclass(frozen=True)
+class ModelOperation:
+    action: str
+    scope: tuple[str, str, str]
+    pairs: tuple[MergePair, ...] = ()
+    references: tuple[ReferenceChange, ...] = ()
+    delete_source: str | None = None
+
+
+def model_operation(text: str) -> ModelOperation | None:
+    """Parse only reserved operation declarations; never expand or read Model sources."""
+    from iac_values import strict_json
     lines = section(text, '## Task contract')
     fields = ('Model operation', 'Source resource', 'Destination resource')
-    if not any(line.startswith('- ' + field + ':') for line in lines for field in fields):
+    headings = ('## Model merge pairs', '## Model reference changes')
+    reserved = [line for line in lines if any(re.match(r'-\s*' + name + r'\b', line) for name in fields)]
+    present = {heading for heading in headings if heading in text.splitlines()}
+    # Detect malformed reserved headings too, without constraining ordinary prose.
+    for line in text.splitlines():
+        if re.match(r'##\s+Model (merge pairs|reference changes)\b', line) and line not in headings:
+            raise ValueError('invalid Model operation section: ' + line)
+    records = {heading: section(text, heading) for heading in present}
+    if not reserved and not present:
         return None
+    for line in reserved:
+        if not any(re.fullmatch(r'- ' + name + r': `[^`]+`', line) for name in fields):
+            raise ValueError('invalid Model operation declaration: ' + line)
+    legacy = any(line.startswith(('- Source resource:', '- Destination resource:')) for line in reserved)
+    if legacy and present:
+        raise ValueError('cannot mix legacy resources and Model operation sections')
+
     def field(name, required=True):
         selected = [line for line in lines if line.startswith('- ' + name + ':')]
         if not selected and not required:
@@ -135,6 +179,21 @@ def model_operation(text):
         if match is None:
             raise ValueError('Model-only update requires exactly one ' + name)
         return match[1]
+
+    def address(value):
+        if not isinstance(value, str) or not re.fullmatch(r'(?:[a-z0-9]+(?:[-_][a-z0-9]+)*/){3}[0-9]{3,}', value):
+            raise ValueError('IMPORT operation requires exact environment/target/service/fixed Resource IDs')
+        return value
+
+    def objects(heading):
+        for line in records.get(heading, ()):
+            if not line.startswith('- {') or not line.endswith('}'):
+                raise ValueError('invalid Model operation JSON entry: ' + line)
+            value = strict_json(line[2:])
+            if not isinstance(value, dict):
+                raise ValueError('Model operation entry must be an object')
+            yield value
+
     if field('Task type') != 'design' or field('Workflow') != 'update':
         raise ValueError('Model-only IMPORT operations require the design /update workflow')
     if field('AWS API execution') != 'forbidden' or field('deploy/apply') != 'forbidden':
@@ -142,21 +201,71 @@ def model_operation(text):
     action = field('Model operation')
     if action not in {'import-merge', 'import-delete'}:
         raise ValueError('unknown Model-only IMPORT operation')
-    source = field('Source resource')
-    destination = field('Destination resource', action == 'import-merge')
-    pattern = r'(?:[a-z0-9]+(?:[-_][a-z0-9]+)*/){3}[0-9]{3,}'
-    if not re.fullmatch(pattern, source) or destination is not None and not re.fullmatch(pattern, destination):
-        raise ValueError('IMPORT operation requires exact environment/target/service/fixed Resource IDs')
-    if action == 'import-delete' and destination is not None:
-        raise ValueError('IMPORT deletion has no destination')
-    if destination is not None and (source == destination or source.rsplit('/', 1)[0] != destination.rsplit('/', 1)[0]):
-        raise ValueError('IMPORT merge requires distinct resources in the same environment/target/service')
-    return action, tuple(source.split('/')[:3]), source.split('/')[-1], destination.split('/')[-1] if destination else None
+    if action == 'import-delete':
+        if present or field('Destination resource', False) is not None:
+            raise ValueError('IMPORT deletion has no destination or reference declarations')
+        source = address(field('Source resource'))
+        return ModelOperation(action, tuple(source.split('/')[:3]), delete_source=source)
+    pairs = []
+    if legacy:
+        pairs.append(MergePair(address(field('Source resource')), address(field('Destination resource'))))
+    else:
+        for value in objects(headings[0]):
+            if set(value) != {'source', 'destination'}:
+                raise ValueError('merge pair requires exactly source and destination')
+            pairs.append(MergePair(address(value['source']), address(value['destination'])))
+    if not pairs:
+        raise ValueError('IMPORT merge requires nonempty pairs')
+    scope = tuple(pairs[0].source.split('/')[:3])
+    sources, destinations = {p.source for p in pairs}, {p.destination for p in pairs}
+    if len(sources) != len(pairs) or len(destinations) != len(pairs) or sources & destinations:
+        raise ValueError('IMPORT merge requires disjoint unique source/destination sets')
+    if any(tuple(value.split('/')[:3]) != scope for pair in pairs for value in (pair.source, pair.destination)):
+        raise ValueError('IMPORT merge requires the same environment/target/service')
+    references, positions = [], set()
+    for value in objects(headings[1]):
+        kind = value.get('field')
+        keys = {'consumer', 'field', 'source', 'destination'}
+        if kind in {'value', 'document'}:
+            keys.add('property')
+        if kind == 'document':
+            keys.add('pointer')
+        if kind not in {'value', 'document', 'parentReference'} or set(value) != keys:
+            raise ValueError('invalid reference fields')
+        consumer, source, destination = (address(value[k]) for k in ('consumer', 'source', 'destination'))
+        if tuple(consumer.split('/')[:2]) != scope[:2] or consumer in sources:
+            raise ValueError('reference consumer must remain in the same environment/target')
+        if MergePair(source, destination) not in pairs and not (source == destination and source in destinations):
+            raise ValueError('reference must match a registered pair or destination reevaluation')
+        prop, pointer = value.get('property'), value.get('pointer')
+        if kind != 'parentReference' and (not isinstance(prop, str) or not re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+(?:\[[1-9][0-9]*\])?)+', prop)):
+            raise ValueError('reference requires a formal Property')
+        if kind == 'document' and (not isinstance(pointer, str) or not pointer.startswith('/') or '*' in pointer or re.search(r'~(?![01])', pointer)):
+            raise ValueError('reference requires a non-root RFC 6901 pointer')
+        position = (consumer, kind, prop, pointer)
+        if position in positions:
+            raise ValueError('duplicate reference position')
+        positions.add(position)
+        references.append(ReferenceChange(consumer, kind, source, destination, prop, pointer))
+    return ModelOperation(action, scope, tuple(pairs), tuple(references))
+
+
+_selected_tasks = ContextVar('selected_tasks', default={})
+
+
+@contextmanager
+def selected_task(root: Path, task_file: str | None):
+    """Bind an explicit API selector for nested readers without mutating process environment."""
+    token = _selected_tasks.set({**_selected_tasks.get(), root.resolve(): task_file})
+    try:
+        yield
+    finally:
+        _selected_tasks.reset(token)
 
 
 def task_path(root, selected=None):
     records = contracts(root)
-    selected = selected or os.environ.get(SELECTOR)
+    selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
     if selected:
         selected_text(root, records, selected)
     if "tasks/active.md" in records and len(records) != 1:

@@ -421,3 +421,40 @@ class CloudControlCli:
         else:
             raise AssertionError('unmocked AWS call: ' + service + '.' + operation)
         return subprocess.CompletedProcess(command, 0, json.dumps(response), '')
+
+
+def batch_operation_fixture(before, after):
+    """Five independent authored pairs shared by semantic UT and managed-save IT."""
+    import copy
+    import yaml
+    operation_fixture(before)
+    operation_candidate(before, after)
+    pairs = [('022', '009'), ('023', '010'), ('024', '011'), ('025', '012'), ('028', '013')]
+    for root in (before, after):
+        directory = root / 'model/parameters/stg/cde/vpc'
+        binding_file, parameter_file, observed_file = [directory / name for name in ('bindings.json', 'parameters.yaml', 'observed.json')]
+        bindings = json.loads(binding_file.read_text())
+        parameters = yaml_read(parameter_file.read_text())
+        observed = json.loads(observed_file.read_text())
+        new_bindings = {'service': bindings['instances']['service']}
+        new_parameters, new_observed = {}, {}
+        for source, destination in pairs:
+            for name, old_id, new_id in [('main-vpc', '001', destination), ('imported-vpc', '009', source)]:
+                if name not in bindings['instances']:
+                    continue
+                binding = copy.deepcopy(bindings['instances'][name])
+                binding['resources'] = {k: new_id for k in binding['resources']}
+                binding['rows'] = {k: new_id + v[len(old_id):] for k, v in binding['rows'].items()}
+                binding['parameters'] = {k: v + '-' + new_id if isinstance(v, str) else v for k, v in binding['parameters'].items()}
+                new_bindings[name + new_id] = binding
+                new_parameters[name + new_id] = copy.deepcopy(parameters['instances'][name])
+                new_observed.update({k.replace('.' + old_id + '-', '.' + new_id + '-'): v for k, v in observed['values'].items() if k.startswith('observed.row.' + old_id + '-')})
+        bindings['instances'], parameters['instances'], observed['values'] = new_bindings, new_parameters, new_observed
+        binding_file.write_text(json.dumps(bindings))
+        parameter_file.write_text(yaml.safe_dump(parameters))
+        observed_file.write_text(json.dumps(observed))
+    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n' + ''.join(
+        '- ' + json.dumps({'source': 'stg/cde/vpc/' + source, 'destination': 'stg/cde/vpc/' + destination}) + '\n'
+        for source, destination in pairs)
+    sources = {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
+    return contract, sources

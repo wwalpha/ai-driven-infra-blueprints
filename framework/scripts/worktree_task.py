@@ -2,6 +2,7 @@
 """Create and integrate isolated task worktrees; preserve work on every failure."""
 
 import argparse
+from dataclasses import dataclass
 from contextlib import contextmanager
 import json
 import os
@@ -300,10 +301,108 @@ def cleanup(where, task_id):
         return cleanup_state(root, path, state)
 
 
+def _prepare_commit(root, path, state, target, approval):
+    changed = changed_paths(target)
+    task_id = state['task_id']
+    text = (target / state['task_file']).read_text(encoding='utf-8')
+    tasks.validate_contract(target, state['task_file'], text)
+    declared = tasks.paths_in(text, '## Modified files')
+    allowed = tasks.paths_in(text, '## Allowed paths')
+    if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
+        raise Blocked('integration changes are outside the exact task contract')
+    model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
+    contract = (target / state['task_file']).read_text(encoding='utf-8')
+    operation = tasks.model_operation(contract)
+    if operation is None and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
+        from import_guard import require_import_changes
+        previous = os.environ.get(tasks.SELECTOR)
+        try:
+            os.environ[tasks.SELECTOR] = state['task_file']
+            require_import_changes(target)
+        finally:
+            if previous is None:
+                os.environ.pop(tasks.SELECTOR, None)
+            else:
+                os.environ[tasks.SELECTOR] = previous
+        changed = changed_paths(target)  # Valid legacy receipts may have migrated.
+    if any(p.startswith("tasks/") for p in changed):
+        raise Blocked("contracts must remain ignored; nothing committed")
+    head = output(target, "rev-parse", "HEAD")
+    if head != state["tip"]:
+        raise Blocked("unexpected commits on task branch; review required")
+    if state["commit"] and not state["verified"]:
+        raise Blocked("task commit verification failed; review required before any retry")
+    if state["commit"] and changed:
+        raise Blocked("task changed after commit; rerun its workflow before integration")
+    if approval:
+        state["validation_failure_approval"] = approval
+    if changed:
+        whitespace = git(target, "config", "--get", "core.whitespace", check=False)
+        if whitespace.returncode not in (0, 1):
+            raise Blocked("cannot determine Git whitespace checks")
+        rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
+        diff_check = ("-c", "core.whitespace=" + rules + ",cr-at-eol", "diff")
+        git(target, *diff_check, "--check", check=not approval)
+        git(target, *diff_check, "--cached", "--check", check=not approval)
+        literal = [f":(top,literal){p}" for p in sorted(changed)]
+        git(target, "add", "--", *literal)
+        # Staged edits canceled by working-tree edits are an effective zero-change task.
+        changed = paths(target, "diff", "--cached", "--no-renames", "--name-only", "-z")
+    if changed:
+        tree = output(target, "write-tree")
+        message = (f"task({task_id}): human-approved validation failure" if approval
+                   else f"task({task_id}): Model operation candidate" if operation is not None
+                   else f"task({task_id}): completed task")
+        git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
+        state["commit"] = output(target, "rev-parse", "HEAD")
+        state["tip"] = state["commit"]
+        save(path, state)  # Preserve the task commit before touching the latest base.
+        if output(target, "rev-parse", "HEAD^") != head or output(target, "rev-parse", "HEAD^{tree}") != tree or paths(
+                target, "diff", "--no-renames", "--name-only", "-z", head, "HEAD") != changed:
+            raise Blocked("commit differs from the task changes; review required")
+        state["verified"] = True
+        save(path, state)
+    if changed_paths(target):
+        raise Blocked("task worktree changed during commit; review required")
+    base = base_worktree(root, state)
+    latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
+    # Do not replay unexpected history if the base was rewritten after creation.
+    if not ancestor(root, state["start"], state["base"]):
+        raise Blocked("base history was rewritten; task retained for review")
+    result = git(target, "-c", "rebase.updateRefs=false", "rebase", "--no-autostash", latest, check=False)
+    if result.returncode:
+        git(target, "rebase", "--abort")
+        raise Blocked("rebase failed and was aborted; human review required: " + result.stderr.strip())
+    state["tip"] = output(target, "rev-parse", "HEAD")
+    if state["commit"]:
+        state["commit"] = state["tip"]
+    save(path, state)
+    if changed_paths(target):
+        raise Blocked("task worktree changed during rebase; review required")
+    base = base_worktree(root, state)  # Recheck dirty/operation state immediately before merge.
+    if output(base, "rev-parse", "HEAD") != latest:
+        raise Blocked("base advanced during rebase; retry finalize with latest local base")
+    return latest
+
+
 def finalize(where, task_id, human_approved_validation_failure=None):
     if human_approved_validation_failure is not None and not human_approved_validation_failure.strip():
         raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
+    if not state['merged'] and human_approved_validation_failure is None and not state.get('validation_failure_approval'):
+        target = task_worktree(root, state)
+        text = (target / state['task_file']).read_text(encoding='utf-8')
+        if tasks.model_operation(text) is not None:
+            interpreter, environment = python_env.runtime(target)
+            command = [str(interpreter), '-B', '-c',
+                       'import sys; sys.path.insert(0, "framework/scripts"); '
+                       'from worktree_task import _integrate_model; '
+                       '_integrate_model(sys.argv[1], sys.argv[2])', str(root), task_id]
+            result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')
+            if result.returncode:
+                raise Blocked('Model final integration failed; worktree retained: ' + result.stderr.strip() + result.stdout.strip())
+            # The surviving launcher owns cleanup, after the registered child exits.
+            return cleanup(root, task_id)
     with lifecycle_lock(root):
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; integration refused")
@@ -314,77 +413,8 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         target = task_worktree(root, state)
         approval = human_approved_validation_failure or state.get("validation_failure_approval")
         integration_task(target, state, approval)
-        changed = changed_paths(target)
-        model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
-        contract = (target / state['task_file']).read_text(encoding='utf-8')
-        if '- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes):
-            from import_guard import require_import_changes
-            previous = os.environ.get(tasks.SELECTOR)
-            try:
-                os.environ[tasks.SELECTOR] = state['task_file']
-                require_import_changes(target)
-            finally:
-                if previous is None:
-                    os.environ.pop(tasks.SELECTOR, None)
-                else:
-                    os.environ[tasks.SELECTOR] = previous
-            changed = changed_paths(target)  # Valid legacy receipts may have migrated.
-        if any(p.startswith("tasks/") for p in changed):
-            raise Blocked("contracts must remain ignored; nothing committed")
-        head = output(target, "rev-parse", "HEAD")
-        if head != state["tip"]:
-            raise Blocked("unexpected commits on task branch; review required")
-        if state["commit"] and not state["verified"]:
-            raise Blocked("task commit verification failed; review required before any retry")
-        if state["commit"] and changed:
-            raise Blocked("task changed after commit; rerun its workflow before integration")
-        if approval:
-            state["validation_failure_approval"] = approval
-        if changed:
-            whitespace = git(target, "config", "--get", "core.whitespace", check=False)
-            if whitespace.returncode not in (0, 1):
-                raise Blocked("cannot determine Git whitespace checks")
-            rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
-            diff_check = ("-c", "core.whitespace=" + rules + ",cr-at-eol", "diff")
-            git(target, *diff_check, "--check", check=not approval)
-            git(target, *diff_check, "--cached", "--check", check=not approval)
-            literal = [f":(top,literal){p}" for p in sorted(changed)]
-            git(target, "add", "--", *literal)
-            # Staged edits canceled by working-tree edits are an effective zero-change task.
-            changed = paths(target, "diff", "--cached", "--no-renames", "--name-only", "-z")
-        if changed:
-            tree = output(target, "write-tree")
-            message = (f"task({task_id}): human-approved validation failure" if approval
-                       else f"task({task_id}): completed task")
-            git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
-            state["commit"] = output(target, "rev-parse", "HEAD")
-            state["tip"] = state["commit"]
-            save(path, state)  # Preserve the task commit before touching the latest base.
-            if output(target, "rev-parse", "HEAD^") != head or output(target, "rev-parse", "HEAD^{tree}") != tree or paths(
-                    target, "diff", "--no-renames", "--name-only", "-z", head, "HEAD") != changed:
-                raise Blocked("commit differs from the task changes; review required")
-            state["verified"] = True
-            save(path, state)
-        if changed_paths(target):
-            raise Blocked("task worktree changed during commit; review required")
+        latest = _prepare_commit(root, path, state, target, approval)
         base = base_worktree(root, state)
-        latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
-        # Do not replay unexpected history if the base was rewritten after creation.
-        if not ancestor(root, state["start"], state["base"]):
-            raise Blocked("base history was rewritten; task retained for review")
-        result = git(target, "-c", "rebase.updateRefs=false", "rebase", "--no-autostash", latest, check=False)
-        if result.returncode:
-            git(target, "rebase", "--abort")
-            raise Blocked("rebase failed and was aborted; human review required: " + result.stderr.strip())
-        state["tip"] = output(target, "rev-parse", "HEAD")
-        if state["commit"]:
-            state["commit"] = state["tip"]
-        save(path, state)
-        if changed_paths(target):
-            raise Blocked("task worktree changed during rebase; review required")
-        base = base_worktree(root, state)  # Recheck dirty/operation state immediately before merge.
-        if output(base, "rev-parse", "HEAD") != latest:
-            raise Blocked("base advanced during rebase; retry finalize with latest local base")
         expected = output(target, "rev-parse", "HEAD")
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(root, expected, state["base"]):
@@ -393,6 +423,112 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         save(path, state)
         return cleanup_state(root, path, state)
 
+
+
+@dataclass(frozen=True)
+class FinalCandidate:
+    root: Path
+    definitions_root: Path
+    task_file: str
+    task_text: str
+    base_commit: str
+    candidate_head: str
+    changed_paths: frozenset[str]
+    scope: frozenset[tuple[str, str, str]]
+
+
+@dataclass(frozen=True)
+class _ValidatedCandidate:
+    candidate: FinalCandidate
+    returncode: int
+
+
+def prepare_integration(where: Path, task_id: str) -> FinalCandidate:
+    """Commit/rebase a private Model-only candidate; never validate, complete or merge."""
+    root, _, path, state = load(where, task_id)
+    with lifecycle_lock(root):
+        if path.with_suffix('.setup-lock').exists() or state.get('python_setup', {}).get('status') != 'ready' or state['merged']:
+            raise Blocked('Model integration requires ready unmerged lifecycle state')
+        target = task_worktree(root, state)
+        text = (target / state['task_file']).read_text(encoding='utf-8')
+        if tasks.model_operation(text) is None or tasks.status(text) not in {'running', 'completed'}:
+            raise Blocked('Model integration requires a running/completed Model-only task')
+        if tasks.section(text, '## Suspension reason'):
+            raise Blocked('running/completed task has an unexpected suspension reason')
+        latest = _prepare_commit(root, path, state, target, None)
+        from validation_scope import active_scope
+        scope = active_scope(target, task_file=state['task_file'])
+        if scope is None:
+            raise Blocked('Model final candidate requires explicit service scope')
+        head = output(target, 'rev-parse', 'HEAD')
+        return FinalCandidate(target, target, state['task_file'], text, latest, head,
+                              frozenset(paths(target, 'diff', '--no-renames', '--name-only', '-z', latest, head)), frozenset(scope))
+
+
+def validate_final_candidate(candidate: FinalCandidate) -> _ValidatedCandidate:
+    """Run the existing read-only final loop once, without holding the lifecycle lock."""
+    from validation.loop import run_loop
+    from types import SimpleNamespace
+    options = SimpleNamespace(mode='task', all=False, task_file=candidate.task_file,
+        log_dir=None, profile=False, jobs=2, validation_jobs=4, fresh=True, write=False,
+        staged=False, base=None, affected=False)
+    if (changed_paths(candidate.root) or output(candidate.root, 'rev-parse', 'HEAD') != candidate.candidate_head or
+            (candidate.root / candidate.task_file).read_text(encoding='utf-8') != candidate.task_text):
+        raise Blocked('final candidate changed before validation')
+    code = run_loop(candidate.root, options, final_candidate=candidate)
+    return _ValidatedCandidate(candidate, code)
+
+
+def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
+    """Consume a successful in-call validation, complete status and ff-only merge.
+
+    Rechecks exact HEAD/base/clean state and the validated task body under the
+    lifecycle lock. No rebase, regeneration, validation rerun or cleanup here.
+    """
+    if not isinstance(result, _ValidatedCandidate) or result.returncode:
+        raise Blocked('final candidate validation failed; no merge')
+    candidate = result.candidate
+    root, _, path, state = load(candidate.root, Path(candidate.task_file).stem)
+    with lifecycle_lock(root):
+        target = task_worktree(root, state)
+        base = base_worktree(root, state)
+        if (target != candidate.root or changed_paths(target) or
+            output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or
+            output(base, 'rev-parse', 'HEAD') != candidate.base_commit):
+            raise Blocked('validated candidate/base changed; no merge')
+        if paths(target, 'ls-files', '-z', 'tasks'):
+            raise Blocked('contracts must remain ignored; no status commit')
+        task_path = target / candidate.task_file
+        text = task_path.read_text(encoding='utf-8')
+        if text != candidate.task_text:
+            raise Blocked('validated task contract changed; no merge')
+        completed = tasks.set_status(text, 'completed') if tasks.status(text) == 'running' else text
+        if text != completed:
+            tasks.atomic_files({task_path: completed}, staging_directory=target)
+        if task_path.read_text(encoding='utf-8') != completed or changed_paths(target) or output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or output(base, 'rev-parse', 'HEAD') != candidate.base_commit:
+            raise Blocked('validated state changed during task completion; no merge')
+        git(base, 'merge', '--ff-only', '--no-autostash', state['branch'])
+        if output(base, 'rev-parse', 'HEAD') != candidate.candidate_head or not ancestor(root, candidate.candidate_head, state['base']):
+            raise Blocked('merge result differs from validated candidate')
+        state['merged'] = candidate.candidate_head
+        save(path, state)
+        return state
+
+
+def _integrate_model(where, task_id):
+    """Internal registered-runtime composition; diagnostics remain outside CLI JSON."""
+    import tempfile
+    from contextlib import redirect_stdout, redirect_stderr
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', prefix='blueprint-model-integration-', suffix='.log', delete=False) as log:
+        try:
+            with redirect_stdout(log), redirect_stderr(log):
+                candidate = prepare_integration(Path(where), task_id)
+                result = validate_final_candidate(candidate)
+                merge_validated_candidate(result)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            _, _, _, state = load(Path(where), task_id)
+            tasks.suspend(Path(state['worktree']), state['task_file'], str(error) + '; integration log: ' + log.name)
+            raise Blocked(str(error) + '; integration log: ' + log.name) from error
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
