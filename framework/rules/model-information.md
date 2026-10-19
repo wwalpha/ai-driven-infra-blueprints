@@ -103,8 +103,12 @@ parameters.yaml, bindings.json and observed.json are writable. Other environment
 read-only preservation evidence; an incompatible shared change remains unresolved.
 Do not traverse recursive consumers or expand foreign Models for comparison.
 
-Save Model sources atomically first. Then generate and atomically save only the selected
-service's Markdown/JSON. Display failure rolls back only display writes and is exit 3;
+Normal `/import` authorizes append-only Model source changes for explicitly managed
+new resources through source candidates and guarded publication. Save Model sources
+atomically first. Then generate and atomically save only the selected service's
+Markdown/JSON. Never directly edit generated design Markdown/JSON or use display edits
+as a substitute for Model reflection, including during display-only recovery.
+Display failure rolls back only display writes and is exit 3;
 it never invalidates completed reflection. Exit 2 includes unreflected items. Report
 Model, display and `Design validation: not-run` separately. Stale views can be refreshed
 without Model changes. Never auto-run issues or repeat AWS acquisition for display failure.

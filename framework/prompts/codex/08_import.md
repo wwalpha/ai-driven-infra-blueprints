@@ -7,6 +7,14 @@ existing selected-service Markdown/JSON generation. The agent executing this Ski
 the LLM; never invoke another LLM API, another reflection Skill or the whole `/update`.
 This is a design task with `Workflow: import`, not an IaC/deploy operation.
 
+A normal `/import` request authorizes append-only Model source changes for explicitly
+managed new resources under this workflow. For each selected addition, edit source
+candidates and publish the authoritative Model sources before generating Markdown/JSON.
+Preserve existing resources under the append-only rules below. Generated design
+Markdown/JSON must never be edited directly, including for display-only recovery.
+If source publication fails or an addition remains unreflected, report it explicitly;
+do not substitute a Markdown/JSON edit or report that addition as reflected.
+
 ## Read first
 
 Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition),
