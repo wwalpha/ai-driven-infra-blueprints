@@ -259,8 +259,8 @@ Scopes that previously required no regression still require none. `--affected`
 uses the existing dependency mapping before filtering to UTs; unknown or missing
 dependencies fall back to all UTs.
 
-IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests,
-pushes to `main`/`master`, and manual dispatch, using Python 3.12 and the existing
+IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests
+and pushes to `main`/`master` that include `.py` changes, and on manual dispatch, using Python 3.12 and the existing
 requirements. Its sole entrypoint is `framework/scripts/tests/run_it.py`, which discovers
 `integrations/**/*.checks.py` and executes their existing pytest/direct entrypoints in
 independent processes. It continues after suite failures, records PASS/FAIL and duration,

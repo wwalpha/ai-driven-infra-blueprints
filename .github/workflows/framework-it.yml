@@ -2,8 +2,10 @@ name: Framework IT
 
 on:
   pull_request:
+    paths: ['**.py']
   push:
     branches: [main, master]
+    paths: ['**.py']
   workflow_dispatch:
     inputs:
       baseline_ref:
