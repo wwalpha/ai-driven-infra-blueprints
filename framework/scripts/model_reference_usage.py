@@ -167,7 +167,27 @@ def _symbolic(path, expansion, anchors, warnings=None):
         source = template_document(output_key, raw) if structured else raw
         if reserved(source):
             raise ValueError('reserved control character in reference expression: ' + output_key)
+        if output_key.endswith('.value') and not structured:
+            from policy_tables import literal
+            candidate = literal(raw)
+            if candidate.startswith(('{', '[')):
+                try:
+                    parsed = json_read(candidate)
+                except ValueError:
+                    pass
+                else:
+                    if reserved(parsed):
+                        raise ValueError('reserved control character in reference expression: ' + output_key)
         value = resolve(source, context, structured=structured)
+        if output_key.endswith('.value') and isinstance(value, str):
+            from policy_tables import literal
+            candidate = literal(value)
+            if isinstance(candidate, str) and candidate.startswith(('{', '[')):
+                try:
+                    # Escape in-memory markers through JSON, then restore them at scalar leaves.
+                    value = json_read(candidate.replace('\x00', r'\u0000'))
+                except ValueError:
+                    pass  # resource_config also retains non-JSON strings as literals.
         result[output_key] = symbolize(value)
     for key, value in expansion.values.items():
         if key not in result:

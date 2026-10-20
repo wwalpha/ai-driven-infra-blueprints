@@ -187,6 +187,227 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
     assert findings.warnings
 
 
+
+
+
+@pytest.mark.parametrize('diagnostic', [
+    'ambiguous/type-mismatched fixed reference target',
+    'unknown external instance reference: service-a/producer',
+    'ambiguous/type-mismatched reference: consumer/Origin: 001',
+    'IMPORT removed resource still has an incoming reference',
+])
+@pytest.mark.parametrize('mixed', [False, True])
+def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
+    from issue_gate import issue_errors, reference_issue_parts, task_issue_errors
+    from issues_scan import existing_materials
+    path = tmp_path / 'issues/dev/target/issues.md'
+    path.parent.mkdir(parents=True)
+    source = '7. <!-- issue-id: old-7 --> invalid service model: model/dev/target/service.properties: ' + diagnostic + '\n'
+    if mixed:
+        source += '   literal timeout differs\n'
+    path.write_text(source)
+    warnings = []
+    scope = {('dev', 'target', 'service')}
+    assert bool(issue_errors(tmp_path, scope, warnings=warnings)) is mixed
+    assert warnings and all(w['code'] == 'reference.legacy_issue' for w in warnings)
+    assert bool(task_issue_errors(tmp_path, scope, warnings=[])) is mixed
+    references, errors = reference_issue_parts(source)
+    assert references and bool(errors) is mixed
+    items, _ = existing_materials(tmp_path, 'dev', 'target', ['service'], warnings=[])
+    assert bool(items) is mixed
+    assert path.read_text() == source
+
+
+def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
+    from model_references import deployment_bucket
+    from support.model_sources import write_model
+    view = tmp_path / 'docs/designs/dev/target/cloudformation-stacks.md'
+    with pytest.raises(ReferenceResolutionError) as caught:
+        deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
+    assert caught.value.diagnostic['reference'] == '[bucket](s3.md#bucket)'
+    source = tmp_path / 'model/dev/target/s3.properties'
+    write_model(source, {'desired.service.s3.serviceId': 's3', 'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket'})
+    parameters = tmp_path / 'model/parameters/dev/target/s3/parameters.yaml'
+    parameters.write_text('instances: [')
+    with pytest.raises(ValueError) as caught:
+        deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
+    assert not isinstance(caught.value, ReferenceResolutionError)
+    parameters.write_text('instances: {}\n')
+    import model_files
+    def denied(*args):
+        raise PermissionError('read denied')
+    monkeypatch.setattr(model_files, 'read_model', denied)
+    with pytest.raises(PermissionError, match='read denied'):
+        deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
+
+
+def check_link_display_and_readback_classification(tmp_path):
+    from model_display import display_rows, row_table
+    from design_layout import expanded_display_rows
+    definitions = Path(__file__).resolve().parents[4]
+    prop = 'CodeBuild.Project.VpcConfig.Subnets'
+    with pytest.raises(ReferenceResolutionError):
+        display_rows('CodeBuild.Project', [['1', prop, '`subnet-a`', '配置先']], definitions)
+    rows = display_rows('CodeBuild.Project', [['1', prop, '[subnet-a](vpc.md#subnet-a)', '配置先']], definitions)
+    document = ['### CodeBuild.Project: project', '', *row_table(rows)]
+    document = [line.replace('[subnet-a](vpc.md#subnet-a)', '`subnet-a`') for line in document]
+    findings = Findings(tmp_path)
+    result = findings.evaluate('display', None, lambda: expanded_display_rows(document, definitions))
+    assert result.model_completion_allowed and result.status == 'NOT_RUN'
+    assert result.warnings and not result.errors
+    with pytest.raises(ValueError) as caught:
+        display_rows('CodeBuild.Project', [['1', prop, '[1]', '配置先']], definitions)
+    assert not isinstance(caught.value, ReferenceResolutionError)
+    with pytest.raises(ValueError) as caught:
+        expanded_display_rows([line.replace('Subnets[1]', 'Subnets[2]') for line in document], definitions)
+    assert not isinstance(caught.value, ReferenceResolutionError)
+
+
+def codebuild_values(anchor='project', missing_name=False, second=False):
+    values = {'desired.service.codebuild.serviceId': 'codebuild',
+              'desired.service.codebuild.ownedCatalogResourceTypes': 'CodeBuild.Project'}
+    for rid in (['001', '002'] if second else ['001']):
+        values.update({f'desired.resource.{rid}.resourceType': 'CodeBuild.Project',
+                       f'desired.resource.{rid}.resourceMode': 'CREATE',
+                       f'desired.resource.{rid}.anchor': anchor if rid == '001' else 'other',
+                       f'desired.resource.{rid}.logicalId': 'Project' + rid,
+                       f'display.resource.{rid}.label': 'project' if rid == '001' else 'other'})
+        rows = [('Artifacts.Type', '`NO_ARTIFACTS`'), ('Environment.Type', '`LINUX_CONTAINER`'),
+                ('Environment.ComputeType', '`BUILD_GENERAL1_SMALL`'), ('Environment.Image', '`image`'),
+                ('ServiceRole', '[role](iam.md#role)'), ('Source.Type', '`NO_SOURCE`')]
+        if not missing_name or second and rid == '001':
+            rows.append(('Name', '`project`' if rid == '001' else '`other`'))
+        for n, (prop, value) in enumerate(rows, 1):
+            prefix = f'desired.row.{rid}-{n:03d}.'
+            values.update({prefix + 'property': 'CodeBuild.Project.' + prop, prefix + 'value': value, prefix + 'comment': '合成設定'})
+    return values
+
+
+@pytest.mark.parametrize('anchor', ['project', 'broken'])
+@pytest.mark.parametrize('second', [False, True])
+def check_independent_model_validation(tmp_path, anchor, second):
+    from model_design import check_model_inputs
+    values = codebuild_values(anchor, missing_name=True, second=second)
+    result = check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
+                                definitions_root=Path(__file__).resolve().parents[4])
+    assert any('CodeBuild.Project.Name must appear exactly once' in e for e in result.errors)
+    if anchor == 'broken':
+        assert any('anchor' in w['message'] for w in result.warnings)
+
+
+def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
+    import sync_runtime as runtime
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    path = root / 'docs/designs/dev/target/codebuild.md'
+    values = codebuild_values('broken', missing_name=True)
+    for name in ('validate_mappings', 'validate_required_properties', 'validate_kms_policy_accounts'):
+        monkeypatch.setattr(runtime, name, lambda *a, **k: None)
+    monkeypatch.setattr(runtime, 'design_target', lambda *a: {})
+    def unavailable(*a, **k):
+        raise ReferenceResolutionError('resource anchor mismatch')
+    monkeypatch.setattr(runtime, 'markdown_for', unavailable)
+    failures, warnings, unverified = [], [], {}
+    assert runtime.generate_views(stage, root, {path: values}, failures,
+        definitions_root=Path(__file__).resolve().parents[4], warnings=warnings, unavailable=unverified) == {}
+    assert any('Name must appear exactly once' in error for error in failures)
+    assert warnings and unverified[path]['retainedView'] is None
+    assert unverified[path]['reason'] == 'reference' and not (stage / path.relative_to(root)).exists()
+
+
+
+@pytest.mark.parametrize('missing_name', [False, True])
+def check_unavailable_service_keeps_source_errors_and_no_cache(tmp_path, monkeypatch, missing_name):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from validation.runner import Validator
+    from support.model_sources import write_model
+    root = tmp_path
+    scope = {('dev', 'target', 'codebuild')}
+    path = root / 'model/dev/target/codebuild.properties'
+    values = codebuild_values('broken', missing_name=missing_name)
+    write_model(path, values)
+    validator = Validator(root, scope, workers=1, definitions_root=Path(__file__).resolve().parents[4])
+    validator.cache = SimpleNamespace(common=None, service_key=lambda _: 'key', load=lambda _: None, save=Mock())
+    monkeypatch.setattr(Validator, 'check_design_service_ownership', lambda *a: None)
+    monkeypatch.setattr(Validator, 'check_stack_designs', lambda *a: None)
+    def generation(self):
+        result = self.findings.result('framework.generated-service-model', scope)
+        result.metadata = {'unverified': {'dev/target/codebuild': {'status': 'NOT_RUN', 'reason': 'reference', 'retainedView': None}}}
+    monkeypatch.setattr(Validator, 'check_generated_service_models', generation)
+    validator.check_scoped_designs()
+    assert bool(validator.errors) is missing_name, validator.errors
+    assert validator.warnings
+    if missing_name:
+        assert any('Name must appear exactly once' in e for e in validator.errors)
+    result = validator.findings.result('design.service', scope)
+    assert result.metadata['reason'] == 'reference'
+    validator.cache.save.assert_not_called()
+
+
+@pytest.mark.parametrize('missing_name', [False, True])
+def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name):
+    from model_design import check_model_inputs
+    values = codebuild_values('broken', missing_name=missing_name)
+    if missing_name:
+        # A separate literal error must survive the unresolved anchor too.
+        values.update({'desired.row.001-999.property': 'CodeBuild.Project.TimeoutInMinutes',
+                       'desired.row.001-999.value': '`invalid-integer`',
+                       'desired.row.001-999.comment': '不正な設定'})
+    findings = check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
+                                 definitions_root=Path(__file__).resolve().parents[4])
+    assert bool(findings.errors) is missing_name, findings.errors
+    assert findings.warnings
+    if missing_name:
+        assert any('provider schema violation' in e for e in findings.errors)
+    else:
+        assert all(result.model_completion_allowed for result in findings.results.values())
+
+
+
+def check_model_document_uses_authoritative_json(tmp_path):
+    from model_design import check_model_inputs
+    values = {'desired.service.iam.serviceId': 'iam',
+              'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
+              'desired.resource.001.resourceType': 'IAM.Role',
+              'desired.resource.001.resourceMode': 'IMPORT',
+              'desired.resource.001.logicalId': 'Role',
+              'desired.resource.001.anchor': 'broken',
+              'desired.row.001-001.property': 'IAM.Role.RoleName',
+              'desired.row.001-001.value': '`role`',
+              'desired.row.001-001.comment': 'ロール名',
+              'desired.row.001-002.property': 'IAM.Role.AssumeRolePolicyDocument',
+              'desired.row.001-002.value': '[policy](iam/policy.json)',
+              'desired.row.001-002.document': '{"Version":"2012-10-17","Statement":[]}',
+              'desired.row.001-002.comment': '合成設定'}
+    result = check_model_inputs(tmp_path / 'model/dev/target/iam.properties', values, tmp_path,
+                                definitions_root=Path(__file__).resolve().parents[4])
+    assert not result.errors, result.errors
+    assert result.warnings
+
+
+
+@pytest.mark.parametrize('missing_name', [False, True])
+def check_analysis_generation_keeps_independent_checks(tmp_path, monkeypatch, missing_name):
+    import sync_runtime as runtime
+    from support.model_sources import write_model
+    model = tmp_path / 'model/dev/target/codebuild.properties'
+    write_model(model, codebuild_values('broken', missing_name=missing_name))
+    def unresolved(*a, **k):
+        raise ReferenceResolutionError('typed producer unavailable')
+    monkeypatch.setattr(runtime, 'load_model', unresolved)
+    monkeypatch.setattr(runtime, 'stage_inputs', lambda *a, **k: (set(), {}))
+    plan = runtime.prepare_generation(tmp_path, {('dev', 'target', 'codebuild')}, write=False,
+                                      definitions_root=Path(__file__).resolve().parents[4])
+    try:
+        assert bool(plan.failures) is missing_name, plan.failures
+        assert plan.reference_warnings
+        view = tmp_path / 'docs/designs/dev/target/codebuild.md'
+        assert plan.unavailable[view]['reason'] == 'reference'
+        assert plan.unavailable[view]['retainedView'] is None
+    finally:
+        plan.close()
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

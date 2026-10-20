@@ -135,7 +135,7 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
     return naming_coverage_errors(root, kind, selected, resource_display_name(kind, tag_rows) is not None, mode)
 
 
-def validate_required_properties(values: dict[str, str], root: Path) -> None:
+def validate_required_properties(values: dict[str, str], root: Path, *, warnings=None) -> list[dict]:
     """Reject missing required model inputs before producing any view or artifact."""
     from model_core import validate_model_keys
     from model_files import resource_row_index
@@ -143,9 +143,10 @@ def validate_required_properties(values: dict[str, str], root: Path) -> None:
     resource_row_index(values)
     if entries(values, "desired.stack."):
         stack_model(values)
-        return
+        return []
     catalog = DesignSchemaCatalog(root)
-    errors, warnings = [], []
+    errors = []
+    warnings = [] if warnings is None else warnings
     for identity, resource in entries(values, "desired.resource."):
         resource_mode(resource)
         kind = resource["resourceType"]
@@ -294,38 +295,114 @@ def resource_presentation(values, identity, resource, root):
     return name, configured, rows
 
 
-def resource_details(values, root, service, owned, resources, bound_anchors):
+def resource_details(values, root, service, owned, resources, bound_anchors, *, findings=None):
     counts = Counter(resource["resourceType"] for _, resource in resources)
     by_anchor = {}
     names = set()
     details = []
     for identity, resource in resources:
-        kind = resource["resourceType"]
-        mode = resource_mode(resource)
-        if kind not in owned:
-            raise ValueError(f"resource is outside service ownership: {kind}")
-        name, configured_name, rows = resource_presentation(values, identity, resource, root)
-        rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
-        type_display = not rule_table and configured_name is None and (name is None or name == kind)
-        if type_display:
-            if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
-                raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
-            name = kind
-        if not name or name in {"UNSET", "PENDING_DEPLOY"}:
-            raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
-        anchor = resource["anchor"]
-        derived = resource_anchor(service, name, kind)
-        expected = bound_anchors.get((kind, resource["logicalId"]), derived)
-        if anchor != expected or anchor in by_anchor or derived in names:
-            raise ReferenceResolutionError(f"resource anchor must be unique and match its name: {kind}: {anchor}")
-        errors = naming_errors(root, kind, rows, mode)
-        if errors:
-            raise ValueError("; ".join(errors))
-        names.add(derived)
-        item = (identity, resource, name, rows)
-        by_anchor[anchor] = item
-        details.append(item)
+        def inspect():
+            kind = resource["resourceType"]
+            mode = resource_mode(resource)
+            if kind not in owned:
+                raise ValueError(f"resource is outside service ownership: {kind}")
+            name, configured_name, rows = resource_presentation(values, identity, resource, root)
+            rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
+            type_display = not rule_table and configured_name is None and (name is None or name == kind)
+            if type_display:
+                if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
+                    raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
+                name = kind
+            if not name or name in {"UNSET", "PENDING_DEPLOY"}:
+                raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
+            anchor = resource["anchor"]
+            derived = resource_anchor(service, name, kind)
+            expected = bound_anchors.get((kind, resource["logicalId"]), derived)
+            if anchor != expected or anchor in by_anchor or derived in names:
+                raise ReferenceResolutionError(f"resource anchor must be unique and match its name: {kind}: {anchor}",
+                                               resource=identity, key=f"desired.resource.{identity}.anchor", reference=anchor)
+            errors = naming_errors(root, kind, rows, mode)
+            if errors:
+                raise ValueError("; ".join(errors))
+            names.add(derived)
+            item = (identity, resource, name, rows)
+            by_anchor[anchor] = item
+            details.append(item)
+        if findings is None:
+            inspect()
+        else:
+            findings.evaluate('model.resource.' + identity, None, inspect)
     return details, by_anchor
+
+
+def check_model_inputs(path, values, root, *, definitions_root=None):
+    """Validate authoritative inputs even when their View cannot be rendered."""
+    from validation.findings import Findings
+    from model_core import validate_model_keys
+    from model_files import resource_row_index
+    from model_operation_checks import operation_values
+    from aws_mapping_display import validate_mappings
+    findings = Findings(root)
+    definitions = definitions_root or root
+    def structure():
+        validate_model_keys(values)
+        resource_row_index(values)
+    if findings.evaluate('model.structure', None, structure).errors:
+        return findings
+    if entries(values, 'desired.stack.'):
+        findings.evaluate('model.stacks', None, lambda: validate_required_properties(values, definitions))
+        return findings
+    resources = entries(values, 'desired.resource.')
+    try:
+        catalog = DesignSchemaCatalog(definitions) if resources else None
+    except (OSError, ValueError) as error:
+        findings.check(False, str(error))
+        return findings
+    for identity, resource in resources:
+        selected = operation_values(values, identity)
+        findings.evaluate('model.required.' + identity, None,
+                          lambda: validate_required_properties(selected, definitions, warnings=findings.warnings))
+        findings.evaluate('model.mapping.' + identity, None, lambda: validate_mappings(selected, definitions))
+        def names():
+            rows = resource_rows(values, identity, resource['resourceType'], definitions)
+            for error in naming_errors(definitions, resource['resourceType'], rows, resource_mode(resource)):
+                findings.check(False, error)
+        findings.evaluate('model.naming.' + identity, None, names)
+        for row_id, row in entries(selected, 'desired.row.'):
+            def literal_check():
+                prop, value = row['property'], row.get('document', literal(row['value']))
+                if 'document' not in row and LINK.fullmatch(row['value']):
+                    return
+                if '<<' in value and not value.startswith(('{', '[')):
+                    raise ReferenceResolutionError('literal validation requires reference resolution',
+                                                   key='desired.row.' + row_id + '.value', reference=value, resource=identity)
+                kind = '.'.join(prop.split('.')[:2])
+                if prop in catalog_outputs(definitions, kind) or prop in NAMING_EXEMPT_PROPERTIES or prop in HIDDEN_PROPERTIES:
+                    return
+                field = prop.removeprefix(kind + '.')
+                if field == 'Name' and kind in {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}:
+                    return
+                for error in catalog.literal_errors(kind, field, value):
+                    findings.check(False, f'provider schema violation: {prop}: {error}')
+            findings.evaluate('model.literal.' + row_id, None, literal_check)
+    from validation.design import check_observed_values
+    model = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path
+    view = (root / 'docs/designs' / model.relative_to(root / 'model')).with_suffix('.md')
+    findings.evaluate('model.observed', None, lambda: check_observed_values(
+        [model], findings=findings, root=root, scope=None, design_sources={view: values}))
+    service = path.stem
+    owned = values.get(f'desired.service.{service}.ownedCatalogResourceTypes', '').split(',')
+    def presentation():
+        view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
+        resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings)
+    for identity, resource in resources:
+        findings.evaluate('model.identity.' + identity, None, lambda: validate_resource_identities(
+            view, values, root, [(identity, resource)], definitions_root=definitions))
+    findings.evaluate('model.presentation', None, presentation)
+    for warning in findings.warnings:
+        warning.setdefault('scope', '/'.join((*model.relative_to(root / 'model').parts[:2], service)))
+        warning.setdefault('source', str(model.relative_to(root)))
+    return findings
 
 
 def grouped_resources(values, details, by_anchor):

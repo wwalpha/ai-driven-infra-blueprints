@@ -52,8 +52,11 @@ def reference_issue_parts(text):
              'reference producer requires exactly one matching observed identifier',
              'reference producer requires a nonempty non-ARN string identifier', 'invalid reference label',
              'raw name reference cannot override label', 'raw identifier reference cannot override label',
-             'reference producer requires a valid stack name'}
+             'reference producer requires a valid stack name',
+             'ambiguous/type-mismatched fixed reference target',
+             'IMPORT removed resource still has an incoming reference'}
     patterns = (
+        r'(?:unknown external instance reference|unknown instance reference|ambiguous/type-mismatched fixed reference target|ambiguous/type-mismatched reference|IMPORT removed resource still has an incoming reference): [^;\n]+',
         r'broken design link: [^\s;]+: (?:[^\s;]*\.md(?:#[^\s;]+)?|#[^\s;]+)',
         r'missing design anchor: [^\s;]+: [^\s;]+',
         r'unresolved internal Model link: [^\s;]+',
@@ -160,7 +163,8 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None, warnings=Non
             reference_messages, blocking = reference_issue_parts(text)
             if warnings is not None:
                 warnings.extend({'code': 'reference.legacy_issue', 'message': message,
-                                 'source': str(path.relative_to(root)), 'issue': number} for message in reference_messages)
+                                 'source': str(path.relative_to(root)), 'issue': number,
+                                 'scope': '/'.join(identity), 'services': sorted(services)} for message in reference_messages)
             if reference_messages and not blocking:
                 continue
             if not services:

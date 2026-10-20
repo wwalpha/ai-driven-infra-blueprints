@@ -1973,6 +1973,57 @@ def check_import_llm_choice_contract():
     assert 'sequentially' in prompt and 'independent Task/acquisition/publication' in prompt
 
 
+
+
+
+@pytest.mark.parametrize('field', ['value', 'document'])
+@pytest.mark.parametrize('document,allowed', [
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': ['keep']}, True),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': ['keep'], 'admin': True, 'padding': 'x'}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'items': ['keep']}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': ['keep', 'extra']}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': []}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': True, 'items': ['keep']}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': '30', 'items': ['keep']}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 31, 'items': ['keep']}, False),
+    ({'target': 'changed-<<Name>>-suffix', 'timeout': 30, 'items': ['keep']}, False),
+    ({'target': 'prefix-<<Name>>-changed', 'timeout': 30, 'items': ['keep']}, False),
+    ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': {'0': 'keep'}}, False),
+])
+def check_refactor_json_value_structure(tmp_path, field, document, allowed):
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from task_contract import model_refactor
+    from model_operation_checks import verify_model_refactor
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    dependency_fixture(before)
+    template = before / 'model/templates/cde/service-b.properties.tpl'
+    original = {'target': 'prefix-<<Origin>>-suffix', 'timeout': 30, 'items': ['keep']}
+    def encoded(value):
+        raw = json.dumps(value, separators=(',', ':'))
+        return '`' + raw + '`' if field == 'value' else raw
+    old_text = template.read_text()
+    if field == 'value':
+        old_text = old_text.replace('desired.row.name.value=<<Origin>>', 'desired.row.name.value=' + encoded(original))
+    else:
+        old_text = old_text.replace('desired.row.name.comment=', 'desired.row.name.document=' + encoded(original) + '\ndesired.row.name.comment=')
+    template.write_text(old_text)
+    sources = dependency_refactor(before, after)
+    file = after / template.relative_to(before)
+    text = file.read_text()
+    if field == 'value':
+        text = text.replace('desired.row.name.value=<<Name>>', 'desired.row.name.value=' + encoded(document))
+    else:
+        text = text.replace('desired.row.name.value=<<Name>>', 'desired.row.name.value=<<Name>>\ndesired.row.name.document=' + encoded(document))
+    file.write_text(text)
+    contract = dependency_contract().replace('desired.row.002-001.value', 'desired.row.002-001.' + field)
+    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
+    if allowed:
+        assert verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+    else:
+        with pytest.raises(ValueError, match='value/type changed'):
+            verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -23,10 +23,12 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     validate_bucket_reference(reference)
     link = LINK.fullmatch(reference)
     target_path = path.parent.relative_to(root / "docs/designs")
-    try:
-        values = properties(read_model(root / "model" / target_path / "s3.properties"))
-    except OSError as error:
-        raise ValueError("deployment bucket requires an existing authoritative S3 model") from error
+    from model_templates import service_source
+    source = root / "model" / target_path / "s3.properties"
+    if service_source(source) is None:
+        raise ReferenceResolutionError("deployment bucket requires an existing authoritative S3 model",
+                                       source=str(source), reference=reference)
+    values = properties(read_model(source))
     resources = [(identity, resource) for identity, resource in entries(values, "desired.resource.")
                  if resource.get("resourceType") == "S3.Bucket" and resource.get("anchor") == link.group(3)]
     if len(resources) != 1:

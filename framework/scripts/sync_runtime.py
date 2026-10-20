@@ -139,8 +139,14 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
         staged = stage / path.relative_to(root)
         artifacts = {}
         try:
-            validate_mappings(values, definitions_root)
-            warnings.extend(validate_required_properties(values, definitions_root) or ())
+            from model_design import check_model_inputs
+            independent = check_model_inputs(path, values, root, definitions_root=definitions_root)
+            warnings.extend(independent.warnings)
+            if independent.errors:
+                if independent.unverified:
+                    unavailable[path] = {'reason': 'reference', 'status': 'NOT_RUN',
+                                         'retainedView': str(path.relative_to(root)) if input_is_file(path) else None}
+                raise ValueError("\n- ".join(independent.errors))
             validate_kms_policy_accounts(values, design_target(staged, stage))
             for identity, row in entries(values, "desired.row."):
                 match = JSON_LINK.fullmatch(row.get("value", ""))
@@ -589,8 +595,17 @@ def prepare_generation(root, scope, *, write=True, environment=None, target_dire
                     plan.read_inputs.update({p: text.encode("utf-8") for p, text in loaded.files.items()})
             except ReferenceResolutionError as error:
                 from model_templates import load_for_analysis
-                analysis = load_for_analysis(path)
+                try:
+                    analysis = load_for_analysis(path)
+                except (OSError, ValueError, KeyError, TypeError) as analysis_error:
+                    plan.reference_warnings.append(error.diagnostic)
+                    plan.failures.append(f'{path.relative_to(root)}: {analysis_error}')
+                    continue
                 plan.reference_warnings.extend(analysis.warnings or (error.diagnostic,))
+                from model_design import check_model_inputs
+                independent = check_model_inputs(path, analysis.values, root, definitions_root=definitions_root)
+                plan.reference_warnings.extend(independent.warnings)
+                plan.failures.extend(f'{path.relative_to(root)}: {message}' for message in independent.errors)
                 plan.unavailable[destination] = {'reason': 'reference', 'status': 'NOT_RUN',
                     'retainedView': str(destination.relative_to(root)) if input_is_file(destination) else None}
                 plan.read_inputs.update({p: text.encode('utf-8') for p, text in analysis.files.items()})

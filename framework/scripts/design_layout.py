@@ -669,7 +669,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
                 raise ValueError("ConfigurationRecorder RoleARN must use Mapping display name")
             if prop in RESOURCE_REFERENCE_PROPERTIES:
                 if mode != "IMPORT" and not (is_service_role_reference(prop, cells[2]) or is_import_pending_reference(prop, cells[2])) and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
-                    raise ValueError(f"{prop} must be a resource link")
+                    raise ReferenceResolutionError(f"{prop} must be a resource link", property=prop, reference=cells[2])
             owner = ".".join(prop.split(".")[:2])
             if prop in rules(root, owner) and (owner == resource_type or owner in GROUPED) and owner not in SECURITY_GROUP_TYPES and not compact_group(prop) and prop not in LINKED_LIST_PROPERTIES:
                 configured = display_name(prop, resource_type, root)
@@ -704,16 +704,16 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
                 if "<!-- subnet-list-source:" in cells[3] and not marker:
                     raise ValueError("invalid Subnet list source marker")
                 source = json.loads(marker.group(1)) if marker else None
-                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES and mode != "IMPORT":
-                    raise ValueError("CodeBuild VpcConfig value must be a resource link")
                 items = subnet_list_items(list_prop, source) if source is not None else [cells[2]]
+                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES and mode != "IMPORT":
+                    raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=cells[2])
                 comment = cells[3][marker.end():] if marker else cells[3]
                 child = CHILD.match(comment)
                 label = CHILD_NAME.match(comment[child.end():]) if child else None
                 # Rotation identity metadata occurs only on the first displayed Subnet.
                 continuation_comment = comment[child.end() + label.end():] if label and list_prop.startswith(ROTATION_SCHEDULE + ".") else comment
                 if source is None and mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
-                    raise ValueError("Subnet/Security Group value must be a resource link")
+                    raise ReferenceResolutionError("Subnet/Security Group value must be a resource link", property=prop, reference=cells[2])
                 for offset, value in enumerate(items):
                     row = cells
                     if offset:
@@ -748,7 +748,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
                 if match.group(2) == "S3" and resource_value == "`All current and future S3 buckets`":
                     resource_value = '`["arn:aws:s3"]`'
                 elif mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value):
-                    raise ValueError("CloudTrail DataResources value must be a resource link or, for S3, `All current and future S3 buckets`")
+                    raise ReferenceResolutionError("CloudTrail DataResources value must be a resource link or, for S3, `All current and future S3 buckets`", property=prop, reference=cells[2])
                 cloudtrail_count += 1
                 changed = True
                 kind = "CloudTrail DataResources"

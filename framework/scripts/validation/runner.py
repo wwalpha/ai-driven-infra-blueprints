@@ -310,6 +310,18 @@ class Validator:
 
         unavailable = generator.findings.result('framework.generated-service-model', self.scope).metadata.get('unverified', {})
         skipped = {tuple(entry.split('/')) for entry in unavailable}
+        # Only View checks are unavailable; source checks remain independent.
+        from model_design import check_model_inputs
+        from model_templates import load_for_analysis
+        for entry in sorted(skipped):
+            def source_checks():
+                path = self.root / 'model' / entry[0] / entry[1] / (entry[2] + '.properties')
+                analysis = load_for_analysis(path)
+                independent = check_model_inputs(path, analysis.values, self.root, definitions_root=self.definitions_root)
+                self.errors.extend(independent.errors)
+                self.warnings.extend((*analysis.warnings, *independent.warnings))
+                self.checks += independent.checks
+            self.findings.evaluate('design.model-inputs', {entry}, source_checks)
         missing -= skipped
         from task_contract import selected_task, task_revision
         selected_name, selected_text = task_revision(self.root)
@@ -331,6 +343,9 @@ class Validator:
         for entry in sorted(self.scope):
             if entry in skipped:
                 result = self.findings.result('design.service', {entry})
+                source = self.findings.result('design.model-inputs', {entry})
+                result.errors, result.warnings = source.errors, source.warnings
+                result.status = 'FAIL' if source.errors else 'NOT_RUN'
                 result.metadata = {'complete': False, 'reason': 'reference', **unavailable['/'.join(entry)]}
                 continue
             if entry in reused:
@@ -357,7 +372,7 @@ class Validator:
         if self.cache:
             print(f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}")
         generation = self.findings.result('framework.generated-service-model', self.scope)
-        generation.status = 'FAIL' if generator.errors else 'PASS'
+        generation.status = 'FAIL' if generator.errors else 'NOT_RUN' if unavailable else 'PASS'
         generation.errors = tuple(generator.errors)
         generation.warnings = tuple(generator.warnings)
         generation.metadata = generator.findings.result('framework.generated-service-model', self.scope).metadata

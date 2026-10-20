@@ -4,7 +4,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
-from model_core import LINK, literal
+from model_core import LINK, literal, ReferenceResolutionError
 from ec2_display import ec2_display_rows
 from service_rows import codebuild_display_row, pipeline_rows, glue_argument_rows, CODEBUILD_FORMAL_VARIABLE, packed_compact_rows
 from design_layout import (HEADER, ALIGNMENT, GROUPED, REQUIRED_NAME_TAG_TYPES,
@@ -75,7 +75,9 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
         elif prop in LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
             if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
-                raise ValueError("CodeBuild VpcConfig value must be a resource link")
+                if literal(value).lstrip().startswith(('[', '{')):
+                    subnet_list_items(prop, value)
+                raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=value)
             items = [value] if linked else subnet_list_items(prop, value)
             source = ""
             if not linked:
