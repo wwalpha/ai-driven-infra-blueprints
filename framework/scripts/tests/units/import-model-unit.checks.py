@@ -740,9 +740,8 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    from support.import_model_fixtures import approve_proof_fixture, mock_host_approval
-    approve_proof_fixture(root, proof)
-    monkeypatch.setattr('import_approval.verify_host_approval', mock_host_approval)
+    from support.import_model_fixtures import review_proof_fixture
+    review_proof_fixture(root, proof)
     if failure == 'expired':
         proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
     elif failure in {'task', 'base'}:
@@ -810,9 +809,8 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    from support.import_model_fixtures import approve_proof_fixture, mock_host_approval
-    approve_proof_fixture(root, proof)
-    monkeypatch.setattr('import_approval.verify_host_approval', mock_host_approval)
+    from support.import_model_fixtures import review_proof_fixture
+    review_proof_fixture(root, proof)
     import_guard.write_sealed(root, import_guard.proof_path(root), proof)
     import_guard.copy_import_proof(root, snapshot)
     with pytest.raises(ValueError, match='no verified'):

@@ -1,14 +1,14 @@
 # UT / IT 全ケース台帳
 
-## Import Human Approval Gate
+## Import conversational consent and integrity
 
-`units/import-approval-unit.checks.py` は合成データのみの29関数・118 pytestケース。
-本番の信頼できるHuman承認経路は未接続で、正常Publishをfail-closedにする。
-実運用の承認Hostは未提供。UTは中央照合とHost adapter Mock、既存の保存transaction stubを区別する。Import ITは認証済みclaimsの発行部分だけをMockし、中央承認検証・保存guard・正常Publish・rollbackを実行する。これを実Human承認の証明として数えない。
-cross-processケースはstubのない子プロセスで実際の拒否も確認する。
-Boolean設定のobserved誤用は拒否→desiredのみの成功へ更新。
-表示構造エラーは保存前拒否、保存後I/Oエラーと表示回復は別に検証する。
-dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区別する。
+`units/import-approval-unit.checks.py` uses synthetic data only. The LLM owns explicit
+final consent in chat; Python validates Review/candidate/receipt integrity without Host
+mocks. The Import IT exercises the normal unpatched CLI publisher across processes,
+source transactions, rollback, receipt guards and display generation. These fixtures do
+not establish actual agent conversation quality or Human identity authentication.
+Display structure failures reject before saving; display I/O failures and recovery
+remain separate. Dry-run/incomplete/display-failed sessions are retained.
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
@@ -21,7 +21,7 @@ dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区�
 | `import-approval::composite-secret` | `check_composite_identity_and_secret_omission` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複合識別子・機密値非出力 | Import Review |
 | `import-approval::observed` | `check_configuration_is_not_observed` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 通常設定のobserved保存拒否 | Pre-save |
 | `import-approval::warning` | `check_valid_observation_and_nonblocking_reference_warning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 識別子observed許可・Reference warning非ブロック・無関係既存行保持 | Pre-save |
-| `import-approval::no-trusted-approval` | `check_no_local_claim_can_publish` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 未承認・自己申告・一括/個別JSON・HMAC・有効期限自己申告の拒否と証跡保持 | Fail-closed |
+| `import-approval::no-trusted-approval` | `check_local_claim_cannot_replace_review_binding` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 自己申告JSON・flag・HMACはReview bindingの代替にならない、証跡保持 | Fail-closed |
 | `import-approval::alternate-writer` | `check_alternate_source_guard_rejects_legacy_receipt` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 既存receipt経由のModel保存拒否 | Fail-closed |
 | `import-approval::expiry` | `check_expiry_and_digest_tampering` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 7日有効期限・digest改ざん拒否 | Import Review |
 | `import-approval::unselected` | `check_unselected_reference_changes_are_not_reviewed_as_selected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 非選択Resourceの変更拒否 | Import Review |
@@ -34,17 +34,18 @@ dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区�
 | `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
 | `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
 
-| `import-approval::publication-transaction` | `check_publication_transaction_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 10 | 承認stub下の正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
+| `import-approval::publication-transaction` | `check_publication_transaction_without_host` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 10 | Hostなしの正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
 | `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
-| `import-approval::unapproved-candidate` | `check_unapproved_candidate_rejected_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | 承認stub後もProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
+| `import-approval::unapproved-candidate` | `check_candidate_review_mismatch_rejected_without_host` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | HostなしでもProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
 
 | `import-chat::check_explicit_bind_preserves_identity` | `check_explicit_bind_preserves_identity` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 12 | bind正常、既知ID・stale・CREATE・型・重複・無効ID・Anchor/Row/未取得変更拒否 | Chat approval |
 | `import-chat::check_subnet_answers_correction_and_resume` | `check_subnet_answers_correction_and_resume` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複数SUBNET回答保持・訂正・session再開・baseline変更拒否。LLM判断品質の評価ではない | Chat approval |
 | `import-chat::check_checkpoint_rejects_stale_or_competing_answers` | `check_checkpoint_rejects_stale_or_competing_answers` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 8 | 期限・基準・Task/Worktree/scope・取得差替え・競合回答拒否 | Chat approval |
-| `import-chat::check_authenticated_host_claims_match_exact_request` | `check_authenticated_host_claims_match_exact_request` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 19 | Host Mock claimsの全binding・candidate hash・Human/issuer・有効期限照合、実Hostは拒否 | Chat approval |
+| `import-chat::check_review_binding_integrity_without_host` | `check_review_binding_integrity_without_host` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 19 | HostなしのReview binding構造・全digest・期限と不要な認証fields拒否 | Chat approval |
 | `import-chat::check_unanswered_review_cannot_be_approved` | `check_unanswered_review_cannot_be_approved` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未回答を含むReviewは最終承認に渡せない | Chat approval |
 
-| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 6 | 承認済み保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否 | Publication |
+| `import-chat::consent-contract` | `check_conversational_consent_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 全件Review・明示同意・訂正/取消・曖昧回答・再確認・merge後確認の規約 | Chat consent |
+| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 6 | 保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否（Human認証ではない） | Publication |
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 

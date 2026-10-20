@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthetic review/publication units; approval stubs are not a production Human interface."""
+"""Synthetic Review/publication integrity units; conversational consent is an agent responsibility."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
@@ -61,7 +61,7 @@ def check_complete_typed_before_after_and_digest():
     assert identifier['after'][0]['reference'] == '[Main](#main)' and identifier['after'][0]['observed'] == 'vpc-one'
     assert entry['name'] == {'status': 'not-acquired'}
     approval.verify_review(result, review(data))
-    assert result['approvalBoundary'] == 'trusted-host-required'
+    assert result['approvalBoundary'] == 'llm-explicit-consent'
 
 
 @pytest.mark.parametrize('field', ['disposition', 'risk', 'inventory'])
@@ -183,21 +183,13 @@ def check_valid_observation_and_nonblocking_reference_warning():
 
 @pytest.mark.parametrize('claim', [None, {'approved': True}, {'wholeReview': True}, {'records': ['r1']},
                                     {'signature': 'agent-local-HMAC'}, {'expiresAt': '2099-01-01'}])
-def check_no_local_claim_can_publish(tmp_path, claim):
+def check_local_claim_cannot_replace_review_binding(tmp_path, claim):
     evidence = tmp_path / 'acquisition.json'
     evidence.write_text('{}')
     (tmp_path / 'approval.json').write_text(json.dumps(claim))
-    data = proposal()
-    data[0]['root'] = str(tmp_path)
-    (tmp_path / 'review.json').write_text(json.dumps(review(data)))
     before = {p: p.read_bytes() for p in tmp_path.iterdir()}
-    with patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish') as save:
-        with pytest.raises(ValueError, match='Human approval unavailable'):
-            m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, data[0], False)
-        with pytest.raises(ValueError, match='Human approval unavailable'):
-            import_guard.record_import(tmp_path, {}, evidence, {'approved': claim})
-        candidates.assert_not_called()
-        save.assert_not_called()
+    with pytest.raises(ValueError, match='invalid Review binding'):
+        import_guard.record_import(tmp_path, {}, evidence, {}, review_binding=claim)
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == before
 
 
@@ -348,11 +340,9 @@ def check_preflight_before_any_save(tmp_path, failure):
 def check_missing_review_rejected_before_candidate_load(tmp_path):
     evidence = tmp_path / 'acquisition.json'
     evidence.write_text('retained')
-    with patch.object(approval, 'require_human_approval') as verifier, \
-            patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish') as save:
+    with patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish') as save:
         with pytest.raises(ValueError, match='requires review.json'):
             m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, {}, False)
-        verifier.assert_not_called()
         candidates.assert_not_called()
         save.assert_not_called()
     assert evidence.read_text() == 'retained'
@@ -498,11 +488,9 @@ def publication_case(tmp_path, monkeypatch):
     document = root / 'docs/designs/dev/cde/vpc.md'
     proof = evidence.parent / 'proof.json'
     proof.write_text('previous proof', encoding='utf-8')
-    authorize = Mock(return_value=None)
     finish = Mock()
     record = Mock(side_effect=lambda *a, **k: proof.write_text('candidate proof', encoding='utf-8'))
     resolver = SimpleNamespace(warnings=[], files={}, metrics={}, verify_resource=lambda *a, **k: None)
-    monkeypatch.setattr(approval, 'require_human_approval', authorize)
     monkeypatch.setattr(m, 'load_for_edit', lambda path, output=None, **kwargs: after if output else before)
     monkeypatch.setattr(m, 'candidate_sources', Mock(return_value={source: 'candidate'}))
     monkeypatch.setattr(m, 'preserve_consumers', lambda *a: ({}, set(), False))
@@ -518,12 +506,12 @@ def publication_case(tmp_path, monkeypatch):
     monkeypatch.setattr(sync_runtime, 'owned_artifacts', lambda *a: set())
     monkeypatch.setattr(sync_runtime, 'view_plan', lambda *a: ({document: 'generated view'}, {document: None}))
     return SimpleNamespace(root=root, source=source, task=task, evidence=evidence, acquisition=acquisition,
-                           after=after, document=document, proof=proof, authorize=authorize, finish=finish, record=record)
+                           after=after, document=document, proof=proof, finish=finish, record=record)
 
 
 @pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
                                     'approval-expired', 'source-save', 'display-save', 'task-baseline'])
-def check_publication_transaction_with_stubbed_authority(publication_case, monkeypatch, failure):
+def check_publication_transaction_without_host(publication_case, monkeypatch, failure):
     case = publication_case
     def change_inputs(*args):
         if failure in {'review', 'draft'}:
@@ -534,13 +522,17 @@ def check_publication_transaction_with_stubbed_authority(publication_case, monke
             m.candidate_sources.return_value = {case.source: 'changed candidate'}
         elif failure == 'acquisition':
             monkeypatch.setattr(m, 'read_acquisition', lambda *a: {**case.acquisition, 'status': 'changed'})
+        elif failure == 'approval-expired':
+            class ExpiredClock(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime.now(tz) + timedelta(days=8)
+            monkeypatch.setattr(approval, 'datetime', ExpiredClock)
         elif failure == 'baseline':
             case.source.write_text('external edit', encoding='utf-8')
         elif failure == 'task-baseline':
             case.task.write_text(case.task.read_text() + '\n# external Task change', encoding='utf-8')
     m.record_outputs.side_effect = change_inputs
-    if failure == 'approval-expired':
-        case.authorize.side_effect = [None, ValueError('mock approval expired')]
     if failure == 'source-save':
         case.finish.side_effect = ValueError('source completion failure')
     if failure == 'display-save':
@@ -563,7 +555,7 @@ def check_publication_transaction_with_stubbed_authority(publication_case, monke
         assert result['model'] == 'reflected'
         assert result['status'] == ('display-failed' if failure else 'complete')
         assert result['markdown'] == ('failed' if failure else 'generated')
-        assert case.record.call_count == 1 and case.authorize.call_count == 2
+        assert case.record.call_count == 1
         plan = case.record.call_args.args[3]
         assert plan['sources'] == {'model/templates/cde/vpc.properties.tpl': 'candidate'}
         assert plan['selection']['resources'][0]['record'] == 'r1'
@@ -583,19 +575,17 @@ def check_saved_display_recovery_needs_no_new_approval(publication_case, monkeyp
     monkeypatch.setattr(import_guard, 'read_proof', lambda *a: {'model': 'reflected', 'ownedArtifacts': []})
     monkeypatch.setattr(import_guard, 'finish_import', case.finish)
     monkeypatch.setattr(sync_runtime, 'definition_root', lambda *a: m.ROOT)
-    case.authorize.side_effect = AssertionError('display recovery must not request approval')
     monkeypatch.setattr(m, 'read_acquisition', lambda *a: (_ for _ in ()).throw(AssertionError('no acquisition')))
     assert sync_runtime._sync(case.root, True, 'dev', 'cde', ['vpc']) == 0
     assert case.source.read_text(encoding='utf-8') == 'candidate'
     assert case.document.read_text(encoding='utf-8') == 'generated view'
     assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
-    case.authorize.assert_not_called()
     case.finish.assert_called_once_with(case.root, markdown='generated')
 
 
 
 @pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
-def check_unapproved_candidate_rejected_with_stubbed_authority(publication_case, change):
+def check_candidate_review_mismatch_rejected_without_host(publication_case, change):
     case = publication_case
     if change == 'property':
         case.after.values['desired.row.001-002.value'] = '`10.2.0.0/16`'
@@ -729,35 +719,25 @@ def check_checkpoint_rejects_stale_or_competing_answers(failure):
         approval.verify_checkpoint(acquisition, saved)
 
 
-@pytest.mark.parametrize('failure', [None, 'declined', 'issuer', 'human', 'expired', 'timezone', 'extension',
+@pytest.mark.parametrize('failure', [None, 'decision', 'issuer', 'human', 'expired', 'timezone', 'extension',
                                      'task', 'worktree', 'scope', 'acquisitionDigest', 'sourceBaselineDigest',
                                      'recordsDigest', 'reviewDigest', 'referencesDigest', 'selectionDigest',
                                      'proposedValuesDigest', 'impactDigest', 'sources'])
-def check_authenticated_host_claims_match_exact_request(failure):
+def check_review_binding_integrity_without_host(failure):
     data = proposal()
-    binding = approval.approval_binding(review(data), data[0])
-    sources = {'model/templates/cde/vpc.properties.tpl': import_guard.text_hash('verified candidate')}
-    claims = {'binding': copy.deepcopy(binding), 'sources': copy.deepcopy(sources), 'decision': 'approved',
-              'issuer': 'protected-fixture-host', 'human': 'fixture-human', 'expiresAt': binding['expiresAt']}
-    if failure == 'declined':
-        claims['decision'] = 'declined'
-    elif failure in {'issuer', 'human'}:
-        claims[failure] = ''
+    binding = approval.review_binding(review(data), data[0])
+    if failure in {'decision', 'issuer', 'human', 'sources'}:
+        binding[failure] = 'not part of Review integrity'
     elif failure in {'expired', 'extension', 'timezone'}:
-        claims['expiresAt'] = ((datetime.now(timezone.utc) + timedelta(days=8 if failure == 'extension' else -1)).isoformat()
-                               if failure != 'timezone' else datetime.now().isoformat())
-    elif failure == 'sources':
-        claims['sources']['model/templates/cde/vpc.properties.tpl'] = import_guard.text_hash('unapproved candidate')
+        binding['expiresAt'] = ((datetime.now(timezone.utc) + timedelta(days=8 if failure == 'extension' else -1)).isoformat()
+                                if failure != 'timezone' else datetime.now().isoformat())
     elif failure:
-        claims['binding'][failure] = 'different'
-    with patch.object(approval, 'verify_host_approval', return_value=claims):
-        if failure:
-            with pytest.raises(ValueError, match='approval'):
-                approval.require_human_approval(binding, sources)
-        else:
-            assert approval.require_human_approval(binding, sources) == claims
-    with pytest.raises(ValueError, match='Human approval unavailable'):
-        approval.require_human_approval(binding, sources)
+        binding[failure] = ''
+    if failure:
+        with pytest.raises(ValueError, match='Review binding'):
+            approval.verify_review_binding(binding)
+    else:
+        assert approval.verify_review_binding(binding) == binding
 
 
 def check_unanswered_review_cannot_be_approved():
@@ -766,7 +746,24 @@ def check_unanswered_review_cannot_be_approved():
     data[1]['unreflected'] = [{'record': 'r1', 'reason': 'waiting for Human'}]
     result = review((*data[:3], data[2].values, data[4]))
     with pytest.raises(ValueError, match='all Resource selections'):
-        approval.approval_binding(result, data[0])
+        approval.review_binding(result, data[0])
+
+
+
+def check_conversational_consent_contract():
+    root = Path(__file__).resolve().parents[4]
+    skill = (root / '.agents/skills/import/SKILL.md').read_text(encoding='utf-8')
+    prompt = (root / 'framework/prompts/codex/08_import.md').read_text(encoding='utf-8')
+    rule = (root / 'framework/rules/model-information.md').read_text(encoding='utf-8')
+    assert 'explicit Human final consent in chat' in skill
+    for required in ('全件承認して反映', '一部修正', 'キャンセル', '「確認しました」「了解」',
+                     'Proceed to candidate editing and Publish only after explicit consent',
+                     'rebuild and present', 'renewed explicit final consent',
+                     'Direct CLI execution can bypass', 'after merge the Human also'):
+        assert required in prompt
+    assert 'Python verifies change integrity, not the identity or existence' in rule
+    assert 'Host approval, issuers, Human authentication tokens/signatures' in rule
+    assert 'verify_host_approval' not in prompt + rule
 
 
 if __name__ == '__main__':

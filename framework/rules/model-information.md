@@ -105,20 +105,20 @@ workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/repla
 captured AWS facts. Present the complete normalized Review with concrete IDs, typed
 Before/After, references and risks before Human approval of any addition or overwrite.
 Python verifies identity, values, nonselected preservation and atomic publication.
-The current runtime has no agent-inaccessible Human approval issuer/verifier: normal
-Import publication fails closed after Review. Local flags, JSON and acquisition HMAC
-seals do not prove Human approval. The central verifier compares authenticated authority
-claims at publication and completion boundaries; the protected adapter is unavailable
-by default. The authority may be independent of the LLM Host; the existing
-`verify_host_approval` seam requires no product-specific SDK. Follow 08_import for its
-exact connection and privilege separation. Ordinary chat is the common selection and
-approval UX, but cannot independently authenticate its author to Python.
+The LLM obtains explicit final consent to reflect the complete current Review in ordinary
+chat, then edits candidates and invokes existing Python validation/save APIs. Dedicated
+Host approval, issuers, Human authentication tokens/signatures and Human-only publishers
+are not required. Python verifies change integrity, not the identity or existence of
+conversational consent; no `approved=true` flag grants save permission. A regenerated
+Review proves content consistency only. The LLM must obtain renewed consent after changes.
+Direct CLI execution can bypass dialogue; that is an accepted operating risk.
 The LLM owns chat questions, answers, recommendations, corrections and external-session
 checkpoints. Python validates their binding and final selections, never orchestrates them.
 All Resource answers are required before the one-service transaction; unresolved entries
 cannot be silently excluded or partially published.
-Individual approvals must cover the complete current Review before publication;
-corrections invalidate affected approvals and cancellation performs no source save.
+Explicit final consent must cover the complete current Review before publication;
+corrections require a rebuilt full Review and renewed consent; cancellation performs no source save.
+Follow existing Worktree validation/merge and Human review of the merged Model.
 Apart from the standalone exception above, IMPORT configuration changes remain forbidden
 except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
@@ -160,7 +160,7 @@ blocks reflection completion. Ordinary workflows retain their IMPORT protection.
 Acquisition evidence is a private sealed temporary session outside the repository,
 binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
 source hashes and the direct consumer set across acquire/publish processes. The agent
-records correspondence and review there; source candidates require trusted approval.
+records correspondence and review there; source candidates follow explicit final consent in chat.
 Only after complete source/display success or explicit Human termination, remove
 temporary acquisition/candidate contents; retain only a sealed task receipt at
 `evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
@@ -168,11 +168,15 @@ persists no Model, displays, contract or completion receipt; retain its session 
 explicit Human termination. Pre-save failure, incomplete display or display I/O failure
 retains acquisition/review evidence for diagnosis and display-only recovery.
 Never save raw responses. Acquisition/receipt timestamps expire after seven days;
-future timestamps beyond five minutes are rejected. Existing legacy receipts without the new approval binding are rejected; authenticated
-receipts are verified before location migration, then only the owned file and empty ancestor directories are removed.
-Mixed or unverified legacy data is retained. Snapshot integrity seals do not transfer
-Human approval to another Worktree: the approval binding rejects that reuse. Temporary
-snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
+future timestamps beyond five minutes are rejected. Review version 3 and receipt version 5
+record the conversational responsibility boundary. Version 5 binds Review/selection,
+acquisition/baseline, proposed values, Reference/Selector meaning, Task/Worktree/scope
+and exact saved source hashes. Versions 4 and earlier are rejected without automatic
+conversion; retain them for review and use a new explicitly authorized current-baseline
+import if needed. Valid version 5 receipts are verified before location migration; only
+the owned file and empty ancestor directories are removed. Local seals and the Review
+binding provide integrity, not Human authentication. Worktree reuse remains rejected.
+Temporary snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
 is removed only after verified integration and successful checkout/branch cleanup.
 See 08_import for failure/cancellation cleanup.
 

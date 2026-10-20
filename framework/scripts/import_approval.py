@@ -1,4 +1,4 @@
-"""Read-only Import review. Local integrity seals are not Human authorization."""
+"""Import Review integrity; the LLM owns explicit Human consent in conversation."""
 from datetime import datetime, timedelta, timezone
 from model_core import LINK, entries
 from model_files import resource_row_index
@@ -8,66 +8,46 @@ from import_sources import selection_records, verify_values, typed_row, typed_eq
 from import_inventory import type_name
 
 
-def verify_host_approval(binding, sources):
-    """Host integration seam, NOT an agent-configurable verifier or signing endpoint.
-
-    A protected publisher must authenticate its issuer and independently validate the
-    candidate before returning authenticated claims for these exact source hashes.
-    No CLI, environment, local receipt, import hook or agent-selected key configures it.
-    Tests replace only this seam; that does not install a production trust boundary.
-    """
-    raise ValueError('IMPORT Human approval unavailable: connect a protected Human-only Host '
-                     'issuer/verifier and publisher; local JSON, flags and HMAC cannot authorize publication')
-
-
-def approval_binding(review, acquisition):
-    """Derive the approval request from a verified Review, never from an approval flag."""
+def review_binding(review, acquisition):
+    """Bind verified Review content to its acquisition; this is not Human authentication."""
     verify_review(review, review)
     require_fresh_acquisition(acquisition)
     expected = {'task': acquisition['task'], 'worktree': acquisition['root'],
                 'scope': acquisition['scope'], 'acquisitionDigest': digest(acquisition),
                 'sourceBaselineDigest': digest(acquisition['sources'])}
     if any(not typed_equal(review.get(k), v) for k, v in expected.items()):
-        raise ValueError('IMPORT approval Review belongs to another acquisition/Task/Worktree/baseline')
+        raise ValueError('IMPORT Review belongs to another acquisition/Task/Worktree/baseline')
     if any(item['operation'] == 'unresolved' for item in review['dispositions']):
         raise ValueError('IMPORT all Resource selections must be answered before final approval/publication')
-    return {**expected, 'reviewDigest': review['reviewDigest'],
+    return verify_review_binding({**expected, 'reviewDigest': review['reviewDigest'],
             'recordsDigest': digest(review['dispositions']), 'selectionDigest': digest(review['selection']),
             'referencesDigest': digest(review['referenceProvenance']),
             'proposedValuesDigest': review['proposedValuesDigest'],
             'impactDigest': digest(review.get('referenceImpact', {})),
-            'acquiredAt': acquisition['acquiredAt'], 'expiresAt': review['expiresAt']}
+            'acquiredAt': acquisition['acquiredAt'], 'expiresAt': review['expiresAt']})
 
 
-def require_human_approval(binding=None, sources=None):
-    """One verifier used by Publish, source guards and completion-proof checks.
-
-    sources=None checks permission to prepare a candidate. A hash map requires the
-    protected publisher's attestation for the actual verified candidate/persisted bytes.
-    The adapter must authenticate claims before returning them, never echo requests.
-    """
-    claims = verify_host_approval(binding, sources)
-    fields = {'task', 'worktree', 'scope', 'acquisitionDigest', 'sourceBaselineDigest',
-              'reviewDigest', 'recordsDigest', 'selectionDigest', 'referencesDigest',
-              'proposedValuesDigest', 'impactDigest', 'acquiredAt', 'expiresAt'}
-    if not isinstance(binding, dict) or set(binding) != fields:
-        raise ValueError('IMPORT invalid approval binding')
+def verify_review_binding(binding):
+    """Validate receipt structure/lifetime, never authenticate conversational consent."""
+    hashes = {'acquisitionDigest', 'sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
+              'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest'}
+    fields = hashes | {'task', 'worktree', 'scope', 'acquiredAt', 'expiresAt'}
+    if (not isinstance(binding, dict) or set(binding) != fields
+            or any(not isinstance(binding[k], str) or len(binding[k]) != 64
+                   or any(c not in '0123456789abcdef' for c in binding[k]) for k in hashes)
+            or any(not isinstance(binding[k], str) or not binding[k] for k in ('task', 'worktree'))
+            or not isinstance(binding['scope'], list) or len(binding['scope']) != 3
+            or any(not isinstance(v, str) or not v for v in binding['scope'])):
+        raise ValueError('IMPORT invalid Review binding')
     require_fresh_acquisition(binding)
-    if (not isinstance(claims, dict) or set(claims) != {'binding', 'sources', 'decision', 'issuer', 'human', 'expiresAt'}
-            or claims['decision'] != 'approved' or not isinstance(claims['issuer'], str) or not claims['issuer']
-            or not isinstance(claims['human'], str) or not claims['human']
-            or not typed_equal(claims['binding'], binding) or not typed_equal(claims['sources'], sources)):
-        raise ValueError('IMPORT Human approval does not match the Review/candidate')
     try:
-        expiry = datetime.fromisoformat(claims['expiresAt'])
-        limit = datetime.fromisoformat(binding['expiresAt'])
         acquired = datetime.fromisoformat(binding['acquiredAt'])
-        if (expiry.tzinfo is None or limit.tzinfo is None or not datetime.now(timezone.utc) < expiry <= limit
-                or limit > acquired + timedelta(days=7)):
+        expiry = datetime.fromisoformat(binding['expiresAt'])
+        if (expiry.tzinfo is None or not datetime.now(timezone.utc) < expiry <= acquired + timedelta(days=7)):
             raise ValueError('expiry')
     except (ValueError, TypeError) as error:
-        raise ValueError('IMPORT Human approval expired or has invalid expiry') from error
-    return claims
+        raise ValueError('IMPORT Review binding expired or has invalid expiry') from error
+    return binding
 
 
 def checkpoint(acquisition, answers):
@@ -202,7 +182,7 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
             'unreflected': [item for item in pending if item['record'] == record['record']],
             'risks': [*risks[record['record']], *[w for w in warnings if w.get('record') == record['record']
                       or rid is not None and w.get('resource') == rid]]})
-    review = {'version': 2, 'task': acquisition['task'], 'worktree': acquisition['root'],
+    review = {'version': 3, 'task': acquisition['task'], 'worktree': acquisition['root'],
               'scope': acquisition['scope'], 'connection': acquisition['connection'],
               'acquiredAt': acquisition['acquiredAt'], 'acquisitionDigest': digest(acquisition),
               'expiresAt': (datetime.fromisoformat(acquisition['acquiredAt']) + timedelta(days=7)).isoformat(),
@@ -211,7 +191,7 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
               'dispositions': dispositions, 'warnings': warnings,
               'referenceProvenance': {'before': prior_references, 'after': proposed_references},
               'referenceImpact': reference_impact,
-              'proposedValuesDigest': digest(proposed), 'approvalBoundary': 'trusted-host-required'}
+              'proposedValuesDigest': digest(proposed), 'approvalBoundary': 'llm-explicit-consent'}
     return {**review, 'reviewDigest': digest(review)}
 
 

@@ -335,7 +335,7 @@ def read_proof(root, *, contract_file=None):
             raise ValueError('symlink import evidence')
         proof = read_sealed(root, source)
         require_fresh_acquisition(proof)
-        if (proof['version'] != 4
+        if (proof['version'] != 5
                 or proof['task'] != workflow(root, **reference) or proof['base'] != base_revision(root, **reference)
                 or proof['scope'] != list(selected(root, **reference)) or not proof['acquisition']
                 or not isinstance(proof['sources'], dict) or not proof['plan']
@@ -350,12 +350,14 @@ def read_proof(root, *, contract_file=None):
                 raise ValueError('invalid source checksum')
         for relative in proof['ownedArtifacts']:
             safe_path(root, relative)
-        from import_approval import require_human_approval
-        binding = proof['approval']
+        from import_approval import verify_review_binding
+        binding = verify_review_binding(proof['reviewBinding'])
+        if proof['reviewBindingDigest'] != digest(binding):
+            raise ValueError('IMPORT Review binding checksum differs')
         if (binding['task'] != proof['task'] or binding['worktree'] != str(root.resolve())
-                or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']):
-            raise ValueError('IMPORT approval belongs to another Task/Worktree/scope/acquisition')
-        require_human_approval(binding, proof['sources'])
+                or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']
+                or binding['acquiredAt'] != proof['acquiredAt']):
+            raise ValueError('IMPORT Review binding belongs to another Task/Worktree/scope/acquisition')
         if legacy.exists():
             if any(file_hash(safe_path(root, relative)) != checksum for relative, checksum in proof['sources'].items()):
                 raise ValueError('legacy IMPORT sources differ from acquired change plan')
@@ -371,11 +373,11 @@ def read_proof(root, *, contract_file=None):
         raise ValueError('IMPORT change has no verified /import evidence; flags and contract declarations are insufficient') from error
 
 
-def record_import(root, output, evidence, plan, complete=True, *, approval=None):
+def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
     """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
-    from import_approval import require_human_approval
+    from import_approval import verify_review_binding
     source_hashes = {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()}
-    require_human_approval(approval, source_hashes)
+    verify_review_binding(review_binding)
     from import_scope import selected
     identity = selected(root)
     acquisition = read_acquisition(root, evidence, identity, False)
@@ -383,18 +385,18 @@ def record_import(root, output, evidence, plan, complete=True, *, approval=None)
             or acquisition['scope'] != list(identity) or acquisition['dryRun']):
         raise ValueError('IMPORT evidence does not authorize this source publication')
     planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
-    if (not isinstance(approval, dict) or approval.get('task') != acquisition['task']
-            or approval.get('worktree') != acquisition['root'] or approval.get('scope') != acquisition['scope']
-            or approval.get('acquisitionDigest') != digest(acquisition)
-            or approval.get('sourceBaselineDigest') != digest(acquisition['sources'])
-            or approval.get('selectionDigest') != digest(plan.get('selection'))):
-        raise ValueError('IMPORT approval differs from acquisition/selection/baseline')
+    if (not isinstance(review_binding, dict) or review_binding.get('task') != acquisition['task']
+            or review_binding.get('worktree') != acquisition['root'] or review_binding.get('scope') != acquisition['scope']
+            or review_binding.get('acquisitionDigest') != digest(acquisition)
+            or review_binding.get('sourceBaselineDigest') != digest(acquisition['sources'])
+            or review_binding.get('selectionDigest') != digest(plan.get('selection'))):
+        raise ValueError('IMPORT Review binding differs from acquisition/selection/baseline')
     if plan.get('sources') != planned:
         raise ValueError('IMPORT evidence requires the checked candidate sources')
     if proof_path(root).exists():
         raise ValueError('IMPORT Task already published; use display recovery or a new Task')
     sources = source_hashes
-    proof = {'version': 4, 'approval': approval, 'task': workflow(root), 'base': base_revision(root),
+    proof = {'version': 5, 'reviewBinding': review_binding, 'reviewBindingDigest': digest(review_binding), 'task': workflow(root), 'base': base_revision(root),
              'scope': list(identity), 'sources': sources,
              'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
              'plan': digest(plan), 'acquisition': digest(acquisition),

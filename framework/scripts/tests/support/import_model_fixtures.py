@@ -306,41 +306,17 @@ def logs_edit(root, acquisition, days=90):
     return files
 
 
-# Synthetic Host state only. Production never imports this test helper.
-_approved = {}
-
-
-def approve_fixture(root, evidence):
-    from import_approval import approval_binding
-    from import_guard import read_sealed, digest, text_hash
-    evidence = Path(evidence)
-    acquisition = read_sealed(root, evidence)
-    reviewed = json.loads((evidence.parent / 'review.json').read_text(encoding='utf-8'))
-    binding = approval_binding(reviewed, acquisition)
-    output = m.candidate_sources(root, evidence.parent / 'candidates', tuple(acquisition['scope']))
-    _approved[digest(binding)] = (binding, {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()})
-
-
-def approve_proof_fixture(root, proof):
-    """Authored authenticated proof for guard-only tests, never production evidence."""
+def review_proof_fixture(root, proof):
+    """Authored integrity proof for guard-only tests, never Human authentication."""
     from datetime import datetime, timedelta
     from import_guard import digest
+    proof['acquisition'] = digest(proof['acquisition'])
     binding = {name: digest(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
                'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest')}
     binding.update(task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
                    acquisitionDigest=proof['acquisition'], acquiredAt=proof['acquiredAt'],
                    expiresAt=(datetime.fromisoformat(proof['acquiredAt']) + timedelta(days=7)).isoformat())
-    proof.update(version=4, approval=binding)
-    _approved[digest(binding)] = (copy.deepcopy(binding), copy.deepcopy(proof['sources']))
-
-
-def mock_host_approval(binding, sources):
-    from import_guard import digest
-    expected, hashes = _approved.get(digest(binding), (None, None))
-    if expected != binding or expected is None or sources is not None and sources != hashes:
-        raise ValueError('IMPORT mock Host rejected unapproved Review/candidate')
-    return {'binding': copy.deepcopy(expected), 'sources': copy.deepcopy(sources), 'decision': 'approved',
-            'issuer': 'synthetic-host', 'human': 'synthetic-human', 'expiresAt': expected['expiresAt']}
+    proof.update(version=5, reviewBinding=binding, reviewBindingDigest=digest(binding))
 
 
 def review_fixture(root, acquisition, service='cloudwatch-logs'):
@@ -362,7 +338,6 @@ def review_fixture(root, acquisition, service='cloudwatch-logs'):
         'referenceProvenance': reference_provenance(proposed),
         'risks': {record['record']: [] for record in acquisition['records']}}), encoding='utf-8')
     result = m.review_acquisition(root, 'dev', service, evidence, TARGET)
-    approve_fixture(root, evidence)
     return result
 
 

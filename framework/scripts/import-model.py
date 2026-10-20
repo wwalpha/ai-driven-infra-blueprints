@@ -406,8 +406,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         raise ValueError('IMPORT normal Publish requires review.json')
     binding = None
     if not dry_run:
-        binding = import_approval.approval_binding(json_read(review_file.read_text(encoding='utf-8')), acquisition)
-        import_approval.require_human_approval(binding)
+        binding = import_approval.review_binding(json_read(review_file.read_text(encoding='utf-8')), acquisition)
     from model_templates import consumers
     from sync_runtime import owned_artifacts, view_plan
     path = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
@@ -479,8 +478,8 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         expected = import_approval.build_review(acquisition, selection, before, after.values, draft['risks'],
                                                property_schema, proposed_references=import_approval.reference_provenance(after), reference_impact=impact)
         import_approval.verify_review(reviewed, expected)
-        if not dry_run and binding != import_approval.approval_binding(expected, acquisition):
-            raise ValueError('IMPORT approved Review changed while preparing candidates')
+        if not dry_run and binding != import_approval.review_binding(expected, acquisition):
+            raise ValueError('IMPORT Review changed while preparing candidates')
     if any('property' not in item for item in selection['unreflected']):
         raise ValueError('IMPORT all Resource selections must be answered before publication')
     complete = not pending and acquisition_complete(acquisition)
@@ -529,7 +528,8 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
                 or draft_file.read_text(encoding='utf-8') != draft_text):
             raise ValueError('IMPORT Review inputs changed before publication')
         import_approval.verify_review(reviewed, expected)
-        import_approval.require_human_approval(binding, {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()})
+        if binding != import_approval.review_binding(expected, acquisition):
+            raise ValueError('IMPORT Review binding changed before publication')
         contract_scope(root, {identity})
         unchanged(root, checksums)
         if (candidate_sources(root, evidence.parent / 'candidates', identity) != output
@@ -545,7 +545,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         previous = proof.read_text(encoding='utf-8') if proof.is_file() else None
         record_import(root, output, evidence, {'sources': {p.relative_to(root).as_posix(): text for p, text in output.items()},
                       'selection': selection, 'changes': changes,
-                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=complete, approval=binding)
+                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=complete, review_binding=binding)
         try:
             publish(root, output, inputs=snapshot, verify=lambda: finish_import(root, 'reflected' if output else 'unchanged'))
         except (OSError, ValueError):

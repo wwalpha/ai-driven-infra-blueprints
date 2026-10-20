@@ -1,6 +1,6 @@
 ---
 name: import
-description: Acquire once, let any LLM agent ask and checkpoint Human chat selections (including explicit bind), present the complete normalized Review, and verify independent trusted approval before candidate edits and one service publication. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
+description: Acquire once, let any LLM agent ask and checkpoint Human chat selections (including explicit bind), present the complete normalized Review, and obtain explicit Human final consent in chat before candidate edits and one service publication. Follow 08_import for the conversational consent and Review integrity boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute

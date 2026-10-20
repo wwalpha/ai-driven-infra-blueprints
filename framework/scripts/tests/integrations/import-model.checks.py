@@ -21,14 +21,11 @@ from model_core import entries
 from model_parameter_inputs import yaml_read
 from model_templates import json_text, load_for_edit
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    approve_fixture, mock_host_approval, aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, spec, stage)
+    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, spec, stage)
 
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
-    import import_approval
-    # Mock only the Host authentication adapter; exercise central verification and all guards.
-    monkeypatch.setattr(import_approval, 'verify_host_approval', mock_host_approval)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/import-fixture.md')
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
 
@@ -566,13 +563,11 @@ def check_cross_process_evidence(tmp_path):
     acquired = json.loads(completed.stdout)
     logs_edit(root, acquired)
     review_fixture(root, acquired)
-    publish_code = setup + f"import json; print(json.dumps(m.publish_acquisition(Path({str(root)!r}), 'dev', 'cloudwatch-logs', Path({acquired['evidence']!r}), 'cde')))"
-    rejected = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8')
-    assert rejected.returncode != 0 and 'Human approval unavailable' in rejected.stderr
-    assert Path(acquired['evidence']).is_file()
-    # Explicit synthetic seam for legacy cross-process receipt/rollback coverage only.
-    publish_code = setup + f'import import_approval; from support.import_model_fixtures import approve_fixture, mock_host_approval; approve_fixture(Path({str(root)!r}), Path({acquired["evidence"]!r})); import_approval.verify_host_approval = mock_host_approval; ' + publish_code[len(setup):]
-    result = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8', check=True)
+    # Run the real CLI parser/entrypoint in an unpatched child, with no Host adapter.
+    command = [sys.executable, '-B', str(scripts / 'import-model.py'), '--repository-root', str(root),
+               '--environment', 'dev', '--service', 'cloudwatch-logs', '--target', 'cde',
+               '--phase', 'publish', '--evidence', acquired['evidence']]
+    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', check=True)
     report = json.loads(result.stdout)
     assert report['model'] == 'reflected' and report['markdown'] == 'generated'
     assert import_guard.read_proof(root)['complete']
@@ -1165,12 +1160,12 @@ def check_approval_bound_save_guard(tmp_path, tamper):
             proof['sources'][name] = '0' * 64
         elif tamper == 'legacy':
             proof['version'] = 3
-            del proof['approval']
+            del proof['reviewBinding']
         else:
-            proof['approval'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
-        # Knowing the local integrity key still cannot invent Host approval.
+            proof['reviewBinding'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
+        # A resealed malformed or changed binding still fails mechanical integrity checks.
         import_guard.write_sealed(root, import_guard.proof_path(root), proof)
-        with pytest.raises(ValueError, match='no verified /import evidence'):
+        with pytest.raises(ValueError, match='no verified /import evidence|differs from acquired change plan'):
             import_guard.require_import_changes(root)
     assert source_files(root) == original
 

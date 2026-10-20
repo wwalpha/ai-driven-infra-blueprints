@@ -7,7 +7,7 @@ The `prompts/codex/08_import.md` path is retained for compatibility, not an agen
 restriction. Use ordinary chat for questions and approval requests; native question
 widgets are optional. Python does not detect the agent, call its SDK or require its
 IDE. Use the platform's Python 3 launcher (`python3` in these examples, or `py -3`
-on Windows); an approval integration must preserve the same contract on each platform.
+on Windows). No Host approval API, issuer, signing service or Human-only publisher is required.
 
 Python acquisition → LLM matching/full before-after proposal → Python Review verification →
 LLM presentation → Human approval → ordinary candidate edits → Python pre-save gates →
@@ -141,7 +141,7 @@ continues from those answers without casually asking them again. Missing checkpo
 require recovery from actual Human chat answers; never manufacture them. Expired or
 changed baselines invalidate old decisions; report and obtain new instructions rather
 than silently reacquiring/reusing. The checkpoint is editable by the LLM and proves no
-Human identity; final independent approval covers the complete verified result.
+Human identity; the LLM obtains explicit final consent for the complete verified result.
 
 Once every Resource is decided, the LLM constructs the existing `selection.json`:
 resource answers go in `resources`, exclusions lose their `action` field and go in
@@ -194,84 +194,55 @@ empty. Excluded and unresolved records remain visible. Never show or save secret
 The LLM performs `request_human_choice` through the questions above and
 `request_final_approval` by presenting the complete service Review in chat. These names
 describe responsibilities, not new Python functions or required SDK methods.
-Offer **approve all**, **approve named records**, **correct selections**, **exclude**
-and **cancel**. Record individual approvals by stable record ID and the reviewed
-content; show which records still need approval and wait. No answer or timeout is approval.
-Cancellation stops candidate editing and Publish, preserving the external session for
-an explicit resume; neither cancellation nor partial approval changes Model sources.
-On resume, revalidate the existing acquisition/baseline and approval lifetime first.
-Resource selection alone is not final approval. A changed target,
-action, value, Reference, selector or risk requires a rebuilt Review and approval of the
-changed part. Exclusion is also a reviewed disposition. A trusted approval authority
-may retain verified unchanged record approvals, but must
-issue a single complete-current-Review authorization before the service transaction.
-There is no partial-resource Publish. Unknown existing physical IDs and incoming
-replace/bind reference impacts are explicit Review risks.
+Ask explicitly: 「以上の内容でModelに反映してよろしいですか？」
+Offer **全件承認して反映**, **一部修正**, and **キャンセル**.
+Proceed to candidate editing and Publish only after explicit consent to reflect the whole
+current Review. 「確認しました」「了解」, a timeout, selecting correspondences, or partial
+approval is not final consent to save. Resolve corrections/exclusions, rebuild and present
+the complete Review and obtain renewed explicit final consent before the single service
+transaction. Cancellation saves no Model sources and retains the external session for
+explicit resume. On resume first verify acquisition/baseline and the seven-day lifetime.
+Unknown existing physical IDs and incoming replace/bind reference impacts remain explicit risks.
 
-### Independent approval boundary and current availability
+### Conversational consent and Review integrity
 
-`import_approval.approval_binding(review, acquisition)` binds Task, Worktree, scope,
+The LLM owns questions, recommendations, answer checkpoints, full Review presentation,
+and confirmation of the Human's explicit final consent. After that consent, the LLM
+edits ordinary external candidates and invokes the existing Python validation/save APIs.
+Do not stop after Review merely because no dedicated Host approval integration exists.
+No independent Human identity authentication, issuer, token, signature, IDE, SDK, OS or
+Human-only publisher is required. Do not introduce an `approved=true` save permission flag.
+
+`import_approval.review_binding(review, acquisition)` binds Task, Worktree, scope,
 acquisition/source-baseline digests, Review digest, dispositions/risks, selection,
-Reference meaning, proposed values, incoming-reference inputs and expiry.
-`require_human_approval(binding, sources)` is the single approval verifier used by
-Publish, `record_import()` and `read_proof()`/the existing save guard. `sources=None`
-checks approval before candidate preparation; an exact relative-path/SHA-256 map checks
-the protected publisher's attestation for the verified candidate. It compares all claims,
-requires a Human/issuer identity and explicit approved decision, and rejects expired or
-mismatched claims. Publish repeats it inside `publication_lock()`; proof verification
-retains the same binding and exact saved hashes, so completion cannot use a local seal
-as substitute authority. Old receipts without approval bindings are rejected.
+Reference/Selector meaning, proposed values, incoming-reference inputs and expiry.
+`verify_review_binding()` validates that integrity structure/lifetime, not Human identity.
+Python recomputes Review from the actual candidate and compares it with `review.json`;
+it repeats Review, acquisition, source, candidate and allowed-scope checks inside
+`publication_lock()`. A regenerated Review cannot prove consent: when content changes,
+the LLM must present it again and obtain renewed explicit consent before Publish.
+Direct CLI execution can bypass that conversational step; this is an accepted operating
+risk, not a cryptographic Human authentication guarantee. Local seals detect corruption
+and bind receipts to exact saved hashes; they do not authenticate the Human.
 
-**This repository does not supply a trusted issuer or publisher.** Its
-`verify_host_approval(binding, sources)` adapter fails closed. The existing name is a
-compatibility seam: "Host" can mean an independent protected approval service, not
-an LLM product. No product-specific adapter or SDK is implemented or required.
-Chat approval records
-Human intent but cannot alone unlock source editing/publication in this runtime.
-Continue the chat selections and read-only Review; report approval as pending independent
-verification when no protected integration is installed. Never create `approved=true`,
-agent-signed JSON/HMAC, environment overrides, signing CLIs or configurable verifier
-callbacks to bypass the adapter. Dry-run remains read-only.
+Review version 3 records this responsibility boundary. Completion receipt version 5
+stores `reviewBinding` and its digest alongside source hashes under the existing local
+seal. Versions 4 and earlier are rejected, never treated as version 5 or migrated by
+removing authentication fields. Retain old sessions/receipts for review and start a new
+explicitly authorized import from a current baseline if needed. The existing verified
+location migration applies only to valid version 5 receipts. Worktree snapshots retain
+Task/Worktree checks; a receipt does not authorize reuse in another worktree.
+Display-only recovery verifies saved integrity without asking for old consent again.
+Follow the existing Worktree validation/merge lifecycle; after merge the Human also
+reviews the resulting Model. Do not push or perform AWS mutation.
 
-Check the actual deployment's authentication and approval interfaces before connecting
-an adapter. Neither a product's chat UI nor command-execution permission establishes
-a Human-only, Framework-verifiable receipt by itself. An automatic permission reviewer,
-agent-controlled client or request-resolution notification is not Human attestation.
-Do not assume Copilot, Codex, Claude Code or another product exposes the required
-interface. If it cannot be verified, retain the unavailable adapter and report that
-formal Publish is unresolved. Do not provide a chat-only publishing mode.
-
-The minimal independent integration is one protected review/approval operation plus the
-existing publisher running under a separate identity:
-
-1. The authority displays the normalized full Review and records an explicit authenticated
-   Human action, with no timeout auto-accept or agent approval substitute. It keeps
-   record decisions and a full binding in protected storage through expiry. A separate
-   authenticated web UI or equivalent Human-only interface may serve every agent;
-   Human JSON editing and an agent-accessible local signing script are not substitutes.
-2. A protected adapter retrieves/authenticates that receipt by binding; issuer trust,
-   transport authentication and Human identity live outside agent-writable configuration.
-   It returns exactly `binding`, `sources`, `decision`, `issuer`, `human`, `expiresAt`.
-   These are authenticated claims, not an echo of the caller's request. No local
-   `approval.json` is read. With `sources=None`, the receipt authorizes candidate editing.
-3. After the LLM edits ordinary external candidates, the trusted publisher loads them,
-   runs this same `publish_selected()` validation/Review comparison, pins the exact
-   candidate bytes and records their hashes against that approved binding. Only then
-   may its adapter return a matching non-null `sources` attestation. The issuer must
-   never sign arbitrary hashes merely because an agent supplies a valid Review digest.
-4. The same protected runtime owns source writes, completion receipts and verification
-   code. Agent tools get read-only Model sources/receipt/trust configuration and writable
-   external candidates. Recheck under the existing publication lock and use the existing
-   rollback transaction. Completion and display recovery authenticate the stored result;
-   verifying existing approval does not ask the Human to approve again.
-
-Connect the authority's authenticated transport at `verify_host_approval` in the protected deployment;
-there is deliberately no repository flag or agent-controlled adapter loader. This
-runtime's ordinary filesystem permissions are not that OS boundary. Repository-only
-Python checks cannot prevent raw writes or modified verification code by the same user.
-Existing Mock Host tests run without an agent SDK and establish only interface/transaction
-behavior, not production authorization or actual chat interaction quality.
-A staged copy is a different Worktree and cannot reuse the original approval implicitly.
+Manual agent acceptance (separate from offline fixtures): in a Human-authorized import,
+select/adjust resource correspondences, resume the checkpoint, inspect every Review
+entry, and answer 「確認しました」 to confirm the agent stays pending. Correct one item,
+inspect the rebuilt full Review, then explicitly choose 「全件承認して反映」 and verify
+Model/source hashes, selected-service Markdown/JSON, and the post-merge diff. Test cancel
+in a separate authorized session and confirm no source save. Offline tests exercise
+mechanical publication, not an actual agent's interpretation of conversation.
 
 ## Agent selection and source edits
 
@@ -298,7 +269,7 @@ account/Region singleton scope never identify an existing Resource.
   explicit managed addition retains the existing unknown-ID duplicate-risk warning;
   that warning is not evidence that an ambiguous resource is new.
 
-After the Host verifies final Human approval, the LLM processes each approved resource in order: read the confirmed decision,
+After the LLM confirms explicit final Human consent, the LLM processes each approved resource in order: read the confirmed decision,
 select the ordinary source edit, edit the external candidate files, retain that result,
 and continue to the next resource. Acquire once per service, reuse records/evidence,
 Mapping/Schema/identity caches, and publish the combined service candidate once.
@@ -496,8 +467,8 @@ Run publish with the same evidence identifier, environment, target and service:
 python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py --phase publish --environment dev --target cde --service vpc --evidence <returned-acquisition.json>
 ```
 
-Publish does not access AWS. Normal Publish currently rejects unavailable trusted
-Human approval; the following checks also remain available for read-only dry-run.
+Publish does not access AWS. After explicit final consent, run normal Publish; the
+following checks also remain available for read-only dry-run.
 It verifies the sealed external acquisition, Task/Worktree,
 scope, source hashes, syntax/native types, declared add/refresh/replace/bind correspondence,
 captured changed values, preserved fixed identities and nonselected values/references,
@@ -507,7 +478,7 @@ reference warnings never cancel a saved Model or require repair before completio
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
 whole publication; no old plan is applied over concurrent changes. Normal Publish
-requires `review.json` even when a verifier is supplied by a future trusted runtime.
+requires a valid `review.json`; no Host approval or approval flag is read.
 Dry-run may omit Review; when present, it must match. The actual candidate expansion
 and `load_for_edit()` Reference provenance must match the Review's typed content,
 selectors, declarations and digest, even if expanded values are identical. Publication
