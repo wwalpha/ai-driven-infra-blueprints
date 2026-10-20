@@ -421,7 +421,13 @@ The existing I/O rollback covers one write, preserving prior successful leaf sav
 
 Full expansion is optional editing assistance and can fail on intermediate sources.
 Generation prepares/views validates/publishes separately. The final difference checker
-proves all pairs and non-reference preservation at once, reporting reference differences as warnings. Outside the
+proves all pairs/deletions and non-reference preservation at once, reporting reference differences as warnings.
+For import-delete, one parent owns all sources across its same-target services and all
+registered related reference repairs. Each leaf handles one Resource and returns before
+the next; generation/final validation/merge run only after all leaves finish. A repair may
+reuse an existing Definition or add one for registered retained consumers, preserving
+fixed Resource/Row maps and every non-target consumer. This narrow /update exception
+does not alter acquisition/refresh/replace restrictions or grant general IMPORT edits. Outside the
 managed running Model-only boundary, existing completed-candidate IMPORT guards remain.
 Acquisition/addition restrictions above are unchanged.
 
@@ -447,6 +453,7 @@ expands only its service and resolves needed producer attributes. Reuse an immut
 input context for related calls. Refactor validation includes registered direct shared
 template consumers and their target references, preserving other environments without
 unconditional repository-wide expansion. It retains ordinary design publication and
-the existing IMPORT guard, not the operation-only intermediate source writer. See
+the existing IMPORT guard for independent refactors. Related deletion repairs instead
+use the same import-delete parent and its intermediate source writer. See
 [Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor)
 for explicit declaration, comparison and final-candidate requirements.

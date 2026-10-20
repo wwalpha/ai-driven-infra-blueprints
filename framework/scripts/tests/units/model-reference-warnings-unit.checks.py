@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import sys
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 import pytest
 from model_core import ReferenceResolutionError
 from model_operation_checks import reference_equal

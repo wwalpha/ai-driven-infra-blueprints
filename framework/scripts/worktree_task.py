@@ -318,8 +318,8 @@ def _prepare_commit(root, path, state, target, approval):
     contract = (target / state['task_file']).read_text(encoding='utf-8')
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
-    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action == 'import-retarget'):
-        raise Blocked('Model refactor/retarget integration requires successful final candidate validation')
+    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
+        raise Blocked('Model refactor/retarget/delete integration requires successful final candidate validation')
     if (not operation or approval) and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
         from import_guard import require_import_changes
         if approval:
@@ -335,7 +335,9 @@ def _prepare_commit(root, path, state, target, approval):
     if state["commit"] and not state["verified"]:
         raise Blocked("task commit verification failed; review required before any retry")
     if state["commit"] and changed:
-        raise Blocked("task changed after commit; rerun its workflow before integration")
+        if parsed_operation is None or parsed_operation.action != 'import-delete':
+            raise Blocked("task changed after commit; rerun its workflow before integration")
+        # Explicit resumed deletion repairs retain the previous candidate as their parent.
     if approval:
         state["validation_failure_approval"] = approval
     if changed:
@@ -516,6 +518,21 @@ def prepare_integration(where: Path, task_id: str) -> FinalCandidate:
             raise Blocked('Model integration requires a running/completed Model-only task')
         if tasks.section(text, '## Suspension reason'):
             raise Blocked('running/completed task has an unexpected suspension reason')
+        operation = tasks.model_operation(text)
+        if operation is not None and operation.action == 'import-delete':
+            from model_sources import json_read, safe
+            for scope in sorted(operation.source_scopes):
+                binding_path = target / 'model/parameters' / '/'.join(scope) / 'bindings.json'
+                safe(target, binding_path)
+                bindings = json_read(binding_path.read_text(encoding='utf-8'))
+                try:
+                    remaining = {rid for binding in bindings['instances'].values() for rid in binding['resources'].values()}
+                except (AttributeError, KeyError, TypeError) as error:
+                    raise Blocked('invalid deletion bindings: ' + str(binding_path)) from error
+                requested = {source.rsplit('/', 1)[1] for source in operation.delete_sources
+                             if tuple(source.split('/')[:3]) == scope}
+                if remaining & requested:
+                    raise Blocked('deletion leaves incomplete: ' + '/'.join(scope) + ': ' + ', '.join(sorted(remaining & requested)))
         latest = _prepare_commit(root, path, state, target, None)
         from validation_scope import active_scope
         scope = active_scope(target, task_file=state['task_file'])

@@ -77,7 +77,11 @@ the private commit/rebase, validates the actual latest-base candidate once in re
 Python, completes from that result and merges that exact HEAD. Completed Model-only tasks
 also undergo that post-rebase check. The ordinary launcher cleans up after the child exits.
 No separate pre-finalize complete or duplicate final loop is required in this branch.
-Failure retains the candidate; never auto-regenerate, amend or retry it. The commands
+Failure retains the candidate; never amend or discard it. For import-delete, explicit
+same-parent repair/resume may create a corrected candidate and rerun final validation;
+other Model-only operations retain their no-auto-regeneration/retry rule. Deletion leaves
+never finalize separately: one parent Worktree contains all resource saves, followed by
+one generation phase and one final-candidate validation/merge/cleanup on success. The commands
 below describe other workflows and independent completion, not Model-only sequencing.
 
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:

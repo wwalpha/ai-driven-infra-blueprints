@@ -408,7 +408,11 @@ The final meaning check runs once in TaskValidation, not again through source/vi
 Standalone complete retains its own check; integration consumes the successful result
 for status and merge without another loop. The validation interval holds no lifecycle
 lock. Recheck base, HEAD, clean state and exact permitted status transition before merge.
-On FAIL retain candidate/worktree; no auto-regeneration/amend/retry. Cleanup runs in the
+On FAIL retain candidate/worktree; no auto-regeneration/amend/retry by default.
+For import-delete, the explicitly resumed parent may repair and invoke finalization
+again, retaining the earlier candidate commit and validating the corrected candidate.
+No successful deletion leaf invokes final validation. Require every registered deletion
+before commit preparation; merge only after the single parent final check succeeds. Cleanup runs in the
 surviving ordinary-Python parent after the registered-runtime child exits.
 
 The same final-candidate composition also applies to an explicit

@@ -251,7 +251,7 @@ def check_dependency_detach_contract():
                 text.replace('"key":', '"unknown": NaN, "key":'),
                 text.replace('"key":', '"pointer": "/bad~2", "key":'),
                 text.replace('## Model dependency detach', '## Model dependency detach extra'),
-                text.replace('## Model dependency detach', '- Model operation: `import-delete`\n- Source resource: `stg/cde/service-a/001`\n## Model dependency detach'),
+                text.replace('## Model dependency detach', '- Model operation: `import-merge`\n- Source resource: `stg/cde/service-a/001`\n## Model dependency detach'),
                 text.split('## Model dependency detach')[0] + '## Model dependency detach\n',
                 text + 'unconsumed junk\n']:
         with pytest.raises(ValueError):

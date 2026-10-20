@@ -148,6 +148,19 @@ class ModelOperation:
     pairs: tuple[MergePair, ...] = ()
     references: tuple[ReferenceChange, ...] = ()
     delete_source: str | None = None
+    delete_sources: tuple[str, ...] = ()
+    detaches: tuple["DependencyDetach", ...] = ()
+
+    @property
+    def source_scopes(self):
+        if self.action == 'import-delete':
+            return frozenset(tuple(source.split('/')[:3]) for source in self.delete_sources)
+        return frozenset({self.scope})
+
+    @property
+    def scopes(self):
+        return self.source_scopes | frozenset(tuple(ref.consumer.split('/')[:3]) for ref in self.references) | frozenset(
+            tuple(detach.consumer.split('/')[:3]) for detach in self.detaches)
 
 
 def model_operation(text: str) -> ModelOperation | None:
@@ -155,12 +168,12 @@ def model_operation(text: str) -> ModelOperation | None:
     from iac_values import strict_json
     lines = section(text, '## Task contract')
     fields = ('Model operation', 'Source resource', 'Destination resource')
-    headings = ('## Model merge pairs', '## Model reference changes')
+    headings = ('## Model merge pairs', '## Model reference changes', '## Model delete sources')
     reserved = [line for line in lines if any(re.match(r'-\s*' + name + r'\b', line) for name in fields)]
     present = {heading for heading in headings if heading in text.splitlines()}
     # Detect malformed reserved headings too, without constraining ordinary prose.
     for line in text.splitlines():
-        if re.match(r'##\s+Model (merge pairs|reference changes)\b', line) and line not in headings:
+        if re.match(r'##\s+Model (merge pairs|reference changes|delete sources)\b', line) and line not in headings:
             raise ValueError('invalid Model operation section: ' + line)
     records = {heading: section(text, heading) for heading in present}
     if not reserved and not present:
@@ -169,7 +182,7 @@ def model_operation(text: str) -> ModelOperation | None:
         if not any(re.fullmatch(r'- ' + name + r': `[^`]+`', line) for name in fields):
             raise ValueError('invalid Model operation declaration: ' + line)
     legacy = any(line.startswith(('- Source resource:', '- Destination resource:')) for line in reserved)
-    if legacy and present:
+    if legacy and present - {'## Model reference changes'}:
         raise ValueError('cannot mix legacy resources and Model operation sections')
 
     def field(name, required=True):
@@ -202,26 +215,38 @@ def model_operation(text: str) -> ModelOperation | None:
     action = field('Model operation')
     if action not in {'import-merge', 'import-delete', 'import-retarget'}:
         raise ValueError('unknown Model-only IMPORT operation')
-    if action == 'import-delete':
-        if present or field('Destination resource', False) is not None:
-            raise ValueError('IMPORT deletion has no destination or reference declarations')
-        source = address(field('Source resource'))
-        return ModelOperation(action, tuple(source.split('/')[:3]), delete_source=source)
+    deleting = action == 'import-delete'
+    delete_sources = ()
+    if deleting:
+        if headings[0] in present or field('Destination resource', False) is not None:
+            raise ValueError('IMPORT deletion has no destination or merge pairs')
+        if legacy:
+            delete_sources = (address(field('Source resource')),)
+        else:
+            delete_sources = tuple(sorted(address(value) for value in paths_in(text, headings[2])))
+        if len({tuple(value.split('/')[:2]) for value in delete_sources}) != 1:
+            raise ValueError('IMPORT deletion requires the same environment/target')
+    elif headings[2] in present:
+        raise ValueError('Model delete sources requires import-delete')
+    if legacy and present and not deleting:
+        raise ValueError('cannot mix legacy resources and Model operation sections')
     standalone = action == 'import-retarget'
     if standalone and (legacy or headings[0] in present):
         raise ValueError('standalone retarget has no merge pairs or legacy resources')
     pairs = []
-    if legacy:
+    if legacy and not deleting:
         pairs.append(MergePair(address(field('Source resource')), address(field('Destination resource'))))
     else:
         for value in objects(headings[0]):
             if set(value) != {'source', 'destination'}:
                 raise ValueError('merge pair requires exactly source and destination')
             pairs.append(MergePair(address(value['source']), address(value['destination'])))
-    if not pairs and not standalone:
+    if not pairs and not standalone and not deleting:
         raise ValueError('IMPORT merge requires nonempty pairs')
     scope = tuple(pairs[0].source.split('/')[:3]) if pairs else None
     sources, destinations = {p.source for p in pairs}, {p.destination for p in pairs}
+    if deleting:
+        scope = tuple(delete_sources[0].split('/')[:3])
     if len(sources) != len(pairs) or len(destinations) != len(pairs) or sources & destinations:
         raise ValueError('IMPORT merge requires disjoint unique source/destination sets')
     if any(tuple(value.split('/')[:3]) != scope for pair in pairs for value in (pair.source, pair.destination)):
@@ -239,11 +264,13 @@ def model_operation(text: str) -> ModelOperation | None:
         consumer, source, destination = (address(value[k]) for k in ('consumer', 'source', 'destination'))
         if standalone and scope is None:
             scope = tuple(consumer.split('/')[:3])
-        if tuple(consumer.split('/')[:2]) != scope[:2] or consumer in sources:
+        if tuple(consumer.split('/')[:2]) != scope[:2] or consumer in sources or consumer in delete_sources:
             raise ValueError('reference consumer must remain in the same environment/target')
         if standalone and (kind == 'parentReference' or source == destination or any(tuple(a.split('/')[:2]) != scope[:2] for a in (source, destination))):
             raise ValueError('standalone retarget requires distinct producers and a configuration Property in the same target')
-        if not standalone and MergePair(source, destination) not in pairs and not (source == destination and source in destinations):
+        if deleting and (source not in delete_sources or destination in delete_sources or tuple(destination.split('/')[:2]) != scope[:2]):
+            raise ValueError('deletion reference repair must replace a declared deleted producer within the same target')
+        if not standalone and not deleting and MergePair(source, destination) not in pairs and not (source == destination and source in destinations):
             raise ValueError('reference must match a registered pair or destination reevaluation')
         prop, pointer = value.get('property'), value.get('pointer')
         if kind != 'parentReference' and (not isinstance(prop, str) or not re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+(?:\[[1-9][0-9]*\])?)+', prop)):
@@ -259,6 +286,15 @@ def model_operation(text: str) -> ModelOperation | None:
         raise ValueError('retarget producers cannot also be edited consumers')
     if standalone and not references:
         raise ValueError('standalone retarget requires nonempty reference declarations')
+    if deleting:
+        if headings[1] in present and not references:
+            raise ValueError('Model reference changes must be nonempty')
+        from dataclasses import replace
+        single = None
+        if len(delete_sources) == 1:
+            single = delete_sources[0]
+        operation = ModelOperation(action, scope, references=tuple(references), delete_source=single, delete_sources=delete_sources)
+        return replace(operation, detaches=model_refactor(text, operation=operation) or ())
     return ModelOperation(action, scope, tuple(pairs), tuple(references))
 
 
@@ -270,7 +306,7 @@ class DependencyDetach:
     pointer: str | None = None
 
 
-def model_refactor(text: str) -> tuple[DependencyDetach, ...] | None:
+def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...] | None:
     """Opt-in design declaration, independent of Model operation and ordinary design."""
     from iac_values import strict_json
     lines = section(text, '## Task contract')
@@ -287,8 +323,10 @@ def model_refactor(text: str) -> tuple[DependencyDetach, ...] | None:
         found = [line for line in lines if re.match(r'-\s*' + re.escape(name) + r'\b', line)]
         if found != ['- ' + name + ': `' + expected + '`']:
             raise ValueError('Model refactor requires ' + name + ': ' + expected)
-    if model_operation(text) is not None:
-        raise ValueError('Model refactor cannot be combined with Model operation')
+    if operation is None:
+        operation = model_operation(text)
+    if operation is not None and operation.action != 'import-delete':
+        raise ValueError('Model refactor cannot be combined with Model operation except import-delete')
     result, seen = [], set()
     for line in section(text, heading):
         if not line.startswith('- {') or not line.endswith('}'):
@@ -308,6 +346,8 @@ def model_refactor(text: str) -> tuple[DependencyDetach, ...] | None:
             raise ValueError('detach key does not belong to its consumer')
         if 'pointer' in value and (not isinstance(pointer, str) or not pointer.startswith('/') or re.search(r'~(?![01])', pointer) or not key.endswith('.document')):
             raise ValueError('detach pointer requires a document scalar RFC 6901 path')
+        if operation is not None and (value['producer'] not in operation.delete_sources or value['consumer'] in operation.delete_sources):
+            raise ValueError('deletion detach must repair a surviving consumer of a deleted producer')
         record = DependencyDetach(value['consumer'], value['producer'], key, pointer)
         if record in seen or any(r.consumer == record.consumer and r.producer == record.producer and r.key == key
                                  and (r.pointer is None or pointer is None) for r in result):

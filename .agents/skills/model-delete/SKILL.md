@@ -27,8 +27,9 @@ chooses source edits; Python does not reconstruct or infer an edit plan.
 
 ## Operation
 
-Accept an exact subset of the normalized parent deletion source set (merge sources
-or the single import-delete source). Inspect all effective Models in the same
+Accept exactly one Resource from the normalized parent deletion source set (merge
+sources or import-delete delete_sources). The parent LLM invokes the next leaf only
+after inspecting this result; multiple resources share the same Task and Worktree. Inspect all effective Models in the same
 environment/target for remaining references, including active optional/choice branches,
 Property/JSON/parentReference and internal links in expanded free text. Use the
 before anchor index even when a source is absent; service.md and ./service.md resolve
@@ -44,10 +45,12 @@ as no dependencies. Read references/warnings/complete; retained Resource/service
 are warnings and do not require repair before deletion.
 
 If incoming usages survive deletion, report exact locations and known prior values.
-Do not retarget, reorder deletions or start a repair Task implicitly. The LLM repairs
-what it can determine within authorized scope and asks about undetermined repairs;
-repair never gates the original deletion. Keep final verify_model_operation and the
-single-source contract. Remaining references do not fail the operation. Remove
+The parent LLM chooses ordering and registered related repairs using existing reference
+APIs and raw source editing. Perform those repairs and deletion within this same parent;
+do not create an independent repair Task/Worktree/Merge. Repair records must identify
+consumer fields/pointers and a deleted producer. Ask about undetermined repairs;
+reference warnings never gate the original deletion. Keep final verify_model_operation
+for all parent sources after the last leaf, not after each save. Remaining references do not fail the operation. Remove
 only its Instance, binding, unused inputs and observations. Retain shared Definitions,
 in-use inputs and sibling Resources. Reject a multi-resource source Instance that
 cannot be safely separated; do not add an automatic splitting operation.
@@ -67,4 +70,6 @@ Resource/reference locations, performed operation, failure reason and retained c
 Do not persist a separate history, receipt or workflow state. Success means only this
 leaf completed. Do not call another leaf, generation, completion, commit, merge,
 cleanup or AWS; do not create a worktree or modify parent Goal/permissions/operation/status
-(including suspend). Return failure to the parent, which stops and may suspend.
+(including suspend). Return failure to the parent, which stops and may suspend; retain successful saves for
+explicit same-parent repair/resume. Leaf status is returned in conversation, not a
+persistent execution scheduler.

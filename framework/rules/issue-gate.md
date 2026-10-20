@@ -35,16 +35,17 @@ report uncompared plus warnings, not match/verified or category error.
 
 For an explicit Human Model deletion request, do not stop at the ordinary pre-contract
 issue check. First register and validate the design /update `import-delete` contract
-with an exact Source resource, forbidden AWS API execution and deploy/apply, and explicit
-service Validation scope containing the source. Keep the same Task selector and managed
+with exact normalized deletion sources, forbidden AWS API execution and deploy/apply,
+and explicit service Validation scope containing every source and repair consumer. Keep the same Task selector and managed
 worktree ownership. Then use the common task-aware issue decision (`require_no_issues`,
 or `issue_gate.py --task`) on its declared scope, including resume, source saves,
 generation and final/integration validation. Missing/invalid contracts, unknown operations,
 scope mismatches and mismatched managed Tasks fail closed. The ordinary CLI without
 `--task` retains its pre-contract gate.
 
-Only the existing-issue stop decision is waived within that deletion Task's Validation
-scope. Do not require Issue remediation, delete issues.md or mark existing issues fixed.
+Only the existing-issue stop decision for registered deletion source services is waived.
+Other declared services retain their ordinary gate; do not expand the exception to
+consumer-only repairs, unrelated services or other operation types. Do not require Issue remediation, delete issues.md or mark existing issues fixed.
 Keep incoming-reference diagnostics and final verify_model_operation checks. Reference
 ambiguity/type mismatch/surviving links are warnings. Retain parse/Model/Bindings errors,
 operation source existence/fixed identity, path/scope/worktree guards, AWS/deploy

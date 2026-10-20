@@ -36,13 +36,15 @@ Normal incoming links, cycles and surviving links do not block the authorized de
 Do not impose deletion ordering, a separate detach Task or reference repair as a prerequisite.
 Do not delete another resource or change surviving resources without authority.
 
-For an explicitly requested dependency refactor, reuse the existing
+For an independently requested dependency refactor, reuse the existing
 [Value-preserving Model refactor](../../rules/task-contract.md#value-preserving-model-refactor)
 contract, input editing and guarded publication. Reuse existing parameters/Definitions;
 retain fixed maps and non-reference settings/types/JSON siblings/observations. Report
 reference-derived differences as warnings. The LLM chooses repairs within scope or asks
 about undetermined changes; Python does not invent them. This branch grants no AWS/IaC
-permission and does not enter infrastructure execution below.
+permission and does not enter infrastructure execution below. For repairs associated
+with registered deletions, use the same import-delete parent and intermediate writer
+under the next Model-only branch, not an independently finalized refactor.
 
 ## Standalone Model reference retarget
 
@@ -78,7 +80,7 @@ For an explicit Human deletion request, skip the ordinary pre-contract Issue Gat
 and first register and validate the `import-delete` contract. After registration use
 the common task-aware Issue Gate (`require_no_issues` or `issue_gate.py --task` with the
 same selector), including on resume and before saves/final validation. Only existing
-issue stops within its explicit Validation scope are waived; do not require remediation
+issue stops for registered deletion source services are waived; do not require remediation
 or edit issues.md. Non-reference Model/operation/storage errors still stop deletion.
 Known reference-only Issues are warnings for every Model operation; other ordinary Issues retain their gate.
 
@@ -90,25 +92,39 @@ stopping; the following leaves own their exact editing procedures:
 1. For an overall merge request, call [model-transfer](../../../.agents/skills/model-transfer/SKILL.md)
    with the registered pairs, then [model-retarget](../../../.agents/skills/model-retarget/SKILL.md)
    with registered references, then [model-delete](../../../.agents/skills/model-delete/SKILL.md)
-   with the normalized sources. For deletion call only model-delete. An explicitly
+   with the normalized sources one Resource at a time. For deletion, register every
+   source and related reference/detach repair in one parent. The parent LLM chooses the
+   next Resource, calls model-delete for its investigation/registered repairs/removal/raw
+   save, and reads the result before deciding the next action. An explicitly
    requested single leaf returns after that operation. No per-step reapproval for an
    already requested overall integration.
 2. Each successful leaf may save raw sources in the worktree, leaving an unfinished
    intermediate Model. Stop on failure and retain prior successful saves; the parent
    may use the existing suspend transition. Never auto-rollback the whole workflow.
-3. Use existing prepare_generation/validate_generation/publish_generation to prepare,
+3. Only after all leaves complete, use existing prepare_generation/validate_generation/publish_generation to prepare,
    validate and save the required views. Generation does not decide merge completeness.
 4. Use worktree finalize: prepare the private commit and rebase onto latest local base,
    run one read-only final local loop on that actual candidate, consume its successful
    result for completion and ff-only merge, then let the surviving launcher cleanup.
-   Final differences must prove complete transfer/removal, exact declared retargets,
+   Incomplete deletions reject finalize before commit preparation. Final differences
+   must prove complete transfer/removal across every source service, declared retargets,
    stable identities and preserved non-reference consumers. Remaining source links and
    reference-derived differences are reported as warnings.
 
 Standalone validation/complete retain their own final checking responsibility. Ordinary
 non-managed completed-candidate publication retains its previous IMPORT guard. A failed
 final check retains the private commit/worktree without merge, automatic regeneration,
-amend or loop retry. Report leaf saves and final validation/integration separately.
+amend or loop retry by default. For import-delete, explicitly resume/repair in the same
+parent and call finalization again after the correction; retain the earlier candidate
+commit and revalidate the new candidate. Never merge a failed candidate. This repair
+retry is distinct from forbidden per-Resource final validation. Report leaf saves and
+final validation/integration separately.
+
+"One Resource at a time" means sequential investigation, repair, deletion and raw save.
+It never means independent Tasks/Worktrees/Commits/Merges. One parent owns permissions,
+source set, scope, leaf results, final generation, validation, merge and cleanup.
+Python supplies atomic APIs and rejects incomplete/invalid candidates; it never loops
+over sources to perform edits or chooses repair methods. No new execution engine exists.
 Do not enter the infrastructure branch below. /import separately permits acquired add/refresh/replace after its own Human selection; it does not authorize these Model-only operations.
 
 ## Check applicability and finish point first

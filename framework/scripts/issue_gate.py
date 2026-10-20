@@ -193,14 +193,17 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
             name = path.relative_to(root).as_posix()
             validate_contract(root, name, text)
             declared = active_scope(root, task_file=task_file, contract_file=contract_file)
-            if (scope is None or declared is None or operation.scope not in declared or
+            if (scope is None or declared is None or not operation.scopes <= declared or
                     not scope <= declared or target is not None and not any(entry[:2] == target for entry in scope)):
                 raise ValueError('IMPORT deletion issue exception requires explicit matching service Validation scope')
             if (root / '.git').exists():
                 from worktree_task import task_start_commit
                 task_start_commit(root, name)
             if status(text) != 'completed':
-                return []
+                remaining = scope - operation.source_scopes
+                if not remaining:
+                    return []
+                return issue_errors(root, remaining, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target, warnings=warnings)
     return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target, warnings=warnings)
 
 

@@ -270,14 +270,14 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
             raise ValueError('IMPORT Model-only operation requires a versioned baseline')
         from model_operation_checks import verify_model_operation
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
-            if operation.action == 'import-retarget':
+            if operation.action in {'import-retarget', 'import-delete'}:
                 from validation_scope import active_scope
                 scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
                 required = {tuple(address.split('/')[:3]) for ref in operation.references
                             for address in (ref.consumer, ref.source, ref.destination)}
-                required |= affected(after, sources, before=before)
+                required |= operation.scopes | affected(after, sources, before=before)
                 if scope is None or not required <= scope:
-                    raise ValueError('retarget requires all producers/consumers in Validation scope')
+                    raise ValueError('Model operation requires all producers/consumers in Validation scope')
             warnings = verify_model_operation(before, after, operation, sources)
         from model_core import report_reference_warnings
         report_reference_warnings(warnings)
@@ -613,7 +613,7 @@ def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteCont
             writable, path_scopes = set(), {}
             with recording_inputs(snapshot):
                 scope = active_scope(root, task_file=name)
-                selected = {operation.scope} | {tuple(ref.consumer.split('/')[:3]) for ref in operation.references}
+                selected = set(operation.scopes)
                 if operation.action == 'import-retarget':
                     selected |= {tuple(a.split('/')[:3]) for ref in operation.references for a in (ref.source, ref.destination)}
                 if scope is None or not selected <= scope:
@@ -629,7 +629,7 @@ def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteCont
                         if path.is_relative_to(root / 'model/templates'):
                             writable.add(path)
                             path_scopes[path] = direct
-                        elif identity == operation.scope or path.name == 'parameters.yaml':
+                        elif identity in operation.source_scopes or path.name == 'parameters.yaml' or (operation.action == 'import-delete' and path.name == 'bindings.json'):
                             writable.add(path)
                             path_scopes[path] = {identity}
                     for consumer in direct - {identity}:

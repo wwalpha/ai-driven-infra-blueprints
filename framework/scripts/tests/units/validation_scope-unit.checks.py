@@ -19,7 +19,7 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         validator = VALIDATOR.Validator(tmp_path, scope, workers=workers, definitions_root=tmp_path/'external-definitions')
         validator.check_generated_service_models()
         validator.check_generated_service_models()
-    compare.assert_called_once_with(tmp_path, scope, jobs=workers, definitions_root=tmp_path/'external-definitions')
+    compare.assert_called_once_with(tmp_path, scope, jobs=workers, definitions_root=tmp_path/'external-definitions', findings=validator.findings)
     assert any('consumer missing: stg/team/config' in error for error in validator.errors)
     with patch.object(sync_runtime, 'compare_generation', side_effect=AssertionError('hook bypassed')):
         empty = VALIDATOR.Validator(tmp_path, set())

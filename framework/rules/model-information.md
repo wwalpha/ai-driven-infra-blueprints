@@ -117,11 +117,15 @@ after rebase before integration. Declared references alone may be retargeted, re
 their structural meaning; D→D reevaluation is explicit.
 Other-environment inputs may receive necessary value-preserving additions only in this
 branch. CREATE retains its existing workflow. Explicit value-preserving dependency detach
-uses a separate ordinary design /update Task under
+uses an ordinary design /update Task for an independent request under
 [Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor):
 prove preserved non-reference settings/types/structure and shared consumers, report
 reference-derived differences and remaining dependencies, and validate the actual rebased candidate before merge.
-It is not an additional Model operation or permission to change IMPORT configuration.
+For a registered import-delete request, related detach/reference repairs instead share
+its parent Task, Worktree and final validation/merge. Resource leaves save raw sources
+sequentially; only the parent finalizes after all deletions. Unrelated properties,
+non-target consumers/environments, fixed identities and observations stay protected.
+This grants no additional Model operation or general IMPORT configuration permission.
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does

@@ -1820,6 +1820,22 @@ partial-cache validation spies on compare_generation with the full consumer scop
 | `import-selected::check_import_llm_choice_contract` | `check_import_llm_choice_contract` | UT | [units/import-model-unit.checks.py:1660](units/import-model-unit.checks.py#L1660) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py:933](integrations/import-model.checks.py#L933) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_mixed_add_refresh_single_publication` | `check_mixed_add_refresh_single_publication` | IT | [integrations/import-model.checks.py:970](integrations/import-model.checks.py#L970) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_replace_rejects_incoming_references` | `check_replace_rejects_incoming_references` | IT | [integrations/import-model.checks.py:1005](integrations/import-model.checks.py#L1005) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_replace_rejects_incoming_references` | `check_replace_warns_incoming_references` | IT | [integrations/import-model.checks.py:1005](integrations/import-model.checks.py#L1005) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_first_resource_uses_existing_source_format` | `check_first_resource_uses_existing_source_format` | IT | [integrations/import-model.checks.py:1032](integrations/import-model.checks.py#L1032) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_refresh_switches_definition_without_foreign_changes` | `check_refresh_switches_definition_without_foreign_changes` | IT | [integrations/import-model.checks.py:1073](integrations/import-model.checks.py#L1073) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+
+## Resource Delete parent transaction units
+
+`units/resource-delete-unit.checks.py` uses only temporary synthetic Models and the
+existing temporary Git fixture. It covers 10 sources in one service / two services,
+legacy normalization, duplicate/empty/cross-target/mixed/unrelated declaration rejection,
+missing/extra deletions, setting/identity/observation preservation, shared consumers,
+related retarget and two-consumer detach, remaining-reference warnings, fifth-save
+failure with retained prior saves and same-parent continuation, source-service-only
+Issue Gate exception, pre-commit incomplete-leaf rejection, one parent final check and
+one actual ff-only merge/cleanup. Its repair variant retains a failed private candidate,
+rejects its merge, commits the correction without amending and validates before the
+single merge. The lifecycle units replace only Python setup and full-loop dispatch;
+they execute the existing source guard, final semantic check and temporary Git operations.
+Existing import-model, task-contract and model-retarget units retain merge/single-delete/
+standalone-retarget compatibility coverage. No IT execution engine is added.

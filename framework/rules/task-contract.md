@@ -108,8 +108,43 @@ validation. Reference-target mismatch, semantic ambiguity and unused reference d
 are warnings under [Reference diagnostics](model-information.md#reference-diagnostics). Ordinary Goal prose remains unrestricted.
 
 Legacy Source resource/Destination resource single merges normalize to one pair and no
-references. Single import-delete retains Source resource only; no destination, pairs or
-references. `task_contract.model_operation` returns immutable named MergePair,
+references. Single import-delete retains legacy Source resource compatibility. Alternatively declare
+one or more unique full fixed addresses in `## Model delete sources`, one backtick-quoted
+bullet per address. Do not mix that section with legacy Source resource. All sources
+remain in the same environment/target; multiple services are permitted. No destination
+resource or merge pairs are allowed. For example:
+
+```md
+## Model delete sources
+- `stg/cde/vpc/001`
+- `stg/cde/vpc/002`
+- `stg/cde/cloudtrail/001`
+```
+
+For deletion, optional Model reference changes use the existing record syntax: source
+must be a deleted producer, destination a retained same-target producer, and consumer a
+retained same-target resource. Optional `Model refactor: value-preserving` plus existing
+Model dependency detach records may coexist only with import-delete. Each detach must
+name a deleted producer and a retained consumer. Register the exact relevant fields;
+unrelated properties/resources, identities and observations remain immutable.
+The normalized delete_sources, source_scopes and scopes are shared by authorization,
+Issue Gate and final checks; scope/delete_source retain legacy single-source compatibility.
+The LLM orders and executes one resource leaf at a time, inspecting each result.
+One Parent Task = one Worktree = one transaction. Leaves may save unfinished raw sources,
+but never generate final views, validate the parent, complete, commit, rebase, merge or
+clean up. After every leaf succeeds the parent generates once, then explicitly invokes
+finalize for the existing final-candidate validation and one merge/cleanup. Python only
+provides atomic APIs and guards, never a resource execution scheduler.
+Final resources per service must equal original resources minus declared deletions.
+Every shared-template consumer is checked for preservation; raw repair Definitions may
+be added/rebound only for registered consumers, retaining their fixed Resource/Row maps.
+Reference-only diagnostics remain warnings; unrelated changes and malformed Models fail.
+Incomplete source removals reject finalize before private commit preparation. A failed
+leaf rolls back only its current save and retains earlier saves. Failed final validation
+retains the parent and candidate without merge. Explicit same-parent resume/repair and
+revalidation is allowed for deletion; preserve the prior candidate commit rather than
+amending/discarding it. Failed-validation approval cannot bypass deletion final checks.
+`task_contract.model_operation` returns immutable named MergePair,
 ReferenceChange and ModelOperation data for every consumer of the contract.
 
 Managed worktree intermediate saves enforce running Task/worktree ownership, revision,
@@ -192,7 +227,8 @@ scope; this operation does not introduce an IT completion requirement.
 ## Value-preserving Model refactor
 
 An explicit dependency detach is a separate ordinary design Task, not a new Model
-operation and never combined with import-merge/import-delete. Declare:
+operation and never combined with import-merge/import-retarget. Deletion-related detach
+may instead be registered in the same import-delete parent as specified above. Declare:
 
 ```markdown
 ## Task contract

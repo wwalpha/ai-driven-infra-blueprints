@@ -254,6 +254,8 @@ def publish_edit(root, directory):
                 if file.is_file():
                     output[root / file.relative_to(directory)] = file.read_bytes().decode('utf-8')
             return [p.relative_to(root).as_posix() for p in write_sources(context, output)]
+    if operation.action == 'import-delete' and (len(operation.source_scopes) > 1 or operation.references or operation.detaches):
+        raise ValueError('multi-service deletion/repair publication requires the managed parent worktree')
     with input_context(), publication_lock(root):
         snapshot = GenerationInputs(root)
         try:
@@ -1214,7 +1216,10 @@ def main():
         from task_contract import model_operation, task_path
         root = args.repository_root.resolve()
         operation = model_operation(task_path(root).read_text(encoding='utf-8'))
-        if operation is None or operation.scope != (args.environment, args.alias, args.service):
+        matches_operation = operation is not None and operation.scope == (args.environment, args.alias, args.service)
+        if operation is not None and operation.action == 'import-delete':
+            matches_operation = (args.environment, args.alias, args.service) in operation.scopes
+        if not matches_operation:
             parser.error('publish-edit selectors must match the exact Model-only update contract')
         for file in publish_edit(root, args.publish_edit):
             print(file)

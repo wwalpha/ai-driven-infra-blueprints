@@ -127,13 +127,25 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
     warnings = []
     identity = operation.scope
     pairs = {pair.source.rsplit('/', 1)[1]: pair.destination.rsplit('/', 1)[1] for pair in operation.pairs}
-    deleted = set(pairs) if pairs else {operation.delete_source.rsplit('/', 1)[1]}
+    deletion_scopes = {}
+    for source in operation.delete_sources:
+        deletion_scopes.setdefault(tuple(source.split('/')[:3]), set()).add(source.rsplit('/', 1)[1])
+    if pairs:
+        deletion_scopes[identity] = set(pairs)
+    deleted_addresses = {'/'.join((*scope, rid)) for scope, ids in deletion_scopes.items() for rid in ids}
     destinations = set(pairs.values())
     reverse = {right: left for left, right in pairs.items()}
-    direct = consumers(before, identity[1], identity[2])
-    if consumers(after, identity[1], identity[2]) != direct:
-        raise ValueError('IMPORT operation cannot add/remove service consumers')
-    reference_scopes = {tuple(ref.consumer.split('/')[:3]) for ref in operation.references}
+    direct = set()
+    selected_scopes = operation.source_scopes
+    if operation.action == 'import-delete':
+        selected_scopes = operation.scopes
+    for selected in selected_scopes:
+        previous = consumers(before, selected[1], selected[2])
+        if consumers(after, selected[1], selected[2]) != previous:
+            raise ValueError('IMPORT operation cannot add/remove service consumers')
+        direct.update(previous)
+    reference_scopes = {tuple(ref.consumer.split('/')[:3]) for ref in operation.references} | {
+        tuple(detach.consumer.split('/')[:3]) for detach in operation.detaches}
     models = {(*path.relative_to(before / 'model').parts[:2], path.stem) for path in model_paths(before, *identity[:2])} | direct
     old_expanded, new_expanded = {}, {}
     for scope in sorted(models):
@@ -144,9 +156,14 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
         warnings.extend(old_expanded[scope].warnings)
         warnings.extend(new_expanded[scope].warnings)
     resources = dict(entries(old_expanded[identity].values, 'desired.resource.'))
-    for rid in deleted | destinations:
-        if resources.get(rid, {}).get('resourceMode') != 'IMPORT':
-            raise ValueError('IMPORT operation requires existing IMPORT resources: ' + rid)
+    for selected, deleted in deletion_scopes.items():
+        selected_resources = dict(entries(old_expanded[selected].values, 'desired.resource.'))
+        required = set(deleted)
+        if selected == identity:
+            required.update(destinations)
+        for rid in required:
+            if selected_resources.get(rid, {}).get('resourceMode') != 'IMPORT':
+                raise ValueError('IMPORT operation requires existing IMPORT resources: ' + '/'.join((*selected, rid)))
     for left, right in pairs.items():
         if resources[left]['resourceType'] != resources[right]['resourceType']:
             raise ValueError('IMPORT merge resource types differ')
@@ -155,16 +172,18 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
         preserved_input = any(file == after / 'model/parameters' / '/'.join(scope) / 'parameters.yaml' for scope in direct)
         reference_input = any(file in read_paths for scope in reference_scopes for read_paths in [
             {p for p in new_expanded[scope].files if p.is_relative_to(after / 'model/templates') or
-             p == after / 'model/parameters' / '/'.join(scope) / 'parameters.yaml'}])
-        if not allowed_source(after, file, identity) and not preserved_input and not reference_input:
+             p == after / 'model/parameters' / '/'.join(scope) / 'parameters.yaml' or
+             operation.action == 'import-delete' and p == after / 'model/parameters' / '/'.join(scope) / 'bindings.json'}])
+        if not any(allowed_source(after, file, selected) for selected in operation.source_scopes) and not preserved_input and not reference_input:
             raise ValueError('IMPORT operation source is outside its exact scope: ' + relative)
     editable_definitions = {}
-    for selected_scope in {identity} | reference_scopes:
+    for selected_scope in operation.source_scopes | reference_scopes:
         selected_path = model_path(before, selected_scope)
         _, template, directory = source_paths(selected_path)
         bindings = json_read(old_expanded[selected_scope].files[directory / 'bindings.json'])
         editable_ids = destinations if selected_scope == identity else set()
         editable_ids = editable_ids | {ref.consumer.rsplit('/', 1)[1] for ref in operation.references if tuple(ref.consumer.split('/')[:3]) == selected_scope}
+        editable_ids |= {d.consumer.rsplit('/', 1)[1] for d in operation.detaches if tuple(d.consumer.split('/')[:3]) == selected_scope}
         editable_definitions.setdefault(template.relative_to(before), set()).update(
             binding['definition'] for binding in bindings['instances'].values() if editable_ids & set(binding['resources'].values()))
     anchors = []
@@ -188,7 +207,7 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
     current_records = list(usage_records(after, new_expanded, symbolic[1]))
     warnings.extend(reference_diagnostics(current_records, previous_records))
     for record in previous_records:
-        if record['producer'] in {'/'.join((*identity, rid)) for rid in deleted} and record['consumer'] != record['producer']:
+        if record['producer'] in deleted_addresses and record['consumer'] != record['producer']:
             warnings.append({'code': 'reference.target_removed', 'message': 'operation removes a referenced Resource',
                              **record, **({'previous_value': record['resolvedValue']} if 'resolvedValue' in record else {})})
     declarations = {(ref.consumer, ref.field, ref.property_name, ref.pointer): ref for ref in operation.references}
@@ -197,6 +216,20 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
     def compare(left, right, address, field, prop=None, self_pair=None, evaluated=None, origin=None):
         expected = left
         matching = [ref for position, ref in declarations.items() if position[:3] == (address, field, prop)]
+        detaches = []
+        if origin:
+            detaches = [d for d in operation.detaches if d.consumer == address and d.key == origin[1]]
+        if operation.action == 'import-delete' and origin and left != right and not matching and not detaches:
+            selected_scope, old_key, new_key = origin
+            def expression(root, key):
+                fields = _reference_inputs(model_path(root, selected_scope))[1][5]
+                if key not in fields:
+                    return None
+                instance, definition, raw = fields[key]
+                return raw, {name: (schema(definition.parameters[name]), instance['parameters'][name])
+                             for name in variables(raw) if name in definition.parameters}
+            if expression(before, old_key) != expression(after, new_key):
+                raise ValueError('IMPORT deletion changed an undeclared Property/reference: ' + address + '/' + str(prop or field))
         refs = list(_walk(left))
         if evaluated is not None and evaluated[0] != evaluated[1] and refs and not matching and not (self_pair and all(ref.producer == self_pair[0] for ref in refs)):
             operation_warning(warnings, 'derived reference value changed', consumer=address, property=prop, previous_value=evaluated[0], resolvedValue=evaluated[1])
@@ -234,30 +267,69 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
             else:
                 expected = updated
             used.add(position)
+        if operation.action == 'import-delete' and (matching or detaches):
+            from model_reference_usage import reference_positions
+            from collections import Counter
+            permitted = {ref.pointer for ref in matching} | {d.pointer for d in detaches if d.pointer is not None}
+            previous_positions = Counter(reference_positions(left))
+            current_positions = Counter(reference_positions(right))
+            permitted.update(position for position, ref in previous_positions
+                             if any(d.pointer is None and ref.producer == d.producer for d in detaches))
+            if Counter({key: count for key, count in previous_positions.items() if key[0] not in permitted}) != Counter(
+                    {key: count for key, count in current_positions.items() if key[0] not in permitted}):
+                raise ValueError('IMPORT deletion changed an undeclared reference position: ' + address)
+            for detach in detaches:
+                if field not in {'value', 'document'} or not origin[1].startswith('desired.row.'):
+                    raise ValueError('IMPORT deletion cannot detach structural metadata')
+                selected = [ref for position, ref in reference_positions(left)
+                            if (detach.pointer is None or position == detach.pointer) and ref.producer == detach.producer]
+                if not selected:
+                    operation_warning(warnings, 'deletion detach before target does not match declaration', consumer=address, key=detach.key)
         if not reference_equal(expected, right):
             raise ValueError('IMPORT source Property not transferred or unspecified value/reference change: ' + address + '/' + str(prop or field))
         if expected != right:
             operation_warning(warnings, 'reference changed', consumer=address, property=prop, key=field)
 
     for scope in sorted(models):
+        deleted = deletion_scopes.get(scope, set())
         old, new = old_expanded[scope], new_expanded[scope]
         old_values, new_values = symbolic[0][scope], symbolic[1][scope]
         old_resources, new_resources = dict(entries(old.values, 'desired.resource.')), dict(entries(new.values, 'desired.resource.'))
-        if set(new_resources) != set(old_resources) - (deleted if scope == identity else set()):
+        if set(new_resources) != set(old_resources) - deleted:
             raise ValueError('IMPORT operation must delete only the specified source')
         old_path, new_path = model_path(before, scope), model_path(after, scope)
         old_directory, new_directory = source_paths(old_path)[2], source_paths(new_path)[2]
         old_bindings, bindings = [json_read(exp.files[directory / 'bindings.json']) for exp, directory in ((old, old_directory), (new, new_directory))]
+        if operation.action == 'import-delete' and old_bindings.get('stacks') != bindings.get('stacks'):
+            raise ValueError('IMPORT operation fixed stack composition changed')
         old_inputs, inputs = [yaml_read(exp.files[directory / 'parameters.yaml']) for exp, directory in ((old, old_directory), (new, new_directory))]
         old_definitions, _ = parse_template(source_paths(old_path)[1])
         definitions, _ = parse_template(source_paths(new_path)[1])
-        if definitions.keys() != old_definitions.keys():
-            raise ValueError('IMPORT operation must reuse existing Definitions')
+        added_definitions = definitions.keys() - old_definitions.keys()
+        if operation.action == 'import-delete':
+            repair_ids = {r.consumer.rsplit('/', 1)[1] for r in (*operation.references, *operation.detaches)
+                          if tuple(r.consumer.split('/')[:3]) == scope}
+            # A new repair Definition may be shared but cannot change other consumers.
+            all_repair_definitions = set()
+            for selected in reference_scopes:
+                if source_paths(model_path(before, selected))[1] == source_paths(old_path)[1]:
+                    selected_directory = source_paths(model_path(after, selected))[2]
+                    selected_bindings = json_read(new_expanded[selected].files[selected_directory / 'bindings.json'])
+                    selected_ids = {r.consumer.rsplit('/', 1)[1] for r in (*operation.references, *operation.detaches)
+                                    if tuple(r.consumer.split('/')[:3]) == selected}
+                    all_repair_definitions.update(binding['definition'] for binding in selected_bindings['instances'].values()
+                                                 if selected_ids & set(binding['resources'].values()))
+            if old_definitions.keys() - definitions.keys() or added_definitions - all_repair_definitions:
+                raise ValueError('IMPORT deletion changed unrelated Definitions')
+        else:
+            repair_ids = set()
+            if definitions.keys() != old_definitions.keys():
+                raise ValueError('IMPORT operation must reuse existing Definitions')
         changed_definitions = changed_properties(old_definitions, definitions)
-        if changed_definitions.keys() - editable_definitions.get(source_paths(old_path)[1].relative_to(before), set()):
+        if changed_definitions.keys() - added_definitions - editable_definitions.get(source_paths(old_path)[1].relative_to(before), set()):
             raise ValueError('IMPORT operation changed an unrelated Definition')
         removed_instances, edited_instances = set(), set()
-        if scope == identity:
+        if deleted:
             for rid in deleted:
                 owners = [name for name, binding in old_bindings['instances'].items() if rid in binding['resources'].values()]
                 if len(owners) != 1 or len(old_bindings['instances'][owners[0]]['resources']) != 1:
@@ -274,13 +346,19 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
                 for field in ('parameters', 'labels'):
                     if any(key not in binding.get(field, {}) or binding[field][key] != value for key, value in previous.get(field, {}).items()):
                         raise ValueError('IMPORT destination internal identity changed')
+            elif repair_ids & set(previous['resources'].values()):
+                if {k: v for k, v in previous.items() if k not in {'definition', 'parameters', 'labels'}} != {
+                        k: v for k, v in binding.items() if k not in {'definition', 'parameters', 'labels'}}:
+                    raise ValueError('IMPORT repair fixed identity changed')
             elif previous != binding:
                 raise ValueError('IMPORT unrelated bindings changed')
         reference_instances = {name for name, binding in bindings['instances'].items()
-                               if any(ref.consumer == '/'.join((*scope, rid)) for rid in binding['resources'].values() for ref in operation.references)}
+                               if any(ref.consumer == '/'.join((*scope, rid)) for rid in binding['resources'].values()
+                                      for ref in (*operation.references, *operation.detaches))}
+
         preserve_input_additions(old_inputs, inputs, old_definitions, definitions, old_bindings,
                                  removed_instances | edited_instances | reference_instances)
-        if scope != identity and scope not in reference_scopes and not typed_equal(old_inputs.get('parameters', {}), inputs.get('parameters', {})):
+        if scope not in operation.source_scopes and scope not in reference_scopes and not typed_equal(old_inputs.get('parameters', {}), inputs.get('parameters', {})):
             raise ValueError('IMPORT other-environment shared inputs changed')
         handled_old, handled_new = set(), set()
         for rid in sorted(new_resources):
@@ -326,21 +404,28 @@ def verify_model_operation(before: Path, after: Path, operation, sources) -> Non
             for key, value in operation_values(old.values, rid).items():
                 if key.startswith('display.') and new.values.get(key) != value:
                     raise ValueError('IMPORT destination display changed')
-        if scope == identity:
+        if deleted:
             for rid in deleted | destinations:
                 handled_old.update(operation_values(old.values, rid))
-        if not reference_equal({k: v for k, v in old_values.items() if k not in handled_old},
-                               {k: v for k, v in new_values.items() if k not in handled_new}):
+        remaining_old = {k: v for k, v in old_values.items() if k not in handled_old}
+        remaining_new = {k: v for k, v in new_values.items() if k not in handled_new}
+        if not reference_equal(remaining_old, remaining_new):
             raise ValueError('IMPORT operation changed an unspecified resource or service field')
+        if operation.action == 'import-delete':
+            for key, value in remaining_old.items():
+                compare(value, remaining_new[key], '/'.join(scope), key, origin=(scope, key, key))
         for value in new_values.values():
-            if any(ref.producer in {'/'.join((*identity, rid)) for rid in deleted} for ref in _walk(value)):
+            if any(ref.producer in deleted_addresses for ref in _walk(value)):
                 operation_warning(warnings, 'removed resource still has an incoming reference', scope='/'.join(scope))
         # Before anchors also detect links whose producer no longer exists in after.
         for key, value in new.values.items():
             for link in re.finditer(r'\[[^\]]*\]\(([^)]*)\)', value):
                 filename, separator, anchor = link[1].partition('#')
-                if scope[:2] == identity[:2] and separator and anchor in {resources[rid]['anchor'] for rid in deleted} and (filename.removeprefix('./') == identity[2] + '.md' or not filename and scope[2] == identity[2]):
-                    operation_warning(warnings, 'removed resource still has an incoming reference', scope='/'.join(scope), key=key, reference=link[0])
+                for selected, removed in deletion_scopes.items():
+                    selected_resources = dict(entries(old_expanded[selected].values, 'desired.resource.'))
+                    if scope[:2] == selected[:2] and separator and anchor in {selected_resources[rid]['anchor'] for rid in removed} and (filename.removeprefix('./') == selected[2] + '.md' or not filename and scope[2] == selected[2]):
+                        operation_warning(warnings, 'removed resource still has an incoming reference', scope='/'.join(scope), key=key, reference=link[0])
+
     if used != declarations.keys():
         operation_warning(warnings, 'unused Model reference declaration')
     return warnings

@@ -21,9 +21,9 @@ The Model-only branch composes model-transfer, model-retarget and model-delete u
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
 owns the post-rebase final validation/completion/merge sequence.
 
-For an explicit Human single-Model deletion request, follow the prompt's pre-contract
+For an explicit Human one-or-more-Resource deletion request, follow the prompt's pre-contract
 exception: register and validate the `import-delete` parent before the task-aware Issue
-Gate. Waive existing-issue stops in its explicit Validation scope; retain non-reference
+Gate. Waive existing-issue stops only for its registered deletion source services; retain non-reference
 Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Apply
 [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
 to every Model operation: links, unresolved references and remaining usages are warnings;
@@ -32,9 +32,11 @@ ordinary updates and later Tasks retain the ordinary pre-task gate.
 
 The separate value-preserving branch uses the shared read-only reference API only for
 an explicitly authorized detach; neither ordering nor detach completion gates deletion. It uses an
-ordinary design Task with explicit detach declarations and ordinary guarded saving;
-it does not enter the operation-only intermediate writer. Each refactor and subsequent
-single deletion is independently validated and integrated as specified by 05_update.
+ordinary design Task for an independent refactor request. When repairing dependencies
+of registered deletions, use the import-delete parent with explicit related detach or
+reference records and the existing intermediate writer. Process resources sequentially,
+then generate/validate/integrate the parent once. Never create one Task or Merge per
+Resource or require an earlier repair Merge before deletion.
 
 For an explicit standalone reference-only request, use the separate `import-retarget`
 branch in 05_update and the standalone Task contract. Call only model-retarget, saving
