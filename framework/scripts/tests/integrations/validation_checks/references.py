@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from support.it_case_receipt import it_case
+from support.validator import diagnostics
 
 
 import model_projection
@@ -70,7 +71,7 @@ def check_identifier_propagation() -> None:
         )
         validator = schema_validator(root)
         validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
-        assert any("must use a physical value" in error for error in validator.errors)
+        assert any("must use a physical value" in error for error in diagnostics(validator))
 
         write(design,
             deployed.replace(
@@ -79,7 +80,7 @@ def check_identifier_propagation() -> None:
         )
         validator = MODULE.Validator(root)
         validator.check_design_links(identifier_outputs)
-        assert any("identifier reference does not match observed target" in error for error in validator.errors)
+        assert any("identifier reference does not match observed target" in error for error in diagnostics(validator))
 
 
 @it_case
@@ -114,7 +115,7 @@ def check_array_source_role_links() -> None:
             write(path, content)
             validator = MODULE.Validator(root)
             validator.check_design_links({}, paths=[path])
-            return validator.errors
+            return diagnostics(validator)
 
         assert not errors("app-role"), errors("app-role")
         assert any("IAM Role link must display RoleName" in error for error in errors("wrong-role")), errors("wrong-role")
@@ -182,7 +183,7 @@ def check_s3_bucket_policy_grouping() -> None:
                 metadata, catalog_types, property_owners, identifier_outputs
             )
             validator.check_design_links(identifier_outputs)
-            return validator.errors
+            return diagnostics(validator)
 
         assert not errors(valid)
         wrong_order = valid.replace(
@@ -279,7 +280,7 @@ def check_subnet_association_overview() -> None:
             write(design, markdown)
             validator = MODULE.Validator(root)
             validator.check_design_overviews()
-            return validator.errors
+            return diagnostics(validator)
 
         assert not errors(valid), errors(valid)
         from design_document import DesignDocument
@@ -312,7 +313,7 @@ def check_subnet_association_overview() -> None:
         )
         assert any(
         "must use its Markdown display alias" in error
-            for error in validator.errors
+            for error in diagnostics(validator)
         ), validator.errors
 
         pending = valid
@@ -363,7 +364,7 @@ def check_resource_overview() -> None:
             write(design, markdown)
             validator = MODULE.Validator(root)
             validator.check_design_overviews()
-            return validator.errors
+            return diagnostics(validator)
 
         assert not errors(valid)
         assert any("resource overview numbering error" in error for error in errors(valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)))

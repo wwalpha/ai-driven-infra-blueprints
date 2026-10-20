@@ -191,7 +191,8 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     result = publish_fixture(root, acquired, 'vpc')
     assert result['status'] == 'complete' and result['model'] == 'reflected' and result['markdown'] == 'generated'
     assert result['resources']['added'] == 1 and 'updated' not in result['resources']
-    assert bool(result['warnings']) == unknown
+    identity_warnings = [w for w in result['warnings'] if 'existingResources' in w]
+    assert bool(identity_warnings) == unknown, result['warnings']
     current = load_for_edit(path)
     assert len(entries(current.values, 'desired.resource.')) == 9
     assert all(current.values[k] == v for k, v in original.values.items())
@@ -1024,7 +1025,7 @@ def check_replace_warns_incoming_references(tmp_path):
     result = publish_fixture(root, acquired, 'vpc')
     assert any(w['code'] == 'reference.replace_impact' for w in result['warnings'])
     assert snapshot(root) != original
-    import_guard.discard_acquisition(root, acquired['evidence'])
+    assert not Path(acquired['evidence']).parent.exists()
 
 
 @pytest.mark.parametrize('missing', [False, True])

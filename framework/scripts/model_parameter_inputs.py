@@ -72,6 +72,15 @@ def parameter_text(value, definitions, bindings):
     """Human serialization only; digest/JSON serialization remains unchanged."""
     import yaml
     shared = service_inputs(definitions, bindings, value)
+    from model_templates import exact
+    exact(value, {'instances', 'parameters'} if shared else {'instances'}, 'human parameters')
+    if shared:
+        values_for(shared, value['parameters'], 'service')
+    for name, item in value['instances'].items():
+        declared = definitions[bindings['instances'][name]['definition']].parameters
+        excess = item['parameters'].keys() - declared.keys()
+        if excess:
+            raise ValueError(f'unknown parameter: {name}: {sorted(excess)}')
     ordered = {'parameters': {name: value['parameters'][name] for name in sorted(shared) if name in value.get('parameters', {})}} if shared else {}
     ordered['instances'] = {name: {'parameters': {
         key: item['parameters'][key] for key in definitions[bindings['instances'][name]['definition']].parameters

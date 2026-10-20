@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from support.validator import diagnostics
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -58,7 +60,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({path: ("secretsmanager", ("SecretsManager.Secret", "SecretsManager.RotationSchedule"))}, *catalog)
         validator.check_design_overviews()
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(text), errors(text)
     model = """# Synthetic authoritative Model fixture.
@@ -152,7 +154,7 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(codebuild), errors(codebuild)
     model = "\n".join(expanded_display_rows(codebuild.splitlines()))
@@ -265,7 +267,7 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
         validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
         validator.design_files = lambda: sorted(design.glob("*.md"))
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(design_text), errors(design_text)
     model = "\n".join(expanded_display_rows(design_text.splitlines()))
@@ -330,7 +332,7 @@ def check_subnet_list_links(prop, tmp_path, catalog):
         validator = VALIDATOR.Validator(root)
         validator.design_files = lambda: [path]
         validator.check_design_links(outputs)
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors("[subnet-00000000000000001](vpc.md#subnet-a)"), (prop, errors("[subnet-00000000000000001](vpc.md#subnet-a)"))
     assert errors("[subnet-00000000000000001](../987654321098/vpc.md#subnet-a)"), prop
@@ -351,7 +353,7 @@ def check_guardduty_feature_display(tmp_path, catalog) -> None:
         validator = VALIDATOR.Validator(root)
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({path: ("guardduty", ("GuardDuty.Detector",))}, *catalog)
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(GUARDDUTY), errors(GUARDDUTY)
     model = "\n".join(expanded_display_rows(GUARDDUTY.splitlines()))
@@ -428,7 +430,7 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({path: ("cloudtrail", ("CloudTrail.Trail",))}, *catalog)
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(trail), errors(trail)
     all_buckets = trail.replace(
@@ -518,7 +520,7 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({path: ("codepipeline", ("CodePipeline.Pipeline",)), repo_path: ("codecommit", ("CodeCommit.Repository",))}, *catalog)
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(pipeline), errors(pipeline)
     original = path.read_bytes()
@@ -618,7 +620,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
         validator.check_design_tables({}, *catalog)
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(), errors()
     model = "\n".join(expanded_display_rows(config.splitlines()))
@@ -755,7 +757,7 @@ def check_resource_name_headings(tmp_path) -> None:
         validator.check_resource_names(metadata)
         validator.check_design_overviews()
         validator.check_design_links({})
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(text), errors(text)
     identities = resource_logical_ids(text.splitlines())
@@ -843,7 +845,7 @@ def check_quicksight_group_principal_reference(tmp_path) -> None:
         target.write_text(design_text, encoding="utf-8")
         validator = VALIDATOR.Validator(root)
         validator.check_design_links({"QuickSight.Group": {"QuickSight.Group.PrincipalId"}}, [target])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(text), errors(text)
     assert errors(text.replace("[reader-group](#quicksight-reader-group)", "[wrong](#quicksight-reader-group)"))
@@ -879,7 +881,7 @@ def check_workflow(tmp_path, catalog) -> None:
         validator.check_design_tables(metadata, *catalog)
         validator.check_design_overviews()
         validator.check_design_links(catalog[2])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(), errors()
     original = kms.read_bytes()

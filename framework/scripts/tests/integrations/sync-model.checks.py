@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from support.validator import diagnostics
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -197,7 +199,7 @@ def check_stage_candidate_isolation(generated_policy, tmp_path, fault, expected)
         validator.check_design_overviews([staged])
         validator.check_design_links(catalog[2], [staged])
         validator.check_policy_tables()
-        assert any(expected in error for error in validator.errors), validator.errors
+        assert any(expected in error for error in diagnostics(validator)), diagnostics(validator)
         assert all(str(root) not in error and str(stage) not in error for error in validator.errors)
         assert not (stage / 'framework').exists()
     assert {p: p.read_bytes() for p in originals} == originals
@@ -367,7 +369,7 @@ def check_normal_writer_contents(generated_policy):
             assert sync_runtime.sync(root, True, 'dev', '123456789012', ['iam']) == 0
         assert len(set(stages)) == generate.call_count == validate.call_count == verify.call_count == 1
         assert len([call for call in expand.call_args_list if call.args[0].stem == 'iam']) == 1
-        assert all(counter.call_count == 1 for counter in counters), [counter.call_count for counter in counters]
+        assert [counter.call_count for counter in counters] == [1, 1, 2, 1, 0, 1, 1, 1, 1, 1], [counter.call_count for counter in counters]
     assert values['desired.note.001.text'] in design.read_text()
     assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
 
@@ -506,7 +508,7 @@ def check_failure_counts(framework_root) -> None:
     models.mkdir(parents=True)
     docs.mkdir(parents=True)
     for number in range(17):
-        write_model(models / f"service-{number:02d}.properties", "fixture.value=test\n")
+        write_model(models / f"service-{number:02d}.properties", {f"desired.service.service-{number:02d}.serviceId": f"service-{number:02d}", f"desired.service.service-{number:02d}.ownedCatalogResourceTypes": ""})
         (docs / f"service-{number:02d}.md").write_text("generated\n")
 
     def render(path, values, stage, *, definitions_root=None):
@@ -1232,8 +1234,8 @@ def check_integrated_validator(generated_policy, initial):
         assert validator.run() == 0, validator.errors
         assert len(validator.acceptance_results) == 3
     assert generate.call_count == validate.call_count == verify.call_count == 1
-    assert sum(call.args[0] == model for call in expand.call_args_list) == 1
-    print('integrated write counts: current Model=1, generation=1, candidate validation=1, guard=1, post-save readback=0')
+    assert sorted(call.args[1].__name__ for call in expand.call_args_list if call.args[0] == model) == ["expand", "expand_analysis"], [(str(call.args[0]), call.args[1].__name__) for call in expand.call_args_list]
+    print('integrated write counts: strict Model=1, reference analysis=1, generation=1, candidate validation=1, guard=1, post-save readback=0')
     assert impact.call_count == import_check.call_count == 1
     assert values['desired.note.001.text'] in design.read_text()
     if not initial:

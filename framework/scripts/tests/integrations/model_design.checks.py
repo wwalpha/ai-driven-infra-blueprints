@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from support.validator import diagnostics
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -37,7 +39,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         path.write_text(content, encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_design_links(outputs)
-        return validator.errors
+        return diagnostics(validator)
     assert not errors(valid), errors(valid)
     for bad in (valid.replace(dns, dns.replace("014d2843ef114f19d", "014d2843ef114f190")),
                 valid.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
@@ -78,7 +80,7 @@ def check_firehose_import_pending_roundtrip(root, project):
         validator.check_design_tables({}, *catalog)
         validator.check_design_links(catalog[2])
         validator.check_generated_service_models()
-        return validator.errors
+        return diagnostics(validator)
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"
     write_model(model_path, text(values))
@@ -112,7 +114,7 @@ def check_config_import_pending_roundtrip(root, project):
         validator.check_design_tables({}, *catalog)
         validator.check_design_links(catalog[2])
         validator.check_generated_service_models()
-        return validator.errors
+        return diagnostics(validator)
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"
     write_model(model_path, text(values))
@@ -161,7 +163,7 @@ def check_desired_only_identifier_reference(root, project):
     validator = load('validate-blueprint').Validator(root)
     validator.design_sources = {path: source}
     validator.check_design_links({'QuickSight.Group': {'QuickSight.Group.PrincipalId'}}, [path])
-    assert validator.errors
+    assert not validator.errors and validator.findings.warnings
     assert source == before
 
 
@@ -563,7 +565,7 @@ def check_config_typed_anchors(root):
         validator.check_design_tables(metadata, *catalog, [path])
         validator.check_design_overviews([path])
         validator.check_design_links(catalog[2], [path])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not failures(output), failures(output)
     for key, wrong in (("001", "config-default"), ("001", channel_anchor),
@@ -642,7 +644,7 @@ def check_kms_alias_display(root):
     path.write_text(output.replace(f"### KMS.Key: {name}", "### KMS.Key: CDE用ログキー（log）"), encoding="utf-8")
     validator = sync_views.view_validator(root, root)
     validator.check_resource_names(metadata, [path])
-    assert any("heading must display resource name" in error for error in validator.errors), validator.errors
+    assert any("heading must display resource name" in error for error in diagnostics(validator)), validator.errors
 
     add_alias("003", "alias/venus-dev-audit-cde")
     for label in (None, "CDE用ログキー（log）"):
@@ -688,7 +690,7 @@ def check_nameless_type_display(root, project):
         validator.check_design_tables(metadata, *catalog, [path])
         validator.check_design_overviews([path])
         validator.check_design_links(catalog[2], [path])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not failures(output), failures(output)
     for invalid, message in (
@@ -746,7 +748,7 @@ def check_nameless_type_display(root, project):
     path.write_text(output.replace(kind, "SNS.Topic").replace(anchor, "guardduty-sns.topic"), encoding="utf-8")
     validator = validator_module.Validator(root)
     validator.check_resource_names({path: ("guardduty", ("SNS.Topic",))}, [path])
-    assert any("single nameless independent resource" in error for error in validator.errors)
+    assert any("single nameless independent resource" in error for error in diagnostics(validator))
     assert resource_display_name(kind, [["1", "Tags[].Key", "`Name`", "キー"], ["2", "Tags[].Value", "`selected-name`", "名前"]]) == "selected-name"
     print("Nameless type display: PASS (generation, import, identity, references, single/multiple and named types)")
 
@@ -778,7 +780,7 @@ def check_nameless_logical_id_label(root, project):
         path.write_text(markdown, encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_resource_names(metadata, [path])
-        return validator.errors
+        return diagnostics(validator)
 
     assert not failures(values), failures(values)
     sync_views.validate_views(root, root, [path], {path: values})
@@ -807,7 +809,7 @@ def check_nameless_logical_id_label(root, project):
     (root/'model/parameters/dev/123456789012/guardduty/bindings.json').unlink()
     validator = validator_module.Validator(root)
     validator.check_resource_names(metadata, [path])
-    assert any("bindings.json" in error for error in validator.errors)
+    assert any("bindings.json" in error for error in diagnostics(validator))
     assert not failures(values), failures(values)
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
@@ -1128,7 +1130,7 @@ def check_naming_exclusions(root):
             path.write_text(output.replace(f"| {field} | `example` |", f"| {field} | `{invalid}` |"), encoding="utf-8")
             validator = validator_module.Validator(root)
             validator.check_resource_names(metadata, [path])
-            assert any("resource display name must be confirmed" in error for error in validator.errors)
+            assert any("resource display name must be confirmed" in error for error in diagnostics(validator))
             values["desired.row.001-001.value"] = f"`{invalid}`"
             with pytest.raises(ValueError):
                 markdown_for(path, values, root)
@@ -1187,7 +1189,7 @@ def check_codebuild_required_name(root, project):
         path.write_text(rendered, encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_resource_names(metadata)
-        assert any("CodeBuild.Project.Name" in error for error in validator.errors), (bad_names, validator.errors)
+        assert any("CodeBuild.Project.Name" in error for error in diagnostics(validator)), (bad_names, validator.errors)
     path.write_bytes(saved)
     write_model(source, text(model("codebuild", kind, name, rows, "BuildProject", name)))
     with pytest.raises(ValueError) as error:
@@ -1231,7 +1233,7 @@ def check_iam_role_name(root, project):
         validator.check_resource_names(metadata, [path])
         validator.check_design_overviews([path])
         validator.check_design_links(outputs)
-        return validator.errors
+        return diagnostics(validator)
 
     assert not failures(output), failures(output)
     reference = path.with_name("reference.md")
@@ -1307,7 +1309,7 @@ def check_required_name_tag(kind, root, project):
         path.write_text(output.replace(f"参照: [{name}]", f"参照: [{label}]"), encoding="utf-8")
         validator = validator_module.Validator(root)
         validator.check_design_links(outputs)
-        assert any("link must display Name tag" in error for error in validator.errors)
+        assert any("link must display Name tag" in error for error in diagnostics(validator))
     reference = path.with_name("route.md")
     reference.write_text(f'''# Route参照検証
 - Design service ID: `route`
@@ -1328,7 +1330,7 @@ def check_required_name_tag(kind, root, project):
     path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"), encoding="utf-8")
     validator = validator_module.Validator(root)
     validator.check_resource_names(metadata)
-    assert any("heading must display resource name" in error for error in validator.errors)
+    assert any("heading must display resource name" in error for error in diagnostics(validator))
     path.write_bytes(saved)
     for bad_tags in invalid_tags:
         bad_rows = [rows[0], *before, *bad_tags, *after]
@@ -1431,7 +1433,7 @@ def check_service_failure_protection(root, project):
     validator = validator_module.Validator(root)
     validator.schema_catalog = validator_module.DesignSchemaCatalog(root)
     validator.check_design_tables({}, *validator.catalog_design_properties())
-    assert any("schema" in error and "RetentionInDays" in error for error in validator.errors), validator.errors
+    assert any("schema" in error and "RetentionInDays" in error for error in diagnostics(validator)), validator.errors
     assert design.read_text() == saved_design.replace("`14`", "`31`")
     design.write_text(saved_design)
 
@@ -1454,7 +1456,7 @@ def check_service_failure_protection(root, project):
     write_model(base / "iam.properties", text(iam))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
-    # Failed targets use saved anchors; dependents must not publish broken links.
+    # A failed target preserves its View; independently valid consumers publish with warnings.
     renamed_logs = {**logs, "desired.resource.001.anchor": "logs-cwlogs-new-dev-flow",
                     "desired.row.001-001.value": "`cwlogs-new-dev-flow`",
                     "desired.row.001-002.value": "`not-a-number`"}
@@ -1462,8 +1464,11 @@ def check_service_failure_protection(root, project):
     vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
     write_model(base / "vpc.properties", text(vpc))
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    fails_with("missing design anchor")
-    assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+    with redirect_stderr(io.StringIO()) as warnings:
+        fails_with("provider schema violation")
+    assert "missing design anchor" in warnings.getvalue()
+    assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
+    assert "logs-cwlogs-new-dev-flow" in (docs / "vpc.md").read_text(encoding="utf-8")
     renamed_logs["desired.row.001-002.value"] = "`14`"
     write_model(base / "logs.properties", text(renamed_logs))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
@@ -1473,7 +1478,7 @@ def check_service_failure_protection(root, project):
     write_model(base / "logs.properties", text(logs))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
-    # A failed source retains its old link, but must not block its valid target.
+    # Reference warnings preserve the source expression and do not block valid targets.
     old_link = "logs.md#logs-cwlogs-net-dev-flow"
     new_link = "logs.md#logs-cwlogs-new-dev-flow"
     vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
@@ -1486,8 +1491,7 @@ def check_service_failure_protection(root, project):
     saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
     warnings = io.StringIO()
     with redirect_stderr(warnings):
-        error = fails_with("missing design anchor")
-    assert "2 services succeeded; 1 services failed" in error
+        assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert f"vpc.md: {old_link}" in warnings.getvalue()
     assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
@@ -1495,7 +1499,11 @@ def check_service_failure_protection(root, project):
     assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
     assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    fails_with("missing design anchor", write=False)
+    assert SYNC.sync(root, False, "dev", "123456789012") == 0
+    readonly = load("validate-blueprint").Validator(root)
+    readonly.check_design_links(readonly.catalog_design_properties()[2])
+    assert not readonly.errors
+    assert any("missing design anchor" in warning['message'] for warning in readonly.findings.warnings)
     assert snapshot == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
 
@@ -1576,7 +1584,7 @@ def check_service_failure_protection(root, project):
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text(encoding="utf-8")) == document
     assert {file: file.read_bytes() for model in sources for file in load_model(model).files} == saved_sources
-    # If saving a target fails, roll back views that reference its new anchor.
+    # A target I/O failure preserves its View; reference warnings permit independent consumers.
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     write_model(base / "logs.properties", text(renamed_logs))
     vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
@@ -1588,9 +1596,10 @@ def check_service_failure_protection(root, project):
             raise OSError("test target write failure")
         return original_write(path, *args, **kwargs)
     with patch.object(Path, "write_text", fail_logs):
-        fails_with("missing design anchor")
+        fails_with("test target write failure")
     assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
-    assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
+    assert (docs / "vpc.md").read_bytes() != snapshot[docs / "vpc.md"]
+    assert new_link in (docs / "vpc.md").read_text(encoding="utf-8")
     assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
     # A source edit between planning and publication must preserve existing views.
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)

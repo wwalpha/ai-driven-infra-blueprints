@@ -100,7 +100,7 @@ def main():
                            ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
                            ("desired.row.002-003.value", "[Wrong](#secretsmanager-app-dev-secret-1)")):
             bad = {**values, key: value}
-            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "SecretId")
+            rejects(lambda: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
         for row in ("002-003",):
             bad = {key: value for key, value in values.items() if not key.startswith((f"desired.row.{row}.", f"observed.row.{row}."))}
             rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", ".SecretId")
@@ -139,7 +139,7 @@ def main():
             assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
-        rejects(lambda: markdown_for(path, mismatch, root), "SecretId", "parentReference")
+        rejects(lambda: markdown_for(path, mismatch, root), "grouped formal row does not match parentReference")
 
         # Real sync: simultaneous KMS and Secrets Manager updates and rollback.
         models = root / "model/dev/123456789012"

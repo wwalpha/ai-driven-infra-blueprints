@@ -7,6 +7,7 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.it_case_receipt import it_case
+from support.validator import diagnostics
 
 from support.design_document_fixtures import *
 
@@ -99,13 +100,13 @@ def check_links(module):
         internal = ["design link must not display internal logical ID: " + location + "AliasTwo"] * 40 + missing + [alias_error + "AliasTwo"] * 40
         valid = text.replace("| 84 | SourceKeyId | [unresolved](absent.md#absent) | 未解決参照 |\n", "").replace(
             "| 85 | SourceKeyId | [unresolved](kms.md#absent) | 未解決anchor |\n", "")
-        # Exact ordered diagnostics and check counts captured before implementation.
+        # Exact diagnostic messages and check counts; repeated warnings are deduplicated.
         cases = [
             (text, ref, missing, 416),
             (valid, ref, [], 409),
             (text.replace("[alias/two]", "[AliasTwo]"), ref, internal, 416),
             (text, ref.replace("resource-logical-id: KeyHidden", "resource-logical-id: Bad!"), invalid, 416),
-            (text, ref.replace("kms-keytwo", "kms-keyone"), invalid, 416),
+            (text, ref.replace("kms-keytwo", "kms-keyone"), ["duplicate resource anchor", *invalid[:-1]], 415),
             (text, ref.replace("logical-id: AliasTwo", "logical-id: AliasOne"), invalid, 416),
             (text, "<!-- resource-mode: kms-keyone CREATE -->\n" + ref, missing, 416),
             (text, "<!-- resource-mode: kms-keyone IMPORT -->\n" + ref, missing, 416),
@@ -120,9 +121,11 @@ def check_links(module):
             target.write_text(referenced, encoding="utf-8")
             # Reusing the Validator object must not retain snapshots between calls.
             validator.errors.clear()
+            validator.findings.warnings.clear()
             validator.checks = 0
             validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
-            assert validator.errors == expected, validator.errors
+            assert sorted(set(diagnostics(validator))) == sorted(set(expected)), diagnostics(validator)
+            assert all(error.startswith("invalid grouped design:") for error in validator.errors)
             assert validator.checks == checks
         from validation import design_links
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
@@ -139,10 +142,12 @@ def check_links(module):
             source.write_text(content, encoding="utf-8")
             target.write_text(ref, encoding="utf-8")
             validator.errors.clear()
+            validator.findings.warnings.clear()
             with patch.object(design_links, "design_model_values", return_value=model):
                 validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
-            assert len(validator.errors) == len(expected), validator.errors
-            assert all(label in error for label, error in zip(expected, validator.errors))
+            assert not validator.errors
+            assert len(validator.findings.warnings) == len(expected), validator.findings.warnings
+            assert all(label in error for label, error in zip(expected, diagnostics(validator)))
         source.write_text(text, encoding="utf-8")
         target.write_text(ref, encoding="utf-8")
         read_text = Path.read_text

@@ -377,7 +377,13 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
                     raise ReferenceResolutionError('literal validation requires reference resolution',
                                                    key='desired.row.' + row_id + '.value', reference=value, resource=identity)
                 kind = '.'.join(prop.split('.')[:2])
-                if prop in catalog_outputs(definitions, kind) or prop in NAMING_EXEMPT_PROPERTIES or prop in HIDDEN_PROPERTIES:
+                from validation.design import DESIGN_ONLY_PROPERTIES
+                from design_layout import config_role_arn, is_service_role_reference
+                if (prop in catalog_outputs(definitions, kind) or prop in NAMING_EXEMPT_PROPERTIES
+                        or prop in HIDDEN_PROPERTIES or prop in DESIGN_ONLY_PROPERTIES
+                        or is_service_role_reference(prop, row.get('value', ''))
+                        or resource_mode(resource) == 'IMPORT' and (is_import_pending_reference(prop, row.get('value', ''))
+                                                                   or config_role_arn(prop, row.get('value', '')))):
                     return
                 field = prop.removeprefix(kind + '.')
                 if field == 'Name' and kind in {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}:

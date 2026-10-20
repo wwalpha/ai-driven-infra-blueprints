@@ -71,7 +71,7 @@ def check_single_target_cache(root):
         saved = reference.read_text(encoding="utf-8")
         reference.write_text(saved.replace('id="vpc-subnet-app-dev-cde"', 'id="changed-anchor"'), encoding="utf-8")
         invalid = validate(cache=PassCache(root, directory=directory))
-        assert invalid.errors and "anchor" in "\n".join(invalid.errors), invalid.errors
+        assert not invalid.errors and any("anchor" in warning["message"] for warning in invalid.findings.warnings), invalid.findings.warnings
         reference.write_text(saved, encoding="utf-8")
         # Newly introduced JSON must never disappear behind an unchanged Markdown cache hit.
         artifact = docs / "codecommit/orphan.json"
@@ -148,7 +148,11 @@ def check_template_consumers(root):
             partial = validate()
         assert generate.call_count == 1, generate.call_args_list
         assert generate.call_args.args == (root, scope), generate.call_args
-        assert generate.call_args.kwargs == {'jobs': 1, 'definitions_root': root}
+        options = generate.call_args.kwargs
+        assert options.keys() == {'jobs', 'definitions_root', 'findings'}
+        assert options['jobs'] == 1 and options['definitions_root'] == root
+        assert isinstance(options['findings'], type(partial.findings))
+        assert options['findings'].canonical_root == root
         assert partial.checks == cold.checks
         with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
             warm = validate()
@@ -263,7 +267,8 @@ invalid unrelated table alignment
         rejected.accounts = validator.accounts
         rejected.schema_catalog = DesignSchemaCatalog(root)
         rejected.check_design_links(rejected.catalog_design_properties()[2])
-        assert any("missing design anchor" in error for error in rejected.errors), rejected.errors
+        assert not rejected.errors
+        assert any("missing design anchor" in warning["message"] for warning in rejected.findings.warnings), rejected.findings.warnings
         design.write_text(saved)
         # Selected schema, naming, JSON, and generation errors remain failures.
         model = root / "model/dev/cde/ec2.properties"

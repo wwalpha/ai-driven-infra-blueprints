@@ -134,7 +134,7 @@ def check(root):
         fixed = next(iter(bound_resource_anchors(path).values()))
         doc.write_text(original.replace(fixed, fixed+'-tampered'))
         validator=schema_validator(root);validator.check_resource_names({doc:(service, tuple(r['resourceType'] for _,r in entries(after,'desired.resource.')))}, [doc])
-        assert validator.errors
+        assert not validator.errors and validator.findings.warnings
         doc.write_text(original)
     # Fixed IDs do not permit two resources to acquire the same normalized display name.
     path=root/'model/preview/team/vpc.properties';directory=root/'model/parameters/preview/team/vpc'
@@ -142,7 +142,9 @@ def check(root):
     human['instances']['private-c']['parameters']['Name']=human['instances']['private-a']['parameters']['Name']
     t.save_parameters(path,human)
     saved={p:p.read_bytes() for base in ('model','docs/designs') for p in (root/base).rglob('*') if p.is_file()}
-    INPUTS.rejected(lambda:sync_runtime.sync(root,True,'preview','team',services=['vpc']), 'unique and match its name')
+    with redirect_stdout(io.StringIO()) as warnings:
+        assert sync_runtime.sync(root,True,'preview','team',services=['vpc']) == 0
+    assert 'unique and match its name' in warnings.getvalue()
     assert all(p.read_bytes()==data for p,data in saved.items())
     source.write_text(old)
     # A legacy source, public anchor, malformed binding and edited projection do not gain an exception.

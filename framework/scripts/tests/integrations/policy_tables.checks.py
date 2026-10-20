@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from support.validator import diagnostics
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -105,7 +107,7 @@ def check_iam(tmp_path):
         catalog_types, owners, outputs = VALIDATOR.Validator(SCRIPTS.parents[1]).catalog_design_properties()
         validator.check_design_tables({path: ("iam", ("IAM.Role", "IAM.InstanceProfile"))}, catalog_types, owners, outputs)
         validator.check_design_artifacts()
-        return validator.errors
+        return diagnostics(validator)
 
     assert not errors(rendered), errors(rendered)
     assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
@@ -320,7 +322,7 @@ def service_policy_checks():
                 validator.check_policy_tables()
                 validator.check_design_overviews()
                 validator.check_design_links({})
-                return validator.errors
+                return diagnostics(validator)
 
             assert not errors(rendered), (prop, errors(rendered))
             if style != "settings":

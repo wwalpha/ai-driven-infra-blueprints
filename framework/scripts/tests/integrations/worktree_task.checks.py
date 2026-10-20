@@ -7,6 +7,8 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.it_case_receipt import it_case
+import io
+from contextlib import redirect_stderr
 
 from support.worktree_task_fixtures import *
 
@@ -643,7 +645,12 @@ def check_model_operation_integration():
                     if approved:
                         import pytest
                         tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL')
-                        if corrupt:
+                        if action == 'import-delete':
+                            with pytest.raises(wt.Blocked, match='requires successful final candidate validation'):
+                                wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
+                            retained(root, target, state, base_head)
+                            assert git(target, 'rev-parse', 'HEAD') == state['start']
+                        elif corrupt:
                             with pytest.raises(ValueError, match='transferred'):
                                 wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
                             retained(root, target, state, base_head)
@@ -705,23 +712,19 @@ def check_model_refactor_integration():
                 output = {target / name: (candidate / name).read_text() for name in sources}
                 original = {path: path.read_bytes() for path in output}
                 bad = {p: value.replace('same-name-stg', 'changed') for p, value in output.items()}
-                try:
+                with redirect_stderr(io.StringIO()) as warnings:
                     publish(target, bad, inputs=original)
-                    raise AssertionError('configuration change published')
-                except ValueError as error:
-                    assert 'changed' in str(error)
-                assert all(path.read_bytes() == data for path, data in original.items())
-                publish(target, output, inputs=original)
+                assert 'reference effective value changed' in warnings.getvalue()
+                assert all(path.read_text() == value for path, value in bad.items())
+                publish(target, output, inputs={path: path.read_bytes() for path in output})
                 require_import_changes(target)
                 assert load_expansion(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
-                for address, code in [('stg/cde/service-a/001', 0), ('stg/cde/service-a/999', 1)]:
+                for address in ('stg/cde/service-a/001', 'stg/cde/service-a/999'):
                     result = subprocess.run([sys.executable, '-B', str(SCRIPT.with_name('model_reference_usage.py')),
                         address, '--repository-root', str(target)], capture_output=True, text=True)
-                    assert result.returncode == code, result.stderr + result.stdout
+                    assert result.returncode == 0, result.stderr + result.stdout
                     response = json.loads(result.stdout)
-                    assert response['status'] == ('resolved' if code == 0 else 'unresolved')
-                    if code == 0:
-                        assert response['references'] == []
+                    assert response == {'status': 'resolved', 'references': [], 'warnings': [], 'complete': True}
                 if advance:
                     file = root / 'model/parameters/stg/cde/service-a/parameters.yaml'
                     file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
@@ -737,17 +740,11 @@ def check_model_refactor_integration():
                         require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
                     return 0
                 with patch.object(loop, 'run_loop', side_effect=validate):
-                    if advance:
-                        try:
-                            wt.validate_final_candidate(final)
-                            raise AssertionError('rebased value change was accepted')
-                        except ValueError as error:
-                            assert 'value/type changed' in str(error)
-                        retained(root, target, state, latest)
-                    else:
+                    with redirect_stderr(io.StringIO()) as warnings:
                         result = wt.validate_final_candidate(final)
-                        assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                        assert wt.cleanup(root, 'example')['cleaned']
+                    assert ('reference effective value changed' in warnings.getvalue()) == advance
+                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                    assert wt.cleanup(root, 'example')['cleaned']
                 assert calls == [final.candidate_head]
     print('Generic refactor publication and actual post-rebase candidate guard: PASS')
 

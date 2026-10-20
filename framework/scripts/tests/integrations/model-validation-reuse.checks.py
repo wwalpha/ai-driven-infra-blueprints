@@ -26,6 +26,7 @@ import subprocess
 import threading
 import validation_cache
 import model_templates
+from support.validator import diagnostics
 from validation.findings import Findings
 import utils.aws_mappings as mapping_state
 from utils.aws_mappings import mappings_for, mapping_alias
@@ -81,6 +82,7 @@ def trace_validation(root, legacy=False):
             return [str(error)]
     with patch.object(sync_views, 'view_validator', factory), \
          patch.object(validator_module.Validator, '__init__', init), \
+         patch.object(Findings, 'warn', record(Findings.warn)), \
          patch.object(Findings, 'check', record(Findings.check)), \
          patch.object(Findings, 'check_file', record(Findings.check_file)):
         validator = validator_module.Validator(root, {ENTRY}, model_check=generate if legacy else None)
@@ -122,7 +124,7 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
             assert not before.errors and not after.errors, (before.errors, after.errors)
     assert bool(after.errors) == bool(before.errors), (fault, before.errors, after.errors)
     if fault != 'none':
-        assert after.errors, fault
+        assert diagnostics(after), fault
         name = {'names': COMMON[0], 'tables': COMMON[1], 'overview': COMMON[2],
                 'links': COMMON[3], 'json': COMMON[4], 'observed': COMMON[5]}[fault]
         assert any(not condition for condition, _ in new['saved', name]), (fault, new['saved', name])

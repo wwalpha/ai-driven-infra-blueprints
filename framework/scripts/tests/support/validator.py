@@ -66,3 +66,8 @@ def schema_validator(root):
     validator = MODULE.Validator(root, definitions_root=SCRIPT.parents[2])
     validator.schema_catalog = MODULE.DesignSchemaCatalog(SCRIPT.parents[2])
     return validator
+
+
+def diagnostics(validator):
+    """Assert blocking errors separately where severity matters; retain all messages here."""
+    return [*validator.errors, *(item['message'] for item in validator.findings.warnings)]

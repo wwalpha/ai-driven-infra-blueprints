@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from support.validator import diagnostics
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -30,7 +32,7 @@ def main():
             validator.check_design_overviews()
             validator.check_design_links(catalog[2])
             validator.check_policy_tables()
-            return validator.errors
+            return diagnostics(validator)
 
         assert not errors(DESIGN), errors(DESIGN)
         original = path.read_bytes()

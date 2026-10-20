@@ -46,7 +46,7 @@ def main():
             rejects(lambda: markdown_for(path, bad, root), field)
         bad = dict(values)
         bad["desired.row.002-004.value"] = "[Wrong](#lambda-wrong)"
-        rejects(lambda: markdown_for(path, bad, root), "exactly one formal row")
+        rejects(lambda: markdown_for(path, bad, root), "grouped formal row does not match parentReference")
         bad = dict(values)
         del bad["desired.row.002-001.property"]
         rejects(lambda: markdown_for(path, bad, root), "invalid resource row")

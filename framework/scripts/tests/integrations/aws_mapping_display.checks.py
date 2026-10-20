@@ -85,12 +85,10 @@ def check(root):
             bad_reference = {**values, 'desired.row.007-014.property': 'Logs.LogGroup.KmsKeyId',
                              'desired.row.007-014.value': '[missing](kms.md#kms-missing)',
                              'desired.row.007-014.comment': '非表示でも参照を検証する'}
-            try:
-                verify(bad_reference)
-            except ValueError as error:
-                assert 'broken design link' in str(error), str(error)
-            else:
-                raise AssertionError('hidden reference escaped validation')
+            path.write_text(markdown_for(path, bad_reference, current), encoding='utf-8')
+            findings = validate_views(current, current, [path], {path: bad_reference})
+            assert not findings.errors
+            assert any('broken design link' in warning['message'] for warning in findings.warnings)
         assert snapshot_model(source) == saved
 
     config = fixture('config', 'Config.ConfigurationRecorder', 'default', [

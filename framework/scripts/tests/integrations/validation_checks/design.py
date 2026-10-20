@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from support.it_case_receipt import it_case
+from support.validator import diagnostics
 
 
 import json
@@ -99,10 +100,10 @@ def check_description_design_constraints() -> None:
         # Existing validators collect independent property and dependency failures.
         validator = validate(iam_text.replace("Application role", "日本語"), sg_text.replace("Application access", "日本語"))
         validator.check_design_links(catalog[2], paths=[iam, sg])
-        assert any("RoleOne: IAM.Role.Description" in error for error in validator.errors)
-        assert any("GroupOne: EC2.SecurityGroup.GroupDescription" in error for error in validator.errors)
-        assert any("broken design link" in error and "vpc.md" in error for error in validator.errors)
-        assert any("broken design link" in error and "trust-policy.json" in error for error in validator.errors)
+        assert any("RoleOne: IAM.Role.Description" in error for error in diagnostics(validator))
+        assert any("GroupOne: EC2.SecurityGroup.GroupDescription" in error for error in diagnostics(validator))
+        assert any("broken design link" in error and "vpc.md" in error for error in diagnostics(validator))
+        assert any("broken design link" in error and "trust-policy.json" in error for error in diagnostics(validator))
         assert iam.read_text(encoding="utf-8") == iam_text.replace("Application role", "日本語")
         assert sg.read_text(encoding="utf-8") == sg_text.replace("Application access", "日本語")
 

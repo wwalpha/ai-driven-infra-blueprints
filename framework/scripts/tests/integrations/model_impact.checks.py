@@ -256,7 +256,8 @@ def check_import_scope(root):
     assert set(found)=={'dev/team/iam/001'}, found
     change(source,'item1','Name','renamed')
     _, found=changes(root,{source.relative_to(root).as_posix()},include_create=True)
-    assert set(found)=={'dev/team/iam/001','dev/team/build/005'},found
+    assert set(found)=={'dev/team/iam/001'},found
+    assert affected(root,{source.relative_to(root)}) == {entry('iam'), entry('build')}
 
 
 @it_case
