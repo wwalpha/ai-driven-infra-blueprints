@@ -102,8 +102,13 @@ The following transfer/removal requirements apply to merge/delete only.
 
 AWS actual configuration is authoritative for IMPORT. The dedicated [import
 workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace from
-captured AWS facts. The LLM confirms the action and existing Resource ID; Python
-verifies identity, values, nonselected preservation and atomic publication. Other
+captured AWS facts. Present the complete normalized Review with concrete IDs, typed
+Before/After, references and risks before Human approval of any addition or overwrite.
+Python verifies identity, values, nonselected preservation and atomic publication.
+The current runtime has no agent-inaccessible Human approval issuer/verifier: normal
+Import publication fails closed after Review. Local flags, JSON and acquisition HMAC
+seals do not prove Human approval. Follow 08_import for the required trusted interface.
+Other
 Apart from the standalone exception above, IMPORT configuration changes remain forbidden
 except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
@@ -145,10 +150,13 @@ blocks reflection completion. Ordinary workflows retain their IMPORT protection.
 Acquisition evidence is a private sealed temporary session outside the repository,
 binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
 source hashes and the direct consumer set across acquire/publish processes. The agent
-records correspondence and ordinary edited sources there. After publication, remove
+records correspondence and review there; source candidates require trusted approval.
+Only after complete source/display success or explicit Human termination, remove
 temporary acquisition/candidate contents; retain only a sealed task receipt at
 `evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
-persists no Model, displays, contract or completion receipt and cleans its session.
+persists no Model, displays, contract or completion receipt; retain its session until
+explicit Human termination. Pre-save failure, incomplete display or display I/O failure
+retains acquisition/review evidence for diagnosis and display-only recovery.
 Never save raw responses. Acquisition/receipt timestamps expire after seven days;
 future timestamps beyond five minutes are rejected. Existing legacy receipts are verified
 before migration, then only the owned file and empty ancestor directories are removed.

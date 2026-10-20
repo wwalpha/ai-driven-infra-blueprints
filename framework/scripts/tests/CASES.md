@@ -1,5 +1,34 @@
 # UT / IT 全ケース台帳
 
+## Import Human Approval Gate
+
+`units/import-approval-unit.checks.py` は合成データのみの15関数・42 pytestケース。
+本番の信頼できるHuman承認経路は未接続で、正常Publishをfail-closedにする。
+一覧一括／個別の承認成功は未検証・未提供。既存Import ITの保存・Rollback検証は
+この未接続境界をテスト内だけでstubにし、Human承認の証明として数えない。
+cross-processケースはstubのない子プロセスで実際の拒否も確認する。
+Boolean設定のobserved誤用は拒否→desiredのみの成功へ更新。
+表示構造エラーは保存前拒否、保存後I/Oエラーと表示回復は別に検証する。
+dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区別する。
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `import-approval::typed-review` | `check_complete_typed_before_after_and_digest` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | Before/After・型・論理参照・物理値・digest | Import Review |
+| `import-approval::inventory` | `check_full_inventory_required` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 全取得レコード・リスク・取得Typeの欠落拒否 | Import Review |
+| `import-approval::changed-review` | `check_changed_review_needs_new_review` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 10 | 反映先・操作・値・参照・リスク・基準・Scope・Task・Worktree・型の変更 | Import Review |
+| `import-approval::duplicate-risk` | `check_unknown_identity_risk_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 既存ID不明の重複リスク | Import Review |
+| `import-approval::type-status` | `check_inventory_status_and_exclusions_remain_visible` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 5 | 取得失敗・権限・filter・empty・completeの区別 | Import Review |
+| `import-approval::native-values` | `check_array_boolean_name_and_unreflected_values` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 配列・Boolean・Name tag・未反映値 | Import Review |
+| `import-approval::composite-secret` | `check_composite_identity_and_secret_omission` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複合識別子・機密値非出力 | Import Review |
+| `import-approval::observed` | `check_configuration_is_not_observed` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 通常設定のobserved保存拒否 | Pre-save |
+| `import-approval::warning` | `check_valid_observation_and_nonblocking_reference_warning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 識別子observed許可・Reference warning非ブロック・無関係既存行保持 | Pre-save |
+| `import-approval::no-trusted-approval` | `check_no_local_claim_can_publish` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 未承認・自己申告・一括/個別JSON・HMAC・有効期限自己申告の拒否と証跡保持 | Fail-closed |
+| `import-approval::alternate-writer` | `check_alternate_source_guard_rejects_legacy_receipt` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 既存receipt経由のModel保存拒否 | Fail-closed |
+| `import-approval::expiry` | `check_expiry_and_digest_tampering` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 7日有効期限・digest改ざん拒否 | Import Review |
+| `import-approval::unselected` | `check_unselected_reference_changes_are_not_reviewed_as_selected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 非選択Resourceの変更拒否 | Import Review |
+| `import-approval::review-command` | `check_review_command_is_read_only` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | Review出力・baseline競合・承認flag・機密候補拒否、Model未変更 | Import Review |
+| `import-approval::display` | `check_preflight_before_any_save` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 表示用展開・メモリ生成と構造エラー時のModel/証跡保持 | Pre-save |
+
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 
 共通参照target選択の診断は、欠落ID・型不一致・複数候補を区別して関連ITで検証する。model_filesのcache検証はtype/name/linkの各解決を1回に限定し、出力・終了コード一致と入力準備・parse再利用のassertを維持する。

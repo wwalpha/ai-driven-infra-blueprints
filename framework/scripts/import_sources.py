@@ -188,7 +188,7 @@ def has_reference(raw):
     return linked(value)
 
 
-def selection_records(selection, records, old, new, property_schema, warnings=None):
+def selection_records(selection, records, old, new, property_schema, warnings=None, *, matching=None):
     """Validate declared correspondences; no Python matching or addition decisions."""
     if set(selection) != {'resources', 'excluded', 'unreflected'} or any(not isinstance(selection[k], list) for k in selection):
         raise ValueError('IMPORT selection requires resources, excluded and unreflected lists')
@@ -238,6 +238,18 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
                     owners.setdefault((resource['resourceType'], value), set()).add(rid)
         if not known:
             unknown.setdefault(resource['resourceType'], []).append(rid)
+    correspondences = {}
+    for record in records:
+        key = (record['kind'], json.dumps(record['identityComponents'], sort_keys=True)
+               if 'identityComponents' in record else record['identity'])
+        collisions = owners.get(key, set())
+        uncertain = unknown.get(record['kind'], [])
+        correspondences[record['record']] = (key, collisions)
+        if matching is not None:
+            matching[record['record']] = {
+                'existingResources': sorted(collisions), 'unknownResources': sorted(uncertain),
+                'status': 'possible-duplicate' if len(collisions) > 1 else 'confirmed' if collisions
+                          else 'unresolved' if uncertain or record.get('identityStatus', 'known') != 'known' else 'no-match'}
     selected, used, selected_identities = {}, set(), set()
     for item in selection['resources']:
         required = {'record', 'resource', 'action', 'reason', 'basis'} | ({'before'} if item.get('action') == 'replace' else set())
@@ -261,10 +273,7 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         if 'identityComponents' in record:
             if record.get('identityStatus') != 'known':
                 raise ValueError('IMPORT acquired primary identity is unknown')
-            identity_key = record['kind'], json.dumps(record['identityComponents'], sort_keys=True)
-        else:
-            identity_key = record['kind'], record['identity']
-        collisions = owners.get(identity_key, set())
+        identity_key, collisions = correspondences[record['record']]
         if action == 'refresh' and collisions != {rid}:
             raise ValueError('IMPORT refresh requires one matching physical identity')
         if action == 'replace':
@@ -307,6 +316,26 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
     return selected
 
 
+def pending_items(selection, selected, values, property_schema):
+    """Report absent/unreflected acquired settings for review and publication alike."""
+    pending = list(selection['unreflected'])
+    known = {(item['record'], item.get('property')) for item in pending}
+    rows = resource_row_index(values)
+    for rid, record in selected.items():
+        for prop, capture in record['properties'].items():
+            if (record['record'], prop) in known:
+                continue
+            represented = any(row['property'] == prop for _, row in rows[rid])
+            if capture['status'] == 'missing' and not represented:
+                continue
+            if capture['status'] == 'captured' and typed_equal(
+                    property_values(values, rid, prop, property_schema(prop), rows=rows), capture['value']):
+                continue
+            pending.append({'record': record['record'], 'property': prop,
+                            'reason': capture.get('reason', 'acquired Property not reflected by the candidate')})
+    return pending
+
+
 def reference_value_equal(left, right):
     """Only reference expression spans may differ; structure and other literals stay exact."""
     if isinstance(left, dict) and isinstance(right, dict):
@@ -341,6 +370,14 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
     if old_resources.keys() - new_resources.keys():
         raise ValueError('IMPORT missing inventory never authorizes deleting an existing resource')
     old_rows, new_rows = dict(entries(old, 'desired.row.')), dict(entries(new, 'desired.row.'))
+    from model_references import observed_value
+    from model_templates import validate_observed
+    changed_observed = {key: value for key, value in new.items()
+                        if key.startswith('observed.') and key.endswith('.value') and old.get(key) != value}
+    validate_observed(new, changed_observed)
+    for key, value in changed_observed.items():
+        row_id = key.split('.')[2]
+        observed_value(row_id, new_rows[row_id], value, ())
     updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace'}}
     if any(old_resources.get(rid, {}).get('resourceMode') != 'IMPORT' for rid in updated):
         raise ValueError('IMPORT updates require existing IMPORT resources; CREATE is protected')

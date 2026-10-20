@@ -128,7 +128,7 @@ def check_invalid_candidates(key, value):
         verify_values(expansion(old), expansion(new), {'001': record()}, schema_for, warnings=warnings)
         assert warnings
     else:
-        with pytest.raises(ValueError, match='preserved|existing resource'):
+        with pytest.raises(ValueError, match='preserved|existing resource|observed value requires a desired logical reference'):
             verify_values(expansion(old), expansion(new), {'001': record()}, schema_for)
 
 
@@ -1913,6 +1913,9 @@ def check_refresh_new_rows_and_missing_properties():
            'desired.row.001-004.value': '`true`', 'desired.row.001-004.comment': '取得値',
            'observed.row.001-004.value': '`true`'}
     chosen = selection_records(selection(action='refresh'), [captured], old, new, schema_for)
+    with pytest.raises(ValueError, match='observed value requires a desired logical reference'):
+        verify_values(expansion(old), expansion(new), chosen, schema_for)
+    del new['observed.row.001-004.value']
     changed = verify_values(expansion(old), expansion(new), chosen, schema_for)
     assert {item['property'] for item in changed} == {'EC2.VPC.CidrBlock', 'EC2.VPC.EnableDnsSupport'}
     assert new['desired.row.001-003.value'] == old['desired.row.001-003.value']

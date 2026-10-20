@@ -302,6 +302,9 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         return warnings
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:
+        if output:
+            from import_approval import require_human_approval
+            require_human_approval()
         if not sources and generation:
             return
         proof = read_proof(root, contract_file=contract_file) if contract_file is not None else read_proof(root)
@@ -366,6 +369,8 @@ def read_proof(root, *, contract_file=None):
 
 def record_import(root, output, evidence, plan, complete=True):
     """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
+    from import_approval import require_human_approval
+    require_human_approval()
     from import_scope import selected
     identity = selected(root)
     acquisition = read_acquisition(root, evidence, identity, False)

@@ -1,6 +1,6 @@
 ---
 name: import
-description: Let the LLM confirm targets and choose Human-approved add/refresh/replace per acquired resource, edit ordinary Model candidates sequentially, and reuse Python acquisition and guarded single-service publication before generating Markdown/JSON. Process multiple services sequentially. Never directly edit generated design Markdown/JSON. Follow 08_import for the complete workflow.
+description: Acquire once, prepare and present the complete normalized Import Review, and require trusted Human approval before source candidate edits. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute

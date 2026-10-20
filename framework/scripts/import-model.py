@@ -19,12 +19,13 @@ from model_parameter_inputs import yaml_read
 from model_templates import publication_lock, json_read, json_text, publish, service_source, load_for_edit
 from task_contract import task_path, section
 from validation_scope import active_scope
-from validation_cache import input_scope, memo_table, memoized
+from validation_cache import input_scope, memoized
 from script_loader import module as load_script
 from sync_files import atomic_files
 from aws_mapping_compare import MODEL_ONLY, value as mapping_value
 from import_sources import candidate_sources, selection_records, verify_values, typed_equal
 from import_promotion import preserve_consumers, replacement_inputs
+import import_approval
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -316,22 +317,47 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
 
 def pending_items(selection, selected, values):
     """Report absent/unreflected acquired settings independently from saved sources."""
-    pending = list(selection['unreflected'])
-    known = {(item['record'], item.get('property')) for item in pending}
-    for rid, record in selected.items():
-        for prop, capture in record['properties'].items():
-            if (record['record'], prop) in known:
-                continue
-            represented = any(row['property'] == prop for _, row in resource_row_index(values)[rid])
-            if capture['status'] == 'missing' and not represented:
-                continue
-            if capture['status'] == 'captured':
-                from import_sources import property_values
-                if typed_equal(property_values(values, rid, prop, property_schema(prop)), capture['value']):
-                    continue
-            pending.append({'record': record['record'], 'property': prop,
-                            'reason': capture.get('reason', 'acquired Property not reflected by the candidate')})
-    return pending
+    from import_sources import pending_items as report_pending
+    return report_pending(selection, selected, values, property_schema)
+
+
+@input_scope
+def review_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
+    """Normalize a proposed expanded snapshot without preparing or saving Model sources."""
+    from import_scope import restrict, read_consumers
+    from model_templates import Expansion
+    root = root.resolve()
+    target = target_for(root, environment, service, selector)
+    identity = (environment, target['directory'], service)
+    evidence = Path(evidence).absolute()
+    with restrict(identity), read_consumers({identity}):
+        acquisition = read_acquisition(root, evidence, identity, dry_run)
+        unchanged(root, acquisition['sources'])
+        path = root / 'model' / identity[0] / identity[1] / (service + '.properties')
+        before = load_for_edit(path) or Expansion({}, {}, {})
+        draft_file = evidence.parent / 'review-input.json'
+        selection_file = evidence.parent / 'selection.json'
+        from model_templates import safe
+        for file in (draft_file, selection_file):
+            safe(evidence.parent, file)
+        draft_text, selection_text = draft_file.read_text(encoding='utf-8'), selection_file.read_text(encoding='utf-8')
+        draft, selection = json_read(draft_text), json_read(selection_text)
+        if set(draft) != {'proposedValues', 'risks'}:
+            raise ValueError('IMPORT Review input requires proposedValues and risks only; approval flags are forbidden')
+        review = import_approval.build_review(acquisition, selection, before, draft['proposedValues'], draft['risks'], property_schema)
+        if comparator().redacted(review) != review:
+            raise ValueError('IMPORT Review contains sensitive data; remove it before review')
+        with publication_lock(root):
+            if read_acquisition(root, evidence, identity, dry_run) != acquisition:
+                raise ValueError('IMPORT acquisition changed during review')
+            unchanged(root, acquisition['sources'])
+            if draft_file.read_text(encoding='utf-8') != draft_text or selection_file.read_text(encoding='utf-8') != selection_text:
+                raise ValueError('IMPORT Review inputs changed during verification')
+            destination = evidence.parent / 'review.json'
+            safe(evidence.parent, destination)
+            atomic_files({destination: json_text(review) + '\n'}, staging_directory=evidence.parent)
+        return {'status': 'reviewed', 'review': review, 'reviewFile': str(destination),
+                'model': 'unchanged', 'markdown': 'not-run', 'designValidation': 'not-run'}
 
 
 @input_scope
@@ -342,18 +368,16 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
     identity = (environment, target['directory'], service)
     evidence = Path(evidence).absolute()
     with restrict(identity), read_consumers({identity}):
-        try:
-            acquisition = read_acquisition(root, evidence, identity, dry_run)
-            result = publish_selected(root, identity, evidence, acquisition, dry_run)
-        finally:
-            if dry_run:
-                discard_acquisition(root, evidence)
-        if not dry_run:
+        acquisition = read_acquisition(root, evidence, identity, dry_run)
+        result = publish_selected(root, identity, evidence, acquisition, dry_run)
+        if not dry_run and result['status'] == 'complete' and result['markdown'] in {'generated', 'unchanged'}:
             discard_acquisition(root, evidence)
         return result
 
 
 def publish_selected(root, identity, evidence, acquisition, dry_run):
+    if not dry_run:
+        import_approval.require_human_approval()
     from model_templates import consumers
     from sync_runtime import owned_artifacts, view_plan
     path = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
@@ -410,6 +434,14 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         if file not in output:
             checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     pending = pending_items(selection, selected, after.values)
+    review_file = evidence.parent / 'review.json'
+    if review_file.is_file():
+        from model_templates import safe
+        safe(evidence.parent, review_file)
+        reviewed = json_read(review_file.read_text(encoding='utf-8'))
+        draft = json_read((evidence.parent / 'review-input.json').read_text(encoding='utf-8'))
+        expected = import_approval.build_review(acquisition, selection, before, after.values, draft['risks'], property_schema)
+        import_approval.verify_review(reviewed, expected)
     complete = not pending and acquisition_complete(acquisition)
     result = {'status': 'incomplete' if not complete else 'dry-run' if dry_run else 'complete',
               'scope': ['/'.join(identity)], 'model': 'unchanged', 'markdown': 'not-run',
@@ -421,14 +453,28 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
               'unreflected': pending, 'inventory': acquisition.get('inventory', {}), 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
     result['referenceMetrics'] = references.metrics
+    document = root / 'docs/designs' / identity[0] / identity[1] / (identity[2] + '.md')
+    managed = owned_artifacts(document, before.values)
+    publication, view_inputs = {}, {}
+    try:
+        with new_references(before, selected), preserved_reference_view(before):
+            displayed = load_for_edit(path, output, display=True)
+        publication, view_inputs = view_plan(document, displayed.values, root, managed)
+        for file, text in displayed.files.items():
+            if file not in output:
+                checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
+    except ReferenceResolutionError as error:
+        result['warnings'].append({**error.diagnostic, 'scope': '/'.join(identity),
+                                   'retainedView': str(document) if document.is_file() else None})
+        result['viewComplete'] = False
+    except ValueError as error:
+        raise ValueError('IMPORT display preflight rejected candidate: ' + str(error)) from error
     unchanged(root, checksums)
     if dry_run:
         result['diff'] = '\n'.join(''.join(difflib.unified_diff(
             (file.read_text(encoding='utf-8') if file.is_file() else '').splitlines(keepends=True), text.splitlines(keepends=True),
             fromfile=file.relative_to(root).as_posix(), tofile=file.relative_to(root).as_posix())) for file, text in output.items())
         return result
-    document = root / 'docs/designs' / identity[0] / identity[1] / (identity[2] + '.md')
-    managed = owned_artifacts(document, before.values)
     write_sealed(root, evidence.parent / 'publication.json', {
         'acquisition': acquisition, 'selection': selection,
         'sources': {file.relative_to(root).as_posix(): {'before': file.read_text(encoding='utf-8') if file.is_file() else None, 'after': text}
@@ -439,15 +485,15 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     acquisition['sources'][task_relative] = checksums[task_relative]
     write_sealed(root, evidence, acquisition)
     snapshot = {root / name: (root / name).read_bytes() if checksum is not None else None for name, checksum in checksums.items()}
-    from inspect import unwrap
-    from model_templates import _reference_inputs, reference_values
-    memo = memo_table()
-    readers = {unwrap(_reference_inputs), unwrap(reference_values)}
-    producers = {key: value for key, value in memo.items()
-                 if key[0] in readers and key[1][0] in references.model_paths}
+    snapshot.update(view_inputs)
     with publication_lock(root):
+        import_approval.require_human_approval()
         contract_scope(root, {identity})
         unchanged(root, checksums)
+        if (candidate_sources(root, evidence.parent / 'candidates', identity) != output
+                or json_read((evidence.parent / 'selection.json').read_text(encoding='utf-8')) != selection
+                or read_acquisition(root, evidence, identity, False) != acquisition):
+            raise ValueError('IMPORT candidates, selection or acquisition changed before publication')
         if incoming_services and tuple(sorted((root / 'model/parameters' / identity[0] / identity[1]).glob('*'))) != incoming_services:
             raise ValueError('IMPORT reference consumer services changed before publication')
         if shared and consumers(root, identity[1], identity[2]) != direct:
@@ -465,17 +511,11 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             raise
     result['model'] = 'reflected' if output else 'unchanged'
     snapshot.update({p: text.encode('utf-8') for p, text in output.items()})
-    memo.clear()
-    memo.update(producers)  # Producer bytes remain guarded by both publication snapshots.
     try:
-        with publication_lock(root):
-            with new_references(before, selected), preserved_reference_view(before):
-                saved = load_for_edit(path, display=True)
-            publication, view_inputs = view_plan(document, saved.values, root, managed)
-            view_inputs.update({file: snapshot.get(file, text.encode('utf-8')) for file, text in saved.files.items()})
-            for file in saved.files:
-                if file.name == 'parameters.yaml':
-                    view_inputs.setdefault(file.parent / 'observed.json', None)
+        if result.get('viewComplete') is False:
+            result['markdown'] = 'retained' if document.is_file() else 'not-generated'
+            result['status'] = 'incomplete'
+            return result
         record_outputs(root, identity, set(), set(publication), preserved)
         snapshot[task_path(root)] = task_path(root).read_bytes()
         with publication_lock(root):
@@ -496,7 +536,8 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             finish_import(root, markdown='failed')
         except (OSError, ValueError):
             result['displayError'] += '; evidence update failed'
-    result['status'] = 'incomplete' if not complete else 'display-failed' if result['markdown'] == 'failed' else 'complete'
+    result['status'] = ('incomplete' if not complete or result.get('viewComplete') is False
+                        else 'display-failed' if result['markdown'] == 'failed' else 'complete')
     return result
 
 
@@ -507,17 +548,17 @@ def main():
     parser.add_argument('--service', required=True)
     parser.add_argument('--target')
     parser.add_argument('--resource-type', action='append', dest='resource_types')
-    parser.add_argument('--phase', choices=('acquire', 'publish'), required=True)
+    parser.add_argument('--phase', choices=('acquire', 'review', 'publish'), required=True)
     parser.add_argument('--evidence', type=Path)
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--no-profile', action='store_true', help='Acquire with the default credential chain, retaining Region and STS account verification')
     args = parser.parse_args()
     if (args.phase == 'acquire' and args.evidence is not None or
-            args.phase == 'publish' and (args.evidence is None or args.no_profile or args.resource_types)):
-        parser.error('acquire accepts --no-profile; publish requires --evidence and never accesses AWS')
+            args.phase in {'review', 'publish'} and (args.evidence is None or args.no_profile or args.resource_types)):
+        parser.error('acquire accepts --no-profile; review/publish require --evidence and never access AWS')
     try:
         result = (acquire(args.repository_root, args.environment, args.service, args.target, args.dry_run, no_profile=args.no_profile, resource_types=args.resource_types)
-                  if args.phase == 'acquire' else publish_acquisition(args.repository_root, args.environment, args.service,
+                  if args.phase == 'acquire' else (review_acquisition if args.phase == 'review' else publish_acquisition)(args.repository_root, args.environment, args.service,
                                                                     args.evidence, args.target, args.dry_run))
         print(json.dumps(result, ensure_ascii=False))
         return 2 if result['status'] == 'incomplete' else 3 if result['markdown'] == 'failed' else 0

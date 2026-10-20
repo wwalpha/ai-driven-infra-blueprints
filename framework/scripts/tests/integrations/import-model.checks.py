@@ -26,6 +26,9 @@ from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, V
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
+    import import_approval
+    # Exercise existing transactions below the unavailable trust boundary, never prove Human approval.
+    monkeypatch.setattr(import_approval, 'require_human_approval', lambda: None)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/import-fixture.md')
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
 
@@ -562,6 +565,11 @@ def check_cross_process_evidence(tmp_path):
     acquired = json.loads(completed.stdout)
     logs_edit(root, acquired)
     publish_code = setup + f"import json; print(json.dumps(m.publish_acquisition(Path({str(root)!r}), 'dev', 'cloudwatch-logs', Path({acquired['evidence']!r}), 'cde')))"
+    rejected = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8')
+    assert rejected.returncode != 0 and 'Human approval unavailable' in rejected.stderr
+    assert Path(acquired['evidence']).is_file()
+    # Explicit synthetic seam for legacy cross-process receipt/rollback coverage only.
+    publish_code = setup + 'import import_approval; import_approval.require_human_approval = lambda: None; ' + publish_code[len(setup):]
     result = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8', check=True)
     report = json.loads(result.stdout)
     assert report['model'] == 'reflected' and report['markdown'] == 'generated'
@@ -574,15 +582,23 @@ def check_dry_run_cleanup(tmp_path):
     root, acquired, _ = prepare(tmp_path, dry_run=True)
     before = snapshot(root)
     logs_edit(root, acquired)
+    evidence = Path(acquired['evidence'])
+    path = root / 'model/dev/cde/cloudwatch-logs.properties'
+    proposed = load_for_edit(path, m.candidate_sources(root, evidence.parent / 'candidates', ('dev', TARGET, 'cloudwatch-logs')))
+    (evidence.parent / 'review-input.json').write_text(json_text({
+        'proposedValues': proposed.values, 'risks': {r['record']: [] for r in acquired['records']}}))
+    reviewed = m.review_acquisition(root, 'dev', 'cloudwatch-logs', evidence, TARGET, True)
+    assert reviewed['model'] == 'unchanged' and snapshot(root) == before
+    assert len(reviewed['review']['dispositions']) == len(acquired['records'])
     result = publish_fixture(root, acquired, dry_run=True)
     assert result['status'] == 'dry-run' and 'RetentionDays: 90' in result['diff']
-    assert snapshot(root) == before and not Path(acquired['evidence']).parent.exists()
+    assert snapshot(root) == before and Path(acquired['evidence']).is_file()
     assert not (root / 'tasks').exists() and not (root / '.blueprint/import').exists()
     second = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, aws(changed=True))
     logs_edit(root, second, 91)
     with pytest.raises(ValueError):
         publish_fixture(root, second, dry_run=True)
-    assert not Path(second['evidence']).parent.exists()
+    assert Path(second['evidence']).is_file()
 
 
 def check_evidence_and_display_recovery(tmp_path):
@@ -596,9 +612,20 @@ def check_evidence_and_display_recovery(tmp_path):
     with pytest.raises(ValueError, match='modified'):
         publish_fixture(root, acquired)
     evidence.write_text(original, encoding='utf-8')
+    before = source_files(root)
     with patch.object(sync_runtime, 'generate_files', side_effect=ValueError('synthetic display failure')):
+        with pytest.raises(ValueError, match='synthetic display failure'):
+            publish_fixture(root, acquired)
+    assert source_files(root) == before and evidence.is_file()
+    publish = m.publish
+    def fail_display(root, output, **kwargs):
+        if any(p.is_relative_to(root / 'docs/designs') for p in output):
+            raise OSError('synthetic display I/O failure')
+        return publish(root, output, **kwargs)
+    with patch.object(m, 'publish', side_effect=fail_display):
         result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['markdown'] == 'failed' and result['status'] == 'display-failed'
+    assert evidence.is_file()
     before = source_files(root)
     with patch.object(m, 'import_context', side_effect=AssertionError('recovery must not acquire')):
         assert sync_runtime.sync(root, True, 'dev', TARGET, ['cloudwatch-logs']) == 0
@@ -952,7 +979,7 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
     assert result['resources']['refreshed' if action == 'refresh' else 'replaced'] == 1
     assert result['resources']['added'] == 0
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
-    assert not Path(acquired['evidence']).parent.exists()
+    assert Path(acquired['evidence']).parent.exists() is dry_run
     if dry_run:
         assert snapshot(root) == original
         assert not (import_guard.evidence_store(root) / 'import-fixture.json').exists()
@@ -1025,7 +1052,7 @@ def check_replace_warns_incoming_references(tmp_path):
     result = publish_fixture(root, acquired, 'vpc')
     assert any(w['code'] == 'reference.replace_impact' for w in result['warnings'])
     assert snapshot(root) != original
-    assert not Path(acquired['evidence']).parent.exists()
+    assert result['status'] == 'incomplete' and Path(acquired['evidence']).is_file()
 
 
 @pytest.mark.parametrize('missing', [False, True])

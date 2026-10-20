@@ -47,8 +47,22 @@ def catalog_outputs(root: Path, kind: str) -> set[str]:
     return set(catalogs_for(root).outputs(kind)) - HIDDEN_PROPERTIES
 
 
-def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:
+def observed_value(row_id, row, observed, outputs):
     from import_sources import has_reference
+    value = row['value']
+    if observed is not None:
+        if link := LINK.fullmatch(value):
+            value = observed if row['property'] in outputs else f"[{literal(observed)}]({link.group(2)}#{link.group(3)})"
+        elif has_reference(value):
+            pass  # Structured link labels retain their native string/list shape.
+        elif '<<' in value:
+            value += ' (observed: ' + observed + ')'
+        else:
+            raise ValueError(f"observed value requires a desired logical reference: {row_id}")
+    return value
+
+
+def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:
     outputs = catalog_outputs(root, kind)
     rows = []
     for row_id, row in entries(values, "desired.row."):
@@ -57,16 +71,7 @@ def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) 
         if set(row) - {"property", "value", "comment", "artifactSha256", "document"} or not {"property", "value", "comment"} <= row.keys():
             raise ValueError(f"invalid resource row: {row_id}")
         observed = values.get(f"observed.row.{row_id}.value")
-        value = row["value"]
-        if observed is not None:
-            if link := LINK.fullmatch(value):
-                value = observed if row["property"] in outputs else f"[{literal(observed)}]({link.group(2)}#{link.group(3)})"
-            elif has_reference(value):
-                pass  # Structured link labels retain their native string/list shape.
-            elif '<<' in value:
-                value += ' (observed: ' + observed + ')'
-            else:
-                raise ValueError(f"observed value requires a desired logical reference: {row_id}")
+        value = observed_value(row_id, row, observed, outputs)
         rows.append([row_id, row["property"], value, row["comment"]])
     return rows
 

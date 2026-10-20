@@ -2,8 +2,9 @@
 
 `/import --environment dev --target cde --service vpc`
 
-Python acquisition → LLM matching and Human selection → ordinary candidate edits →
-Python verification/publication → selected-service Markdown/JSON generation.
+Python acquisition → LLM matching/full before-after proposal → Python Review verification →
+LLM presentation → Human approval → ordinary candidate edits → Python pre-save gates →
+atomic publication → selected-service Markdown/JSON generation.
 The LLM owns target confirmation, matching, Resource ID selection, confirmations,
 Definition/input edits, execution order and reporting. Python owns read-only AWS
 acquisition/normalization, evidence, strict correspondence/value/consumer checks,
@@ -11,10 +12,10 @@ atomic source saving/rollback and generated views. Do not implement a Python dec
 engine, mutation DSL, batch orchestrator or another Model editing/publication API.
 Do not invoke another LLM API or the whole `/update` to perform reflection.
 
-This is a design Task with `Workflow: import`, never IaC/deploy. A normal request
-permits explicitly managed additions; refresh/replace requires the Human's decision
-for the specific record and existing Resource ID. Confirmed decisions persist; do not
-ask again for the same choice. Candidate source edits never authorize AWS mutations.
+This is a design Task with `Workflow: import`, never IaC/deploy. Every add, refresh and
+replace requires Human approval of the concrete record, target, values, references and
+risks. A request to import or a count-only question ("add 7", "update 8") is insufficient.
+Unchanged approved content needs no repeated confirmation. Candidate source edits never authorize AWS mutations.
 Generated Markdown/JSON is never edited directly, including display-only recovery.
 
 ## Read first
@@ -88,6 +89,64 @@ retains its separately authorized development tests.
    Use only normalized non-secret captured Properties. Do not save raw responses,
    credentials, secret Properties or new snapshot files in the repository.
 
+## Full review and Human approval boundary
+
+Before editing source candidates, prepare `selection.json` and an external
+`review-input.json` beside the acquisition. The latter has exactly `proposedValues`
+(the proposed new/changed expanded Model string fields; Python retains the unchanged
+baseline in memory, so do not copy secret or unrelated baseline values) and `risks` (each acquired record ID mapped to a list of concrete
+risk descriptions, including empty lists). This is a read-only proposal, not source
+files or a mutation language. Python never converts it into templates or parameters.
+Do not edit authoritative Models or populate source candidates at this step.
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py --phase review --environment dev --target cde --service vpc --evidence <returned-acquisition.json>
+```
+
+Use `--dry-run` only for an acquisition originally made with that flag. Review reuses
+`selection_records()` identity/matching diagnostics and `verify_values()` without AWS.
+It rejects missing dispositions, unacquired values, invalid observations and changed
+baseline inputs. Python writes normalized `review.json` outside the repository and
+computes its digest. Its Task/Worktree/scope, account/Region, acquisition digest,
+source baseline digest, inventory statuses, all dispositions, typed before/after,
+logical references, observed physical values, omitted properties and risks are bound
+to that digest. Neither a Review digest nor the acquisition's HMAC is authorization.
+
+Present **every** disposition and each Resource Type's acquisition status to the Human.
+For each record include Environment/Target/Service, AWS account/Region, type, record ID,
+physical ID (all composite components), Name or not-acquired, existing Model IDs,
+matching status (confirmed/no-match/unresolved/possible-duplicate), proposed operation,
+target ID, all changed Properties and native before/after values, changed logical
+Reference targets and acquired physical values, unavailable/unreflected settings, and
+risks. Additions show every captured Property and its destination or explicit omission;
+updates always show Before/After. Failed/permission-denied/requires-filter is never
+empty. Excluded and unresolved records remain visible. Never show or save secrets.
+
+Offer individual approval, approval of the entire displayed list, exclusion or correction.
+Whole-list approval binds the whole Review. Individual approval must bind only selected
+record/change digests, preserving every other resource. A changed target, action, value,
+reference or risk requires renewed approval for that part; unchanged parts need none.
+An unknown existing physical ID makes duplicate risk an explicit approval item.
+
+**Current runtime: no trusted Human approval issuer/verifier is available.** Stop after
+Review presentation even if chat says approved. Normal Publish fails closed before
+candidate loading, and source publication/receipt guards reject alternate Import saves.
+Do not create `approved=true`, handwritten approval JSON, a signing CLI the LLM can run,
+an environment override or a local-HMAC approval workaround. No legacy acquisition or
+selection is exempt. Candidate editing and successful whole/individual approval apply
+only after a trusted interface is implemented; they are not supported here.
+
+Required unresolved interface: a Human-only UI must display the normalized review and
+issue an authenticated receipt from an issuer inaccessible to agent tools. The verifier
+must pin its public identity outside agent-writable configuration and bind Review/record
+digests, Task, Worktree, scope, acquisition/baseline, selected changes/risks and expiry
+(within the existing seven-day acquisition lifetime). It must verify these again under
+the publication lock against the actual expanded candidate, not claimed file diffs.
+Same-user local files, the local seal key and agent-executable code are not that boundary.
+This environment permits direct filesystem writes: these Python guards cannot prevent
+an agent bypassing them with raw I/O or changed code. Complete enforcement requires a
+separate trusted writer/OS access boundary; do not claim it is already guaranteed.
+
 ## Agent selection and source edits
 
 The LLM compares confirmed physical IDs, including Mapping identity aliases and
@@ -100,9 +159,9 @@ account/Region singleton scope never identify an existing Resource.
 - **Different physical ID, same IMPORT type:** offer add, replace, or excluded.
   Replacement requires an explicitly selected existing Resource ID. If several exist,
   list their concrete IDs and require the Human to select one; never choose by similarity.
-- **No existing Resources:** add the specified managed AWS resources without an
-  unnecessary overwrite question. If multiple AWS candidates have unclear scope,
-  confirm which to add first. An empty inventory and failed/unsupported acquisition
+- **No existing Resources:** propose the specified managed AWS resources with all
+  acquired values and planned IDs, and obtain explicit approval of the full proposal
+  before candidate editing. An empty inventory and failed/unsupported acquisition
   are different; preserve their returned statuses.
 - **Same physical ID, CREATE:** neither overwrite nor duplicate-add; report the
   management boundary. Never convert CREATE to IMPORT implicitly.
@@ -111,7 +170,7 @@ account/Region singleton scope never identify an existing Resource.
   explicit managed addition retains the existing unknown-ID duplicate-risk warning;
   that warning is not evidence that an ambiguous resource is new.
 
-The LLM processes each selected resource in order: read the confirmed decision,
+After trusted approval is available, the LLM processes each approved resource in order: read the confirmed decision,
 select the ordinary source edit, edit the external candidate files, retain that result,
 and continue to the next resource. Acquire once per service, reuse records/evidence,
 Mapping/Schema/identity caches, and publish the combined service candidate once.
@@ -302,7 +361,9 @@ Run publish with the same evidence identifier, environment, target and service:
 python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py --phase publish --environment dev --target cde --service vpc --evidence <returned-acquisition.json>
 ```
 
-Publish does not access AWS. It verifies the sealed external acquisition, Task/Worktree,
+Publish does not access AWS. Normal Publish currently rejects unavailable trusted
+Human approval; the following checks also remain available for read-only dry-run.
+It verifies the sealed external acquisition, Task/Worktree,
 scope, source hashes, syntax/native types, declared add/refresh/replace correspondence,
 captured changed values, preserved fixed identities and nonselected values/references,
 and direct-consumer preservation. Replace additionally reports incoming-reference impact.
@@ -310,24 +371,39 @@ Apply [Reference diagnostics](../../rules/model-information.md#reference-diagnos
 reference warnings never cancel a saved Model or require repair before completion.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
-whole publication; no old plan is applied over concurrent changes.
+whole publication; no old plan is applied over concurrent changes. When a Review exists,
+the actual candidate expansion must match its typed content and digest. New/changed
+observed rows reuse the desired logical-reference rule and acquired-value checks;
+ordinary Name/CIDR/Boolean/Number settings stay desired. Unrelated existing observed
+rows are not revalidated by this new observation check.
+
+Before any source save, use `load_for_edit(path, candidates, display=True)` inside the
+existing `new_references`/`preserved_reference_view` contexts and `view_plan()` to prepare
+selected-service Markdown/JSON in memory. Structural/JSON/type errors reject before
+writing Model or views. Reference-only warnings remain nonblocking. Under
+`publication_lock()` recheck authorization, source hashes, Task, acquisition, selection
+and candidate bytes before atomic source publication. No Issue Gate, naming rules,
+design constraints or other-environment generation checks are added.
 
 The existing publication_lock, publish, journal and rollback save all dependent sources
 in one transaction. No partial shared-template/selected-input save is allowed. Next, the
-existing import-specific path generates only the selected service's Markdown/JSON and
+existing import-specific path saves only the selected service's pre-generated Markdown/JSON and
 saves them in a separate transaction. Display failure retains saved Model sources and
 is reported separately. Reference-only inability retains the existing view or reports
-not-generated/NOT_RUN with warnings and exit zero. No other environment or service is written or generated.
+not-generated/NOT_RUN with warnings; report incomplete display and retain evidence.
+No other environment or service is written or generated.
 
 Acquisition values, source before/after contents and correspondence details live in a
 private temporary session outside the repository. The small external
 `evidence_store(root)/<task-name>.json` completion receipt retains hashes, scope, connection
-and statuses, protected by a local integrity seal. Successful publication (including
-reported pending items or display failure) removes the temporary session. Failed normal
-publication retains it for diagnosis/re-editing; if sources changed, discard it and
-acquire a fresh session rather than reusing stale evidence. On cancellation/failure,
-remove only the returned session directory when no longer needed. The local temporary
-seal contains no AWS credentials or captured values and supports later completion checks.
+and statuses, protected by a local integrity seal. Remove the temporary session only
+after complete source/display success or explicit Human termination. Review, failed
+preflight, pending items, dry-run and display failure retain acquisition and review evidence.
+Preserve the seven-day expiry. Baseline changes invalidate the old Review/approval;
+report the mismatch without automatic reacquisition or reuse. Display I/O recovery
+never silently edits Model values and needs neither AWS reacquisition nor new approval.
+Source correction after a save requires a new baseline/content comparison and any
+necessary renewed approval. Local seals support integrity checks, not Human identity.
 
 For display-only recovery, use the selected import contract/evidence without reacquisition:
 
@@ -339,11 +415,11 @@ Use `--aws-account-id` without Alias. Ordinary sync keeps its existing checks.
 
 ## Dry-run and result
 
-For dry-run, append `--dry-run` to both acquire and publish. Perform the same agent
-candidate edits and disposition decisions between them. Publish returns the source diff
-without Model, display, contract or completion-evidence writes and removes its temporary
-session even on validation failure. If stopping before publish, remove that exact session
-directory in a finally/cleanup step. Never require dry-run before normal import or retrieve
+For an explicitly requested read-only dry-run, append `--dry-run` to acquire and
+review/publish. External proposed candidates are previews only and grant no save authority.
+Publish returns the source diff after in-memory display preflight without Model,
+display, contract or completion-evidence writes. Retain its session on success/failure
+until explicit Human termination. Never require dry-run before normal import or retrieve
 the same inventory twice as a preview/apply procedure.
 
 Report Model (`reflected` / `unchanged` / `failed`), Markdown/JSON (`generated` /
