@@ -36,7 +36,7 @@ def new_references(before, selected):
 
 @contextmanager
 def preserved_reference_view(before):
-    """After guarded source publication, resolve unchanged old selectors for display."""
+    """Resolve saved selectors only during read-only analysis or guarded display."""
     from model_core import entries
     token = _display_resources.set(frozenset(dict(entries(before.values, 'desired.resource.'))))
     try:
@@ -146,7 +146,9 @@ def read_context(root):
     identity = selected(root)
     if identity is None:
         return None
-    return identity, tuple(sorted(readable(root))), _reference.get()
+    return (identity, tuple(sorted(readable(root))), _reference.get(),
+            _display_resources.get(), _additions.get(),
+            tuple(sorted((rid, tuple(sorted(props))) for rid, props in (_updates.get() or {}).items())))
 
 
 def require_readable(root, path):

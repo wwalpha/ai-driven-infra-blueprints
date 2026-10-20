@@ -656,6 +656,149 @@ def check_design_pending_observation_retains_target_guard(tmp_path, physical):
         resolver.verify_resource(source, '009')
 
 
+
+
+def impact_fixture(root):
+    producer(root, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed', 'Name': 'private-subnet'})
+    path = root / 'model/dev/cde/codebuild.properties'
+    source = values('CodeBuild.Project', {'VpcConfig.Subnets': 'unused'}, rid='009', anchor='build')
+    source.update(values('CodeBuild.Project', {'Name': 'sibling'}, rid='010', anchor='sibling'))
+    source['desired.row.010-001.value'] = '[build](#build)'
+    write_model(path, source)
+    template = root / 'model/templates/cde/codebuild.properties.tpl'
+    text = template.read_text(encoding='utf-8')
+    declaration = {'type': 'reference', 'description': '合成Subnet', 'required': True,
+                   'service': 'vpc', 'resourceType': 'EC2.Subnet'}
+    text = text.replace('# resource:', '# parameter: Subnet ' + json_text(declaration) + '\n# resource:', 1)
+    template.write_text(text.replace('`unused`', '<<Subnet>>'), encoding='utf-8')
+    directory = root / 'model/parameters/dev/cde/codebuild'
+    (directory / 'parameters.yaml').write_text('instances:\n  fixture:\n    parameters:\n      Subnet: "001"\n', encoding='utf-8')
+    consumer = values('CodePipeline.Pipeline', {'RoleArn': 'unused'}, rid='003', anchor='pipeline')
+    consumer['desired.row.003-001.value'] = '[build](codebuild.md#build)'
+    write_model(root / 'model/dev/cde/codepipeline.properties', consumer)
+    return path
+
+
+@pytest.mark.parametrize('action', ['bind', 'replace'])
+def check_saved_import_impact_analysis(tmp_path, action):
+    from import_promotion import replacement_inputs
+    from model_templates import load_for_analysis
+    path = impact_fixture(tmp_path)
+    snapshot = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    scopes = {('dev', 'cde', name) for name in ('vpc', 'codebuild', 'codepipeline')}
+    with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers(scopes):
+        with pytest.raises(ValueError, match='CREATE logical links'):
+            load_for_analysis(path)
+        warnings = []
+        inputs, directories = replacement_inputs(tmp_path, ('dev', 'cde', 'codebuild'),
+                                                {'009': {'_action': action}}, warnings)
+        assert inputs and directories
+        impacts = [w for w in warnings if w['code'] == 'reference.replace_impact']
+        assert any(w['consumer'] == 'dev/cde/codebuild/010' for w in impacts)
+        assert any(w['consumer'] == 'dev/cde/codepipeline/003' and
+                   w['producer'] == 'dev/cde/codebuild/009' and w['provenance'] and
+                   w['property'] == 'CodePipeline.Pipeline.RoleArn' for w in impacts)
+        with pytest.raises(ValueError, match='CREATE logical links'):
+            load_for_analysis(path)
+    assert snapshot == {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('permission_first', [False, True])
+def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
+    from import_scope import preserved_reference_view
+    from model_templates import load_for_analysis
+    path = impact_fixture(tmp_path)
+    with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
+        before = load_for_edit(path)
+        if not permission_first:
+            with pytest.raises(ValueError, match='CREATE logical links'):
+                load_for_analysis(path)
+        with preserved_reference_view(before):
+            first = load_for_analysis(path)
+            assert first.complete and not first.warnings
+            assert first.values['desired.row.009-001.value'] == '[private-subnet](vpc.md#producer)'
+            assert load_for_analysis(path) is first
+        with pytest.raises(ValueError, match='CREATE logical links'):
+            load_for_analysis(path)
+
+
+@pytest.mark.parametrize('invalid', ['999', 'bad-id', 'wrong-type', 'undeclared'])
+def check_impact_keeps_invalid_reference_diagnostics(tmp_path, invalid):
+    from import_promotion import replacement_inputs
+    path = impact_fixture(tmp_path)
+    if invalid == 'undeclared':
+        file = tmp_path / 'model/parameters/dev/cde/codebuild/parameters.yaml'
+        file.write_text(file.read_text().replace('Subnet:', 'Unknown:'), encoding='utf-8')
+    else:
+        file = tmp_path / 'model/parameters/dev/cde/codebuild/parameters.yaml'
+        if invalid == 'wrong-type':
+            template = tmp_path / 'model/templates/cde/codebuild.properties.tpl'
+            template.write_text(template.read_text().replace('EC2.Subnet', 'EC2.VPC'), encoding='utf-8')
+        else:
+            file.write_text(file.read_text().replace('001', invalid), encoding='utf-8')
+    with restrict(('dev', 'cde', 'codebuild')):
+        if invalid == 'undeclared':
+            with pytest.raises(ValueError):
+                replacement_inputs(tmp_path, ('dev', 'cde', 'codebuild'), {'009': {'_action': 'bind'}})
+        else:
+            warnings = []
+            replacement_inputs(tmp_path, ('dev', 'cde', 'codebuild'), {'009': {'_action': 'replace'}}, warnings)
+            assert any(w.get('status') == 'unresolved' for w in warnings)
+
+
+def check_analysis_permission_restores_after_exception_and_foreign_scope(tmp_path):
+    from import_scope import preserved_reference_view
+    from model_templates import load_for_analysis
+    path = impact_fixture(tmp_path)
+    with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
+        before = load_for_edit(path)
+        with pytest.raises(RuntimeError, match='analysis failed'):
+            with preserved_reference_view(before):
+                assert load_for_analysis(path).complete
+                for foreign in (tmp_path / 'model/stg/cde/codebuild.properties',
+                                tmp_path / 'model/dev/other/codebuild.properties'):
+                    with pytest.raises(ValueError, match='outside selected'):
+                        load_for_analysis(foreign)
+                raise RuntimeError('analysis failed')
+        with pytest.raises(ValueError, match='CREATE logical links'):
+            load_for_analysis(path)
+
+
+
+@pytest.mark.parametrize('action', ['bind', 'replace'])
+def check_review_runs_saved_reference_impact(tmp_path, action):
+    from script_loader import module
+    cli = module('import-model.py', 'impact_review_cli')
+    impact_fixture(tmp_path)
+    evidence = tmp_path / 'evidence/acquisition.json'
+    evidence.parent.mkdir()
+    (evidence.parent / 'review-input.json').write_text(json_text({'proposedValues': {}, 'risks': []}), encoding='utf-8')
+    (evidence.parent / 'selection.json').write_text('{}', encoding='utf-8')
+    acquisition = {'sources': {}, 'records': []}
+    def review(*args, reference_impact, **kwargs):
+        assert reference_impact['inputs']
+        assert any(w['consumer'] == 'dev/cde/codepipeline/003' for w in reference_impact['warnings'])
+        return {'referenceImpact': reference_impact}
+    with patch.object(cli, 'target_for', return_value={'directory': 'cde'}), \
+         patch.object(cli, 'read_acquisition', return_value=acquisition) as acquisition_read, \
+         patch.object(cli, 'selection_records', return_value={'009': {'_action': action}}), \
+         patch.object(cli, 'unchanged') as unchanged, \
+         patch.object(cli.import_approval, 'build_review', side_effect=review):
+        result = cli.review_acquisition(tmp_path, 'dev', 'codebuild', evidence, 'cde')
+    assert result['status'] == 'reviewed' and result['model'] == 'unchanged'
+    assert acquisition_read.call_count == 2 and unchanged.call_count == 2
+    assert unchanged.call_args.args[1] == result['review']['referenceImpact']['inputs']
+
+def check_preserved_read_does_not_authorize_writes(tmp_path):
+    from import_scope import preserved_reference_view
+    path = impact_fixture(tmp_path)
+    with restrict(('dev', 'cde', 'codebuild')):
+        before = load_for_edit(path)
+        candidate = before._replace(values={**before.values, 'desired.row.010-001.comment': 'changed'})
+        with preserved_reference_view(before), pytest.raises(ValueError):
+            verify_values(before, candidate, {}, lambda _: {'type': 'string'})
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

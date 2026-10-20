@@ -183,7 +183,8 @@ def replacement_inputs(root, identity, selected, warnings=None):
     replacements = {rid for rid, record in selected.items() if record.get('_action') in {'replace', 'bind'}}
     if not replacements:
         return {}, ()
-    from import_scope import read_consumers
+    from import_scope import read_consumers, preserved_reference_view, model_path
+    from model_templates import load_for_edit
     from model_reference_usage import incoming_references
     from model_sources import read_sources
     from validation_cache import input_select
@@ -193,9 +194,11 @@ def replacement_inputs(root, identity, selected, warnings=None):
     with read_consumers(scopes):
         for scope in sorted(scopes):
             inputs.update(read_sources(root / 'model' / scope[0] / scope[1] / (scope[2] + '.properties')))
+        before = load_for_edit(model_path(root, identity))
         for rid in sorted(replacements):
             address = '/'.join((*identity, rid))
-            diagnosis = incoming_references(root, address)
+            with preserved_reference_view(before):
+                diagnosis = incoming_references(root, address)
             warnings.extend({**warning, 'resource': rid} for warning in diagnosis['warnings'])
             warnings.extend({'code': 'reference.replace_impact',
                              'message': 'replacement or first binding affects an incoming reference', **item, 'resource': rid}
