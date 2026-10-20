@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 import task_contract as tasks
 import worktree_python as python_env
@@ -305,39 +306,83 @@ def cleanup(where, task_id):
         return cleanup_state(root, path, state)
 
 
-def _prepare_commit(root, path, state, target, approval):
-    changed = changed_paths(target)
-    task_id = state['task_id']
-    text = (target / state['task_file']).read_text(encoding='utf-8')
+def _run_model_guard(target, task_file, approved=False):
+    runtime = python_env.runtime(target)
+    if runtime is None:
+        raise Blocked('registered Python runtime is missing; rerun worktree setup')
+    interpreter, environment = runtime
+    command = [str(interpreter), '-B', '-c',
+               'import sys; from pathlib import Path; sys.path.insert(0, "framework/scripts"); '
+               'import task_contract as tasks; from import_guard import require_import_changes; '
+               'root = Path.cwd()\n'
+               'with tasks.selected_task(root, sys.argv[1]):\n'
+               '    require_import_changes(root, **({"contract_file": sys.argv[1]} if sys.argv[2] == "approved" else {}))',
+               task_file, 'approved' if approved else 'normal']
+    result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')
+    if result.returncode:
+        error = Blocked(f'Model guard failed (exit {result.returncode}); worktree retained\n'
+                        f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}')
+        error.diagnostics = {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
+        raise error
+    # CLI stdout is reserved for its single JSON result, including successful warnings.
+    for stream in ('stdout', 'stderr'):
+        diagnostic = getattr(result, stream)
+        if diagnostic:
+            print('Model guard ' + stream + ':\n' + diagnostic, file=sys.stderr, end='' if diagnostic.endswith('\n') else '\n')
+
+
+def _commit_preconditions(target, state, changed, text, parsed_operation):
+    idle_git(target)
     tasks.validate_contract(target, state['task_file'], text)
     declared = tasks.paths_in(text, '## Modified files')
     allowed = tasks.paths_in(text, '## Allowed paths')
     if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
         raise Blocked('integration changes are outside the exact task contract')
+    if any(p.startswith('tasks/') for p in changed):
+        raise Blocked('contracts must remain ignored; nothing committed')
+    head = output(target, 'rev-parse', 'HEAD')
+    if head != state['tip']:
+        raise Blocked('unexpected commits on task branch; review required')
+    if state['commit'] and not state['verified']:
+        raise Blocked('task commit verification failed; review required before any retry')
+    if state['commit'] and changed:
+        if parsed_operation is None or parsed_operation.action != 'import-delete':
+            raise Blocked('task changed after commit; rerun its workflow before integration')
+    return head
+
+
+def _prepare_commit(root, path, state, target, approval):
+    changed = changed_paths(target)
+    task_id = state['task_id']
     model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
     contract = (target / state['task_file']).read_text(encoding='utf-8')
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
     if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
         raise Blocked('Model refactor/retarget/delete integration requires successful final candidate validation')
+    head = _commit_preconditions(target, state, changed, contract, parsed_operation)
+    base_worktree(root, state)
+    if not ancestor(root, state['start'], state['base']):
+        raise Blocked('base history was rewritten; task retained for review')
     if (not operation or approval) and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
-        from import_guard import require_import_changes
-        if approval:
-            integration_task(target, state, approval)
-        with tasks.selected_task(target, state['task_file']):
-            require_import_changes(target, contract_file=state['task_file'] if approval else None)
+        integration_task(target, state, approval)
+        index = output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames')
+        before = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
+        _run_model_guard(target, state['task_file'], bool(approval))
         changed = changed_paths(target)  # Valid legacy receipts may have migrated.
-    if any(p.startswith("tasks/") for p in changed):
-        raise Blocked("contracts must remain ignored; nothing committed")
-    head = output(target, "rev-parse", "HEAD")
-    if head != state["tip"]:
-        raise Blocked("unexpected commits on task branch; review required")
-    if state["commit"] and not state["verified"]:
-        raise Blocked("task commit verification failed; review required before any retry")
-    if state["commit"] and changed:
-        if parsed_operation is None or parsed_operation.action != 'import-delete':
-            raise Blocked("task changed after commit; rerun its workflow before integration")
-        # Explicit resumed deletion repairs retain the previous candidate as their parent.
+        current = (target / state['task_file']).read_text(encoding='utf-8')
+        if output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames') != index:
+            raise Blocked('task index changed during Model guard; retain worktree')
+        if current != contract:
+            raise Blocked('task contract changed during Model guard; retain worktree')
+        after = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
+        for p in before.keys() | after.keys():
+            if p.startswith('.blueprint/import/') and after.get(p) is None:
+                continue  # The guard may migrate a valid legacy receipt.
+            if p not in before or p not in after or before[p] != after[p]:
+                raise Blocked('task changes changed during Model guard; retain worktree: ' + p)
+        integration_task(target, state, approval)
+        head = _commit_preconditions(target, state, changed, current, parsed_operation)
     if approval:
         state["validation_failure_approval"] = approval
     if changed:
@@ -640,7 +685,7 @@ def main():
                         "remaining_branch": retained["branch"] if branch_exists(root, retained["branch"]) else None}
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        print(json.dumps({**retained, "status": "blocked", "error": str(error)}, ensure_ascii=False))
+        print(json.dumps({**retained, "status": "blocked", "error": str(error), **({"diagnostics": error.diagnostics} if hasattr(error, "diagnostics") else {})}, ensure_ascii=False))
         return 1
 
 

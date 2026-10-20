@@ -117,15 +117,16 @@ def check_dirty_base_and_retry():
         git(root, "add", "file.txt")
         index = git(root, "write-tree")
         result = cli(root, "finalize", success=False)
-        assert "dirty" in result["error"] and result["commit"]
+        assert "dirty" in result["error"] and result["commit"] is None
         retained(root, target, state, before)
         assert (root / "file.txt").read_text() == "human dirty\n" and git(root, "write-tree") == index
-        assert git(target, "rev-parse", "HEAD") == result["commit"]
+        assert git(target, "rev-parse", "HEAD") == state["start"]
+        assert (target / "file.txt").read_text() == "task\n"
         # Human resolves their own dirty base; helper never stashes or resets it.
         git(root, "commit", "-qm", "human work")
         result = cli(root, "finalize", success=False)  # same-path rebase conflict
         assert "aborted" in result["error"] and target.exists()
-    print("Dirty base/index preserved, committed task retained: PASS")
+    print("Dirty base/index preserved, uncommitted task retained: PASS")
 
 
 @it_case
@@ -539,8 +540,10 @@ def check_approved_model_reads():
     for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
                  'wrong-task', 'wrong-base', 'wrong-scope', 'incomplete', 'wrong-sources'):
         with fixture() as root:
+            from support.it_workspace import populate
+            populate('framework', root)
             operation_fixture(root)
-            git(root, 'add', 'model', 'project.json')
+            git(root, 'add', 'framework', 'model', 'project.json')
             git(root, 'commit', '-qm', 'synthetic Model baseline')
             target, state = start(root, files=(relative,))
             source = target / relative
@@ -578,7 +581,7 @@ def check_approved_model_reads():
                     with pytest.raises(ValueError, match='suspend task cannot execute'):
                         call()
             cli(root, 'finalize', success=False)
-            with mapping_alias(SCRIPT.parents[2], target):
+            with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
                 if mode in ('preserved', 'proof'):
                     # Keep the checkout for byte-for-byte status inspection, then exercise cleanup retry.
                     (target / 'secret.bin').write_text('preserve')
@@ -600,13 +603,73 @@ def check_approved_model_reads():
     print('Approved suspended Model comparison and sealed IMPORT evidence guards: PASS')
 
 
+
+@it_case
+def check_registered_normal_model_guard():
+    import venv
+    from support.import_model_fixtures import dependency_fixture
+    from support.it_workspace import populate
+    relative = 'model/templates/cde/service-a.properties.tpl'
+    with fixture() as root:
+        populate('framework', root)
+        dependency_fixture(root)
+        (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
+        git(root, 'add', '.'); git(root, 'commit', '-qm', 'synthetic runtime fixture')
+        target, state = start(root, files=(relative,))
+        directory = target / '.venv'
+        venv.EnvBuilder(with_pip=False).create(directory)
+        interpreter = wt.python_env.python_path(directory)
+        site = subprocess.run([str(interpreter), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        # Reuse installed test dependencies offline; the fixture never invokes pip/setup.
+        Path(site, 'fixture-dependencies.pth').write_text('\n'.join(p for p in sys.path if p.endswith('site-packages')) + '\n')
+        probe = root.parent / 'guard-probe.json'
+        Path(site, 'guard_probe.py').write_text("""import sys, json, atexit, os
+from pathlib import Path
+counts = {}
+def profile(frame, event, arg):
+    if event != 'call': return
+    name, file = frame.f_code.co_name, Path(frame.f_code.co_filename).name
+    if file == 'worktree_task.py' and name in ('lifecycle_lock', 'finalize', 'prepare_integration', 'cleanup'):
+        raise AssertionError('guard child entered lifecycle')
+    if file in ('model_reference_usage.py', 'model_templates.py') and name in ('_symbolic', '_load_for_analysis'):
+        assert sys.modules['validation_cache'].memo_table() is not None
+        counts[name] = counts.get(name, 0) + 1
+sys.setprofile(profile)
+atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(counts)))
+""", encoding='utf-8')
+        Path(site, 'guard-probe.pth').write_text('import guard_probe\n', encoding='utf-8')
+        state['python_setup'] = dict(status='ready', kind='venv', installed=False,
+                                    interpreter=str(interpreter), bin=str(interpreter.parent), **wt.python_env.signature(target))
+        _, _, state_path, _ = wt.load(root, 'example')
+        wt.save(state_path, state)
+        (target / relative).write_text((target / relative).read_text() + '\n# ordinary save\n')
+        finish_contract(target, state)
+        environment = {**os.environ, 'BLUEPRINT_TASK_FILE': 'tasks/foreign.md', 'GUARD_PROBE': str(probe)}
+        parent = [sys.executable, '-S', '-B', '-c',
+                  'import sys, importlib.util; '
+                  'assert importlib.util.find_spec("pystache") is None; '
+                  'sys.path.insert(0, sys.argv.pop(1)); '
+                  'import worktree_task; raise SystemExit(worktree_task.main())',
+                  str(SCRIPT.parent), 'finalize', '--repository-root', str(root), '--task-id', 'example']
+        result = subprocess.run(parent, cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        response = json.loads(result.stdout)
+        assert result.returncode == 0, response
+        assert response['cleaned'] and response['merged']
+        counts = json.loads(probe.read_text())
+        assert counts['_symbolic'] >= 4 and counts['_load_for_analysis'] >= 4
+        assert not target.exists()
+        assert (root / relative).read_text().endswith('# ordinary save\n')
+    print('Ordinary Model guard in registered venv with dependency-free parent: PASS')
+
+
 def main():
     for check in (check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,
                   check_merge_retry_and_commit_failure,
-                  check_human_approved_validation_failure, check_approved_model_reads, check_real_loop_integration):
+                  check_human_approved_validation_failure, check_approved_model_reads, check_registered_normal_model_guard, check_real_loop_integration):
         check()
     print("worktree-task: PASS (isolated lifecycle and failure retention)")
 
@@ -620,6 +683,10 @@ def check_model_operation_integration():
                                       ("import-merge", True, False), ("import-merge", False, True),
                                       ("import-delete", False, True), ("import-merge", True, True)):
         with fixture() as root:
+            if approved:
+                from support.it_workspace import populate
+                populate("framework", root)
+                git(root, "add", "framework")
             operation_fixture(root)
             git(root, "add", "model", "project.json")
             git(root, "commit", "-qm", "model fixture")
@@ -635,7 +702,7 @@ def check_model_operation_integration():
                 tasks.refresh(target, state['task_file'])
                 for name in sources:
                     shutil.copyfile(candidate / name, target / name)
-                with mapping_alias(SCRIPT.parents[2], target):
+                with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
                     if not approved:
                         finish_contract(target, state)
                     if corrupt:

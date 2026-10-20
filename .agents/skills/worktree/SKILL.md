@@ -101,6 +101,13 @@ Use this option only after actual human approval of this task's failures; a gene
 
 `finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
 
+Ordinary integration runs only the Model guard in the target worktree’s registered Python,
+with its Task explicitly selected. The launcher retains Git, lifecycle lock and cleanup ownership.
+Cheap contract, HEAD, commit and base checks precede analysis and required checks remain after
+the guard; changed Task, files or index stop before staging. No runtime fallback or automatic
+setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures
+retain the child return code, stdout and stderr separately in `diagnostics`.
+
 It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the worktree/branch without force. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. No remote push or PR is created.
 
 ## Failures and cleanup

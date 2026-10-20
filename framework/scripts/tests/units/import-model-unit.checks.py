@@ -2027,6 +2027,90 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
             verify_model_refactor(before, after, model_refactor(contract), sources, scope)
 
 
+@pytest.mark.parametrize('outer', [False, True])
+@pytest.mark.parametrize('change', ['comment', 'value', 'reference', 'mode', 'warning', 'invalid'])
+def check_guard_cache_equivalence(tmp_path, outer, change):
+    import cProfile, pstats, io, subprocess
+    from contextlib import nullcontext, redirect_stdout, redirect_stderr
+    from support.import_model_fixtures import dependency_fixture
+    from support.worktree_task_fixtures import contract
+    from validation_cache import input_context, memo_table
+    from utils.aws_mappings import mapping_alias
+    import task_contract as tasks
+    import model_templates as templates
+    dependency_fixture(tmp_path)
+    def git(*args):
+        subprocess.run(['git', *args], cwd=tmp_path, check=True, capture_output=True)
+    git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
+    (tmp_path / '.gitignore').write_text('tasks/\n')
+    git('add', '.'); git('commit', '-qm', 'baseline')
+    path = tmp_path / ('model/templates/cde/service-a.properties.tpl' if change in ('comment', 'value', 'invalid') else 'model/parameters/stg/cde/service-b/parameters.yaml')
+    original = path.read_text()
+    candidate = (original + '\n# comment\n' if change == 'comment' else
+                 original.replace('<<Name>>', '<<Name>>-changed') if change == 'value' else
+                 original.replace('001', '003') if change == 'reference' else
+                 original.replace('IMPORT', 'CREATE') if change == 'mode' else
+                 original.replace('001', '999') if change == 'warning' else 'invalid template')
+    relative = path.relative_to(tmp_path).as_posix()
+    (tmp_path / 'tasks').mkdir()
+    (tmp_path / 'tasks/cache.md').write_text(contract('cache', [relative]))
+    results, counts = [], []
+    for cached in (False, True):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        profiler = cProfile.Profile()
+        with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(Path(__file__).resolve().parents[4], tmp_path), \
+                (input_context() if outer else nullcontext()), redirect_stdout(stdout), redirect_stderr(stderr):
+            memo = memo_table()
+            if memo is not None:
+                memo['sentinel'] = True
+            profiler.enable()
+            try:
+                compared = (import_guard.changes if cached else import_guard.changes.__wrapped__)(tmp_path, {relative}, {path: candidate})
+                result = ('ok', compared[1])
+            except ValueError as error:
+                result = ('error', str(error))
+            profiler.disable()
+            if memo is not None:
+                assert memo_table() is memo and memo['sentinel']
+        assert memo_table() is None
+        # Temporary paths are diagnostic locations, not semantic differences.
+        import re
+        def normalize(text):
+            text = re.sub(r'/[^\s:]*blueprint-import-baselines-[^/]+/[^/]+', '<snapshot>/before', text)
+            return re.sub(r'/[^\s:]*blueprint-import-guard-[^/]+/(before|after)', r'<snapshot>/\1', text)
+        results.append((result[0], normalize(str(result[1])), normalize(stdout.getvalue()), normalize(stderr.getvalue())))
+        counts.append(sum(value[1] for key, value in pstats.Stats(profiler).stats.items() if key[2] in ('_parse_template', '_reference_inputs')))
+    assert results[0] == results[1]
+    if not outer and change != 'invalid':
+        assert counts[1] < counts[0]
+    if change in ('value', 'mode'):
+        assert result[0] == 'ok' and result[1]
+        if change == 'value':
+            assert {key.split('/')[0] for key in result[1]} == {'dev', 'stg'}
+    import model_reference_usage
+    symbolic = model_reference_usage._symbolic
+    visited = []
+    def checked_symbolic(path, *args):
+        assert memo_table() is not None
+        visited.append(path)
+        return symbolic(path, *args)
+    with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(Path(__file__).resolve().parents[4], tmp_path), (input_context() if outer else nullcontext()), patch.object(model_reference_usage, '_symbolic', side_effect=checked_symbolic):
+        if change == 'comment':
+            templates.publish(tmp_path, {path: candidate})
+            assert path.read_text() == candidate
+            # A later save must not reuse a pre-publication expansion.
+            with pytest.raises(ValueError, match='IMPORT configuration changes'):
+                templates.publish(tmp_path, {path: candidate.replace('<<Name>>', '<<Name>>-new')})
+            assert path.read_text() == candidate
+        elif change in ('value', 'mode'):
+            with pytest.raises(ValueError, match='IMPORT configuration changes'):
+                templates.publish(tmp_path, {path: candidate})
+            assert path.read_text() == original
+        if change in ('comment', 'value', 'mode'):
+            assert visited and any('blueprint-import-baselines-' in str(p) for p in visited)
+            assert any('blueprint-import-guard-' in str(p) for p in visited)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

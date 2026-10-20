@@ -1868,3 +1868,17 @@ single merge. The lifecycle units replace only Python setup and full-loop dispat
 they execute the existing source guard, final semantic check and temporary Git operations.
 Existing import-model, task-contract and model-retarget units retain merge/single-delete/
 standalone-retarget compatibility coverage. No IT execution engine is added.
+
+
+## 保存・通常統合ガード
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `guard-cache/equivalence` | `check_guard_cache_equivalence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 12 | キャッシュ有無・上位context有無、固定入力の差分/診断一致、実解析回数、通常保存拒否・書込み後無効化 | Added |
+| `guard-runtime/process` | `check_registered_guard_process` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 8 | 明示Task・通常/承認contract_file、warning・非ゼロstdout/stderr、起動/runtime失敗 | Added |
+| `guard-runtime/preconditions` | `check_prepare_rejects_before_git_write` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 11 | 安価な前提違反、ガード拒否、ガード中のTask/HEAD/変更をGit書込み前に拒否 | Added |
+| `guard-runtime/json` | `check_cli_failure_diagnostics` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 1 | CLI JSONと子診断の分離 | Added |
+| `guard-runtime/integration` | `check_registered_normal_model_guard` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Model依存なし親・登録済みvenv子・通常ガードから実commit/merge/cleanup、pipなし | Added |
+
+既存の承認付きsuspendのガード・証跡テストは子プロセスで実行し、拒否理由と状態保持を継続する。
+dirty baseは高コスト解析・commit前に拒否するため、既存テストは未コミット内容の保持を確認する。

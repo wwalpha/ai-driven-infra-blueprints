@@ -23,7 +23,7 @@ from model_templates import affected, json_text, model_paths
 from policy_tables import literal
 from sync_files import atomic_files, save_files
 from task_contract import contracts, section, task_path, contract_path
-from validation_cache import input_bytes, input_text, input_is_file, input_select
+from validation_cache import input_bytes, input_text, input_is_file, input_select, input_scope
 from utils.aws_mappings import definition_root, mappings_for, mapping_alias
 
 
@@ -202,6 +202,7 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
         yield before, after
 
 
+@input_scope
 def changes(root, sources, output=None, include_create=False, *, contract_file=None):
     root = root.resolve()
     from import_scope import selected
