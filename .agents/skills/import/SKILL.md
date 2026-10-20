@@ -1,12 +1,15 @@
 ---
 name: import
-description: Acquire once, let the LLM ask and checkpoint Human chat selections (including explicit bind), present the complete normalized Review, and verify trusted Host approval before candidate edits and one service publication. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
+description: Acquire once, let any LLM agent ask and checkpoint Human chat selections (including explicit bind), present the complete normalized Review, and verify independent trusted approval before candidate edits and one service publication. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute
 only its contents as the authoritative workflow. Treat Skill arguments as its inputs.
 Do not duplicate the Prompt specification. Stop if the Prompt is missing.
 Follow its phase-specific reads; reuse unchanged rules already read in this execution.
+The retained `codex/08_import.md` path is shared by GitHub Copilot, Codex, Claude Code
+and other agents. Use ordinary agent chat; a product-specific question UI is optional.
+No IDE, agent SDK or operating system is required by the Import approval contract.
 
 Examples:
 

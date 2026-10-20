@@ -2,6 +2,13 @@
 
 `/import --environment dev --target cde --service vpc`
 
+This workflow is shared by GitHub Copilot, Codex, Claude Code and other LLM agents.
+The `prompts/codex/08_import.md` path is retained for compatibility, not an agent
+restriction. Use ordinary chat for questions and approval requests; native question
+widgets are optional. Python does not detect the agent, call its SDK or require its
+IDE. Use the platform's Python 3 launcher (`python3` in these examples, or `py -3`
+on Windows); an approval integration must preserve the same contract on each platform.
+
 Python acquisition → LLM matching/full before-after proposal → Python Review verification →
 LLM presentation → Human approval → ordinary candidate edits → Python pre-save gates →
 atomic publication → selected-service Markdown/JSON generation.
@@ -134,7 +141,7 @@ continues from those answers without casually asking them again. Missing checkpo
 require recovery from actual Human chat answers; never manufacture them. Expired or
 changed baselines invalidate old decisions; report and obtain new instructions rather
 than silently reacquiring/reusing. The checkpoint is editable by the LLM and proves no
-Human identity; final Host approval covers the complete verified result.
+Human identity; final independent approval covers the complete verified result.
 
 Once every Resource is decided, the LLM constructs the existing `selection.json`:
 resource answers go in `resources`, exclusions lose their `action` field and go in
@@ -184,15 +191,24 @@ risks. Additions show every captured Property and its destination or explicit om
 updates always show Before/After. Failed/permission-denied/requires-filter is never
 empty. Excluded and unresolved records remain visible. Never show or save secrets.
 
-Ask for final approval of the complete displayed service Review in chat, with correction
-or exclusion available. Resource selection alone is not final approval. A changed target,
+The LLM performs `request_human_choice` through the questions above and
+`request_final_approval` by presenting the complete service Review in chat. These names
+describe responsibilities, not new Python functions or required SDK methods.
+Offer **approve all**, **approve named records**, **correct selections**, **exclude**
+and **cancel**. Record individual approvals by stable record ID and the reviewed
+content; show which records still need approval and wait. No answer or timeout is approval.
+Cancellation stops candidate editing and Publish, preserving the external session for
+an explicit resume; neither cancellation nor partial approval changes Model sources.
+On resume, revalidate the existing acquisition/baseline and approval lifetime first.
+Resource selection alone is not final approval. A changed target,
 action, value, Reference, selector or risk requires a rebuilt Review and approval of the
-changed part. The trusted Host may retain verified unchanged record approvals, but must
+changed part. Exclusion is also a reviewed disposition. A trusted approval authority
+may retain verified unchanged record approvals, but must
 issue a single complete-current-Review authorization before the service transaction.
 There is no partial-resource Publish. Unknown existing physical IDs and incoming
 replace/bind reference impacts are explicit Review risks.
 
-### Host connection and current availability
+### Independent approval boundary and current availability
 
 `import_approval.approval_binding(review, acquisition)` binds Task, Worktree, scope,
 acquisition/source-baseline digests, Review digest, dispositions/risks, selection,
@@ -207,27 +223,32 @@ retains the same binding and exact saved hashes, so completion cannot use a loca
 as substitute authority. Old receipts without approval bindings are rejected.
 
 **This repository does not supply a trusted issuer or publisher.** Its
-`verify_host_approval(binding, sources)` adapter fails closed. Chat approval records
+`verify_host_approval(binding, sources)` adapter fails closed. The existing name is a
+compatibility seam: "Host" can mean an independent protected approval service, not
+an LLM product. No product-specific adapter or SDK is implemented or required.
+Chat approval records
 Human intent but cannot alone unlock source editing/publication in this runtime.
-Continue the chat selections and read-only Review; report approval as pending Host
+Continue the chat selections and read-only Review; report approval as pending independent
 verification when no protected integration is installed. Never create `approved=true`,
 agent-signed JSON/HMAC, environment overrides, signing CLIs or configurable verifier
 callbacks to bypass the adapter. Dry-run remains read-only.
 
-The inspected tool surface supports user questions and execution permission requests;
-this session's execution permission reviewer is automatic, not a Human attestation.
-The [official Codex App Server protocol](https://learn.chatgpt.com/docs/app-server)
-documents input/approval messages, but does not establish a Framework-verifiable,
-Human-only receipt API on this installed Host. A `serverRequest/resolved` notification
-is not evidence of explicit Human approval. Do not start an agent-owned app-server
-client and treat its responses as trusted.
+Check the actual deployment's authentication and approval interfaces before connecting
+an adapter. Neither a product's chat UI nor command-execution permission establishes
+a Human-only, Framework-verifiable receipt by itself. An automatic permission reviewer,
+agent-controlled client or request-resolution notification is not Human attestation.
+Do not assume Copilot, Codex, Claude Code or another product exposes the required
+interface. If it cannot be verified, retain the unavailable adapter and report that
+formal Publish is unresolved. Do not provide a chat-only publishing mode.
 
-The minimal Host integration is one protected review/approval operation plus the
+The minimal independent integration is one protected review/approval operation plus the
 existing publisher running under a separate identity:
 
-1. The Host displays the normalized full Review and records an explicit authenticated
+1. The authority displays the normalized full Review and records an explicit authenticated
    Human action, with no timeout auto-accept or agent approval substitute. It keeps
-   record decisions and a full binding in Host-owned storage through expiry.
+   record decisions and a full binding in protected storage through expiry. A separate
+   authenticated web UI or equivalent Human-only interface may serve every agent;
+   Human JSON editing and an agent-accessible local signing script are not substitutes.
 2. A protected adapter retrieves/authenticates that receipt by binding; issuer trust,
    transport authentication and Human identity live outside agent-writable configuration.
    It returns exactly `binding`, `sources`, `decision`, `issuer`, `human`, `expiresAt`.
@@ -244,11 +265,12 @@ existing publisher running under a separate identity:
    rollback transaction. Completion and display recovery authenticate the stored result;
    verifying existing approval does not ask the Human to approve again.
 
-Connect the Host-owned transport at `verify_host_approval` in the protected deployment;
+Connect the authority's authenticated transport at `verify_host_approval` in the protected deployment;
 there is deliberately no repository flag or agent-controlled adapter loader. This
 runtime's ordinary filesystem permissions are not that OS boundary. Repository-only
 Python checks cannot prevent raw writes or modified verification code by the same user.
-Mock Host tests establish only interface/transaction behavior, not production authorization.
+Existing Mock Host tests run without an agent SDK and establish only interface/transaction
+behavior, not production authorization or actual chat interaction quality.
 A staged copy is a different Worktree and cannot reuse the original approval implicitly.
 
 ## Agent selection and source edits

@@ -107,14 +107,18 @@ Before/After, references and risks before Human approval of any addition or over
 Python verifies identity, values, nonselected preservation and atomic publication.
 The current runtime has no agent-inaccessible Human approval issuer/verifier: normal
 Import publication fails closed after Review. Local flags, JSON and acquisition HMAC
-seals do not prove Human approval. The central verifier compares authenticated Host
+seals do not prove Human approval. The central verifier compares authenticated authority
 claims at publication and completion boundaries; the protected adapter is unavailable
-by default. Follow 08_import for its exact connection and privilege separation.
+by default. The authority may be independent of the LLM Host; the existing
+`verify_host_approval` seam requires no product-specific SDK. Follow 08_import for its
+exact connection and privilege separation. Ordinary chat is the common selection and
+approval UX, but cannot independently authenticate its author to Python.
 The LLM owns chat questions, answers, recommendations, corrections and external-session
 checkpoints. Python validates their binding and final selections, never orchestrates them.
 All Resource answers are required before the one-service transaction; unresolved entries
 cannot be silently excluded or partially published.
-Other
+Individual approvals must cover the complete current Review before publication;
+corrections invalidate affected approvals and cancellation performs no source save.
 Apart from the standalone exception above, IMPORT configuration changes remain forbidden
 except explicit Model-only merge/delete
 through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
