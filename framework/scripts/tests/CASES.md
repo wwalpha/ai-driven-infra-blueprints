@@ -1824,7 +1824,7 @@ no new runner or live AWS/consumer inputs are introduced.
 
 | `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/import-model.checks.py) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |
 
-| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py) | pytest / 3 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
+| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py) | pytest / 3 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
 
 ## Generic Model dependency detach
 

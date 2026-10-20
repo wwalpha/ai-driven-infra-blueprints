@@ -907,14 +907,21 @@ def check_reference_publication(tmp_path, present, race):
         review_fixture(root, acquired, 'cloudtrail')
         calls = len(cli.calls)
         import model_templates
+        from import_scope import read_context
         real_parse = model_templates.parse_template
         real_finish = m.finish_import
         original_sources = source_files(root)
         reads = []
         def counted(template, *args, **kwargs):
             if template.name == 's3.properties.tpl':
-                reads.append(template)
+                reads.append(read_context(root))
             return real_parse(template, *args, **kwargs)
+        # Expansion and physical verification have distinct reference permissions.
+        expected_reads = [
+            (('dev', TARGET, 'cloudtrail'), (('dev', TARGET, 'cloudtrail'),),
+             root / 'model/dev/cde/s3.properties', frozenset(), additions, ())
+            for additions in (frozenset({'009'}), frozenset())
+        ] if present else []
         def finish(*args, **kwargs):
             value = real_finish(*args, **kwargs)
             if race and len(args) > 1 and args[1] == 'reflected':
@@ -930,11 +937,12 @@ def check_reference_publication(tmp_path, present, race):
                 assert actual_sources.pop(changed) != original_sources[changed]
                 assert actual_sources == {key: value for key, value in original_sources.items() if key != changed}
                 assert not (root / 'docs/designs/dev/cde/cloudtrail.md').exists()
-                assert len(reads) == 1 and len(cli.calls) == calls
+                assert reads == expected_reads, reads
+                assert len(cli.calls) == calls
                 import_guard.discard_acquisition(root, acquired['evidence'])
                 return
             result = m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
-        assert len(reads) == int(present), reads
+        assert reads == expected_reads, reads
         assert result['status'] == 'complete' and result['model'] == 'reflected' and result['markdown'] == 'generated', result
         assert len(cli.calls) == calls
         markdown = (root / 'docs/designs/dev/cde/cloudtrail.md').read_text()
