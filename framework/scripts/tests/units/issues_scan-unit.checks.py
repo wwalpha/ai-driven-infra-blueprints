@@ -70,7 +70,7 @@ def check_mismatch_rendering():
             report, report_state = render_iac(root, path, 'dev', 'cde', ['glue'], records, display)
         assert '相違項目: $attribute\n- Model: RoleName\n- IaC: Arn' in report
         assert '$resource' not in report and '修正対象: Model／IaC（修正先は要判断）' in report and '根拠（代表例）:' not in report
-        assert 'glue.properties' not in report and 'shared.yaml' not in report and ':999' not in report
+        assert 'glue.properties' not in report and 'shared.yaml' in report and ':999' not in report
         assert long_value + 'A' not in report and '全文はartifact' in report
         assert '不一致の検出結果を保持' in report and 'first' not in report and 'second' not in report
         entries = report_state['entries']
@@ -84,10 +84,10 @@ def check_mismatch_rendering():
         masked_report, masked_data = render_iac(root, path, 'dev', 'cde', ['glue'], [secret], unsafe_display)
         assert 'first' not in masked_report and 'second' not in masked_report
         expect_error(lambda: render_iac(root, path, 'dev', 'cde', ['glue'], [base], {identifier(base): [{}]}), 'malformed')
-        duplicates = [dict(base, actual=dict(arn_role, **{'$attribute': f'Arn{i}'})) for i in range(5)]
+        duplicates = [dict(base, actual=dict(arn_role, **{'$attribute': f'Arn{i}'})) for i in range(12)]
         duplicate_display = {identifier(record): fields(record['desired'], record['actual']) for record in duplicates}
         limited, limited_data = render_iac(root, path, 'dev', 'cde', ['glue'], duplicates, duplicate_display)
-        assert limited.count('相違項目:') == 3 and len(limited_data['entries']) == 5
+        assert limited.count('相違項目:') == 10 and len(limited_data['entries']) == 12
         assert '省略代表例: 2レコード' in limited
         no_fields, _ = render_iac(root, path, 'dev', 'cde', ['glue'], [secret])
         assert 'マスク済み値から相違項目を復元できない' in no_fields
@@ -130,11 +130,14 @@ def summary_scale_cases():
     assert {group['category'] for group in stats['groups']} == {category for category, count in stats['categories'].items() if count}
     stdout = json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)
     assert stats['group_count'] == 1194  # Unknown causes remain separate despite identical prose.
-    assert stats['omitted_issues'] == 1186 and stats['omitted_records'] == 1186
-    assert stats['omitted_categories'] == {'要対応': 0, '要判断': 95, '比較未完了': 0, 'CFn非対応・比較対象外': 0, '処理エラー': 92, '原因未確定': 999}
-    assert stats['omitted_record_categories'] == dict(difference=1094, uncompared=0, error=92)
-    assert '表示8／全1194対応単位、未表示1186' in report and '処理エラー 93項目' in report
-    assert len(report.splitlines()) <= 160 and 'ISSUE-' not in report and 'stack0' not in report
+    assert stats['omitted_issues'] == 1178 and stats['omitted_records'] == 1178
+    assert stats['omitted_categories'] == {'要対応': 0, '要判断': 87, '比較未完了': 0, 'CFn非対応・比較対象外': 0, '処理エラー': 92, '原因未確定': 999}
+    assert stats['omitted_record_categories'] == dict(difference=1086, uncompared=0, error=92)
+    assert '表示16／全1194対応単位、未表示1178' in report and '処理エラー 93項目' in report
+    assert len(re.findall(r'^\| ISSUE-', report, re.M)) == 1194
+    assert len(re.findall(r'^### ISSUE-', report, re.M)) == 16
+    assert all('| ' + action['id'] + ' |' in report for action in actions)
+    assert 'index' not in json.loads(stdout)['iac_summary'] and 'stack0' not in report
     # Rendering/order and IDs are deterministic; source lists are never mutated.
     reverse = iac_report('dev', 'cde', artifact['services'][::-1], records[::-1], artifact['iac_display'], stamp='fixed')
     assert reverse == report
@@ -161,6 +164,38 @@ def summary_scale_cases():
         assert summary(dict(artifact, iac=[current]))['iac_status'] == expected
         assert '今回の判定: ' + expected in iac_report('dev', 'cde', artifact['services'], [current])
     assert summary(dict(artifact, iac=[]))['iac_status'] == 'no compared records'
+    # Limits are presentation-only; all IDs and members remain retrievable.
+    base = dict(records[2000], service='glue', category='difference', reason='value mismatch',
+                stack='shared', iac={'path': 'infra/shared.yaml'}, resource='shared', property='Setting')
+    independent = [dict(base, resource=str(i)) for i in range(20)]
+    report20 = iac_report('dev', 'cde', ['glue'], independent)
+    assert len(re.findall(r'^\| ISSUE-', report20, re.M)) == 20
+    assert len(re.findall(r'^### ISSUE-', report20, re.M)) == 16
+    common = [dict(base, resource=str(i), service='glue' if i % 2 else 's3',
+                   cause={'kind': 'template-missing', 'path': 'infra/shared.yaml', 'relationship': 'direct'}) for i in range(50)]
+    small = dict(artifact, iac=common, services=['glue', 's3'], iac_display={})
+    units = detail_payload(small, 'iac_issues')['items']
+    assert len(units) == 1 and len(units[0]['members']) == 50
+    pages = [item for offset in range(0, 50, 10) for item in detail_payload(small, 'iac', offset, 10, issue_id=units[0]['id'])['items']]
+    assert len(pages) == 50 and {item['record_index'] for item in pages} == set(range(50))
+    compact = iac_summary(common, 'dev', 'cde', small['services'])['groups'][0]
+    assert len(compact['examples']) == 10 and compact['omitted_examples'] == 40
+    twelve = dict(small, iac=common[:12])
+    assert len(detail_payload(twelve, 'iac', 10, 10, issue_id=units[0]['id'])['items']) == 2
+    expect_error(lambda: iac_report('dev', 'cde', ['glue'], common), 'outside selected services')
+    left, right = {f'field{i}': i for i in range(12)}, {f'field{i}': i + 1 for i in range(12)}
+    record = dict(base, desired=left, actual=right)
+    shown = {identifier(record): value_differences(left, right, 'Setting')}
+    twelve_fields = dict(artifact, iac=[record], iac_display=shown, services=['glue'])
+    report12 = iac_report('dev', 'cde', ['glue'], [record], shown)
+    assert report12.count('相違項目:') == 10 and '省略相違フィールド: 2件' in report12
+    assert len(detail_payload(twelve_fields, 'iac')['items'][0]['value_differences']) == 12
+    diagnostic = dict(path='field', model='model', iac='iac', identity='unknown', allowed_forms='Arn', format='unknown', reason='unresolved')
+    deferred = dict(record, category='uncompared', deferred_children=[dict(property=f'child{i}', reason='unresolved', category='uncompared') for i in range(12)],
+                    reference_diagnostics=[dict(diagnostic, path=f'field{i}') for i in range(12)])
+    example = iac_summary([deferred], 'dev', 'cde', ['glue'])['groups'][0]['examples'][0]
+    assert len(example['deferred_children']) == len(example['reference_diagnostics']) == 10
+    assert example['omitted_deferred_children'] == example['omitted_reference_fields'] == 2
     print(f'IaC bounded output: PASS ({len(report.splitlines())} lines; stdout {len(stdout)} characters; 2193 records / 1194 action units)')
 
 

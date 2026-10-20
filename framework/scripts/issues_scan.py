@@ -274,11 +274,13 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     try:
         iac = comparison.run()
     except ReferenceResolutionError as error:
-        warnings.append(error.diagnostic)
-        iac = [{'category': 'uncompared', 'service': service, 'resource': '*', 'property': '*',
-                'reason': str(error), 'cause': {'kind': 'reference-unresolved'}} for service in services]
+        warnings.append(comparison.redacted(error.diagnostic))
+        iac = list(comparison.results) + [{'category': 'uncompared', 'service': service, 'resource': '*', 'property': '*',
+                'reason': safe_text(comparison.redacted(str(error))), 'comparison_incomplete': True,
+                'cause': {'kind': 'reference-unresolved'}} for service in services]
     except (OSError, ValueError, KeyError, ImportError, TypeError) as error:
-        iac = [{'category': 'error', 'service': service, 'resource': '*', 'property': '*', 'reason': safe_text(str(error))}
+        iac = list(comparison.results) + [{'category': 'error', 'service': service, 'resource': '*', 'property': '*',
+                'reason': safe_text(comparison.redacted(str(error))), 'comparison_incomplete': True}
                for service in services]
     warnings.extend(w for w in comparison.warnings if w not in warnings)
     iac_seconds = time.perf_counter() - begin
@@ -311,6 +313,7 @@ def summary(artifact):
             'naming_items': len(artifact.get('naming', {}).get('names', [])), 'iac_differences': counts['difference'],
             'iac_uncompared': counts['uncompared'], 'iac_errors': counts['error'], 'iac_matched': counts['matched'], 'iac_excluded': counts['excluded'], 'iac_status': status,
             'validation_status': 'FAIL' if artifact.get('ordinary') or any('message' in item for item in artifact.get('judgments', [])) else 'checked',
+            'comparison_incomplete': any(item.get('comparison_incomplete') for item in artifact.get('iac', [])),
             'checks': artifact.get('checks'), 'warnings': artifact.get('warnings', [])}
 
 

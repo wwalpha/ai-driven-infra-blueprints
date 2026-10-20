@@ -934,9 +934,9 @@ def reference_diagnostic_cases():
             assert all(child['reason'] for child in parent['deferred_children'])
             stats = iac_summary([parent], 'dev', 'cde', ['athena'])
             example = stats['groups'][0]['examples'][0]
-            assert len(example['deferred_children']) == 1 and example['omitted_deferred_children'] == 1
+            assert len(example['deferred_children']) == 2 and example['omitted_deferred_children'] == 0
             assert stats['groups'][0]['target'] is None
-            assert '省略保留原因: 1件' in iac_report('dev', 'cde', ['athena'], [parent])
+            assert '省略保留原因:' not in iac_report('dev', 'cde', ['athena'], [parent])
             # Real child failures are redacted before being copied into the parent.
             model['desired.row.001-003.value'] = '[confidential](kms.md#confidential)'
             publish()
@@ -974,7 +974,7 @@ def reference_diagnostic_cases():
                 rendered = json.dumps(artifact) + json.dumps(detail_payload(artifact, 'iac')) + iac_report('dev', 'cde', ['athena'], [masked])
                 assert secret not in rendered
                 example = iac_summary([masked], 'dev', 'cde', ['athena'])['groups'][0]['examples'][0]
-                assert len(example['reference_diagnostics']) == 1 and example['omitted_reference_fields'] == 2
+                assert len(example['reference_diagnostics']) == 3 and example['omitted_reference_fields'] == 0
             model['desired.row.001-001.value'] = '[key](kms.md#key)'
             for value in [{'Ref': 'Key'}, {'Fn::GetAtt': ['Key', 'Arn']}]:
                 template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']['KmsKey'] = value
@@ -1537,6 +1537,31 @@ def check_scan_workflow(scan_project):
     resource_cases(root)
     extended_cases(root, template)
     sequential_reports(root)
+    # Exercise the real scan boundary after five findings, without rerunning comparison.
+    from model_core import ReferenceResolutionError
+    for exception in (ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError):
+        retained = []
+        def interrupted(comparison):
+            comparison.sensitive_values.add('exception-secret')
+            for index in range(5):
+                comparison.record('difference', 's3', str(index), 'Setting', 'value mismatch', desired=1, actual=2)
+            retained.extend(comparison.results)
+            raise exception('interrupted exception-secret')
+        with patch.object(Comparison, 'run', autospec=True, side_effect=interrupted) as invoked:
+            partial = scan(root, 'dev', '123456789012', ['s3'])
+        assert invoked.call_count == 1 and partial['iac'][:5] == retained
+        assert len(partial['iac']) == 6 and partial['iac'][-1]['comparison_incomplete']
+        category = 'uncompared' if exception is ReferenceResolutionError else 'error'
+        assert partial['iac'][-1]['category'] == category
+        status = summary(partial)
+        assert status['iac_differences'] == 5 and status['comparison_incomplete']
+        assert status['iac_status'] == ('partial' if category == 'uncompared' else 'error')
+        report = iac_report('dev', '123456789012', ['s3'], partial['iac'], partial['iac_display'])
+        assert '比較途中終了' in report
+        assert 'exception-secret' not in json.dumps(partial) + report + json.dumps(detail_payload(partial, 'iac'))
+        assert sum(len(group['members']) for group in partial['iac_issues']) == 6
+        if exception is ReferenceResolutionError:
+            assert any(warning['code'] == 'reference.unresolved' for warning in partial['warnings'])
 
 
 check_action_report = action_report_cases

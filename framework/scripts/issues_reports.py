@@ -353,9 +353,9 @@ def iac_actions(entries, environment, directory):
 
 
 IAC_CLASSES = ('要対応', '要判断', '比較未完了', 'CFn非対応・比較対象外', '処理エラー', '原因未確定')
-MAX_GROUPS = 8
-MAX_EXAMPLES = 3
-MAX_FIELDS = 1
+MAX_GROUPS = 16
+MAX_EXAMPLES = 10
+MAX_FIELDS = 10
 
 
 def brief(value, limit=160):
@@ -395,7 +395,7 @@ def iac_dataset(records, environment, directory, services, display=None):
     return entries, actions, shown
 
 
-def iac_summary(records, environment, directory, services, display=None):
+def iac_summary(records, environment, directory, services, display=None, *, include_index=False):
     entries, actions, shown = iac_dataset(records, environment, directory, services, display)
     groups = {}
     counts = {category: 0 for category in IAC_CLASSES}
@@ -404,7 +404,7 @@ def iac_summary(records, environment, directory, services, display=None):
         counts[category] += 1
         members = [entries[i]['record'] for i in action['members']]
         # One display unit per proven action; prose similarity never merges unknown causes.
-        group = groups.setdefault(action['id'], dict(category=category, problem=brief(action['title']),
+        group = groups.setdefault(action['id'], dict(id=action['id'], category=category, problem=brief(action['title']),
             cause=brief(action['description']), remedy=action['remedy'], target=action['target'],
             services=sorted({item['service'] for item in members}), stacks=set(), issues=0, records=0, direct=set(), uncompared=0, errors=0,
             cascading=0, examples=[]))
@@ -463,6 +463,9 @@ def iac_summary(records, environment, directory, services, display=None):
     visible_ids = {group['examples'][0]['issue_id'] for group in visible}
     raw = {kind: sum(item['category'] == kind for item in records) for kind in ('difference', 'uncompared', 'error', 'matched', 'excluded')}
     return dict(issue_count=len(actions), categories=counts, record_count=len(records), records=raw,
+                comparison_incomplete=any(item.get('comparison_incomplete') for item in records),
+                **({'index': [{key: group[key] for key in ('id', 'category', 'problem', 'cause', 'remedy', 'target', 'records', 'services')}
+                              for group in ordered]} if include_index else {}),
                 proven_causes=sum(any((entries[i]['record'].get('cause', {}).get('kind') in {'template-missing', 'parameters-missing'}
                                         and entries[i]['record'].get('cause', {}).get('path')
                                         and entries[i]['record'].get('cause', {}).get('relationship') in {'direct', 'stack-input', 'export-search-incomplete', 'legacy-search-incomplete'})
@@ -486,7 +489,7 @@ def comparison_status(counts):
 
 
 def iac_report(environment, directory, services, records, display=None, *, stamp=None):
-    summary = iac_summary(records, environment, directory, services, display)
+    summary = iac_summary(records, environment, directory, services, display, include_index=True)
     counts = summary['records']
     status = comparison_status(counts)
     if stamp and stamp.endswith('Z'):
@@ -503,12 +506,21 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         f'表示{len(summary["groups"])}／全{summary["issue_count"]}対応単位、未表示{summary["omitted_issues"]}',
         '未表示の分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['omitted_categories'].items()),
         '未表示の影響: ' + ' / '.join(f'{kind} {count}件' for kind, count in summary['omitted_record_categories'].items()), '']
+    if summary['comparison_incomplete']:
+        lines.extend(['比較途中終了: 収集済みレコードを保持。未実施範囲は未検証であり、一致・修正完了とは扱わない。', ''])
+    lines.extend(['## 全Issueの簡易一覧', '',
+                  '| Issue ID | 分類 | 原因・問題 | 修正対象 | 必要な操作 | 影響レコード数 | 影響Service |',
+                  '| --- | --- | --- | --- | --- | ---: | --- |'])
+    for item in summary['index']:
+        lines.append('| ' + ' | '.join(brief(value).replace('\n', ' ').replace('\r', ' ') for value in (item['id'], item['category'], item['problem'] + '：' + item['cause'],
+                     item['target'] or '未特定・要判断', item['remedy'], item['records'], ', '.join(item['services']))) + ' |')
+    lines.extend(['', '## 詳細（最大16グループ）', ''])
     for group in summary['groups']:
         target = ('API専用リソース（実装scopeとAPI実装状態を確認）' if group['category'] == 'CFn非対応・比較対象外' else
                   '不足入力: ' + brief(Path(group['target']).name) if group['target'] and group['category'] != '要判断' else
                   'Model／IaC（修正先は要判断）' if group['category'] == '要判断' else
                   '未特定（Model／IaC／比較器／不足入力を確認）')
-        lines.extend([f'## {group["category"]}: {group["problem"]}',
+        lines.extend([f'### {group["id"]} / {group["category"]}: {group["problem"]}',
             f'- 原因: {group["cause"]}', f'- 必要な対応: {group["remedy"]}', f'- 修正対象: {target}',
             f'- 影響範囲: {", ".join(group["services"])}。{group["records"]}レコード / 直接差分 {group["direct_resources"]}リソース / 未比較 {group["uncompared"]}項目 / 処理エラー {group["errors"]}項目'])
         if group['cascading']:
@@ -547,8 +559,12 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         if group['omitted_examples']:
             lines.append(f'省略代表例: {group["omitted_examples"]}レコード')
         lines.append('')
-    lines.extend(['詳細: 同じscanの一時artifactを issues_scan.py detail --artifact <path> --section iac_issues で確認し、',
-                  '得られたIDを --section iac --issue-id <id> に指定する（--offset / --limit でページ取得）。', ''])
+    lines.extend(['## 全メンバー取得', '',
+                  '代表例は修正対象の上限ではない。同じscanの一時artifactから一覧のIssue IDで全メンバーを取得する。',
+                  '```console',
+                  'python3 framework/scripts/issues_scan.py detail --artifact <path> --section iac --issue-id ISSUE-<id> --offset 0 --limit 50',
+                  '```',
+                  'offsetを50ずつ進め、total件すべてを確認する。後続の修正タスクは全メンバーを調査・再比較し、未比較を修正完了と扱わない。', ''])
     return '\n'.join(lines)
 
 
